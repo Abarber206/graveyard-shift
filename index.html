@@ -12,6 +12,13 @@
   #overlay p{margin:4px 0;font-size:14px;color:#8b98b3;max-width:520px;line-height:1.5;}
   #overlay .keys{font-size:12px;color:#5f6c86;margin-top:10px;}
   #overlay.hidden{display:none;}
+  #mp{margin-top:16px;pointer-events:auto;}
+  #mp button{background:#1d2a22;color:#9fd8a8;border:1px solid #3f5c49;padding:9px 16px;font-size:13px;
+    letter-spacing:1px;border-radius:6px;cursor:pointer;margin:0 4px;font-weight:bold;}
+  #mp button:hover{background:#27392e;}
+  #mp input{width:76px;text-transform:uppercase;background:#10151f;border:1px solid #3a4356;color:#cdd6e8;
+    padding:9px;border-radius:6px;text-align:center;font-size:14px;letter-spacing:3px;}
+  #mpStatus{margin-top:9px;font-size:13px;color:#ffd98a;min-height:18px;max-width:460px;}
   canvas{display:block;}
 </style>
 </head>
@@ -22,8 +29,15 @@
   <p><b>Grip</b>: grab / holster &nbsp;•&nbsp; <b>Trigger</b>: shoot / flashlight &nbsp;•&nbsp; <b>Left stick</b>: move &nbsp;•&nbsp; <b>Right stick</b>: snap turn<br>
   <b>A / X</b>: reload &nbsp;•&nbsp; <b>Y</b>: stationary mode on/off &nbsp;•&nbsp; <b>B</b>: laser sight</p>
   <p class="keys">No headset? Desktop preview: click to look, WASD move, Left-click shoot, F flashlight, R reload.</p>
+  <div id="mp">
+    <button id="hostBtn">HOST CO-OP</button>
+    <input id="joinCode" placeholder="CODE" maxlength="4" autocapitalize="characters">
+    <button id="joinBtn">JOIN</button>
+    <div id="mpStatus">Optional 2-player co-op: one player hosts, the other types the code and joins — do this BEFORE entering VR.</div>
+  </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
 <script type="importmap">
 { "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -152,17 +166,18 @@ function panFor(worldPos) { // simple stereo pan + distance falloff relative to 
   p.connect(g); g.connect(master);
   return { input: p, dist: d };
 }
-function sfxShot() {
+function sfxShot(pos) {
   const t = actx.currentTime;
+  const dest = pos ? panFor(pos).input : master; // positional for remote players' shots
   const n = actx.createBufferSource(); n.buffer = noiseBuf; n.playbackRate.value = 1.4;
   const f = actx.createBiquadFilter(); f.type = 'lowpass';
   f.frequency.setValueAtTime(5200, t); f.frequency.exponentialRampToValueAtTime(320, t + 0.16);
   const g = envGain(t, 0.002, 0.9, 0.19);
-  n.connect(f); f.connect(g); g.connect(master); n.start(t); n.stop(t + 0.25);
+  n.connect(f); f.connect(g); g.connect(dest); n.start(t); n.stop(t + 0.25);
   const o = actx.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
   const og = envGain(t, 0.001, 0.7, 0.13);
-  o.connect(og); og.connect(master); o.start(t); o.stop(t + 0.16);
+  o.connect(og); og.connect(dest); o.start(t); o.stop(t + 0.16);
 }
 function sfxClick(freq = 900) {
   const t = actx.currentTime;
@@ -884,9 +899,10 @@ function onTrigger(ctrl) {
 }
 function firePistol(item, ctrl) {
   if (game.state === 'dead') { restartGame(); return; }
+  if (game.downed) { sfxClick(300); return; }
   if (item.reloading) { sfxClick(400); return; }
   if (item.ammo <= 0) { sfxClick(350); startReload(item); return; }
-  if (game.state === 'menu' || game.state === 'cleared') nextWave();
+  if ((game.state === 'menu' || game.state === 'cleared') && NET.mode !== 'guest') nextWave();
   item.ammo--;
   const u = item.mesh.userData;
   u.recoil = 1; u.flashT = 0.05;
@@ -912,7 +928,15 @@ function firePistol(item, ctrl) {
     const z = findZombie(h.object);
     if (z && z.alive) {
       const isHead = !!h.object.userData.isHead;
-      damageZombie(z, isHead ? 3 : 1, isHead, h.point);
+      if (NET.mode === 'guest') {
+        // predict locally, host applies the real damage
+        netSend({ t: 'hit', i: zombiePool.indexOf(z), d: isHead ? 3 : 1, hd: isHead ? 1 : 0, p: [h.point.x, h.point.y, h.point.z] });
+        spawnParticles(h.point, isHead ? 10 : 7, 0x6e1410, 1.1, 1.2, 4.5);
+        sfxSquelch(h.point);
+        z.flinch = 1;
+      } else {
+        damageZombie(z, isHead ? 3 : 1, isHead, h.point);
+      }
     }
   }
   if (!end) {
@@ -927,6 +951,7 @@ function firePistol(item, ctrl) {
     if (!end) end = muzzleWorld.clone().addScaledVector(dirWorld, 40);
   }
   fireTracer(muzzleWorld.clone().addScaledVector(dirWorld, 0.25), end);
+  netSend({ t: 'shot', m: [r3(muzzleWorld.x), r3(muzzleWorld.y), r3(muzzleWorld.z)], e: [r3(end.x), r3(end.y), r3(end.z)] });
   if (item.ammo <= 0) setTimeout(() => startReload(item), 250);
   hudDirty = true;
 }
@@ -1028,6 +1053,305 @@ function drawDeathText() {
   g.font = '25px Georgia'; g.fillStyle = '#ffd98a';
   g.fillText('Pull trigger to rise again', 256, 212);
   deathTex.needsUpdate = true;
+}
+function drawDownedText(n) {
+  const g = deathCanvas.getContext('2d');
+  g.clearRect(0, 0, 512, 256);
+  g.textAlign = 'center';
+  g.font = 'bold 66px Georgia'; g.fillStyle = '#b01212';
+  g.fillText('DOWNED', 256, 105);
+  g.font = '30px Georgia'; g.fillStyle = '#cdd6e8';
+  g.fillText('Back on your feet in ' + n + '…', 256, 172);
+  deathTex.needsUpdate = true;
+}
+
+/* ============================= MULTIPLAYER (P2P co-op via PeerJS) ============================= */
+const r3 = v => Math.round(v * 1000) / 1000;
+const r2 = v => Math.round(v * 100) / 100;
+const NET = {
+  mode: 'solo', peer: null, conn: null, ready: false,
+  poseT: 0, snapT: 0,
+  remoteHead: new THREE.Vector3(0, 1.6, 2), remoteAlive: true,
+  rq: new THREE.Quaternion(),
+};
+function netSend(o) { if (NET.ready && NET.conn) { try { NET.conn.send(o); } catch (e) {} } }
+
+/* remote player avatar: helmet head, vest body, gun hand + torch hand w/ real spotlight */
+const avatar = (() => {
+  const g = new THREE.Group();
+  const head = new THREE.Group();
+  head.add(mergedMesh([
+    box(0.22, 0.24, 0.24, 0, 0, 0, 0x2c3340),
+    box(0.18, 0.085, 0.02, 0, 0.02, -0.125, 0x0e1620),   // visor (faces -Z like the camera)
+    box(0.24, 0.05, 0.26, 0, 0.125, 0, 0x232a36),        // helmet rim
+  ]));
+  const body = new THREE.Group();
+  body.add(mergedMesh([
+    box(0.36, 0.44, 0.2, 0, -0.06, 0, 0x39424f),
+    box(0.3, 0.2, 0.17, 0, -0.4, 0, 0x2b323b),
+    box(0.12, 0.16, 0.04, 0, 0.0, 0.11, 0x222831),       // backpack hump
+  ]));
+  const handR = new THREE.Group();
+  handR.add(mergedMesh([
+    box(0.07, 0.07, 0.08, 0, 0, 0.02, 0x22262e),
+    box(0.032, 0.05, 0.17, 0, 0.045, -0.07, 0x30353d),   // pistol silhouette
+  ]));
+  const handL = new THREE.Group();
+  handL.add(mergedMesh([
+    box(0.07, 0.07, 0.08, 0, 0, 0.02, 0x22262e),
+    cyl(0.02, 0.024, 0.15, 8, 0, 0.02, -0.06, 0x384049, Math.PI / 2),
+  ]));
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.02, 10),
+    new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
+  lens.position.set(0, 0.02, -0.136); lens.rotation.y = Math.PI; lens.visible = false;
+  handL.add(lens);
+  const spot = new THREE.SpotLight(0xfff3d0, 1.6, 28, 0.44, 0.5, 1.3);
+  spot.position.set(0, 0.02, -0.13);
+  const st = new THREE.Object3D(); st.position.set(0, 0.02, -4);
+  handL.add(st); spot.target = st; spot.visible = false;
+  handL.add(spot);
+  g.add(head, body, handR, handL);
+  g.visible = false;
+  scene.add(g);
+  return {
+    group: g, head, body, handR, handL, spot, lens, fl: false,
+    tHead: new THREE.Vector3(0, 1.6, 2), qHead: new THREE.Quaternion(),
+    tR: new THREE.Vector3(), qR: new THREE.Quaternion(),
+    tL: new THREE.Vector3(), qL: new THREE.Quaternion(),
+  };
+})();
+
+const mpStatusEl = document.getElementById('mpStatus');
+function setMpStatus(t) { if (mpStatusEl) mpStatusEl.textContent = t; }
+function genCode() {
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = ''; for (let i = 0; i < 4; i++) s += A[Math.floor(Math.random() * A.length)];
+  return s;
+}
+function wireConn(c) {
+  NET.conn = c;
+  c.on('data', onNetData);
+  c.on('open', () => {
+    NET.ready = true;
+    setMpStatus('CONNECTED! Put on the headset and press Enter VR.');
+    setMsg('PLAYER 2 CONNECTED', 3);
+    avatar.group.visible = true;
+  });
+  c.on('close', () => {
+    NET.ready = false;
+    setMpStatus('Other player disconnected — refresh to start over.');
+    setMsg('PLAYER DISCONNECTED', 3);
+    avatar.group.visible = false;
+  });
+}
+{
+  const hostBtn = document.getElementById('hostBtn');
+  const joinBtn = document.getElementById('joinBtn');
+  const joinCode = document.getElementById('joinCode');
+  const havePeer = () => typeof Peer !== 'undefined';
+  if (hostBtn) hostBtn.addEventListener('click', () => {
+    if (!havePeer()) return setMpStatus('Multiplayer service is blocked on this network.');
+    if (NET.peer) return;
+    const code = genCode();
+    setMpStatus('Creating room…');
+    NET.mode = 'host';
+    NET.peer = new Peer('gys-' + code);
+    NET.peer.on('open', () => setMpStatus('ROOM CODE: ' + code + '  — waiting for the other player…'));
+    NET.peer.on('connection', c => { if (NET.conn) { c.close(); return; } wireConn(c); });
+    NET.peer.on('error', err => setMpStatus('Connection error (' + err.type + ') — refresh to retry.'));
+  });
+  if (joinBtn) joinBtn.addEventListener('click', () => {
+    if (!havePeer()) return setMpStatus('Multiplayer service is blocked on this network.');
+    if (NET.peer) return;
+    const code = (joinCode.value || '').trim().toUpperCase();
+    if (code.length !== 4) return setMpStatus('Type the 4-character room code first.');
+    setMpStatus('Joining ' + code + '…');
+    NET.mode = 'guest';
+    NET.peer = new Peer();
+    NET.peer.on('open', () => wireConn(NET.peer.connect('gys-' + code, { reliable: true })));
+    NET.peer.on('error', err => setMpStatus(err.type === 'peer-unavailable'
+      ? 'No room with that code — check it and refresh.' : 'Connection error (' + err.type + ') — refresh to retry.'));
+  });
+}
+
+function poseOf(obj) {
+  obj.getWorldPosition(tmpV); obj.getWorldQuaternion(NET.rq);
+  return [r3(tmpV.x), r3(tmpV.y), r3(tmpV.z), r3(NET.rq.x), r3(NET.rq.y), r3(NET.rq.z), r3(NET.rq.w)];
+}
+function sendPose() {
+  netSend({
+    t: 'pose',
+    h: poseOf(camera),
+    rh: poseOf(pistolItem.mesh),   // hands mirror wherever the items are (hand, hip, or camera)
+    lh: poseOf(lightItem.mesh),
+    fl: lightItem.mesh.userData.on ? 1 : 0,
+    al: (!game.downed && game.hp > 0) ? 1 : 0,
+  });
+}
+const ST_NUM = { rising: 0, walk: 1, attack: 2, dying: 3 };
+const ST_NAME = ['rising', 'walk', 'attack', 'dying'];
+function sendSnap() {
+  const zs = [];
+  for (let i = 0; i < zombiePool.length; i++) {
+    const z = zombiePool[i];
+    if (!z.active) continue;
+    zs.push([i, r2(z.group.position.x), r2(z.group.position.z), r2(z.group.rotation.y),
+      ST_NUM[z.state] ?? 1, z.alive ? 1 : 0]);
+  }
+  const gstMap = { menu: 0, playing: 1, cleared: 2, dead: 1 };
+  netSend({ t: 'snap', w: game.wave, sc: game.score, gst: gstMap[game.state] ?? 1, z: zs });
+}
+function applySnap(m) {
+  if (m.w !== game.wave) {
+    game.wave = m.w;
+    if (m.w > 0) { setMsg('WAVE ' + m.w, 3); sfxWave(); }
+    boardDirty = true;
+  }
+  if (m.sc !== game.score) { game.score = m.sc; hudDirty = true; }
+  const gst = ['menu', 'playing', 'cleared'][m.gst] || 'playing';
+  if (gst !== game.state) { game.state = gst; boardDirty = true; }
+  const seen = new Set();
+  for (const e of m.z) {
+    const i = e[0], x = e[1], zz = e[2], yaw = e[3], stName = ST_NAME[e[4]] || 'walk', al = e[5] === 1;
+    const z = zombiePool[i];
+    if (!z) continue;
+    seen.add(i);
+    if (!z.active) {
+      z.active = true; z.group.visible = true;
+      z.group.position.set(x, stName === 'rising' ? -1.55 * z.scale : 0, zz);
+      z.group.rotation.set(0, yaw, 0);
+      z.state = stName; z.stateT = 0; z.alive = al; z.flinch = 0;
+      z.netX = x; z.netZ = zz; z.netYaw = yaw;
+      z.nextGroan = elapsed + rand(0.5, 3);
+      if (stName === 'rising') {
+        tmpV.set(x, 0.15, zz);
+        spawnParticles(tmpV, 12, 0x3a2b18, 1, 1.5, 3.2);
+        flashEvent(tmpV, 0x58ff9a, 1.6, 0.9, 1);
+        sfxGroan(tmpV, z.brute);
+      }
+    } else {
+      z.netX = x; z.netZ = zz; z.netYaw = yaw;
+      z.alive = al;
+      if (z.state !== stName) { z.state = stName; z.stateT = 0; }
+    }
+  }
+  for (let i = 0; i < zombiePool.length; i++) {
+    const z = zombiePool[i];
+    if (z.active && !seen.has(i) && z.state !== 'dying') {
+      z.active = false; z.group.visible = false;
+      z.group.rotation.x = 0; z.group.position.set(0, -100, 0);
+    }
+  }
+}
+function remoteShot(m) {
+  const a = new THREE.Vector3().fromArray(m.m), b = new THREE.Vector3().fromArray(m.e);
+  fireTracer(a, b);
+  flashEvent(a, 0xffb14d, 2.2, 0.05, 2);
+  sfxShot(a);
+}
+function onNetData(m) {
+  if (!m || typeof m !== 'object') return;
+  switch (m.t) {
+    case 'pose':
+      avatar.tHead.set(m.h[0], m.h[1], m.h[2]); avatar.qHead.set(m.h[3], m.h[4], m.h[5], m.h[6]);
+      avatar.tR.set(m.rh[0], m.rh[1], m.rh[2]); avatar.qR.set(m.rh[3], m.rh[4], m.rh[5], m.rh[6]);
+      avatar.tL.set(m.lh[0], m.lh[1], m.lh[2]); avatar.qL.set(m.lh[3], m.lh[4], m.lh[5], m.lh[6]);
+      avatar.fl = !!m.fl;
+      NET.remoteAlive = !!m.al;
+      break;
+    case 'shot': remoteShot(m); break;
+    case 'hit': {
+      const z = zombiePool[m.i];
+      if (z && z.active && z.alive) damageZombie(z, m.d, !!m.hd, tmpV.fromArray(m.p));
+      break;
+    }
+    case 'snap': if (NET.mode === 'guest') applySnap(m); break;
+    case 'hurt': hurtPlayer(m.d); break;
+  }
+}
+function netTick(dt) {
+  if (!NET.ready) return;
+  NET.poseT -= dt;
+  if (NET.poseT <= 0) { NET.poseT = 1 / 15; sendPose(); }
+  if (NET.mode === 'host') {
+    NET.snapT -= dt;
+    if (NET.snapT <= 0) { NET.snapT = 1 / 10; sendSnap(); }
+  }
+  const k = Math.min(1, dt * 14);
+  avatar.head.position.lerp(avatar.tHead, k);
+  avatar.head.quaternion.slerp(avatar.qHead, k);
+  avatar.handR.position.lerp(avatar.tR, k);
+  avatar.handR.quaternion.slerp(avatar.qR, k);
+  avatar.handL.position.lerp(avatar.tL, k);
+  avatar.handL.quaternion.slerp(avatar.qL, k);
+  avatar.body.position.set(avatar.head.position.x, Math.max(0.55, avatar.head.position.y - 0.46), avatar.head.position.z);
+  const e = new THREE.Euler().setFromQuaternion(avatar.head.quaternion, 'YXZ');
+  avatar.body.rotation.set(0, e.y, 0);
+  avatar.spot.visible = avatar.fl;
+  avatar.lens.visible = avatar.fl;
+  NET.remoteHead.copy(avatar.tHead);
+}
+
+/* guest-side zombie puppet: position/state come from the host, animation runs locally */
+function puppetUpdate(z, dt) {
+  const p = z.parts, gp = z.group.position;
+  z.stateT += dt;
+  if (z.flinch > 0) z.flinch = Math.max(0, z.flinch - dt * 4);
+  if (z.state === 'rising') {
+    const t = Math.min(1, z.stateT / 1.7);
+    gp.y = -1.55 * z.scale * (1 - t * t);
+    p.shadow.position.y = -gp.y / z.scale + 0.015;
+    if (t >= 1) { gp.y = 0; p.shadow.position.y = 0.015; z.state = 'walk'; z.stateT = 0; }
+    return;
+  }
+  if (z.state === 'dying') {
+    const t = z.stateT;
+    if (t < 0.55) {
+      const k2 = t / 0.55;
+      z.group.rotation.x = -(k2 * k2) * (Math.PI / 2 - 0.06);
+      gp.y = Math.sin(k2 * Math.PI) * 0.05;
+    } else if (t < 2.0) {
+      z.group.rotation.x = -(Math.PI / 2 - 0.06);
+      gp.y = -Math.max(0, (t - 1.1)) * 0.6;
+    } else {
+      z.active = false; z.group.visible = false;
+      z.group.rotation.x = 0; gp.set(0, -100, 0);
+    }
+    return;
+  }
+  // walk / attack
+  const k = Math.min(1, dt * 8);
+  const px = gp.x, pz = gp.z;
+  gp.x = lerp(gp.x, z.netX ?? gp.x, k);
+  gp.z = lerp(gp.z, z.netZ ?? gp.z, k);
+  z.group.rotation.y = lerpAngle(z.group.rotation.y, z.netYaw ?? z.group.rotation.y, k);
+  const moved = Math.hypot(gp.x - px, gp.z - pz);
+  if (z.state === 'walk') {
+    z.phase += dt * (moved > 0.0015 ? 3.6 : 0.6);
+    const s = Math.sin(z.phase), c = Math.sin(z.phase + Math.PI);
+    p.hipL.rotation.x = s * 0.55;
+    p.hipR.rotation.x = c * 0.55;
+    p.kneeL.rotation.x = Math.max(0, -s) * 0.85 + 0.1;
+    p.kneeR.rotation.x = Math.max(0, -c) * 0.85 + 0.1;
+    gp.y = Math.abs(Math.sin(z.phase)) * 0.035;
+    p.torso.rotation.z = Math.sin(z.phase) * 0.08;
+    p.armL.rotation.x = -1.35 + Math.sin(z.phase + z.seed) * 0.18;
+    p.armR.rotation.x = -1.35 + Math.sin(z.phase + z.seed + 1.5) * 0.18;
+  } else { // attack
+    const t = z.stateT % 1.15;
+    const swing = t < 0.3 ? t / 0.3 : Math.max(0, 1 - (t - 0.3) / 0.35);
+    p.armL.rotation.x = -1.5 + swing * 0.9;
+    p.armR.rotation.x = -1.5 + swing * 1.1;
+  }
+  p.torso.rotation.x = 0.32 + Math.sin(elapsed * 1.3 + z.seed) * 0.04 + z.flinch * -0.5;
+  p.head.rotation.z = Math.sin(elapsed * 0.9 + z.seed * 2) * 0.14;
+  p.head.rotation.y = Math.sin(elapsed * 0.6 + z.seed) * 0.2;
+  p.jaw.rotation.x = 0.25 + Math.sin(elapsed * 3.1 + z.seed * 3) * 0.2;
+  if (elapsed > z.nextGroan) {
+    z.nextGroan = elapsed + rand(2.5, 7);
+    tmpV.set(gp.x, 1.2, gp.z);
+    sfxGroan(tmpV, z.brute);
+  }
 }
 
 /* ============================= ZOMBIES ============================= */
@@ -1204,6 +1528,7 @@ function updateZombies(dt) {
   camera.getWorldPosition(playerPos);
   const act = activeZombies();
   for (const z of act) {
+    if (NET.mode === 'guest') { puppetUpdate(z, dt); continue; }
     const p = z.parts, gp = z.group.position;
     z.stateT += dt;
     // flinch decay
@@ -1224,7 +1549,18 @@ function updateZombies(dt) {
         z.state = 'walk'; z.stateT = 0;
       }
     } else if (z.state === 'walk' || z.state === 'attack') {
-      const dx = playerPos.x - gp.x, dz = playerPos.z - gp.z;
+      // chase the nearest living player (local or co-op partner)
+      let tp = playerPos;
+      z.targetRemote = false;
+      if (NET.ready) {
+        const dl = Math.hypot(playerPos.x - gp.x, playerPos.z - gp.z);
+        const dr = Math.hypot(NET.remoteHead.x - gp.x, NET.remoteHead.z - gp.z);
+        const localAlive = !game.downed && game.hp > 0;
+        if ((NET.remoteAlive && dr < dl) || !localAlive) {
+          if (NET.remoteAlive) { tp = NET.remoteHead; z.targetRemote = true; }
+        }
+      }
+      const dx = tp.x - gp.x, dz = tp.z - gp.z;
       const dist = Math.hypot(dx, dz);
       // face player
       const targetYaw = Math.atan2(dx, dz);
@@ -1264,12 +1600,16 @@ function updateZombies(dt) {
         p.armL.rotation.x = -1.5 + swing * 0.9 * Math.sin(z.seed);
         p.armR.rotation.x = -1.5 + swing * 1.1;
         if (t > 0.28 && t < 0.42 && !z.struck) {
-          const d2 = Math.hypot(playerPos.x - gp.x, playerPos.z - gp.z);
-          if (d2 < 1.35) hurtPlayer(z.brute ? 16 : 9);
+          const d2 = Math.hypot(tp.x - gp.x, tp.z - gp.z);
+          if (d2 < 1.35) {
+            const dmg = z.brute ? 16 : 9;
+            if (z.targetRemote) netSend({ t: 'hurt', d: dmg });
+            else hurtPlayer(dmg);
+          }
           z.struck = true;
         }
         if (t > 0.9) z.struck = false;
-        if (Math.hypot(playerPos.x - gp.x, playerPos.z - gp.z) > 1.5) z.state = 'walk';
+        if (Math.hypot(tp.x - gp.x, tp.z - gp.z) > 1.5) z.state = 'walk';
       }
       // shared idle/walk animation
       const hunch = 0.32 + Math.sin(elapsed * 1.3 + z.seed) * 0.04 + z.flinch * -0.5;
@@ -1316,6 +1656,7 @@ const game = {
   state: 'menu', wave: 0, score: 0, kills: 0, hp: 100,
   toSpawn: 0, spawnTimer: 0, clearedT: 0, lastHit: -99, heartT: 0,
   stationary: false, msg: '', msgT: 0, deathT: 0, beatPulse: 0,
+  downed: false, reviveAt: 0, _lastN: -1,
 };
 let elapsed = 0, hudDirty = true, boardDirty = true;
 
@@ -1332,6 +1673,7 @@ function nextWave() {
 }
 function aliveCap() { return Math.min(4 + game.wave, 10); }
 function onZombieRemoved() {
+  if (NET.mode === 'guest') return;
   if (game.state !== 'playing') return;
   if (game.toSpawn <= 0 && !zombiePool.some(z => z.active && z.alive)) {
     game.state = 'cleared';
@@ -1343,6 +1685,7 @@ function onZombieRemoved() {
   }
 }
 function hurtPlayer(dmg) {
+  if (game.downed) return;
   if (game.state !== 'playing' && game.state !== 'cleared') return;
   game.hp = Math.max(0, game.hp - dmg);
   game.lastHit = elapsed;
@@ -1351,11 +1694,19 @@ function hurtPlayer(dmg) {
   controllers.forEach(c => haptic(c, 0.8, 120));
   hudDirty = true;
   if (game.hp <= 0) {
-    game.state = 'dead';
-    game.deathT = 0;
-    drawDeathText();
-    setMsg('YOU DIED', 6);
-    boardDirty = true;
+    if (NET.ready) {
+      // co-op: go down, revive automatically — your partner fights on
+      game.downed = true;
+      game.reviveAt = elapsed + 12;
+      game.deathT = 0;
+      setMsg('DOWNED', 3);
+    } else {
+      game.state = 'dead';
+      game.deathT = 0;
+      drawDeathText();
+      setMsg('YOU DIED', 6);
+      boardDirty = true;
+    }
   }
 }
 function restartGame() {
@@ -1412,7 +1763,8 @@ function drawHUD() {
   const line = game.msgT > 0 ? game.msg : (game.stationary ? 'STATIONARY MODE' : '');
   if (line) g.fillText(line, 14, 116);
   g.font = '11px monospace'; g.fillStyle = '#5f6c86';
-  g.fillText(game.state === 'playing' ? ('left: ' + (game.toSpawn + zombiePool.filter(z => z.active && z.alive).length)) : game.state.toUpperCase(), 14, 136);
+  const stLine = game.state === 'playing' ? ('left: ' + (game.toSpawn + zombiePool.filter(z => z.active && z.alive).length)) : game.state.toUpperCase();
+  g.fillText(stLine + (NET.ready ? '  •  CO-OP' : ''), 14, 136);
   hudTex.needsUpdate = true;
 }
 
@@ -1613,6 +1965,7 @@ renderer.xr.addEventListener('sessionend', () => {
 
 /* ============================= SPAWNER + AMBIENT FX ============================= */
 function updateSpawner(dt) {
+  if (NET.mode === 'guest') return; // the host runs the horde
   if (game.state === 'playing' && game.toSpawn > 0) {
     game.spawnTimer -= dt;
     const alive = zombiePool.filter(z => z.active && z.alive).length;
@@ -1672,6 +2025,7 @@ renderer.setAnimationLoop(() => {
   if (renderer.xr.isPresenting) pollXRInput(dt);
   else pollDesktop(dt);
 
+  netTick(dt);
   updateWaist();
   updatePistol(dt);
   updateZombies(dt);
@@ -1697,10 +2051,22 @@ renderer.setAnimationLoop(() => {
     damageFlash * 0.9 + lowHp * 0.42 + game.beatPulse * lowHp * 0.3 +
     (game.state === 'dead' ? 0.6 : 0), 0, 0.98);
   redFlash.material.opacity = damageFlash * damageFlash * 0.45;
-  if (game.state === 'dead') {
+  if (game.state === 'dead' || game.downed) {
     game.deathT += dt;
-    blackout.material.opacity = Math.min(0.94, game.deathT * 0.5);
-    deathText.material.opacity = clamp((game.deathT - 0.5) * 0.9, 0, 1);
+    blackout.material.opacity = Math.min(game.downed ? 0.8 : 0.94, game.deathT * 0.5);
+    deathText.material.opacity = clamp((game.deathT - 0.4) * 0.9, 0, 1);
+    if (game.downed) {
+      const n = Math.max(0, Math.ceil(game.reviveAt - elapsed));
+      if (n !== game._lastN) { game._lastN = n; drawDownedText(n); }
+      if (elapsed >= game.reviveAt) {
+        game.downed = false;
+        game.hp = 60;
+        game.lastHit = elapsed;
+        game._lastN = -1;
+        setMsg('BACK ON YOUR FEET', 2.5);
+        hudDirty = true;
+      }
+    }
   } else {
     blackout.material.opacity = Math.max(0, blackout.material.opacity - dt * 2.5);
     deathText.material.opacity = Math.max(0, deathText.material.opacity - dt * 3);
@@ -1720,4 +2086,4 @@ setMsg('GRAB YOUR GEAR', 4);
 </script>
 </body>
 </html>
-<!-- GRAVEYARD SHIFT v1.1 — built for Quest 2 (WebXR) — damage flash, heartbeat pulse, death blackout -->
+<!-- GRAVEYARD SHIFT v1.2 — built for Quest 2 (WebXR) — 2-player P2P co-op (VR + PC cross-play) -->

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GRAVEYARD SHIFT v1.5 — VR Zombie Shooter</title>
+<title>GRAVEYARD SHIFT v1.6 — VR Zombie Shooter</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <style>
   html,body{margin:0;padding:0;height:100%;background:#05080f;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;}
@@ -25,12 +25,16 @@
 <body>
 <div id="overlay">
   <h1>GRAVEYARD SHIFT</h1>
-  <p style="margin:0;color:#5f8f68;font-size:15px;letter-spacing:3px;"><b>v1.5</b> — if this number is missing on your screen, you're on an old cached copy: wait 5 min &amp; hard-refresh</p>
+  <p style="margin:0;color:#5f8f68;font-size:15px;letter-spacing:3px;"><b>v1.6</b> — if this number is missing on your screen, you're on an old cached copy: wait 5 min &amp; hard-refresh</p>
   <p>A VR zombie wave shooter. Put on your Quest, open this page in the headset browser, and press <b>Enter VR</b> below.</p>
   <p><b>Grip</b>: grab / holster &nbsp;•&nbsp; <b>Trigger</b>: shoot / flashlight &nbsp;•&nbsp; <b>Left stick</b>: move &nbsp;•&nbsp; <b>Right stick</b>: snap turn<br>
   <b>A / X</b>: reload &nbsp;•&nbsp; <b>Y</b>: stationary mode on/off &nbsp;•&nbsp; <b>B</b>: laser sight</p>
   <p class="keys">No headset? Desktop preview: click to look, WASD move, Left-click shoot, F flashlight, R reload.</p>
   <div id="mp">
+    <div style="margin-bottom:10px;">
+      <button id="modeWaves" style="border-color:#9fd8a8;">WAVES MODE</button>
+      <button id="modeSurv">SURVIVAL MODE — day/night + building</button>
+    </div>
     <button id="hostBtn">HOST CO-OP</button>
     <input id="joinCode" placeholder="CODE" maxlength="4" autocapitalize="characters">
     <button id="joinBtn">JOIN</button>
@@ -95,6 +99,13 @@ function lerpAngle(a, b, t) {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 }
+
+/* game mode + survival globals (declared early — world objects register as minable) */
+let MODE = 'waves';          // 'waves' | 'survival'
+let tod = 40;                // survival clock, 0..600 s (5 min day + 5 min night)
+let isNight = true;
+let starsMat = null;
+const minables = [];         // { mesh, type } — world objects you can harvest blocks from
 
 /* vertex-colored geometry helpers (lets us merge a whole model into 1 draw call) */
 function paint(geo, hex) {
@@ -259,7 +270,8 @@ function sfxWave() {
 })();
 
 /* ============================= LIGHTING ============================= */
-scene.add(new THREE.HemisphereLight(0x4d6390, 0x14180e, 0.62));
+const hemiLight = new THREE.HemisphereLight(0x4d6390, 0x14180e, 0.62);
+scene.add(hemiLight);
 const moonLight = new THREE.DirectionalLight(0xa8c2f0, 0.5);
 moonLight.position.set(-35, 50, -30);
 scene.add(moonLight);
@@ -281,6 +293,7 @@ function addLantern(x, z, ry) {
   const postMesh = mergedMesh(geos);
   postMesh.castShadow = true;
   g.add(postMesh);
+  minables.push({ mesh: postMesh, type: 'wood' });
   const core = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.07),
     new THREE.MeshBasicMaterial({ color: 0xffc063 }));
   core.position.set(0.42, 2.31, 0);
@@ -335,9 +348,10 @@ scene.add(moonGlow);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({
+  starsMat = new THREE.PointsMaterial({
     color: 0xcfd8ee, size: 1.15, fog: false, transparent: true, opacity: 0.85, sizeAttenuation: true,
-  })));
+  });
+  scene.add(new THREE.Points(g, starsMat));
 }
 
 /* ============================= GROUND ============================= */
@@ -361,6 +375,7 @@ scene.add(moonGlow);
   const groundMesh = new THREE.Mesh(g, vcLambert);
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
+  minables.push({ mesh: groundMesh, type: 'dirt' });
 }
 
 /* ============================= GRAVESTONES + SPAWN MOUNDS ============================= */
@@ -408,6 +423,7 @@ const graveSpawns = [];   // zombie spawn points (dirt mounds)
     im.instanceMatrix.needsUpdate = true;
     im.castShadow = true;
     scene.add(im);
+    minables.push({ mesh: im, type: 'stone' });
   });
   // dirt mounds in front of a subset of stones = zombie spawn points
   const moundGeo = paint(new THREE.SphereGeometry(0.55, 10, 6), 0x2b2014);
@@ -426,6 +442,7 @@ const graveSpawns = [];   // zombie spawn points (dirt mounds)
   });
   im.instanceMatrix.needsUpdate = true;
   scene.add(im);
+  minables.push({ mesh: im, type: 'dirt' });
 }
 
 /* ============================= IRON FENCE ============================= */
@@ -447,6 +464,7 @@ const graveSpawns = [];   // zombie spawn points (dirt mounds)
   im.instanceMatrix.needsUpdate = true;
   im.castShadow = true;
   scene.add(im);
+  minables.push({ mesh: im, type: 'stone' });
   const railMat = new THREE.MeshLambertMaterial({ color: 0x14161c });
   for (const y of [0.42, 1.18]) {
     const rail = new THREE.Mesh(new THREE.TorusGeometry(28, 0.028, 5, 90), railMat);
@@ -474,6 +492,7 @@ const graveSpawns = [];   // zombie spawn points (dirt mounds)
   const treeMesh = mergedMesh(geos);
   treeMesh.castShadow = true;
   scene.add(treeMesh);
+  minables.push({ mesh: treeMesh, type: 'wood' });
 }
 
 /* ============================= MAUSOLEUM (with crypt glow) ============================= */
@@ -492,6 +511,7 @@ const graveSpawns = [];   // zombie spawn points (dirt mounds)
   const mausMesh = mergedMesh(geos);
   mausMesh.castShadow = true;
   g.add(mausMesh);
+  minables.push({ mesh: mausMesh, type: 'stone' });
   // doorway: dark recess + eerie green glow
   const door = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.75),
     new THREE.MeshBasicMaterial({ color: 0x02120a }));
@@ -1045,6 +1065,16 @@ function onSqueeze(ctrl) {
       if (d < bd) { bd = d; best = it; }
     }
     if (best) { grabItem(best, ctrl); return; }
+    if (MODE === 'survival') {
+      // grab a placed block your hand is touching — straight back into your pack
+      const bk = Math.floor(tmpV.x) + ',' + Math.floor(tmpV.y) + ',' + Math.floor(tmpV.z);
+      if (blocks.has(bk)) {
+        const got = removeBlock(bk, false);
+        if (got) { inv[got] = (inv[got] || 0) + 1; sfxPlace(); haptic(ctrl, 0.7, 60); hudDirty = true; return; }
+      }
+      // otherwise drop/place the selected block at the ghost preview
+      if (tryPlaceBlock()) { haptic(ctrl, 0.5, 50); return; }
+    }
     // no item near: try grabbing a weaker zombie by the collar (host/solo only)
     if (NET.mode === 'guest' || ctrl.userData.grabZ) return;
     let bz = null, bzd = 0.7;
@@ -1129,7 +1159,10 @@ function firePistol(item, ctrl) {
   if (game.downed || game.spectating) { sfxClick(300); return; }
   if (item.reloading) { sfxClick(400); return; }
   if (item.ammo <= 0) { sfxClick(350); startReload(item); return; }
-  if ((game.state === 'menu' || game.state === 'cleared') && NET.mode !== 'guest') nextWave();
+  if ((game.state === 'menu' || game.state === 'cleared') && NET.mode !== 'guest') {
+    if (MODE === 'survival') { game.state = 'playing'; setMsg('SURVIVE THE NIGHTS', 3); boardDirty = true; }
+    else nextWave();
+  }
   const spec = GUNS[gunTier];
   item.ammo--;
   gunNextAuto = elapsed + (spec.auto ? 60 / spec.rpm : 0.09);
@@ -1529,12 +1562,18 @@ function sendSnap() {
       ST_NUM[z.state] ?? 1, z.alive ? 1 : 0]);
   }
   const gstMap = { menu: 0, playing: 1, cleared: 2, dead: 1 };
-  netSend({ t: 'snap', w: game.wave, sc: game.score, gst: gstMap[game.state] ?? 1, z: zs });
+  netSend({
+    t: 'snap', w: game.wave, sc: game.score, gst: gstMap[game.state] ?? 1, z: zs,
+    md: MODE === 'survival' ? 1 : 0, td: Math.round(tod),
+  });
 }
 function applySnap(m) {
+  if (m.md === 1 && MODE !== 'survival') setSurvivalMode(true);   // host decides the mode
+  if (m.md === 0 && MODE !== 'waves') setSurvivalMode(false);
+  if (MODE === 'survival' && m.td !== undefined) tod = m.td;      // stay time-synced
   if (m.w !== game.wave) {
     game.wave = m.w;
-    if (m.w > 0) { setMsg('WAVE ' + m.w, 3); sfxWave(); }
+    if (m.w > 0) { setMsg((MODE === 'survival' ? 'NIGHT ' : 'WAVE ') + m.w, 3); sfxWave(); }
     maybeUpgradeGun();
     boardDirty = true;
   }
@@ -1597,7 +1636,7 @@ function onNetData(m) {
       avatar.fl = !!m.fl;
       NET.remoteAlive = !!m.al;
       NET.remoteSpect = !!m.sp;
-      avatar.group.visible = NET.ready && !NET.remoteSpect; // dead partners vanish while spectating
+      avatar.group.visible = NET.ready && !NET.remoteSpect;
       break;
     case 'shot': remoteShot(m); break;
     case 'hit': {
@@ -1615,10 +1654,23 @@ function onNetData(m) {
     case 'spit': launchSpit(new THREE.Vector3().fromArray(m.f), new THREE.Vector3().fromArray(m.g), true); break;
     case 'boom': explosion(new THREE.Vector3().fromArray(m.p), true); break;
     case 'boomfx': explosionFX(new THREE.Vector3().fromArray(m.p)); break;
+    case 'mode':
+      setSurvivalMode(m.m === 'survival');
+      if (m.td !== undefined) tod = m.td;
+      if (m.blocks) applyAllBlocks(m.blocks);
+      break;
+    case 'blk':
+      if (m.a === 1) addBlockAt(m.k, m.bt, true);
+      else removeBlock(m.k, true);
+      break;
   }
 }
 function netTick(dt) {
   if (!NET.ready) return;
+  if (NET.mode === 'host' && !NET.sentInit) {
+    NET.sentInit = true; // one-time handshake: mode, clock, existing builds
+    netSend({ t: 'mode', m: MODE, td: Math.round(tod), blocks: serializeBlocks() });
+  }
   NET.poseT -= dt;
   if (NET.poseT <= 0) { NET.poseT = 1 / 15; sendPose(); }
   if (NET.mode === 'host') {
@@ -1635,7 +1687,6 @@ function netTick(dt) {
   avatar.body.position.set(avatar.head.position.x, Math.max(0.55, avatar.head.position.y - 0.46), avatar.head.position.z);
   const e = new THREE.Euler().setFromQuaternion(avatar.head.quaternion, 'YXZ');
   avatar.body.rotation.set(0, e.y, 0);
-  // stride the legs when the remote player moves
   const mvx = avatar.head.position.x - avatar.prevX, mvz = avatar.head.position.z - avatar.prevZ;
   avatar.prevX = avatar.head.position.x; avatar.prevZ = avatar.head.position.z;
   const mv = Math.hypot(mvx, mvz) / Math.max(dt, 0.001);
@@ -1643,7 +1694,6 @@ function netTick(dt) {
   const swing = Math.min(1, mv) * 0.5;
   avatar.legL.rotation.x = Math.sin(avatar.walkPh) * swing;
   avatar.legR.rotation.x = Math.sin(avatar.walkPh + Math.PI) * swing;
-  // connect shoulders to hands so the body reads as one piece
   for (const [arm, hand, side] of [[avatar.armR, avatar.handR, 1], [avatar.armL, avatar.handL, -1]]) {
     tmpV.set(0.19 * side, 0.12, 0).applyAxisAngle(UP_Y, avatar.body.rotation.y).add(avatar.body.position);
     tmpV2.copy(hand.position);
@@ -1806,7 +1856,6 @@ scene.add(decalMesh);
 const decalData = Array.from({ length: DMAX }, () => ({ t: 0, s: 0, x: 0, z: 0, y: 0.012 }));
 let decalNext = 0;
 const decalDummy = new THREE.Object3D();
-// hide all decal slots until used
 decalDummy.position.set(0, -999, 0);
 decalDummy.scale.setScalar(0.001);
 decalDummy.updateMatrix();
@@ -1909,7 +1958,7 @@ function updateSpits(dt) {
       s.active = false; s.mesh.visible = false;
       spawnParticles(s.p, 12, 0x8fdc3c, 1.2, 1.4, 3.5);
       addDecal(tmpV3.set(s.p.x, 0, s.p.z), 0x2e4d12, rand(0.4, 0.6));
-      flashEvent(s.p, 0x86ff4d, 1.6, 0.35, 1); // toxic green splash light
+      flashEvent(s.p, 0x86ff4d, 1.6, 0.35, 1);
       sfxSquelch(s.p);
       if (!s.fromNet && dPlayer < 1.4) hurtPlayer(12);
       if (!s.fromNet && NET.ready && NET.mode === 'host') {
@@ -1927,6 +1976,271 @@ function nearestPlayerPos(gp) {
   return playerPos;
 }
 
+/* ============================= SURVIVAL MODE: day/night + minecraft-style blocks ============================= */
+function blockTexture(type) {
+  const t = canvasTex(32, 32, (g) => {
+    const base = { dirt: '#7a5a34', stone: '#8a8f96', wood: '#9a7444' }[type];
+    g.fillStyle = base; g.fillRect(0, 0, 32, 32);
+    for (let i = 0; i < 90; i++) {
+      g.fillStyle = 'rgba(0,0,0,' + rand(0.03, 0.14).toFixed(2) + ')';
+      g.fillRect(Math.floor(rand(0, 31)), Math.floor(rand(0, 31)), 2, 2);
+    }
+    if (type === 'wood') {
+      g.fillStyle = 'rgba(60,35,10,0.55)';
+      for (const x of [7, 15, 23]) g.fillRect(x, 0, 2, 32);
+    }
+    if (type === 'stone') {
+      g.fillStyle = 'rgba(255,255,255,0.08)';
+      for (let i = 0; i < 5; i++) g.fillRect(Math.floor(rand(0, 26)), Math.floor(rand(0, 26)), 5, 4);
+    }
+    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 2;
+    g.strokeRect(1, 1, 30, 30);
+  });
+  t.magFilter = THREE.NearestFilter;   // chunky pixel look
+  return t;
+}
+const BLOCK_TYPES = ['dirt', 'stone', 'wood'];
+const BMAX = 400;
+const blocks = new Map();              // "x,y,z" -> type
+const blockKeys = { dirt: [], stone: [], wood: [] };
+const blockMeshes = {};
+for (const bt of BLOCK_TYPES) {
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshLambertMaterial({ map: blockTexture(bt) }), BMAX);
+  im.count = 0;
+  im.castShadow = true; im.receiveShadow = true;
+  im.frustumCulled = false;
+  scene.add(im);
+  blockMeshes[bt] = im;
+}
+const inv = { dirt: 24, stone: 12, wood: 12 };
+let selBlock = 0;
+const blockDummy = new THREE.Object3D();
+function rebuildBlocks(bt) {
+  const arr = blockKeys[bt], im = blockMeshes[bt];
+  for (let i = 0; i < arr.length; i++) {
+    const parts = arr[i].split(',');
+    blockDummy.position.set(+parts[0] + 0.5, +parts[1] + 0.5, +parts[2] + 0.5);
+    blockDummy.updateMatrix();
+    im.setMatrixAt(i, blockDummy.matrix);
+  }
+  im.count = arr.length;
+  im.instanceMatrix.needsUpdate = true;
+}
+function sfxPlace() {
+  const t = actx.currentTime;
+  const n = actx.createBufferSource(); n.buffer = noiseBuf; n.playbackRate.value = 0.5;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
+  const g = envGain(t, 0.002, 0.5, 0.12);
+  n.connect(f); f.connect(g); g.connect(master); n.start(t); n.stop(t + 0.15);
+}
+function addBlockAt(key, bt, fromNet) {
+  if (blocks.has(key) || !blockKeys[bt] || blockKeys[bt].length >= BMAX) return false;
+  blocks.set(key, bt);
+  blockKeys[bt].push(key);
+  rebuildBlocks(bt);
+  if (!fromNet) netSend({ t: 'blk', a: 1, k: key, bt });
+  const parts = key.split(',');
+  tmpV.set(+parts[0] + 0.5, +parts[1] + 0.5, +parts[2] + 0.5);
+  spawnParticles(tmpV, 4, 0x9a9a9a, 0.4, 0.5, 2);
+  sfxPlace();
+  return true;
+}
+function removeBlock(key, fromNet) {
+  const bt = blocks.get(key);
+  if (!bt) return null;
+  blocks.delete(key);
+  const arr = blockKeys[bt];
+  arr.splice(arr.indexOf(key), 1);
+  rebuildBlocks(bt);
+  if (!fromNet) netSend({ t: 'blk', a: 0, k: key });
+  return bt;
+}
+function serializeBlocks() {
+  const out = [];
+  for (const [k, bt] of blocks) out.push([k, bt]);
+  return out;
+}
+function applyAllBlocks(list) {
+  for (const e of list) addBlockAt(e[0], e[1], true);
+}
+/* ghost placement preview */
+const ghost = new THREE.Mesh(new THREE.BoxGeometry(1.001, 1.001, 1.001),
+  new THREE.MeshBasicMaterial({ color: 0xc89a5e, transparent: true, opacity: 0.22, depthWrite: false }));
+ghost.visible = false;
+scene.add(ghost);
+let ghostCell = null;
+
+/* day/night cycle — 5 min day, 5 min night */
+function dayFactor(t) {
+  if (t < 30) return t / 30;
+  if (t < 270) return 1;
+  if (t < 330) return 1 - (t - 270) / 60;
+  if (t < 570) return 0;
+  return (t - 570) / 30;
+}
+const C_DAY_BG = new THREE.Color(0x7fa3c4), C_NIGHT_BG = new THREE.Color(0x070c16);
+const C_DAY_FOG = new THREE.Color(0x9db3c8), C_NIGHT_FOG = new THREE.Color(0x0a1322);
+const C_DAY_SUN = new THREE.Color(0xfff2d0), C_NIGHT_MOON = new THREE.Color(0xa8c2f0);
+let dayK = 0;
+function setSurvivalMode(on) {
+  MODE = on ? 'survival' : 'waves';
+  const w = document.getElementById('modeWaves'), s = document.getElementById('modeSurv');
+  if (w && s) {
+    w.style.borderColor = on ? '#3f5c49' : '#9fd8a8';
+    s.style.borderColor = on ? '#9fd8a8' : '#3f5c49';
+  }
+  if (!on) { dayK = 0; applyDayNight(); }
+  boardDirty = true; hudDirty = true;
+}
+function applyDayNight() {
+  const k = dayK;
+  scene.background.copy(C_NIGHT_BG).lerp(C_DAY_BG, k);
+  scene.fog.color.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, k);
+  scene.fog.density = lerp(0.035, 0.018, k);
+  hemiLight.intensity = lerp(0.62, 1.1, k);
+  moonLight.intensity = lerp(0.5, 1.05, k);
+  moonLight.color.copy(C_NIGHT_MOON).lerp(C_DAY_SUN, k);
+  if (starsMat) starsMat.opacity = (1 - k) * 0.85;
+  moonGlow.material.opacity = (0.8 + Math.sin(elapsed * 0.4) * 0.12) * (1 - k * 0.85);
+  fireflies.visible = k < 0.35;
+}
+function dawnPurge() { // sunrise burns the horde away
+  for (const z of zombiePool) {
+    if (z.active && z.alive) {
+      z.alive = false;
+      z.state = 'dying'; z.stateT = 0;
+      tmpV.set(z.group.position.x, 1.2, z.group.position.z);
+      spawnParticles(tmpV, 12, 0xff9435, 1.0, 1.8, 2.5);
+      spawnParticles(tmpV, 8, 0x555555, 0.6, 1.6, 1.2);
+    }
+  }
+}
+function updateDayNight(dt) {
+  if (MODE !== 'survival') { isNight = true; return; }
+  if (game.state === 'playing' || NET.mode === 'guest') tod += dt;
+  if (tod >= 600) {
+    tod -= 600;
+    if (NET.mode !== 'guest' && game.state === 'playing') {
+      game.wave++;
+      game.score += 500;
+      setMsg('NIGHT ' + game.wave + ' SURVIVED  +500', 4);
+      sfxWave();
+      maybeUpgradeGun();
+      dawnPurge();
+      hudDirty = boardDirty = true;
+    }
+  }
+  dayK = dayFactor(tod);
+  isNight = dayK < 0.25;
+  applyDayNight();
+}
+
+/* mining + building */
+const mineRay = new THREE.Raycaster();
+mineRay.far = 6;
+const mineQ = new THREE.Quaternion();
+function blockCellFromHit(h, outward) {
+  const n = h.face ? tmpV3.copy(h.face.normal) : tmpV3.set(0, 1, 0);
+  const p = tmpV2.copy(h.point).addScaledVector(n, outward ? 0.08 : -0.08);
+  return Math.floor(p.x) + ',' + Math.floor(Math.max(0, p.y)) + ',' + Math.floor(p.z);
+}
+function surveyRay(origin, dir) {
+  mineRay.set(origin, dir);
+  const blockHit = mineRay.intersectObjects(Object.values(blockMeshes))[0] || null;
+  const worldHit = blockHit ? null : (mineRay.intersectObjects(minables.map(m => m.mesh))[0] || null);
+  return { blockHit, worldHit, hit: blockHit || worldHit };
+}
+function updateGhost(hit) {
+  if (!hit) return;
+  const cell = blockCellFromHit(hit, true);
+  const parts = cell.split(',');
+  const gx = +parts[0], gy = +parts[1], gz = +parts[2];
+  camera.getWorldPosition(tmpV3);
+  const headD = Math.hypot(gx + 0.5 - tmpV3.x, gz + 0.5 - tmpV3.z);
+  if (!blocks.has(cell) && gy >= 0 && gy < 14 && headD > 0.8 && (inv[BLOCK_TYPES[selBlock]] || 0) > 0) {
+    ghost.position.set(gx + 0.5, gy + 0.5, gz + 0.5);
+    ghost.visible = true;
+    ghostCell = cell;
+  }
+}
+function doMining(ud, hit, blockHit, worldHit, dt, hapticCtrl) {
+  const tgt = blockHit ? 'b:' + blockCellFromHit(blockHit, false)
+    : 'w:' + minables.findIndex(m => m.mesh === worldHit.object);
+  if (ud.mineTgt !== tgt) { ud.mineTgt = tgt; ud.mineT = 0; }
+  ud.mineT = (ud.mineT || 0) + dt;
+  if (Math.random() < dt * 9) {
+    spawnParticles(hit.point, 2, blockHit ? 0x8a8f96 : 0x6a5638, 0.6, 0.7, 3);
+    if (hapticCtrl) haptic(hapticCtrl, 0.25, 25);
+  }
+  if (ud.mineT >= (blockHit ? 0.8 : 1.25)) {
+    ud.mineT = 0;
+    let got = null;
+    if (blockHit) got = removeBlock(blockCellFromHit(blockHit, false), false);
+    else {
+      const mi = minables.findIndex(m => m.mesh === worldHit.object);
+      got = mi >= 0 ? minables[mi].type : 'dirt';
+    }
+    if (got) {
+      inv[got] = (inv[got] || 0) + 1;
+      spawnParticles(hit.point, 8, 0x9a9a9a, 1.0, 1.4, 3.5);
+      sfxPlace();
+      if (hapticCtrl) haptic(hapticCtrl, 0.8, 60);
+      hudDirty = true;
+    }
+  }
+}
+const dMine = { mineT: 0, mineTgt: null };
+let rightHeld = false;
+function updateSurvival(dt) {
+  ghost.visible = false;
+  ghostCell = null;
+  if (MODE !== 'survival' || game.downed || game.spectating || game.state === 'dead') return;
+  if (renderer.xr.isPresenting) {
+    for (const c of controllers) {
+      const ud = c.userData;
+      if (ud.held) { ud.mineT = 0; ud.mineTgt = null; continue; }  // needs an empty hand
+      c.getWorldPosition(tmpV);
+      tmpV2.set(0, 0, -1).applyQuaternion(c.getWorldQuaternion(mineQ));
+      const { blockHit, worldHit, hit } = surveyRay(tmpV, tmpV2);
+      updateGhost(hit);
+      if (hit && ud.gamepad && ud.gamepad.buttons[0] && ud.gamepad.buttons[0].pressed) {
+        doMining(ud, hit, blockHit, worldHit, dt, c);
+      } else { ud.mineT = 0; ud.mineTgt = null; }
+    }
+  } else if (desktopMode) {
+    camera.getWorldPosition(tmpV);
+    camera.getWorldDirection(tmpV2);
+    const { blockHit, worldHit, hit } = surveyRay(tmpV, tmpV2);
+    updateGhost(hit);
+    if (hit && rightHeld) doMining(dMine, hit, blockHit, worldHit, dt, null);
+    else { dMine.mineT = 0; dMine.mineTgt = null; }
+  }
+}
+function tryPlaceBlock() {
+  if (MODE !== 'survival' || !ghostCell) return false;
+  const bt = BLOCK_TYPES[selBlock];
+  if ((inv[bt] || 0) <= 0) return false;
+  if (addBlockAt(ghostCell, bt, false)) {
+    inv[bt]--;
+    hudDirty = true;
+    return true;
+  }
+  return false;
+}
+function cycleBlockType() {
+  selBlock = (selBlock + 1) % BLOCK_TYPES.length;
+  ghost.material.color.setHex({ dirt: 0xc89a5e, stone: 0xcfd4da, wood: 0xd8ab6e }[BLOCK_TYPES[selBlock]]);
+  setMsg('BLOCK: ' + BLOCK_TYPES[selBlock].toUpperCase(), 1.5);
+  hudDirty = true;
+}
+/* title-screen mode buttons */
+{
+  const w = document.getElementById('modeWaves'), s = document.getElementById('modeSurv');
+  if (w) w.addEventListener('click', () => setSurvivalMode(false));
+  if (s) s.addEventListener('click', () => setSurvivalMode(true));
+}
+
 /* ============================= ZOMBIES ============================= */
 const SKINS = [0x5a6b44, 0x6b7a4d, 0x4e5e40, 0x74805a, 0x62705a];
 const SHIRTS = [0x3a3f4a, 0x4a3a33, 0x2e3a34, 0x42342e, 0x37414d];
@@ -1934,7 +2248,7 @@ const PANTS = [0x33383f, 0x2c2f36, 0x3d362c];
 
 /* zombie type table — hp, points, speed range, size, eye glow, attack damage, grabbable */
 const TYPES = {
-  // hp tuned so the starter pistol needs ~3 headshots (×2 dmg) or ~6 body shots on a normal
+  // hp tuned so the starter pistol needs ~3 headshots (x2 dmg) or ~6 body shots on a normal
   normal:   { hp: 6,  score: 100, sp: [0.6, 1.05],  scale: [0.92, 1.12], eye: 0x46ff7a, dmg: 9,  grab: true },
   runner:   { hp: 4,  score: 150, sp: [1.6, 2.0],   scale: [0.84, 0.96], eye: 0xffe25e, dmg: 7,  grab: true },
   crawler:  { hp: 4,  score: 150, sp: [0.85, 1.15], scale: [0.9, 1.05],  eye: 0x9dff4a, dmg: 6,  grab: false },
@@ -1971,22 +2285,21 @@ function buildZombie(type) {
     box(0.1, 0.14, 0.03, 0.09, 0.3, 0.095, wound),
     box(0.36, 0.06, 0.22, 0, 0.47, 0, skinDark),
   ];
-  // random extra wounds / blood stains
   const nW = 1 + Math.floor(Math.random() * 3);
   for (let w = 0; w < nW; w++) {
     tGeos.push(box(rand(0.05, 0.12), rand(0.05, 0.12), 0.022,
       rand(-0.12, 0.12), rand(0.0, 0.4), (Math.random() < 0.7 ? 0.096 : -0.096),
       Math.random() < 0.5 ? wound : gore));
   }
-  if (shirtless) { // exposed ribs
+  if (shirtless) {
     for (let r = 0; r < 3; r++) tGeos.push(box(0.16, 0.02, 0.022, -0.06, 0.32 - r * 0.055, 0.098, 0x9a9478));
   }
-  if (type === 'spitter') { // bloated toxic belly
+  if (type === 'spitter') {
     tGeos.push(
       box(0.3, 0.24, 0.14, 0, 0.1, 0.1, 0x74954a),
       box(0.18, 0.14, 0.05, 0.02, 0.1, 0.17, 0x8fb648));
   }
-  if (Math.random() < 0.3 && !shirtless) { // hanging guts
+  if (Math.random() < 0.3 && !shirtless) {
     tGeos.push(
       box(0.05, 0.14, 0.05, 0.06, -0.03, 0.1, gore),
       box(0.04, 0.1, 0.04, -0.02, -0.06, 0.11, 0x5e1410));
@@ -2024,7 +2337,7 @@ function buildZombie(type) {
   function arm(side) {
     const sh = new THREE.Group(); sh.position.set(0.21 * side, 0.42, 0);
     const m = mergedMesh([
-      box(0.11, 0.3, 0.12, 0, -0.14, 0, shirt),
+      box(0.11, 0.3, 0.12, 0, -0.14, 0, topCol),
       box(0.09, 0.32, 0.1, 0, -0.44, 0, skin),
       box(0.1, 0.09, 0.11, 0, -0.63, 0, skinDark),      // hand
     ]);
@@ -2055,7 +2368,6 @@ function buildZombie(type) {
   if (type === 'crawler') {
     parts.hipL.visible = false; parts.hipR.visible = false;
     torso.position.y = 0.34;
-    // entrail trail behind the torso
     torso.add(mergedMesh([
       box(0.07, 0.05, 0.24, 0, -0.1, -0.2, gore),
       box(0.05, 0.04, 0.16, 0.05, -0.11, -0.34, 0x5e1410),
@@ -2108,7 +2420,6 @@ function spawnZombie(type, speedMul) {
     || zombiePool.find(p => !p.active);
   if (!z) return false;
   camera.getWorldPosition(playerPos);
-  // pick a grave mound: not too near, not too far, away from other active zombies
   let best = null, bestScore = -1;
   for (let tries = 0; tries < 10; tries++) {
     const s = graveSpawns[Math.floor(Math.random() * graveSpawns.length)];
@@ -2131,7 +2442,6 @@ function spawnZombie(type, speedMul) {
   z.buffT = 0; z.grabbedBy = null; z.blast = false;
   z.nextSpit = elapsed + rand(2, 5);
   z.nextScream = elapsed + rand(4, 9);
-  // restore parts that gore may have removed last time
   z.parts.head.visible = true;
   z.parts.armR.visible = true;
   if (z.parts.armL.visible === false && Math.random() < 0.85 && z.type !== 'crawler') z.parts.armL.visible = true;
@@ -2243,7 +2553,6 @@ function updateZombies(dt) {
     if (NET.mode === 'guest') { puppetUpdate(z, dt); continue; }
     const p = z.parts, gp = z.group.position;
     z.stateT += dt;
-    // flinch decay
     if (z.flinch > 0) z.flinch = Math.max(0, z.flinch - dt * 4);
 
     if (z.state === 'rising') {
@@ -2255,7 +2564,6 @@ function updateZombies(dt) {
         tmpV.set(gp.x, 0.1, gp.z);
         spawnParticles(tmpV, 2, 0x3a2b18, 0.5, 0.8, 3);
       }
-      // face the player as it finishes rising
       if (t >= 1) {
         gp.y = 0; p.shadow.position.y = 0.015;
         z.state = 'walk'; z.stateT = 0;
@@ -2274,7 +2582,6 @@ function updateZombies(dt) {
       }
       const dx = tp.x - gp.x, dz = tp.z - gp.z;
       const dist = Math.hypot(dx, dz);
-      // face player
       const targetYaw = Math.atan2(dx, dz);
       z.group.rotation.y = lerpAngle(z.group.rotation.y, targetYaw, Math.min(1, dt * 4));
 
@@ -2286,7 +2593,6 @@ function updateZombies(dt) {
         } else if (dist > 1.05) {
           const spd = z.speed * (z.buffT > elapsed ? 1.5 : 1);
           let mx = (dx / dist) * spd * dt, mz = (dz / dist) * spd * dt;
-          // separation from other zombies
           for (const o of act) {
             if (o === z || !o.alive) continue;
             const ox = gp.x - o.group.position.x, oz = gp.z - o.group.position.z;
@@ -2298,7 +2604,18 @@ function updateZombies(dt) {
           gp.x += mx; gp.z += mz;
           const r = Math.hypot(gp.x, gp.z);
           if (r > 27) { gp.x *= 27 / r; gp.z *= 27 / r; }
-          // walk cycle
+          // player-built walls are solid — brutes can smash through
+          const bx = Math.floor(gp.x), bz = Math.floor(gp.z);
+          if (blocks.has(bx + ',0,' + bz) || blocks.has(bx + ',1,' + bz)) {
+            gp.x -= mx; gp.z -= mz;
+            if (z.brute && Math.random() < dt * 0.6) {
+              const bk = blocks.has(bx + ',0,' + bz) ? bx + ',0,' + bz : bx + ',1,' + bz;
+              removeBlock(bk, false);
+              tmpV.set(gp.x, 1, gp.z);
+              spawnParticles(tmpV, 10, 0x7a5a34, 1.2, 1.5, 4);
+              sfxPunch(tmpV);
+            }
+          }
           z.phase += dt * spd * 4.2;
           const s = Math.sin(z.phase), c = Math.sin(z.phase + Math.PI);
           p.hipL.rotation.x = s * 0.55;
@@ -2354,7 +2671,6 @@ function updateZombies(dt) {
       p.head.rotation.z = Math.sin(elapsed * 0.9 + z.seed * 2) * 0.14 + z.headTilt;
       p.head.rotation.y = Math.sin(elapsed * 0.6 + z.seed) * 0.2;
       p.jaw.rotation.x = 0.25 + Math.sin(elapsed * 3.1 + z.seed * 3) * 0.2;
-      // groans
       if (elapsed > z.nextGroan) {
         z.nextGroan = elapsed + rand(2.5, 7);
         tmpV.set(gp.x, 1.2, gp.z);
@@ -2482,7 +2798,7 @@ function nextWave() {
 }
 function aliveCap() { return Math.min(5 + game.wave, 11); }
 function onZombieRemoved() {
-  if (NET.mode === 'guest') return;
+  if (NET.mode === 'guest' || MODE === 'survival') return;
   if (game.state !== 'playing') return;
   if (game.toSpawn <= 0 && !zombiePool.some(z => z.active && z.alive)) {
     game.state = 'cleared';
@@ -2532,6 +2848,7 @@ function restartGame() {
   game.state = 'menu'; game.wave = 0; game.score = 0; game.kills = 0;
   game.hp = 100; game.toSpawn = 0;
   game.downed = false; game.spectating = false; game.bleedT = 0; game.reviveProg = 0;
+  if (MODE === 'survival') tod = 40;   // fresh morning (your builds survive)
   if (gunTier !== 0) setGunTier(0);
   pistolItem.ammo = pistolItem.magSize; pistolItem.reloading = false;
   setMsg('PULL TRIGGER TO BEGIN', 4);
@@ -2554,14 +2871,12 @@ function drawHUD() {
   g.beginPath(); g.roundRect(0, 0, W, H, 14); g.fill();
   g.strokeStyle = 'rgba(110,150,120,0.5)'; g.lineWidth = 2;
   g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 12); g.stroke();
-  // HP bar
   g.fillStyle = '#233'; g.fillRect(14, 14, 168, 16);
   const hpk = game.hp / 100;
   g.fillStyle = hpk > 0.4 ? '#4dbb62' : '#c33327';
   g.fillRect(14, 14, 168 * hpk, 16);
   g.font = 'bold 15px monospace'; g.fillStyle = '#dfe8e2';
   g.fillText('HP', 190, 27);
-  // ammo: pips for small mags, a bar for big ones
   if (pistolItem.magSize <= 12) {
     const pw = Math.min(14, Math.floor(168 / pistolItem.magSize));
     for (let i = 0; i < pistolItem.magSize; i++) {
@@ -2579,21 +2894,23 @@ function drawHUD() {
   g.font = 'bold 15px monospace';
   g.fillStyle = '#dfe8e2';
   g.fillText(pistolItem.reloading ? 'RELOAD' : 'AMMO', 190, 57);
-  // current weapon + next unlock
   g.font = 'bold 11px monospace'; g.fillStyle = '#8b98b3';
-  const nxt = gunTier < GUNS.length - 1 ? '  •  next gun: wave ' + ((gunTier + 1) * 10) : '  •  MAX';
+  const nxt = gunTier < GUNS.length - 1 ? '  •  next gun: ' + (MODE === 'survival' ? 'night ' : 'wave ') + ((gunTier + 1) * 10) : '  •  MAX';
   g.fillText(GUNS[gunTier].name + nxt, 14, 74);
-  // wave + score
   g.font = 'bold 17px monospace'; g.fillStyle = '#9fd8a8';
-  g.fillText('WAVE ' + game.wave, 14, 92);
+  g.fillText((MODE === 'survival' ? 'NIGHT ' : 'WAVE ') + game.wave, 14, 92);
   g.fillStyle = '#cdd6e8';
   g.fillText('SCORE ' + game.score, 110, 92);
-  // message / mode line
   g.font = 'bold 14px monospace'; g.fillStyle = '#ffd98a';
   const line = game.msgT > 0 ? game.msg : (game.stationary ? 'STATIONARY MODE' : '');
   if (line) g.fillText(line, 14, 116);
   g.font = '11px monospace'; g.fillStyle = '#5f6c86';
-  const stLine = game.state === 'playing' ? ('left: ' + (game.toSpawn + zombiePool.filter(z => z.active && z.alive).length)) : game.state.toUpperCase();
+  let stLine;
+  if (MODE === 'survival') {
+    stLine = (isNight ? 'NIGHT' : 'DAY') + ' • D:' + (inv.dirt | 0) + ' S:' + (inv.stone | 0) + ' W:' + (inv.wood | 0) + ' [' + BLOCK_TYPES[selBlock].toUpperCase() + ']';
+  } else {
+    stLine = game.state === 'playing' ? ('left: ' + (game.toSpawn + zombiePool.filter(z => z.active && z.alive).length)) : game.state.toUpperCase();
+  }
   g.fillText(stLine + (NET.ready ? '  •  CO-OP' : ''), 14, 136);
   hudTex.needsUpdate = true;
 }
@@ -2612,17 +2929,24 @@ function drawBoard() {
   g.font = 'bold 44px Georgia'; g.fillStyle = '#9fd8a8';
   g.fillText('GRAVEYARD SHIFT', W / 2, 62);
   g.font = 'bold 16px Georgia'; g.fillStyle = '#5f8f68';
-  g.fillText('v1.5', W - 40, 30);
+  g.fillText('v1.6', W - 40, 30);
   g.font = '20px Georgia'; g.fillStyle = '#8b98b3';
   if (game.state === 'dead') {
     g.font = 'bold 40px Georgia'; g.fillStyle = '#c33327';
     g.fillText('YOU DIED', W / 2, 140);
     g.font = '24px Georgia'; g.fillStyle = '#cdd6e8';
-    g.fillText('Score ' + game.score + '  •  Waves ' + game.wave + '  •  Kills ' + game.kills, W / 2, 190);
+    g.fillText('Score ' + game.score + '  •  ' + (MODE === 'survival' ? 'Nights ' : 'Waves ') + game.wave + '  •  Kills ' + game.kills, W / 2, 190);
     g.fillStyle = '#ffd98a';
     g.fillText('Pull trigger to rise again', W / 2, 250);
   } else if (game.state === 'menu') {
-    const lines = [
+    const lines = MODE === 'survival' ? [
+      'SURVIVAL — build by day, survive the night',
+      'EMPTY HAND + hold TRIGGER: mine trees/stone/dirt',
+      'GRIP — place block at the ghost / grab a placed block',
+      'A/X (empty hand) — switch block type',
+      '5-minute days and nights. Walls stop the dead.',
+      'PULL TRIGGER TO BEGIN',
+    ] : [
       'GRIP — grab gear / holster • grab weak zombies',
       'TRIGGER — shoot • flashlight    A/X — reload',
       'LEFT STICK — walk   RIGHT STICK — turn',
@@ -2637,7 +2961,7 @@ function drawBoard() {
     });
   } else {
     g.font = 'bold 34px Georgia'; g.fillStyle = '#cdd6e8';
-    g.fillText('WAVE ' + game.wave, W / 2, 150);
+    g.fillText((MODE === 'survival' ? 'NIGHT ' : 'WAVE ') + game.wave, W / 2, 150);
     g.font = '22px Georgia'; g.fillStyle = '#8b98b3';
     g.fillText('Score ' + game.score, W / 2, 200);
     if (game.state === 'cleared') {
@@ -2679,13 +3003,18 @@ function pollXRInput(dt) {
         const yaw = new THREE.Euler().setFromQuaternion(q, 'YXZ').y;
         tmpV.set(ax, 0, ay).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         rig.position.addScaledVector(tmpV, 2.4 * dt);
-        // keep head inside the fence
         camera.getWorldPosition(tmpV2);
         const r = Math.hypot(tmpV2.x, tmpV2.z);
         if (r > 26) {
           const k = (r - 26) / r;
           rig.position.x -= tmpV2.x * k;
           rig.position.z -= tmpV2.z * k;
+        }
+        // player-built blocks are solid
+        camera.getWorldPosition(tmpV2);
+        const bcx = Math.floor(tmpV2.x), bcz = Math.floor(tmpV2.z);
+        if (blocks.has(bcx + ',0,' + bcz) || blocks.has(bcx + ',1,' + bcz)) {
+          rig.position.addScaledVector(tmpV, -2.4 * dt);
         }
       }
     }
@@ -2715,6 +3044,7 @@ function pollXRInput(dt) {
       c.userData.btn[bi] = pressed;
       if (pressed && !was) {
         if (bi === 4 && c.userData.held === pistolItem) startReload(pistolItem);
+        else if (bi === 4 && !c.userData.held && MODE === 'survival') cycleBlockType();
         else if (bi === 5 && hand === 'left') {
           game.stationary = !game.stationary;
           setMsg(game.stationary ? 'STATIONARY MODE ON' : 'STATIONARY MODE OFF');
@@ -2743,9 +3073,16 @@ const keys = {};
 let desktopMode = false;
 let mouseHeld = false;
 const desktopCtrl = { userData: { held: null }, add: () => {} };
-addEventListener('mousedown', () => { mouseHeld = true; });
-addEventListener('mouseup', () => { mouseHeld = false; });
-addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyR') startReload(pistolItem); if (e.code === 'KeyF') setFlashlight(lightItem, !lightItem.mesh.userData.on); });
+addEventListener('mousedown', (e) => { if (e.button === 0) mouseHeld = true; if (e.button === 2) rightHeld = true; });
+addEventListener('mouseup', (e) => { if (e.button === 0) mouseHeld = false; if (e.button === 2) rightHeld = false; });
+addEventListener('contextmenu', (e) => { if (desktopMode) e.preventDefault(); });
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyR') startReload(pistolItem);
+  if (e.code === 'KeyF') setFlashlight(lightItem, !lightItem.mesh.userData.on);
+  if (MODE === 'survival' && e.code === 'KeyQ') cycleBlockType();
+  if (MODE === 'survival' && e.code === 'KeyE') tryPlaceBlock();
+});
 addEventListener('keyup', e => keys[e.code] = false);
 renderer.domElement.addEventListener('click', () => {
   if (renderer.xr.isPresenting) return;
@@ -2765,7 +3102,6 @@ function enterDesktopMode() {
   if (desktopMode) return;
   desktopMode = true;
   document.getElementById('overlay').classList.add('hidden');
-  // FPS-style: items float in front of the camera
   camera.add(pistolItem.mesh);
   pistolItem.holder = { userData: { held: pistolItem }, add: () => {} };
   pistolItem.mesh.position.set(0.17, -0.15, -0.4);
@@ -2792,6 +3128,11 @@ function pollDesktop(dt) {
     camera.getWorldPosition(tmpV2);
     const r = Math.hypot(tmpV2.x, tmpV2.z);
     if (r > 26) { const k = (r - 26) / r; rig.position.x -= tmpV2.x * k; rig.position.z -= tmpV2.z * k; }
+    camera.getWorldPosition(tmpV2);
+    const bcx = Math.floor(tmpV2.x), bcz = Math.floor(tmpV2.z);
+    if (blocks.has(bcx + ',0,' + bcz) || blocks.has(bcx + ',1,' + bcz)) {
+      rig.position.addScaledVector(tmpV, -sp);
+    }
   }
 }
 
@@ -2799,7 +3140,7 @@ function pollDesktop(dt) {
 renderer.xr.addEventListener('sessionstart', () => {
   wake();
   document.getElementById('overlay').classList.add('hidden');
-  if (desktopMode) { // hand items back to the VR systems
+  if (desktopMode) {
     desktopMode = false;
     pistolItem.holder = null; lightItem.holder = null;
     putInHolster(pistolItem); putInHolster(lightItem);
@@ -2813,6 +3154,18 @@ renderer.xr.addEventListener('sessionend', () => {
 /* ============================= SPAWNER + AMBIENT FX ============================= */
 function updateSpawner(dt) {
   if (NET.mode === 'guest') return; // the host runs the horde
+  if (MODE === 'survival') {
+    if (game.state !== 'playing' || !isNight) return;
+    game.spawnTimer -= dt;
+    const alive = zombiePool.filter(z => z.active && z.alive).length;
+    const cap = Math.min(4 + game.wave, 9);
+    if (game.spawnTimer <= 0 && alive < cap) {
+      const speedMul = Math.min(1.7, 1 + game.wave * 0.06);
+      if (spawnZombie(pickType(Math.max(2, game.wave + 1)), speedMul)) game.spawnTimer = rand(2.5, 5.5);
+      else game.spawnTimer = 1;
+    }
+    return;
+  }
   if (game.state === 'playing' && game.toSpawn > 0) {
     game.spawnTimer -= dt;
     const alive = zombiePool.filter(z => z.active && z.alive).length;
@@ -2830,23 +3183,19 @@ function updateSpawner(dt) {
   }
 }
 function updateAmbient(dt) {
-  // lantern flicker
   for (const L of lanternLights) {
     const t = elapsed * 7 + L.seed * 13;
     const n = 0.78 + 0.22 * (Math.sin(t) * 0.5 + Math.sin(t * 2.7 + 1.3) * 0.3 + Math.sin(t * 0.61) * 0.2 + 0.5);
     L.l.intensity = (L.core ? 1.15 : 0.9) * n;
     if (L.halo) L.halo.material.opacity = 0.65 + 0.35 * n;
   }
-  // one-shot event light
   if (eventLightT > 0) {
     eventLightT -= dt;
     const k = Math.max(0, eventLightT / eventLightDur);
     eventLight.intensity = eventLightPeak * k;
     if (eventLightT <= 0) { eventLight.intensity = 0; eventLightPriority = 0; }
   }
-  // fog drift
   for (const f of fogPlanes) f.m.rotation.z += f.sp * dt;
-  // fireflies
   const fp = fireflies.geometry.attributes.position;
   for (let i = 0; i < ffData.length; i++) {
     const d = ffData[i];
@@ -2857,9 +3206,7 @@ function updateAmbient(dt) {
   }
   fp.needsUpdate = true;
   fireflies.material.opacity = 0.55 + 0.45 * Math.sin(elapsed * 2.2);
-  // moon glow breathe
   moonGlow.material.opacity = 0.8 + Math.sin(elapsed * 0.4) * 0.12;
-  // distant howls in the dark
   if (elapsed > nextHowl) {
     nextHowl = elapsed + rand(22, 45);
     sfxHowl();
@@ -2893,6 +3240,7 @@ renderer.setAnimationLoop(() => {
   updateWaist();
   updatePistol(dt);
   updateMelee(dt);
+  updateSurvival(dt);
   updateZombies(dt);
   updateSpawner(dt);
   updateSpits(dt);
@@ -2902,8 +3250,8 @@ renderer.setAnimationLoop(() => {
   updateDecals(dt);
   updateTracers(dt);
   updateAmbient(dt);
+  updateDayNight(dt);
 
-  // health regen + heartbeat + damage vignette
   if (game.hp > 0 && game.hp < 100 && elapsed - game.lastHit > 6) {
     game.hp = Math.min(100, game.hp + 3 * dt);
     if (Math.floor(game.hp) % 10 === 0) hudDirty = true;
@@ -2924,7 +3272,7 @@ renderer.setAnimationLoop(() => {
     blackout.material.opacity = Math.min(game.downed ? 0.78 : game.spectating ? 0.88 : 0.94, game.deathT * 0.5);
     deathText.material.opacity = clamp((game.deathT - 0.3) * 0.9, 0, 1);
     if (game.downed) {
-      if (!NET.ready) { // partner gone — treat as a solo death
+      if (!NET.ready) {
         game.downed = false;
         game.state = 'dead';
         drawDeathText();
@@ -2959,14 +3307,12 @@ renderer.setAnimationLoop(() => {
         drawDeathText();
         boardDirty = true;
       } else if (game.state === 'cleared' || game.wave !== game.spectateWave) {
-        // the wave ended — back in the fight
         game.spectating = false;
         game.hp = 100;
         game.lastHit = elapsed;
         setMsg('RESPAWNED — GO!', 3);
         hudDirty = true;
       } else if (NET.mode === 'host' && NET.remoteSpect) {
-        // total party wipe — reset the night
         restartGame();
         setMsg('BOTH DEAD — NEW GAME', 4);
       }
@@ -2976,7 +3322,6 @@ renderer.setAnimationLoop(() => {
     deathText.material.opacity = Math.max(0, deathText.material.opacity - dt * 3);
   }
 
-  // message timer + HUD redraw (throttled)
   if (game.msgT > 0) { game.msgT -= dt; if (game.msgT <= 0) hudDirty = true; }
   hudTimer -= dt;
   if (hudDirty && hudTimer <= 0) { drawHUD(); hudDirty = false; hudTimer = 0.12; }
@@ -2990,4 +3335,4 @@ setMsg('GRAB YOUR GEAR', 4);
 </script>
 </body>
 </html>
-<!-- GRAVEYARD SHIFT v1.5 — Quest 2 WebXR — guns AT waves 10/20/…/90 for both players, headshot ×2 rebalance, avatar shows real weapon + connected arms, partner revive / bleed-out / spectate / respawn on wave end -->
+<!-- GRAVEYARD SHIFT v1.6 — Quest 2 WebXR — SURVIVAL mode: 5-min day/night, mining, block building, plus the full WAVES mode -->

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GRAVEYARD SHIFT v2.8 — VR Zombie Shooter</title>
+<title>GRAVEYARD SHIFT v2.9 — VR Zombie Shooter</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <style>
   html,body{margin:0;padding:0;height:100%;background:#05080f;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;}
@@ -50,7 +50,7 @@
 <body>
 <div id="overlay">
   <h1>GRAVEYARD SHIFT</h1>
-  <p style="margin:0;color:#5f8f68;font-size:15px;letter-spacing:3px;"><b>v2.8</b> — if this number is missing on your screen, you're on an old cached copy: wait 5 min &amp; hard-refresh</p>
+  <p style="margin:0;color:#5f8f68;font-size:15px;letter-spacing:3px;"><b>v2.9</b> — if this number is missing on your screen, you're on an old cached copy: wait 5 min &amp; hard-refresh</p>
   <p>A VR zombie wave shooter. Put on your Quest, open this page in the headset browser, and press <b>Enter VR</b> below.</p>
   <p><b>Grip</b>: grab / holster &nbsp;•&nbsp; <b>Trigger</b>: shoot / flashlight &nbsp;•&nbsp; <b>Left stick</b>: move &nbsp;•&nbsp; <b>Right stick</b>: snap turn<br>
   <b>A / X</b>: reload &nbsp;•&nbsp; <b>Y</b>: stationary mode on/off &nbsp;•&nbsp; <b>B</b>: laser sight</p>
@@ -131,7 +131,7 @@ function lerpAngle(a, b, t) {
 
 /* game mode + survival globals (declared early — world objects register as minable) */
 let MODE = 'waves';          // 'waves' | 'survival'
-const DEPTH = 8;             // how many layers deep the world can be dug
+const DEPTH = 32;            // how many layers deep the world can be dug (deep mines)
 function hash3(a, b, c) { const h = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return h - Math.floor(h); }
 function nearTorch(x, z, r) { for (const t of torches.values()) if (Math.hypot(t.x - x, t.z - z) < r) return true; return false; }
 function isCoalCell(x, y, z) {
@@ -1740,7 +1740,7 @@ function onNetData(m) {
       else removeBlock(m.k, true);
       break;
     case 'dig': digCell(m.x, m.y, m.z, true); break;
-    case 'torch': if (m.a === 1) placeTorch(m.k, !!m.up, true); else removeTorch(m.k, true); break;
+    case 'torch': if (m.a === 1) placeTorch(m.k, !!m.up, true, m.dx, m.dz); else removeTorch(m.k, true); break;
     case 'harv': applyHarv(m.mi, m.id); break;
     case 'door':
       if (m.a === 1) placeDoor(m.k, true, m.f);
@@ -2171,7 +2171,7 @@ for (const bt of BLOCK_TYPES) {
 }
 /* carved-out terrain cells (tunnels) + the dirt walls around them */
 const carved = new Set();          // "x,y,z" with y in -1..-4
-const WMAX = 1400;
+const WMAX = 5000;
 const wallDummy = new THREE.Object3D();
 /* tunnel liners: only the EXPOSED faces render (no cubes poking up through the lawn) */
 const linerMeshes = {}, linerCells = { dirt: [], stone: [], coal: [] };
@@ -2845,7 +2845,10 @@ function tryPlaceBlock() {
   if (def.kind === 'torch') {
     const pr = ghostCell.split(',').map(Number);
     const up = isSolidCell(pr[0], pr[1] - 1, pr[2]);
-    if (placeTorch(ghostCell, up, false)) { takeItem('torch', 1); pcArmKick = 1; return true; }
+    let dx = 0, dz = 0;
+    if (!up) { for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (isSolidCell(pr[0] + d[0], pr[1], pr[2] + d[1])) { dx = d[0]; dz = d[1]; break; } }
+    if (!up && dx === 0 && dz === 0) { setMsg('Torch needs a surface', 1.2); return false; }
+    if (placeTorch(ghostCell, up, false, dx, dz)) { takeItem('torch', 1); pcArmKick = 1; return true; }
     return false;
   }
   if (def.kind !== 'block') return false;
@@ -2978,22 +2981,33 @@ function rebuildTorches() {
   torchKeys.length = 0; let i = 0;
   for (const [k, t] of torches) {
     if (i >= TCH_MAX) break;
-    torchDummy.position.set(t.x, t.y + (t.up ? 0 : 0.12), t.z);
-    torchDummy.rotation.set(t.up ? 0 : 0.45, 0, 0);
-    torchDummy.updateMatrix(); torchBody.setMatrixAt(i, torchDummy.matrix);
-    torchDummy.position.set(t.x, t.y + 0.26, t.z + (t.up ? 0 : 0.08)); torchDummy.rotation.set(0, 0, 0);
-    torchDummy.updateMatrix(); torchFlame.setMatrixAt(i, torchDummy.matrix);
+    if (t.up || (t.dx === 0 && t.dz === 0)) {
+      torchDummy.position.set(t.x, t.y, t.z); torchDummy.quaternion.identity();
+      torchDummy.updateMatrix(); torchBody.setMatrixAt(i, torchDummy.matrix);
+      torchDummy.position.set(t.x, t.y + 0.26, t.z);
+      torchDummy.updateMatrix(); torchFlame.setMatrixAt(i, torchDummy.matrix);
+    } else {                                 // wall torch: base flush to the wall, leaning out & up
+      const A = 0.55;
+      tmpV.set(-t.dx * Math.sin(A), Math.cos(A), -t.dz * Math.sin(A)).normalize();
+      torchDummy.quaternion.setFromUnitVectors(UP_Y, tmpV);
+      const cx = t.x + t.dx * 0.44, cyb = t.y - 0.14, cz = t.z + t.dz * 0.44;   // contact point on the wall
+      torchDummy.position.set(cx + tmpV.x * 0.2, cyb + tmpV.y * 0.2, cz + tmpV.z * 0.2);
+      torchDummy.updateMatrix(); torchBody.setMatrixAt(i, torchDummy.matrix);
+      torchDummy.position.set(cx + tmpV.x * 0.42, cyb + tmpV.y * 0.42, cz + tmpV.z * 0.42);
+      torchDummy.quaternion.identity();
+      torchDummy.updateMatrix(); torchFlame.setMatrixAt(i, torchDummy.matrix);
+    }
     torchKeys.push(k); i++;
   }
   torchBody.count = i; torchFlame.count = i;
   torchBody.instanceMatrix.needsUpdate = true; torchFlame.instanceMatrix.needsUpdate = true;
 }
-function placeTorch(cellKey, up, fromNet) {
+function placeTorch(cellKey, up, fromNet, dx, dz) {
   if (torches.has(cellKey) || torches.size >= TCH_MAX) return false;
   const pr = cellKey.split(',').map(Number);
-  torches.set(cellKey, { x: pr[0] + 0.5, y: pr[1] + 0.3, z: pr[2] + 0.5, up });
+  torches.set(cellKey, { x: pr[0] + 0.5, y: pr[1] + 0.3, z: pr[2] + 0.5, up, dx: dx || 0, dz: dz || 0 });
   rebuildTorches(); sfxPlace();
-  if (!fromNet) netSend({ t: 'torch', a: 1, k: cellKey, up: up ? 1 : 0 });
+  if (!fromNet) netSend({ t: 'torch', a: 1, k: cellKey, up: up ? 1 : 0, dx: dx || 0, dz: dz || 0 });
   return true;
 }
 function removeTorch(cellKey, fromNet) {
@@ -3002,8 +3016,8 @@ function removeTorch(cellKey, fromNet) {
   if (!fromNet) netSend({ t: 'torch', a: 0, k: cellKey });
   return true;
 }
-function serializeTorches() { const o = []; for (const [k, t] of torches) o.push([k, t.up ? 1 : 0]); return o; }
-function applyAllTorches(list) { for (const e of list) placeTorch(e[0], !!e[1], true); }
+function serializeTorches() { const o = []; for (const [k, t] of torches) o.push([k, t.up ? 1 : 0, t.dx, t.dz]); return o; }
+function applyAllTorches(list) { for (const e of list) placeTorch(e[0], !!e[1], true, e[2], e[3]); }
 function updateTorches(dt) {
   camera.getWorldPosition(tmpV);
   const near = [];
@@ -3736,7 +3750,7 @@ function spawnZombie(type, speedMul) {
   z.hp = Math.max(1, Math.round(z.maxHp * (1 + game.wave * 0.06)));
   z.speed = z.baseSpeed * speedMul;
   z.state = 'rising'; z.stateT = 0; z.struck = false; z.flinch = 0;
-  z.buffT = 0; z.grabbedBy = null; z.blast = false; z.baseY = 0; z.netY = 0;
+  z.buffT = 0; z.grabbedBy = null; z.blast = false; z.baseY = 0; z.netY = 0; z.visY = undefined; z.jumpT = 0;
   z.nextSpit = elapsed + rand(2, 5);
   z.nextScream = elapsed + rand(4, 9);
   z.parts.head.visible = true;
@@ -3892,8 +3906,10 @@ function updateZombies(dt) {
           const spd = z.speed * (z.buffT > elapsed ? 1.5 : 1);
           const cy0 = Math.floor(z.baseY + 0.2), cy1 = Math.floor(z.baseY + 1.2);
           const clearAhead = (ang) => {
-            const nx = gp.x + Math.sin(ang) * 0.62, nz = gp.z + Math.cos(ang) * 0.62;
-            return !isSolidCell(Math.floor(nx), cy0, Math.floor(nz)) && !isSolidCell(Math.floor(nx), cy1, Math.floor(nz));
+            const fx = Math.floor(gp.x + Math.sin(ang) * 0.62), fz = Math.floor(gp.z + Math.cos(ang) * 0.62);
+            if (!isSolidCell(fx, cy0, fz) && !isSolidCell(fx, cy1, fz)) return true;               // walkable
+            if (isSolidCell(fx, cy0, fz) && !isSolidCell(fx, cy0 + 1, fz) && !isSolidCell(fx, cy1 + 1, fz)) return true; // jumpable 1-block step
+            return false;
           };
           const baseAng = Math.atan2(dx, dz);
           // steer around obstacles: try straight, then progressively wider turns (basic pathfinding)
@@ -3909,8 +3925,12 @@ function updateZombies(dt) {
             if (od < 0.85 && od > 0.001) { mx += (ox / od) * dt * 0.5; mz += (oz / od) * dt * 0.5; }
           }
           const nx2 = Math.floor(gp.x + mx), nz2 = Math.floor(gp.z + mz);
-          if (!isSolidCell(nx2, cy0, nz2) && !isSolidCell(nx2, cy1, nz2)) {
+          const footClear = !isSolidCell(nx2, cy0, nz2) && !isSolidCell(nx2, cy1, nz2);
+          // can hop up a single block? (obstacle 1 tall with headroom above)
+          const canJump = !footClear && isSolidCell(nx2, cy0, nz2) && !isSolidCell(nx2, cy0 + 1, nz2) && !isSolidCell(nx2, cy1 + 1, nz2);
+          if (footClear || canJump) {
             gp.x += mx; gp.z += mz;
+            if (canJump) { z.baseY += 1; z.jumpT = 0.34; }   // ZOMBIES JUMP a 1-block step
             const r = Math.hypot(gp.x, gp.z);
             if (r > 48) { gp.x *= 48 / r; gp.z *= 48 / r; }
           } else if (z.brute && Math.random() < dt * 0.6) {   // fully boxed in — brutes smash/dig through
@@ -3921,16 +3941,19 @@ function updateZombies(dt) {
             spawnParticles(tmpV, 10, 0x7a5a34, 1.2, 1.5, 4);
             sfxPunch(tmpV);
           }
-          // follow you: tiny step up, any drop down into tunnels
+          // settle onto the surface (any drop down; the jump handles climbing up)
           const zsup = supportYAt(gp.x, gp.z, z.baseY, 0.15);
           z.baseY = Math.abs(zsup - z.baseY) < 0.002 ? zsup : lerp(z.baseY, zsup, Math.min(1, dt * 6));
+          z.jumpT = Math.max(0, (z.jumpT || 0) - dt);
+          z.visY = (z.visY === undefined) ? z.baseY : lerp(z.visY, z.baseY, Math.min(1, dt * 9)); // smooth vertical climb
           z.phase += dt * spd * 4.2;
           const s = Math.sin(z.phase), c = Math.sin(z.phase + Math.PI);
           p.hipL.rotation.x = s * 0.55;
           p.hipR.rotation.x = c * 0.55;
           p.kneeL.rotation.x = Math.max(0, -s) * 0.85 + 0.1;
           p.kneeR.rotation.x = Math.max(0, -c) * 0.85 + 0.1;
-          gp.y = z.baseY + Math.abs(Math.sin(z.phase)) * 0.035;
+          const hop = z.jumpT > 0 ? Math.sin((0.34 - z.jumpT) / 0.34 * Math.PI) * 0.12 : 0;
+          gp.y = z.visY + Math.abs(Math.sin(z.phase)) * 0.035 + hop;
           p.torso.rotation.z = Math.sin(z.phase) * 0.08;
         } else {
           z.state = 'attack'; z.attackT = 0; z.struck = false;
@@ -4284,7 +4307,7 @@ function drawBoard() {
   g.font = 'bold 44px Georgia'; g.fillStyle = '#9fd8a8';
   g.fillText('GRAVEYARD SHIFT', W / 2, 62);
   g.font = 'bold 16px Georgia'; g.fillStyle = '#5f8f68';
-  g.fillText('v2.8', W - 40, 30);
+  g.fillText('v2.9', W - 40, 30);
   g.font = '20px Georgia'; g.fillStyle = '#8b98b3';
   if (game.state === 'dead') {
     g.font = 'bold 40px Georgia'; g.fillStyle = '#c33327';
@@ -4595,7 +4618,7 @@ const badgeEl = document.getElementById('modebadge');
 function updateModeBadge() {
   if (!badgeEl) return;
   badgeEl.style.display = (desktopMode && !renderer.xr.isPresenting) ? 'block' : 'none';
-  badgeEl.textContent = 'v2.8 • ' + (MODE === 'survival'
+  badgeEl.textContent = 'v2.9 • ' + (MODE === 'survival'
     ? ('SURVIVAL — ' + (isNight ? 'NIGHT' : 'DAY'))
     : 'WAVES MODE');
 }
@@ -4834,4 +4857,4 @@ setMsg('GRAB YOUR GEAR', 4);
 </script>
 </body>
 </html>
-<!-- GRAVEYARD SHIFT v2.8 — bigger map, smooth day/night, coal ore veins + torches (dynamic light), zombie obstacle pathfinding + ring spawns — fix: could not dig the ground past radius 27 on the bigger map — real furnace window (input/fuel/output, smelts over time), tool angle tweak — pickup fix (horizontal dist), bold log bark + rings, survival auto-start — leaf-cap fix (full canopies), block drops + small pickup, cobblestone + furnace smelting, log rings, grass texture, PC no holsters, tool orientation, door look, sign removed after day 1. Verified. — shaped crafting, distinct tools, log-connected leaf decay, spread forest + variable tree heights, no lanterns, sun shadows, texture overhaul, bigger map, fixed doors/ghost, RMB table, movable gun. Verified interactive. — tools(pick/axe/shovel/sword), stone needs pickaxe, breaking animation, flashlight item, crosshair, uniform slots, no-graveyard survival map, leaf decay, drop magnet, death-respawn, RMB doors, underground build fix. Verified interactive. — real slot inventory + drag/drop crafting GUI, hollow hotbar, empty fist, no starting items, sticks, underground building, pickaxe fixed. Verified interactive. — mode badge + M key + persistent mode choice, hotbar-synced PC weapon, interaction-verified (mining/crafting/hotbar tested end-to-end) — hotfix: startup crash (DEPTH init order), block storage for new types, removed ghost duplicate trees. Boot-tested 42k frames. — voxel update: face liners, 8-deep layers, block trees/saplings, doors, crafting, hotbar, drops, jump physics — diggable terrain, sky bases, tunnel-following zombies — Quest 2 WebXR — SURVIVAL mode: 5-min day/night, mining, block building, plus the full WAVES mode -->
+<!-- GRAVEYARD SHIFT v2.9 — zombies jump 1-block steps; deep mining (32 down); wall torches mount flush — bigger map, smooth day/night, coal ore veins + torches (dynamic light), zombie obstacle pathfinding + ring spawns — fix: could not dig the ground past radius 27 on the bigger map — real furnace window (input/fuel/output, smelts over time), tool angle tweak — pickup fix (horizontal dist), bold log bark + rings, survival auto-start — leaf-cap fix (full canopies), block drops + small pickup, cobblestone + furnace smelting, log rings, grass texture, PC no holsters, tool orientation, door look, sign removed after day 1. Verified. — shaped crafting, distinct tools, log-connected leaf decay, spread forest + variable tree heights, no lanterns, sun shadows, texture overhaul, bigger map, fixed doors/ghost, RMB table, movable gun. Verified interactive. — tools(pick/axe/shovel/sword), stone needs pickaxe, breaking animation, flashlight item, crosshair, uniform slots, no-graveyard survival map, leaf decay, drop magnet, death-respawn, RMB doors, underground build fix. Verified interactive. — real slot inventory + drag/drop crafting GUI, hollow hotbar, empty fist, no starting items, sticks, underground building, pickaxe fixed. Verified interactive. — mode badge + M key + persistent mode choice, hotbar-synced PC weapon, interaction-verified (mining/crafting/hotbar tested end-to-end) — hotfix: startup crash (DEPTH init order), block storage for new types, removed ghost duplicate trees. Boot-tested 42k frames. — voxel update: face liners, 8-deep layers, block trees/saplings, doors, crafting, hotbar, drops, jump physics — diggable terrain, sky bases, tunnel-following zombies — Quest 2 WebXR — SURVIVAL mode: 5-min day/night, mining, block building, plus the full WAVES mode -->

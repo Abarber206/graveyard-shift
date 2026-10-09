@@ -8,7 +8,8 @@
 //   0 .. FALL   streaking down on a steep slant, glowing, trailing smoke, whistling
 //   FALL        impact: flash, fireball, thrown dirt, the crater, the ground shakes, the boom arrives late with distance
 //   after       half-buried and smoking; "Open supply pod" blows the side hatch off and the order spills into the crater
-const POD = { FALL: 3.6, H: 430, RUN: 170, LEN: 2.2, R: 0.55, CRATER: 3.0, DEPTH: 0.95, WAIT: 4.5, GLINT: 2.2 };
+// (it takes its time: long enough after the order to walk out and watch it come down)
+const POD = { FALL: 5.0, H: 560, RUN: 220, LEN: 2.2, R: 0.55, CRATER: 3.0, DEPTH: 0.95, WAIT: 16, GLINT: 5.5 };
 
 const Pods = (() => {
   const list = [];

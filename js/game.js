@@ -589,6 +589,7 @@ const G = {
       G.robot = { t: 0, items: e.items, done: {} };
       G.ship.setRobotCargo(e.items); G.ship.lockCycling = true;
       SFX.play('chime', G.ship.termPos, { vol: 0.7 });
+      HUD.chat('', 'Mercy Supply: drone inbound, starboard side, docking in about ' + Math.round(DELIVERY.arrive) + ' seconds.', 'sys');
     },
     // the hyperjump to another world (the run's new route arrives with it; its sky is held back until drop-out)
     jump() {
@@ -597,7 +598,11 @@ const G = {
       SFX.play('warp_charge', null, { vol: 1, dur: JUMP.punch });
     },
     // a supply pod on its way down, and one being cracked open
-    pod(e) { Pods.spawn(e); },
+    pod(e) {
+      Pods.spawn(e);
+      // (the Company calls it in over the radio, so whoever wants to can go out and watch it come down)
+      if (e.t == null) HUD.chat('', 'Mercy Supply: pod inbound, impact in about ' + Math.round(POD.WAIT + POD.GLINT + POD.FALL) + ' seconds. Stand clear of the ship.', 'sys');
+    },
     podOpen(e) { const p = Pods.get(e.id); if (p && !p.opened) Pods.crack(p, false); },
     lock(e) { G.ship.lockCycling = !!e.cycling; if (!e.cycling) SFX.play('beep', new THREE.Vector3(-2.5, 2.5, AIRLOCK.z0), { f: 1320, vol: 0.5 }); },
     itemDel(e) { G.removeItem(e.id); },
@@ -1737,7 +1742,7 @@ const G = {
       const at = (k) => r.t >= D[k] && !r.done[k] && (r.done[k] = true);
       const rp = () => S.robot.position.clone();
       // what everyone hears: the drone's thrusters puffing as it manoeuvres, its clamps letting go
-      for (const k of [2.6, 3.6, 4.4, 4.9, 6.2, 6.8, 7.3]) if (r.t >= k && !r.done['p' + k] && (r.done['p' + k] = true)) SFX.play('hiss_valve', rp(), { vol: 0.5, ref: 2 });
+      for (const k of [D.arrive - 1.6, D.arrive - 0.6, D.arrive + 0.2, D.inside - 0.1, D.leave, D.leave + 0.6, D.out + 0.3]) if (r.t >= k && !r.done['p' + k] && (r.done['p' + k] = true)) SFX.play('hiss_valve', rp(), { vol: 0.5, ref: 2 });
       if (at('drop')) SFX.play('clunk', rp(), { vol: 0.8, pitch: 1.4 });
       // what the host decides: the doors, the lock, the goods
       if (G.isHost) {

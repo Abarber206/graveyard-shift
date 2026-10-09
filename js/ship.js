@@ -5,9 +5,10 @@
 const SHIP = { doorX0: -3.15, doorX1: -1.85, doorH: 2.15, h: 3.4, ground: -1.2 };
 // the airlock chamber inside the outer hatch (x span, and the z of its inner wall; the outer wall is the hull at z 4)
 const AIRLOCK = { x0: -3.62, x1: -1.38, z0: 2.55, ix0: -3.05, ix1: -1.95, ih: 2.15 };
-// a delivery in orbit, second by second: the inner door shuts, the lock vents and the hatch opens, the drone comes in,
-// sets the order down, backs out and leaves; the hatch shuts and the lock repressurises
-const DELIVERY = { close: 0.3, appear: 0.8, open: 1.8, arrive: 4.2, inside: 5.0, drop: 5.5, spawn: 5.5, leave: 6.2, out: 7.0, gone: 8.6, shut: 8.0, sealed: 9.6, end: 10.0 };
+// a delivery in orbit, second by second: the inner door shuts and the drone shows far off, a blinking light that takes
+// its time coming in (long enough for the crew to gather at the portholes); the lock vents and the hatch opens, the
+// drone comes in, sets the order down, backs out and leaves; the hatch shuts and the lock repressurises
+const DELIVERY = { close: 0.3, appear: 0.8, open: 9.6, arrive: 12.2, inside: 13.0, drop: 13.5, spawn: 13.5, leave: 14.2, out: 15.0, gone: 16.6, shut: 16.0, sealed: 17.6, end: 18.0 };
 
 const Ship = (() => {
   const H = 3.4, V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -1512,6 +1513,9 @@ const Ship = (() => {
         mk(new THREE.BoxGeometry(0.05, 0.08, 0.03), blk, sx * 0.2, -0.33, -0.08); mk(new THREE.BoxGeometry(0.05, 0.08, 0.03), blk, sx * 0.2, -0.33, 0.08);
       }
       this.robotCargo = new THREE.Group(); this.robotCargo.position.y = -0.36; g.add(this.robotCargo);
+      // a strobe on top, so it shows as a blinking light long before it's anything more
+      this.robotBeacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xffc060, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      this.robotBeacon.position.set(0, 0.22, 0); g.add(this.robotBeacon);
       this.robot = g;
     }
     // the order slung under the drone, laid out just as it will be set down (items: [{type, x, z}] in ship coords)
@@ -1528,7 +1532,8 @@ const Ship = (() => {
       g.visible = true;
       let x = cx, y = 1.1, z = 4.9, yaw = 0, jet = 0.3;
       const ease = (a) => 1 - Math.pow(1 - clamp(a, 0, 1), 3);
-      if (t < D.arrive) { const u = ease((t - D.appear) / (D.arrive - D.appear)); z = lerp(60, 4.9, u); x = cx + 6 * (1 - u) * (1 - u); y = lerp(3.2, 1.1, u); jet = 0.4 + (1 - u) * 0.4; }
+      // (from far off on the starboard side, drifting in and slowing as it nears the hatch)
+      if (t < D.arrive) { const a = clamp((t - D.appear) / (D.arrive - D.appear), 0, 1), u = 1 - Math.pow(1 - a, 2.2); z = lerp(320, 4.9, u); x = cx + 70 * (1 - u) * (1 - u); y = lerp(30, 1.1, u); jet = 0.4 + (1 - u) * 0.4; }
       else if (t < D.inside) { const u = sstep(D.arrive, D.inside, t); z = lerp(4.9, AIRLOCK.z0 + 0.8, u); y = lerp(1.1, 1.0, u); jet = 0.35; }
       else if (t < D.drop) { const u = sstep(D.inside, D.drop, t); z = AIRLOCK.z0 + 0.8; y = lerp(1.0, 0.72, u); jet = 0.25; }
       else if (t < D.leave) { const u = sstep(D.drop, D.leave, t); z = AIRLOCK.z0 + 0.8; y = lerp(0.72, 1.1, u); jet = 0.35; }
@@ -1539,6 +1544,8 @@ const Ship = (() => {
       g.position.set(x + Math.sin(k * 1.7) * 0.012, y + Math.sin(k * 2.3) * 0.015, z);
       g.rotation.set(Math.sin(k * 1.3) * 0.03, yaw, Math.sin(k * 1.9) * 0.03);
       for (const j of this.robotJets) j.material.opacity = jet * (0.55 + Math.random() * 0.45);
+      // the strobe stays a point of light however far off it is
+      { const b = this.robotBeacon, d = g.position.length(); b.material.opacity = (k * 1.4) % 1 < 0.14 ? 1 : 0.18; b.scale.setScalar(Math.max(0.35, d * 0.03)); }
       this.robotCargo.visible = t < D.drop;
     }
     // lift: belly jets 0..1, main: tail engines 0..1

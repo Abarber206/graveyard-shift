@@ -6,14 +6,15 @@
 //
 // It renders only while you're in the ship near enough to see it, a few times a second, at low resolution.
 //
-// The arrow buttons under it page through CAMS and a MAP that follows each crewmate in turn: the walls, doors and blast
+// The arrow buttons under it page through CAMS, a MAP that follows each crewmate in turn, and the HULL CAMS (the ship's
+// own cameras, round the hull and in the bay). The map shows the walls, doors and blast
 // doors (with their codes) of the level they're on, seen from above, every crewmate on it, and whatever a RADAR sweep
 // has picked up.
 const CrewCam = (() => {
   const W = 768, H = 336, BAR = 26, FPS = 8, NEAR = 15;
   let rt = null, canvas = null, g = null, otex = null, mat = null, cam = null, self = null, timer = 0, last = '';
   let mcv = null, mg = null, mtex = null, view = 0, sweep = null, blips = [];
-  const _q = new THREE.Quaternion(), _e = new THREE.Euler();
+  const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _t = new THREE.Vector3();
 
   // slices for n feeds, in render-target pixels (y up from the bottom), under the status bar
   function layout(n) {
@@ -261,11 +262,12 @@ const CrewCam = (() => {
     if (!near) return;
     timer -= dt; if (timer > 0) return;
     const crew = [...G.players.values()].sort((a, b) => a.id - b.id);
-    view = view % (crew.length + 1);
+    view = view % (crew.length + 2);
     // the map: drawn, not rendered, so it can run smoothly
-    if (view > 0) { timer = 1 / 15; mat.uniforms.uMap.value = 1; drawMap(crew[view - 1], crew, t); return; }
+    if (view > 0 && view <= crew.length) { timer = 1 / 15; mat.uniforms.uMap.value = 1; drawMap(crew[view - 1], crew, t); return; }
     mat.uniforms.uMap.value = 0;
     timer = 1 / FPS;
+    if (view === crew.length + 1) { hullCams(me, t); return; }
     const rects = layout(crew.length);
     const sa = selfAvatar(), mon = G.ship.monMesh;
     mon.visible = false;   // (never draw the screen into itself)
@@ -285,15 +287,60 @@ const CrewCam = (() => {
     const key = crew.map((p) => p.id + where(p) + p.alive).join() + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft) + Math.floor(t * 1.1 % 1 < 0.6);
     if (key !== last) { last = key; drawOverlay(crew, rects, t); }
   }
-  // the buttons under the screen: page through the views (CAMS, then a map following each crewmate)
+  // the ship's own cameras on its hull: four feeds on the same old tube (nothing but static from orbit). You show up in
+  // them the way you do in the crew's feeds.
+  function hullCams(me, t) {
+    const S = G.ship, cams = S.hullCams, rects = layout(cams.length), outside = !!G.ext && G.mode !== 'orbit' && G.mode !== 'landing';
+    S.monMesh.visible = false;
+    const sa = selfAvatar();
+    if (sa) {
+      const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0));
+      if (G.shipMoved && G.playerAboard(me)) { mp.applyMatrix4(G.shipM); q = q.premultiply(G.shipQ); }
+      sa.root.visible = me.alive && me.zone === 'out'; sa.root.position.copy(mp); sa.root.quaternion.copy(q);
+      sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch });
+    }
+    // (outside ones see nothing from orbit; the one on the tripod only while it's set up)
+    const liveOf = (c) => c.inside || (outside && (!c.ground || S.groundCamUp));
+    cams.forEach((c, i) => {
+      const r = rects[i]; if (!liveOf(c)) return;
+      cam.position.copy(c.pos); _t.copy(c.look); cam.up.set(0, 1, 0);
+      if (G.shipMoved) { cam.position.applyMatrix4(G.shipM); _t.applyMatrix4(G.shipM); cam.up.applyQuaternion(G.shipQ); }
+      cam.lookAt(_t); cam.fov = 82; cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
+      R.renderView(cam, rt, r.x, r.y, r.w, r.h);
+    });
+    cam.fov = 72; cam.up.set(0, 1, 0);
+    if (sa) sa.root.visible = false;
+    S.monMesh.visible = true;
+    const key = 'hull' + outside + S.groundCamUp + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
+    if (key === last) return;
+    last = key;
+    g.clearRect(0, 0, W, H); drawBar('◀  SHIP CAMS  ▶');
+    cams.forEach((c, i) => {
+      const r = rects[i], x = r.x, y = H - r.y - r.h;
+      g.strokeStyle = 'rgba(0,0,0,0.9)'; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, r.w - 3, r.h - 3);
+      const live = liveOf(c);
+      if (!live) {
+        g.fillStyle = 'rgba(6,8,6,0.95)'; g.fillRect(x + 3, y + 3, r.w - 6, r.h - 6);
+        for (let k = 0; k < 90; k++) { g.fillStyle = `rgba(200,200,200,${Math.random() * 0.18})`; g.fillRect(x + Math.random() * r.w, y + Math.random() * r.h, 3, 1); }
+        g.fillStyle = '#a8d8a0'; g.textAlign = 'center'; g.font = '22px "VT323", monospace'; g.fillText('NO EXTERIOR FEED', x + r.w / 2, y + r.h / 2); g.textAlign = 'left';
+      }
+      g.font = '18px "VT323", monospace';
+      const tag = (c.inside ? '' : 'EXT · ') + c.name;
+      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x + 6, y + 6, g.measureText(tag).width + 12, 20);
+      g.fillStyle = '#e8f0e0'; g.fillText(tag, x + 12, y + 17);
+      if (live && (t * 1.1) % 1 < 0.6) { g.fillStyle = '#ff3a2a'; g.beginPath(); g.arc(x + r.w - 16, y + 16, 5, 0, TAU); g.fill(); g.fillStyle = '#e8f0e0'; g.fillText('REC', x + r.w - 52, y + 17); }
+    });
+    otex.needsUpdate = true;
+  }
+  // the buttons under the screen: page through the views (CAMS, a map following each crewmate, then the hull cameras)
   function cycle(dir) {
-    const n = G.players.size + 1;
+    const n = G.players.size + 2;
     view = (((view + dir) % n) + n) % n; timer = 0; last = '';
   }
   // RADAR: sweep around whoever the map follows (from the cams it picks the first crewmate out in the field)
   function radar() {
     const crew = [...G.players.values()].sort((a, b) => a.id - b.id);
-    if (view === 0) { const i = crew.findIndex((p) => p.alive && !G.inShip(p)); view = (i >= 0 ? i : crew.findIndex((p) => p.id === G.localId)) + 1; }
+    if (view === 0 || view === crew.length + 1) { const i = crew.findIndex((p) => p.alive && !G.inShip(p)); view = (i >= 0 ? i : crew.findIndex((p) => p.id === G.localId)) + 1; }
     sweep = { t0: performance.now() / 1000, seen: new Set() }; timer = 0; last = '';
   }
   function reset() { view = 0; sweep = null; blips = []; }

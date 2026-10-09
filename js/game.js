@@ -877,11 +877,12 @@ const G = {
       // the main screen is the ship's, not yours: what one crewmate puts on it is what everyone sees (and it stays)
       case 'monitor': {
         if (p.zone !== 'out' || !G.run || Math.hypot(at.x, at.z + 3.875) > 3.5) return;
-        const crew = [...G.players.values()].sort((a, b) => a.id - b.id), n = crew.length + 1;
+        // (the pages: the crew's cams, a map following each crewmate, the hull cams)
+        const crew = [...G.players.values()].sort((a, b) => a.id - b.id), n = crew.length + 2;
         let view = (G.run.mon || 0) % n;
         if (r.act === 'radar') {
-          // from the cams, the sweep follows the first crewmate out in the field (or whoever pressed it)
-          if (view === 0) { const i = crew.findIndex((q) => q.alive && !G.inShip(q)); view = (i >= 0 ? i : crew.findIndex((q) => q.id === pid)) + 1; }
+          // from either set of cams, the sweep follows the first crewmate out in the field (or whoever pressed it)
+          if (view === 0 || view === n - 1) { const i = crew.findIndex((q) => q.alive && !G.inShip(q)); view = (i >= 0 ? i : crew.findIndex((q) => q.id === pid)) + 1; }
         } else view = (((view + (r.act === 'next' ? 1 : -1)) % n) + n) % n;
         G.run.mon = view;
         G.emit({ e: 'monitor', view, radar: r.act === 'radar' });

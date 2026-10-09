@@ -5778,6 +5778,46 @@ const Ship = (() => {
       this.pt('darkmetal', 0.455, 0.055, x, 1.75, z + side * 0.355, 0, 0, 0, 24);
       for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; this.ps('steelBolt', 0.016, x + Math.cos(a) * 0.43, 1.75 + Math.sin(a) * 0.43, z - side * 0.06, 1, 1, 1, 6); this.ps('steelBolt', 0.018, x + Math.cos(a + 0.4) * 0.52, 1.75 + Math.sin(a + 0.4) * 0.52, z + side * 0.36, 1, 1, 1, 6); }
     }
+    // a hard hat: a tough dome with a ridge down the crown and a rib either side, a brim with a peak at the front, the
+    // suspension band inside; its base at (x, y, z), turned by (rx, ry, rz)
+    hardHat(m, x, y, z, rx, ry, rz) {
+      const M = mat(x, y, z, rx, ry, rz), add = (k, geo, lm) => this.put(k, geo, M.clone().multiply(lm)), S = [1, 0.9, 1.18];
+      add(m, new THREE.SphereGeometry(0.135, 22, 10, 0, TAU, 0, Math.PI / 2), mat(0, 0, 0, 0, 0, 0, ...S));
+      add(m, new THREE.TorusGeometry(0.135, 0.012, 6, 24, Math.PI).rotateY(Math.PI / 2), mat(0, 0, 0, 0, 0, 0, ...S));
+      // (the side ribs run alongside the ridge, front to back)
+      for (const s of [-1, 1]) add(m, new THREE.TorusGeometry(Math.sqrt(0.135 * 0.135 - 0.055 * 0.055), 0.008, 5, 20, Math.PI).rotateY(Math.PI / 2).translate(s * 0.055, 0, 0), mat(0, 0, 0, 0, 0, 0, ...S));
+      add(m, new THREE.CylinderGeometry(0.158, 0.163, 0.012, 26), mat(0, 0.004, 0, 0, 0, 0, 1, 1, 1.2));
+      add(m, new THREE.CylinderGeometry(0.11, 0.11, 0.01, 16, 1, false, -Math.PI / 2, Math.PI), mat(0, 0.005, 0.12, 0, 0, 0, 1.25, 1, 0.8));
+      add('black', new THREE.TorusGeometry(0.118, 0.009, 4, 20).rotateX(Math.PI / 2), mat(0, 0.045, 0, 0, 0, 0, 1, 1, 1.16));
+      add('black', new THREE.CircleGeometry(0.128, 20).rotateX(Math.PI / 2), mat(0, 0.002, 0, 0, 0, 0, 1, 1, 1.18));
+    }
+    // a coat hook: a plate on the wall, an arm out (local +z, turned by ry) and an upturned tip things hang from
+    wallHook(x, y, z, ry) {
+      const M = mat(x, y, z, 0, ry, 0), add = (k, geo, lm) => this.put(k, geo, M.clone().multiply(lm));
+      add('darkmetal', new THREE.BoxGeometry(0.05, 0.09, 0.012), mat(0, -0.01, 0.006));
+      for (const yy of [0.02, -0.04]) add('steelBolt', new THREE.CylinderGeometry(0.006, 0.006, 0.006, 6).rotateX(Math.PI / 2), mat(0, yy, 0.014));
+      add('steelBolt', new THREE.CylinderGeometry(0.008, 0.008, 0.095, 8).rotateX(Math.PI / 2), mat(0, 0, 0.055));
+      add('steelBolt', new THREE.CylinderGeometry(0.008, 0.008, 0.035, 8), mat(0, 0.017, 0.1));
+      add('steelBolt', new THREE.SphereGeometry(0.011, 8, 6), mat(0, 0.036, 0.1));
+    }
+    // a work jacket hung up by its collar: the body, the sleeves hanging, a collar, a zip, pockets, a band of reflective
+    // tape; hung from (x, y, z), facing local +z turned by ry
+    jacket(x, y, z, ry) {
+      const M = mat(x, y, z, 0, ry, 0), add = (k, geo, lm) => this.put(k, geo, M.clone().multiply(lm));
+      add('olive', new THREE.CapsuleGeometry(0.15, 0.36, 4, 14), mat(0, -0.34, 0, 0, 0, 0, 1.35, 1, 0.55));
+      for (const s of [-1, 1]) {
+        add('olive', new THREE.CapsuleGeometry(0.055, 0.42, 4, 10), mat(s * 0.235, -0.38, 0.015, 0, 0, s * 0.12));
+        add('olive', new THREE.BoxGeometry(0.11, 0.1, 0.02), mat(s * 0.1, -0.5, 0.083, 0, 0, 0));
+        add('black', new THREE.BoxGeometry(0.1, 0.008, 0.022), mat(s * 0.1, -0.452, 0.084, 0, 0, 0));
+      }
+      add('olive', new THREE.TorusGeometry(0.075, 0.032, 6, 16).rotateX(Math.PI / 2), mat(0, -0.03, 0, 0, 0, 0, 1.2, 1, 0.75));
+      add('black', new THREE.BoxGeometry(0.012, 0.6, 0.01), mat(0, -0.34, 0.084, 0, 0, 0));
+      add('yellow', new THREE.BoxGeometry(0.408, 0.04, 0.172), mat(0, -0.42, 0, 0, 0, 0));
+      // on a wire coat hanger: its hook over the coat hook, its neck down into the collar
+      add('steelBolt', new THREE.TorusGeometry(0.026, 0.004, 4, 12, Math.PI * 1.3), mat(0, 0.05, -0.02, 0, 0, 0));
+      add('steelBolt', new THREE.CylinderGeometry(0.004, 0.004, 0.06, 5), mat(0, 0.005, -0.02, 0, 0, 0));
+      add('steelBolt', new THREE.CylinderGeometry(0.004, 0.004, 0.4, 5).rotateZ(Math.PI / 2), mat(0, -0.06, -0.01, 0, 0, 0));
+    }
     // ---------- build ----------
     build() {
       const g = this.group, dm = MATS.get('darkmetal'), hz = MATS.get('hazard');
@@ -6169,14 +6209,51 @@ const Ship = (() => {
     }
     buildBay() {
       const dm = MATS.get('darkmetal');
-      // terminal desk + monitor
-      this.box(1.5, 0.9, 1.0, MATS.get('painted'), 2.65, 0.45, -3.45);
-      this.box(1.0, 0.65, 0.12, dm, 2.65, 1.35, -3.72).rotation.x = -0.15;
-      this.termCanvas = TEX.canvas(256, 160);
-      this.termTex = new THREE.CanvasTexture(this.termCanvas[0]); this.termTex.colorSpace = THREE.SRGBColorSpace;
-      const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 0.55), new THREE.MeshBasicMaterial({ map: this.termTex }));
-      scr.position.set(2.65, 1.36, -3.655); scr.rotation.x = -0.15; this.group.add(scr);
-      this.box(0.7, 0.04, 0.25, MATS.get('dark'), 2.65, 0.92, -3.15);
+      // the terminal: a steel desk with a drawer pedestal, a hulking old CRT terminal on a stand, a worn keyboard and a
+      // trackball, and the computer itself under the desk (drive bays, a column of lights), cabled up behind
+      {
+        const D = 'darkmetal', P = 'painted', x0 = 1.9, x1 = 3.4, z0 = -3.95, z1 = -2.95, top = 0.9, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+        this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz);
+        this.pc(P, 0.024, 0.024, x1 - x0, cx, top - 0.024, z1, 0, 0, Math.PI / 2, 10);
+        this.pb('pad', 0.9, 0.005, 0.42, 2.75, top + 0.0025, -3.18);
+        // the pedestal: three drawers with pulls (the bottom one won't quite shut)
+        const px = x0 + 0.24, ph = top - 0.045;
+        this.pb(P, 0.46, ph, 0.94, px, ph / 2, cz);
+        for (let i = 0; i < 3; i++) { const y = 0.15 + i * 0.27, out = i === 0 ? 0.05 : 0; this.pb(P, 0.42, 0.24, 0.02, px, y, z1 + 0.012 + out); this.pb('steelBolt', 0.15, 0.02, 0.025, px, y + 0.07, z1 + 0.032 + out); this.pb('paper', 0.08, 0.035, 0.004, px, y + 0.03, z1 + 0.024 + out); }
+        // the right-hand side panel, a modesty panel at the back, a footrest bar
+        this.pb(P, 0.04, ph, 0.94, x1 - 0.02, ph / 2, cz);
+        this.pb(P, x1 - x0 - 0.5, 0.42, 0.025, cx + 0.23, 0.6, z0 + 0.07);
+        this.pc('steelBolt', 0.014, 0.014, x1 - x0 - 0.5, cx + 0.23, 0.13, -3.45, 0, 0, Math.PI / 2, 8);
+        // the computer: a grey tower under the desk, drive bays, status lights, a vent grille down the side
+        const tx = 3.07, tz = -3.5;
+        this.pb('white', 0.2, 0.52, 0.5, tx, 0.26, tz);
+        for (let i = 0; i < 3; i++) { this.pb('black', 0.15, 0.035, 0.008, tx, 0.44 - i * 0.055, tz + 0.252); this.pb('black', 0.02, 0.006, 0.006, tx + 0.05, 0.44 - i * 0.055, tz + 0.257); }
+        for (let i = 0; i < 4; i++) this.pb(i === 2 ? 'glowAmber' : 'glowGreen', 0.012, 0.012, 0.006, tx - 0.06, 0.26 - i * 0.03, tz + 0.253);
+        this.pc('black', 0.022, 0.022, 0.01, tx + 0.05, 0.2, tz + 0.252, Math.PI / 2, 0, 0, 12);
+        for (let i = 0; i < 7; i++) this.pb('black', 0.004, 0.012, 0.36, tx + 0.102, 0.12 + i * 0.045, tz);
+        this.tube('black', [V(2.65, 1.2, -3.98), V(2.8, 0.88, -3.94), V(3.0, 0.55, -3.9), V(3.06, 0.42, -3.76)], 0.014, 14);
+        this.tube('black', [V(2.5, top + 0.01, -3.25), V(2.55, top + 0.02, -3.55), V(2.62, 0.86, -3.94)], 0.006, 10);
+        // the monitor: a deep tapered shell, a heavy bezel with a chin of knobs and a brand plate, on a stand
+        const mg = new THREE.Group(); mg.position.set(2.65, 1.37, -3.69); mg.rotation.x = -0.15; this.group.add(mg);
+        const shell = MATS.rep('painted', 0.5, 0.5, 0xb4ae9a);
+        const mm = (geo, m, x, y, z) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; mg.add(me); return me; };
+        for (const [w, h, x, y] of [[1.06, 0.07, 0, 0.31], [1.06, 0.13, 0, -0.34], [0.09, 0.56, -0.485, -0.005], [0.09, 0.56, 0.485, -0.005]]) mm(new THREE.BoxGeometry(w, h, 0.075), shell, x, y, 0);
+        { const g = new THREE.BoxGeometry(1.0, 0.7, 0.27); const p = g.attributes.position; for (let i = 0; i < p.count; i++) if (p.getZ(i) < 0) { p.setX(i, p.getX(i) * 0.62); p.setY(i, p.getY(i) * 0.62); } g.computeVertexNormals(); mm(g, shell, 0, -0.01, -0.17); }
+        mm(new THREE.BoxGeometry(0.9, 0.58, 0.02), MATS.get('darkmetal'), 0, -0.005, 0.0);
+        for (const kx of [0.3, 0.38]) { const k = mm(new THREE.CylinderGeometry(0.018, 0.018, 0.02, 12), MATS.get('darkmetal'), kx, -0.345, 0.045); k.rotation.x = Math.PI / 2; }
+        mm(new THREE.BoxGeometry(0.014, 0.014, 0.01), this.cm.glowGreen, 0.43, -0.345, 0.04);
+        { const pl = mm(new THREE.PlaneGeometry(0.2, 0.045), new THREE.MeshStandardMaterial({ map: TEX.sign('MERCY  T-400', { w: 256, h: 56, size: 30, bg: '#2a2824', fg: '#c9b88a', border: false }), roughness: 0.6 }), -0.32, -0.345, 0.038); pl.castShadow = false; }
+        this.termCanvas = TEX.canvas(256, 160);
+        this.termTex = new THREE.CanvasTexture(this.termCanvas[0]); this.termTex.colorSpace = THREE.SRGBColorSpace;
+        { const scr = mm(new THREE.PlaneGeometry(0.88, 0.55), new THREE.MeshBasicMaterial({ map: this.termTex }), 0, -0.005, 0.012); scr.castShadow = false; }
+        this.pb('darkmetal', 0.1, 0.16, 0.1, 2.65, top + 0.08, -3.7); this.pb('darkmetal', 0.38, 0.025, 0.3, 2.65, top + 0.0125, -3.7);
+        // the keyboard: a sloped steel base, rows of worn keys, a spacebar; a trackball beside it
+        { const kb = mat(2.62, top + 0.02, -3.16, 0.07, 0, 0), add = (m, w, h, d, x, y, z) => this.put(m, new THREE.BoxGeometry(w, h, d), kb.clone().multiply(mat(x, y, z)));
+          add('darkmetal', 0.66, 0.03, 0.22, 0, 0, 0);
+          for (let r = 0; r < 4; r++) for (let c = 0; c < 14; c++) add(r === 0 || c === 0 || c === 13 ? 'black' : 'white', 0.034, 0.016, 0.034, -0.273 + c * 0.042, 0.022, -0.07 + r * 0.042);
+          add('white', 0.24, 0.016, 0.034, 0, 0.022, 0.098); }
+        this.pb('black', 0.13, 0.03, 0.13, 3.1, top + 0.015, -3.14); this.ps('red', 0.032, 3.1, top + 0.035, -3.14, 1, 1, 1, 12);
+      }
       this.drawTerminal();
       this.col(1.88, 3.42, -4.0, -2.93);
       this.interact.push({ kind: 'terminal', x: this.termPos.x, y: 1.2, z: -3.2, r: 0.75 });
@@ -6209,9 +6286,29 @@ const Ship = (() => {
       { const hw = []; DoorKit.lever(hw, 1.1, 0.06); DoorKit.hinges(hw, 2.3); const m = DoorKit.mesh(DoorKit.place(hw, mat(-0.55, 0, 0))); m.position.set(-7.03, 0, 0); m.rotation.y = Math.PI / 2; this.group.add(m); }
       const es = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.22), new THREE.MeshBasicMaterial({ map: TEX.sign('ENGINE ROOM', { w: 256, h: 64, size: 30, bg: '#1b1b18', fg: '#d0a040' }) }));
       es.position.set(-6.99, 2.5, 0); es.rotation.y = Math.PI / 2; this.group.add(es);
-      // benches under the portholes
-      this.box(1.6, 0.08, 0.5, MATS.get('wood'), 2.55, 0.48, 3.66); this.box(1.4, 0.45, 0.35, dm, 2.55, 0.22, 3.7);
-      this.col(1.75, 3.35, 3.4, 4.0);
+      // the crew's corner under the starboard porthole: a padded bench on a steel frame, a table bolted to the deck, and
+      // what's left of lunch and last night's card game
+      {
+        const D = 'darkmetal', bz = 3.62, tx = 2.55, tz = 2.95, ty = 0.76;
+        this.pb('pad', 1.5, 0.09, 0.42, 2.55, 0.465, bz); this.pb(D, 1.52, 0.04, 0.44, 2.55, 0.4, bz);
+        for (const x of [1.86, 3.24]) for (const z of [bz - 0.17, bz + 0.17]) this.pb(D, 0.04, 0.38, 0.04, x, 0.19, z);
+        this.pb(D, 1.4, 0.03, 0.03, 2.55, 0.1, bz - 0.17);
+        this.pb('pad', 1.5, 0.34, 0.08, 2.55, 0.74, 3.86, -0.12, 0, 0);
+        // the table: a scuffed wooden top on a steel rim, one heavy post, a foot plate bolted down
+        this.pb('wood', 1.3, 0.045, 0.62, tx, ty - 0.0225, tz); this.pb(D, 1.32, 0.025, 0.64, tx, ty - 0.055, tz);
+        this.pc(D, 0.05, 0.06, ty - 0.07, tx, (ty - 0.07) / 2, tz, 0, 0, 0, 12); this.pc(D, 0.24, 0.27, 0.025, tx, 0.0125, tz, 0, 0, 0, 18);
+        for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; this.pc('steelBolt', 0.014, 0.014, 0.012, tx + Math.cos(a) * 0.2, 0.028, tz + Math.sin(a) * 0.2, 0, 0, 0, 6); }
+        // a hand of cards fanned out, the deck, a card face-down; two mugs; a lunchbox; a thermos; a pair of dice
+        for (let i = 0; i < 5; i++) this.pq('paper', 0.058, 0.084, tx - 0.36 + i * 0.03, ty + 0.002 + i * 0.0004, tz + 0.1, -Math.PI / 2, 0, 0.45 - i * 0.22);
+        this.pq('red', 0.058, 0.084, tx + 0.02, ty + 0.002, tz - 0.12, -Math.PI / 2, 0, 0.3);
+        this.pb('white', 0.064, 0.022, 0.09, tx + 0.18, ty + 0.011, tz - 0.06, 0, 0.2, 0); this.pb('red', 0.065, 0.003, 0.091, tx + 0.18, ty + 0.0235, tz - 0.06, 0, 0.2, 0);
+        for (const [mx, mz, r] of [[tx - 0.05, tz + 0.2, 0], [tx + 0.36, tz + 0.16, 2]]) { this.pc('white', 0.042, 0.038, 0.1, mx, ty + 0.05, mz, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, mx + Math.cos(r) * 0.045, ty + 0.055, mz + Math.sin(r) * 0.045, 0, -r, 0, 8); this.pc('black', 0.037, 0.037, 0.005, mx, ty + 0.096, mz, 0, 0, 0, 12); }
+        this.pb('red', 0.26, 0.12, 0.15, tx + 0.42, ty + 0.06, tz - 0.12, 0, -0.15, 0); this.pb('black', 0.27, 0.008, 0.155, tx + 0.42, ty + 0.1, tz - 0.12, 0, -0.15, 0);
+        this.pt('black', 0.055, 0.008, tx + 0.42, ty + 0.12, tz - 0.12, 0, -0.15, 0, 10, Math.PI);
+        this.pc('green', 0.045, 0.045, 0.26, tx - 0.5, ty + 0.13, tz - 0.14, 0, 0, 0, 14); this.pc('black', 0.048, 0.048, 0.055, tx - 0.5, ty + 0.285, tz - 0.14, 0, 0, 0, 14);
+        for (const [dx, dz, r] of [[0.02, 0.08, 0.3], [0.06, 0.05, 1.1]]) this.pb('white', 0.022, 0.022, 0.022, tx + 0.2 + dx, ty + 0.011, tz + dz, 0, r, 0);
+        this.col(1.75, 3.35, 3.4, 4.0); this.col(1.9, 3.2, 2.64, 3.26);
+      }
       // floor marking
       const mk = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.4), new THREE.MeshBasicMaterial({ map: TEX.sign('SCRAP\nSTORAGE', { w: 256, h: 180, size: 30, bg: 'rgba(0,0,0,0)', fg: 'rgba(210,170,40,.55)', dirty: false }), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
       mk.rotation.x = -Math.PI / 2; mk.position.set(-4.6, 0.004, -2.3); this.group.add(mk);
@@ -6335,7 +6432,7 @@ const Ship = (() => {
         this.sign(s < 0 ? 'CREW 01' : 'CREW 02', 0.3, 0.07, -6.596, 1.88, z, Math.PI / 2, { w: 256, h: 60, size: 40, bg: '#e8e2d0', fg: '#222', border: false });
         this.col(-7.05, -6.6, z - 0.3, z + 0.3);
       }
-      for (const z of [0.92, 1.28]) { this.pc(SB, 0.012, 0.012, 0.12, -6.99, 2.3, z, 0, 0, Math.PI / 2, 6); this.ps('yellow', 0.15, -6.86, 2.17, z, 1, 1.05, 1.1, 14); this.ps('black', 0.11, -6.74, 2.15, z, 0.5, 0.65, 0.95, 12); }
+      for (const [z, m, t] of [[0.92, 'yellow', 0.12], [1.28, 'white', -0.1]]) { this.wallHook(-7.04, 2.29, z, Math.PI / 2); this.hardHat(m, -7.05 + 0.193, 2.276, z, -0.15, Math.PI / 2 + t * 0.4, 0); }
       this.pb('painted', 0.1, 0.6, 0.55, -7.0, 2.45, -1.1);
       for (let r = 0; r < 3; r++) for (let c = 0; c < 6; c++) this.pb('black', 0.02, 0.07, 0.04, -6.945, 2.27 + r * 0.16, -1.32 + c * 0.088);
       for (let c = 0; c < 5; c++) this.pb(c === 3 ? 'glowRed' : 'glowGreen', 0.006, 0.015, 0.015, -6.948, 2.71, -1.28 + c * 0.1);
@@ -6363,7 +6460,7 @@ const Ship = (() => {
       this.pb('white', 0.38, 0.22, 0.46, -6.67, sy[1] + 0.11, 2.1); this.pb('red', 0.006, 0.12, 0.04, -6.477, sy[1] + 0.11, 2.1); this.pb('red', 0.006, 0.04, 0.12, -6.477, sy[1] + 0.11, 2.1);
       for (const z of [2.75, 2.9, 3.05]) this.pc('black', 0.03, 0.035, 0.24, -6.6, sy[1] + 0.035, z, 0, 0, Math.PI / 2, 10);
       for (let i = 0; i < 3; i++) this.pb('olive', 0.5, 0.08, 0.55, -6.66, sy[2] + 0.04 + i * 0.08, 3.1, 0, i * 0.08, 0);
-      this.ps('yellow', 0.15, -6.7, sy[2] + 0.15, 2.2, 1, 1, 1.1, 12);
+      this.hardHat('orange', -6.68, sy[2], 2.2, 0, 0.7, 0);
       // the terminal corner: a stool, a cold coffee, papers, a desk lamp, sticky notes on the monitor
       this.pc('pad', 0.19, 0.19, 0.07, 3.05, 0.62, -2.55, 0, 0, 0, 16); this.pc(D, 0.025, 0.025, 0.55, 3.05, 0.32, -2.55, 0, 0, 0, 8);
       for (let i = 0; i < 5; i++) { const a = (i / 5) * TAU; this.beam(D, V(3.05, 0.08, -2.55), V(3.05 + Math.cos(a) * 0.26, 0.03, -2.55 + Math.sin(a) * 0.26), 0.03); }
@@ -6373,7 +6470,7 @@ const Ship = (() => {
       this.pc(D, 0.07, 0.08, 0.03, 3.3, 0.915, -3.8, 0, 0, 0, 12);
       this.beam(D, V(3.3, 0.93, -3.8), V(3.25, 1.25, -3.7), 0.015); this.beam(D, V(3.25, 1.25, -3.7), V(3.12, 1.2, -3.55), 0.015);
       this.pc(D, 0.04, 0.09, 0.1, 3.1, 1.15, -3.52, 0.5, 0, 0, 12); this.ps('glowWarm', 0.03, 3.1, 1.11, -3.5, 1, 1, 1, 8);
-      this.pq('noteY', 0.07, 0.07, 2.17, 1.62, -3.652, -0.15, 0, 0.1); this.pq('noteP', 0.07, 0.07, 3.13, 1.08, -3.66, -0.15, 0, -0.08); this.pq('noteB', 0.07, 0.07, 3.14, 1.2, -3.662, -0.15, 0, 0.05);
+      this.pq('noteY', 0.07, 0.07, 2.17, 1.62, -3.646, -0.15, 0, 0.1); this.pq('noteP', 0.07, 0.07, 3.135, 1.1, -3.616, -0.15, 0, -0.08); this.pq('noteB', 0.07, 0.07, 3.14, 1.22, -3.633, -0.15, 0, 0.05);
       // bulkhead (bay side): flight deck sign, first-aid kit, extinguisher, notice board
       this.sign('FLIGHT DECK', 1.0, 0.2, 3.49, 2.95, 0, -Math.PI / 2, sx);
       this.pb('white', 0.1, 0.4, 0.5, 3.45, 1.45, -2.0); this.pb('red', 0.006, 0.26, 0.07, 3.397, 1.45, -2.0); this.pb('red', 0.006, 0.07, 0.26, 3.397, 1.45, -2.0); this.pb('hardware', 0.02, 0.03, 0.12, 3.395, 1.29, -2.0);
@@ -6388,7 +6485,7 @@ const Ship = (() => {
       for (const [y, z] of [[2.17, 2.7], [2.15, 3.18], [1.79, 3.38]]) this.ps('red', 0.012, 3.46, y, z, 1, 1, 1, 6);
       this.sign('DAYS WITHOUT AN\nINCIDENT:  0', 0.5, 0.22, 3.466, 1.7, 2.84, -Math.PI / 2, { w: 256, h: 112, size: 26, bg: '#e8e0c8', fg: '#2a2620' });
       // airlock: a hazard plate on the bay floor in front of the inner door; cargo stencil on the port wall
-      this.pb('hazard', AIRLOCK.ix1 - AIRLOCK.ix0 + 0.2, 0.008, 0.4, (AIRLOCK.ix0 + AIRLOCK.ix1) / 2, 0.004, AIRLOCK.z0 - 0.42);
+      this.pb('hazard', AIRLOCK.ix1 - AIRLOCK.ix0 + 0.2, 0.008, 0.38, (AIRLOCK.ix0 + AIRLOCK.ix1) / 2, 0.004, AIRLOCK.z0 - 0.465);   // (stops short of the door pockets)
       this.sign('SECURE ALL CARGO BEFORE FLIGHT', 1.3, 0.12, -3.6, 2.6, -3.99, 0, { w: 512, h: 48, size: 30, bg: 'rgba(0,0,0,0)', fg: 'rgba(28,24,18,.8)', border: false, dirty: false, clear: true });
       // tie-down rings set into the floor
       for (const x of [-5.5, -2.5, 0.5]) for (const z of [-2.6, 0, 2.6]) { this.pb(SB, 0.14, 0.012, 0.14, x, 0.006, z); this.pt(SB, 0.06, 0.012, x, 0.02, z, Math.PI / 2, 0, 0, 10, Math.PI); }
@@ -6593,9 +6690,10 @@ const Ship = (() => {
         chart.position.set(3.712, 1.8, 2.25); chart.rotation.y = Math.PI / 2; this.group.add(chart);
         this.pb(D, 0.02, 0.79, 0.03, 3.715, 1.8, 1.735); this.pb(D, 0.02, 0.79, 0.03, 3.715, 1.8, 2.765);
       }
-      for (const z of [1.45, 1.75]) this.pc(SB, 0.012, 0.012, 0.1, 3.75, 1.62, z, 0, 0, Math.PI / 2, 6);
-      this.put('olive', new THREE.CapsuleGeometry(0.17, 0.5, 4, 10), mat(3.85, 1.2, 1.45, 0, 0, 0, 1, 1, 0.7));
-      this.ps('yellow', 0.15, 3.86, 1.52, 1.75, 1, 0.8, 1.1, 12); this.pc('yellow', 0.19, 0.19, 0.012, 3.86, 1.46, 1.75, 0, 0, 0, 14);
+      for (const z of [1.45, 1.75]) this.wallHook(3.71, 1.61, z, Math.PI / 2);
+      this.jacket(3.8, 1.594, 1.45, Math.PI / 2);
+      // (a hat sits on its hook by the headband inside it and leans back until its brim rests on the wall)
+      this.hardHat('yellow', 3.7 + 0.193, 1.596, 1.75, -0.15, Math.PI / 2 - 0.05, 0);
     }
     // ---------- outer hull ----------
     // The skin (shaped by hullSec above) is lofted nose to tail. The cabin's openings are cut out of it per pixel in its

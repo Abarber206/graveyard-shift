@@ -49,7 +49,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3();
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 5.6, end: 9.0 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
@@ -97,7 +97,7 @@ const G = {
     G.bombs = []; G.fuses = []; for (const b of G.blasts) for (const p of b.parts) R.scene.remove(p.o); G.blasts = [];
     for (const g of G.grenades) R.scene.remove(g.mesh); G.grenades = [];
     G.ship.snapShutters(false);
-    G.ship.approach = 0; G.ship.arrive = 1; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
+    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
     HUD.reset(); Player.resetVM(); Player.clearPerks(); G.clearMarks(); CrewCam.reset();
     R.fx.fade = 0; R.fx.damage = 0; R.fx.leech = 0; R.fx.static = 0; R.fx.flash = 0; R.fx.fear = 0; R.fx.health = 1; G.adrenaline = 0; G.orbitSeed = null;
   },
@@ -303,8 +303,10 @@ const G = {
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); }
   },
+  // the colour a world's air burns as you come down through it: its sky colour, deepened
+  entryColor(look) { const c = (G._fire || (G._fire = new THREE.Color())).set(look.atmo), m = Math.max(c.r, c.g, c.b, 0.01); return c.setRGB((c.r / m) ** 2.2, (c.g / m) ** 2.2, (c.b / m) ** 2.2); },
   enterOrbitState() {
-    G.ship.space.visible = true; G.ship.setDoor(false); G.ship.door.t = 0; G.ship.setFlood(false);
+    G.ship.space.visible = true; G.ship.setDoor(false); G.ship.door.t = 0; G.ship.setFlood(false); G.ship.turn = 0;
     G.flight = null; G.updateFlight(0); G.ship.setLanded(false); G.ship.setThrust(0, 0); G.ship.setEngines(0.4);
     G.lightSources = [...G.ship.lights];
   },
@@ -2061,6 +2063,8 @@ const G = {
       if (G.mode === 'landing') {
         // the fall: eased in by the burn, fastest through the middle, slowing as the air takes hold (the altitude
         // itself shrinks geometrically, in the ship's orbit code, so the world swells at a steady rate)
+        // first the nose swings round onto the world, through the burn
+        S.turn = sstep(0, 1.3, t);
         const w = clamp((t - 0.6) / (E.white - 0.6), 0, 1);
         S.approach = w * w * (3 - 2 * w);
         // the air starts where the ship actually reaches it
@@ -2103,10 +2107,10 @@ const G = {
       const J = JUMP, t = s.t, pu = S.portal.material.uniforms, tu = S.tunnel.material.uniforms;
       if (t < J.punch) {
         const u = t / J.punch; G.fovAdd = -5 * u * u; Player.addShake(0.05 + 0.3 * u * u); S.warp.material.uniforms.uK.value = 0;
-        // the mouth of the wormhole opens out of nothing ahead of the nose and comes rushing in to swallow the ship
-        const o = sstep(0.25, 1, u);
-        S.portal.visible = o > 0; pu.uK.value = sstep(0, 0.35, o); S.portal.scale.setScalar(lerp(40, 620, sstep(0, 0.4, o)));
-        S.portal.position.set(lerp(2600, 45, Math.pow(o, 2.4)), 1.6, 0);
+        // going this fast, space splits ahead of the nose: a crack, then a rip that gapes open and rushes in on the ship
+        const o = sstep(0.12, 1, u), rush = Math.pow(sstep(0.55, 1, u), 2.2);
+        S.portal.visible = o > 0; pu.uK.value = 0.06 + sstep(0.15, 0.85, o) * 1.0; S.portal.scale.setScalar(lerp(170, 620, rush));
+        S.portal.position.set(lerp(420, 34, rush), 1.6, 0);
         R.fx.warp = 0.35 * u * u;
       } else if (t < J.drop) {
         if (!s.punched) { s.punched = true; R.fx.flash = Math.max(R.fx.flash, 1.6); SFX.play('warp_in', null, { vol: 1 }); S.inWarp = true; S.warp.visible = true; S.portal.visible = false; S.tunnel.visible = true; }
@@ -2128,11 +2132,13 @@ const G = {
         S.warp.material.uniforms.uLen.value = 60;
         S.stars.material.uniforms.uFade.value = Math.min(1, (t - J.drop) * 1.5);
         S.arrive = 1 - Math.pow(1 - Math.min(1, u * 1.1), 3);
-        // spat out: the far mouth bursts open around the ship and is gone
-        const b = (t - J.drop) / 0.9;
-        S.portal.visible = b < 1; pu.uK.value = Math.max(0, 1 - b) * 1.2; S.portal.scale.setScalar(lerp(60, 2600, Math.sqrt(Math.min(1, b)))); S.portal.position.set(110, 1.6, 0);
+        // out through the far side of the tear, which zips shut around the ship; dropping out nose-on to the new world,
+        // the ship eases round into its orbit as it brakes
+        const b = (t - J.drop) / 0.55;
+        S.portal.visible = b < 1; pu.uK.value = Math.pow(Math.max(0, 1 - b), 2) * 1.2; S.portal.scale.setScalar(lerp(2600, 1500, Math.min(1, b))); S.portal.position.set(90, 1.6, 0);
+        S.turn = 1 - sstep(J.drop + 1.4, J.end, t);
         R.fx.warp = 0.6 * Math.max(0, 1 - (t - J.drop) / 1.4);
-        if (t > J.end) { S.arrive = 1; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
+        if (t > J.end) { S.arrive = 1; S.turn = 0; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
       }
       S.warp.material.uniforms.uT.value = t; pu.uT.value = t; tu.uT.value = t;
     } else if (s.kind === 'fired') {
@@ -2179,12 +2185,16 @@ const G = {
       // sunlight through the windows, gone while the planet eclipses the sun
       R.sun.intensity = 5.5 * sd.vis; R.sun.color.set(0xfff1dc);
       R.sun.position.copy(sd.dir).multiplyScalar(40); R.sun.target.position.set(0, 1.5, 0);
-      // entering the atmosphere: the burning air outside floods the cabin with orange light from ahead
+      // falling into this world's air, its colour creeps into the cabin; then the burning air outside floods it with
+      // fire from ahead, coloured by that air (a red world burns red, a green one green)
+      const S = G.ship, near = sstep(S.R * 0.08, S.R * 0.012, S.alt), fire = G.entryColor(look);
+      if (near > 0) R.hemi.color.lerp(_air.set(look.atmo), 0.3 * near);
       const heat = G.entryHeat || 0;
+      R.fx.heatCol.setRGB(1.2, 0.4, 0.1).lerp(_air.copy(fire).multiplyScalar(1.3), 0.6);
       if (heat > 0) {
-        R.sun.color.lerp(_orange.setRGB(1, 0.45, 0.16), heat); R.sun.intensity = lerp(R.sun.intensity, 10, heat);
+        R.sun.color.lerp(_orange.setRGB(1, 0.45, 0.16).lerp(fire, 0.6), heat); R.sun.intensity = lerp(R.sun.intensity, 10, heat);
         R.sun.position.lerp(_ahead.set(40, 8, 0), heat);
-        R.hemi.color.lerp(_orange.setRGB(0.5, 0.22, 0.08), heat); R.hemi.intensity += heat * 0.7;
+        R.hemi.color.lerp(_orange.setRGB(0.5, 0.22, 0.08).lerp(_air.copy(fire).multiplyScalar(0.45), 0.6), heat); R.hemi.intensity += heat * 0.7;
       }
       SFX.setEnv('orbit');
       R.fx.exposure = 1.0;

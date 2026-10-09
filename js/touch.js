@@ -4,15 +4,17 @@
 // Input the keyboard and mouse do, so the game doesn't know the difference. There's no mouse capture on a touch screen:
 // "locked" just means you're playing (not in a menu, the terminal or chat). Settings.touch: 0 auto, 1 on, 2 off.
 const Touch = (() => {
-  const R0 = 56, LOOK = 1.7;   // stick radius (px); look speed against the mouse's
+  const R0 = 46, LOOK = 1.7;   // stick radius (px); look speed against the mouse's
   const T = { on: false };
   let root, pad, base, knob, crouchOn = false, shown = false;
   const stick = { id: null, x0: 0, y0: 0 }, look = { id: null, x: 0, y: 0 };
-  // the buttons: what each does, its label, where it sits (right, bottom, size in px; bottom-right corner)
+  // the buttons: what each does, its label, where it sits (right, bottom, size in px from the bottom-right corner,
+  // all scaled by SC); jump is the big one under the resting thumb, use just above it
+  const SC = 0.8;
   const BTNS = [
-    { k: 'use', label: 'USE', at: [26, 40, 88] },
+    { k: 'jump', label: 'JUMP', at: [26, 40, 88] },
     { k: 'e', label: 'E', at: [128, 24, 68], box: true },
-    { k: 'jump', label: 'JUMP', at: [34, 146, 62] },
+    { k: 'use', label: 'USE', at: [34, 146, 62] },
     { k: 'crouch', label: 'CROUCH', at: [116, 112, 58] },
     { k: 'scan', label: 'SCAN', at: [200, 54, 54] },
     { k: 'light', label: 'LIGHT', at: [38, 226, 50] },
@@ -77,7 +79,7 @@ const Touch = (() => {
     root = el('', ''); root.id = 'touch'; document.body.appendChild(root);
     pad = el('tpad'); root.appendChild(pad);
     base = el('tstick', '<div class="tknob"></div>'); knob = base.firstChild; root.appendChild(base);
-    for (const b of BTNS) { const d = button(b, 'act'); const [r, bt, s] = b.at; Object.assign(d.style, { right: `calc(${r}px + env(safe-area-inset-right))`, bottom: bt + 'px', width: s + 'px', height: s + 'px', fontSize: Math.round(s * (b.box ? 0.42 : 0.24)) + 'px' }); root.appendChild(d); }
+    for (const b of BTNS) { const d = button(b, 'act'); const [r, bt, s] = b.at.map((v) => Math.round(v * SC)); Object.assign(d.style, { right: `calc(${r}px + env(safe-area-inset-right))`, bottom: bt + 'px', width: s + 'px', height: s + 'px', fontSize: Math.round(s * (b.box ? 0.42 : 0.24)) + 'px' }); root.appendChild(d); }
     const bar = el('ttop'); for (const b of TOP) bar.appendChild(button(b, 'small')); root.appendChild(bar);
     const talk = button({ k: 'talk', label: 'TALK' }, 'act talk'); root.appendChild(talk);
     // the left of the screen moves you, the rest looks around

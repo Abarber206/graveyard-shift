@@ -14,6 +14,9 @@ const Ship = (() => {
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up (dead ahead,
+  // a touch below the nose)
+  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _ahead = new THREE.Vector3(1, -0.06, 0).normalize(), _Dw = new THREE.Vector3();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -1510,20 +1513,36 @@ const Ship = (() => {
         }));
         this.warp.frustumCulled = false; this.warp.visible = false; this.warp.renderOrder = -90; sp.add(this.warp);
       }
-      // the wormhole: a swirling rainbow mouth that opens ahead of the nose and swallows the ship as the drive punches
-      // through (and bursts open around it again on the way out)
+      // the tear: going this fast, space itself splits ahead of the nose. A hairline crack first, then a ragged rip
+      // that gapes open (white-hot, rainbow-fringed edges, light pouring through from the other side), rushes in and
+      // swallows the ship; on the way out it zips shut around it. uK: 0 shut, a crack, 1 wide open
       this.portal = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
         uniforms: { uT: { value: 0 }, uK: { value: 0 } },
         vertexShader: 'varying vec2 vU; void main(){ vU = uv * 2.0 - 1.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: `uniform float uT, uK; varying vec2 vU;
+          float h1(float x){ return fract(sin(x * 127.1) * 43758.5453); }
+          float n1(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(h1(i), h1(i + 1.0), f); }
           void main(){
-            float r = length(vU), a = atan(vU.y, vU.x);
-            float sw = 0.5 + 0.5 * sin(a * 5.0 + log(max(r, 0.02)) * 9.0 - uT * 6.0);
-            float rim = smoothstep(0.42, 0.7, r) * (1.0 - smoothstep(0.78, 1.0, r));
-            float core = 1.0 - smoothstep(0.2, 0.62, r);
-            vec3 rb = mix(0.5 + 0.5 * cos(6.2832 * (a / 6.2832 + r * 0.8 - uT * 0.35 + vec3(0.0, 0.33, 0.67))), vec3(0.55, 0.7, 1.0), 0.4);
-            vec3 c = rb * rim * (0.5 + 0.8 * sw) * 1.15 + vec3(0.2, 0.32, 0.9) * core * (0.3 + 0.7 * sw) * 0.5 + vec3(1.0) * pow(core, 6.0) * 0.3;
-            gl_FragColor = vec4(c * uK, 1.0);
+            // tilted, ragged, widest in the middle and tapering to points
+            vec2 p = vec2(0.93 * vU.x - 0.37 * vU.y, 0.37 * vU.x + 0.93 * vU.y);
+            float y = p.y / 0.92, ends = 1.0 - smoothstep(0.78, 1.0, abs(y));
+            float spine = 0.08 * sin(y * 3.3 + 1.7) + (n1(y * 9.0 + 3.0) - 0.5) * 0.15 + (n1(y * 31.0 + uT * 0.8) - 0.5) * 0.045;
+            float d = abs(p.x - spine);
+            float w = clamp(uK, 0.0, 1.4) * 0.3 * pow(max(0.0, 1.0 - y * y), 0.85) * (0.65 + 0.7 * n1(y * 5.0 + 11.0));
+            float inside = (1.0 - smoothstep(w - 0.012, w + 0.004, d)) * ends;
+            // through it: light streaming out of a point beyond
+            float a = atan(p.y, p.x - spine) * 3.0;
+            float rays = n1(a * 7.0 + uT * 2.5) * n1(a * 19.0 - uT * 4.0);
+            vec3 deep = mix(vec3(0.5, 0.72, 1.45), vec3(1.7, 1.7, 1.8), smoothstep(0.15, 0.6, rays));
+            // the torn edge, white-hot, with a prismatic fringe and a glow bleeding out into space
+            float e = d - w;
+            float rim = exp(-abs(e) * 80.0) * smoothstep(0.0, 0.05, w);
+            vec3 prism = 0.5 + 0.5 * cos(6.2832 * (e * 7.0 + y * 0.7 - uT * 0.45 + vec3(0.0, 0.33, 0.67)));
+            float glow = exp(-max(e, 0.0) * 8.0) * 0.4;
+            // the crack it starts from, flickering, running ahead of the opening
+            float crack = exp(-d * 300.0) * (0.6 + 0.4 * n1(y * 40.0 + uT * 20.0)) * (1.0 - smoothstep(0.0, 0.08, w));
+            vec3 c = deep * inside * 1.15 + (vec3(1.6, 1.6, 1.7) * rim + prism * glow * 1.3 + vec3(1.3, 1.4, 1.8) * crack * 2.0) * ends;
+            gl_FragColor = vec4(c * smoothstep(0.0, 0.12, uK), 1.0);
           }`,
         depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
@@ -1600,10 +1619,10 @@ const Ship = (() => {
       // torn into ragged streaks that stream back past the windows (it's part of the backdrop pass, so only the
       // windows ever show it; it lies past that pass's near plane and over the planet)
       this.plasma = new THREE.Mesh(new THREE.SphereGeometry(60, 48, 32), new THREE.ShaderMaterial({
-        uniforms: { uT: { value: 0 }, uK: { value: 0 }, uV: { value: V(0.3, -0.95, 0).normalize() } },
+        uniforms: { uT: { value: 0 }, uK: { value: 0 }, uV: { value: V(0.3, -0.95, 0).normalize() }, uAir: { value: new THREE.Color(1, 0.55, 0.3) } },
         transparent: true, depthWrite: false, depthTest: false, side: THREE.BackSide, fog: false, blending: THREE.AdditiveBlending,
         vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: `uniform float uT, uK; uniform vec3 uV; varying vec3 vP;
+        fragmentShader: `uniform float uT, uK; uniform vec3 uV, uAir; varying vec3 vP;
           float h(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
           float n3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
             return mix(mix(mix(h(i), h(i + vec3(1,0,0)), f.x), mix(h(i + vec3(0,1,0)), h(i + vec3(1,1,0)), f.x), f.y),
@@ -1619,7 +1638,9 @@ const Ship = (() => {
             float ram = smoothstep(-0.15, 1.0, face);
             float streak = smoothstep(0.42, 0.85, s) * smoothstep(-0.95, 0.4, face);
             float k = (ram * ram * 1.1 + streak * 0.9) * flick * uK;
-            vec3 col = mix(vec3(0.9, 0.16, 0.05), vec3(1.6, 0.85, 0.42), clamp(ram * ram + streak * 0.35, 0.0, 1.0));
+            // the burning air takes the colour of this world's air: deep in the streaks, white-hot where it rams the hull
+            vec3 air = pow(uAir / max(max(uAir.r, uAir.g), max(uAir.b, 0.01)), vec3(2.2));
+            vec3 col = mix(mix(vec3(0.9, 0.16, 0.05), air * 1.1, 0.62), mix(vec3(1.6, 0.85, 0.42), air * 1.5 + 0.2, 0.5), clamp(ram * ram + streak * 0.35, 0.0, 1.0));
             gl_FragColor = vec4(col * k, 1.0);
           }`,
       }));
@@ -1752,7 +1773,7 @@ const Ship = (() => {
         c.material.customProgramCacheKey = () => 'cloudDetail';
       });
     }
-    setPlanet(tint, atmo) { this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); }
+    setPlanet(tint, atmo) { this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo); }
     // A new elliptical orbit: sometimes we swing in close, sometimes the whole world hangs far off like Saturn from a moon.
     // The ship holds its attitude so the planet stays framed in the windshield; our motion around it moves the sun.
     setOrbit(seed, look) {
@@ -1763,6 +1784,7 @@ const Ship = (() => {
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
       const a = R * r.range(1.6, 3.6), e = r.range(0.02, 0.07);
+      this.turn = 0;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       this.ring.visible = !!look.rings || r.chance(0.2);
@@ -1778,7 +1800,11 @@ const Ship = (() => {
       // arriving from a jump the world swells up out of the distance; landing, we fall toward it until it fills the
       // windows and slides beneath us (the horizon drops below the nose)
       if (this.arrive < 1) dist *= lerp(9, 1, this.arrive);
-      const D = o.D;
+      // In orbit the world hangs off to one side of the windshield. Diving in (or dropping out of a jump at it), the
+      // ship swings its nose round onto it first, so it goes in head-on rather than crabbing in sideways: the whole sky
+      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 dead ahead
+      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _ahead), this.turn || 0);
+      const D = _Dw.copy(o.D).applyQuaternion(q);
       if (this.approach > 0) {
         // diving out of orbit straight at the world from wherever the ship is: the planet stays where it is in the
         // windshield and only grows. The altitude shrinks geometrically, from the orbit's down to the top of the air,
@@ -1787,7 +1813,7 @@ const Ship = (() => {
         dist = R + h;
       }
       this.alt = dist - R;
-      this.pgroup.position.copy(D).multiplyScalar(dist);
+      this.pgroup.position.copy(D).multiplyScalar(dist); this.pgroup.quaternion.copy(q);
       this.pgroup.visible = !this.inWarp;
       this.plasma.material.uniforms.uV.value.copy(D);
       // the world turns beneath us; the sun appears to wheel around as we travel along the orbit
@@ -1795,9 +1821,9 @@ const Ship = (() => {
       for (const c of this.cloudLayers) c.rotation.y = nu * 1.02 + t * o.spin * 1.3;
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       const sa = o.sunPhase - nu;
-      this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize();
+      this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);
       this.sunCore.position.copy(this.sunDir).multiplyScalar(15000);
-      this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu);
+      this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); this.stars.quaternion.premultiply(q);
       this.atmo.material.uniforms.sunDir.value.copy(this.sunDir);
       // the air shell is seen from outside, or (falling into it) from within
       this.atmo.updateWorldMatrix(true, false); this.atmo.getWorldPosition(this.atmo.material.uniforms.uC.value);
@@ -1812,7 +1838,7 @@ const Ship = (() => {
         this.pdU.haze.value = sstep(R * 0.45, R * 0.02, this.alt) * 0.8;
       }
       // eclipse when the sun slips behind the planet's disc
-      const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(o.D), -1, 1));
+      const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(D), -1, 1));
       const vis = sstep(angR - 0.015, angR + 0.05, ang) * (this.inWarp ? 0 : 1);
       this.sunCore.material.opacity = vis;
       return { dir: this.sunDir, vis, dist };

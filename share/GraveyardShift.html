@@ -266,18 +266,18 @@ body.touch { -webkit-touch-callout: none; -webkit-tap-highlight-color: transpare
 #touch { position: fixed; inset: 0; z-index: 8; display: none; touch-action: none; }
 #touch.on { display: block; }
 #touch .tpad { position: absolute; inset: 0; touch-action: none; }
-.tstick { position: absolute; left: calc(112px + env(safe-area-inset-left)); top: calc(100% - 112px); width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; border: 2px solid rgba(242,166,90,.35); background: rgba(10,6,2,.18); pointer-events: none; opacity: .5; transition: opacity .2s; }
+.tstick { position: absolute; left: calc(92px + env(safe-area-inset-left)); top: calc(100% - 92px); width: 92px; height: 92px; margin: -46px 0 0 -46px; border-radius: 50%; border: 2px solid rgba(242,166,90,.35); background: rgba(10,6,2,.18); pointer-events: none; opacity: .5; transition: opacity .2s; }
 .tstick.live { opacity: 1; }
 .tstick.sprint { border-color: var(--amber-hi); box-shadow: 0 0 16px rgba(242,166,90,.5); }
-.tknob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(242,166,90,.3); border: 2px solid rgba(242,166,90,.7); box-shadow: 0 0 10px rgba(242,166,90,.35); }
+.tknob { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%; background: rgba(242,166,90,.3); border: 2px solid rgba(242,166,90,.7); box-shadow: 0 0 10px rgba(242,166,90,.35); }
 .tbtn { position: absolute; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 2px solid rgba(242,166,90,.55); background: rgba(10,6,2,.28); color: var(--amber); font-family: 'VT323', monospace; letter-spacing: 1px; text-shadow: 0 0 6px rgba(242,166,90,.55); touch-action: none; user-select: none; -webkit-user-select: none; }
 .tbtn.box { border-radius: 12px; }
 .tbtn.down { background: rgba(242,166,90,.35); color: #fff3e0; border-color: var(--amber-hi); }
 .tbtn.on { background: rgba(242,166,90,.22); border-color: var(--amber-hi); }
 .tbtn.ready { border-color: var(--amber-hi); color: var(--amber-hi); box-shadow: 0 0 14px rgba(242,166,90,.6), inset 0 0 10px rgba(242,166,90,.3); }
-.ttop { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); display: flex; gap: 10px; }
-.tbtn.small { position: relative; width: 56px; height: 40px; border-radius: 8px; font-size: 20px; }
-.tbtn.talk { left: calc(26px + env(safe-area-inset-left)); bottom: 214px; width: 62px; height: 62px; font-size: 16px; color: #b6ffb0; border-color: rgba(140,255,140,.5); }
+.ttop { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); display: flex; gap: 8px; }
+.tbtn.small { position: relative; width: 46px; height: 34px; border-radius: 7px; font-size: 17px; }
+.tbtn.talk { left: calc(22px + env(safe-area-inset-left)); bottom: 178px; width: 50px; height: 50px; font-size: 14px; color: #b6ffb0; border-color: rgba(140,255,140,.5); }
 #touch.dead .tstick, #touch.dead .act:not([data-k=use]) { display: none; }
 body.touch #slots .slot { pointer-events: auto; }
 body.touch #chat { top: calc(60px + env(safe-area-inset-top)); bottom: auto; left: calc(12px + env(safe-area-inset-left)); }
@@ -5633,6 +5633,9 @@ const Ship = (() => {
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up (dead ahead,
+  // a touch below the nose)
+  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _ahead = new THREE.Vector3(1, -0.06, 0).normalize(), _Dw = new THREE.Vector3();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -7129,20 +7132,36 @@ const Ship = (() => {
         }));
         this.warp.frustumCulled = false; this.warp.visible = false; this.warp.renderOrder = -90; sp.add(this.warp);
       }
-      // the wormhole: a swirling rainbow mouth that opens ahead of the nose and swallows the ship as the drive punches
-      // through (and bursts open around it again on the way out)
+      // the tear: going this fast, space itself splits ahead of the nose. A hairline crack first, then a ragged rip
+      // that gapes open (white-hot, rainbow-fringed edges, light pouring through from the other side), rushes in and
+      // swallows the ship; on the way out it zips shut around it. uK: 0 shut, a crack, 1 wide open
       this.portal = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
         uniforms: { uT: { value: 0 }, uK: { value: 0 } },
         vertexShader: 'varying vec2 vU; void main(){ vU = uv * 2.0 - 1.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: `uniform float uT, uK; varying vec2 vU;
+          float h1(float x){ return fract(sin(x * 127.1) * 43758.5453); }
+          float n1(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(h1(i), h1(i + 1.0), f); }
           void main(){
-            float r = length(vU), a = atan(vU.y, vU.x);
-            float sw = 0.5 + 0.5 * sin(a * 5.0 + log(max(r, 0.02)) * 9.0 - uT * 6.0);
-            float rim = smoothstep(0.42, 0.7, r) * (1.0 - smoothstep(0.78, 1.0, r));
-            float core = 1.0 - smoothstep(0.2, 0.62, r);
-            vec3 rb = mix(0.5 + 0.5 * cos(6.2832 * (a / 6.2832 + r * 0.8 - uT * 0.35 + vec3(0.0, 0.33, 0.67))), vec3(0.55, 0.7, 1.0), 0.4);
-            vec3 c = rb * rim * (0.5 + 0.8 * sw) * 1.15 + vec3(0.2, 0.32, 0.9) * core * (0.3 + 0.7 * sw) * 0.5 + vec3(1.0) * pow(core, 6.0) * 0.3;
-            gl_FragColor = vec4(c * uK, 1.0);
+            // tilted, ragged, widest in the middle and tapering to points
+            vec2 p = vec2(0.93 * vU.x - 0.37 * vU.y, 0.37 * vU.x + 0.93 * vU.y);
+            float y = p.y / 0.92, ends = 1.0 - smoothstep(0.78, 1.0, abs(y));
+            float spine = 0.08 * sin(y * 3.3 + 1.7) + (n1(y * 9.0 + 3.0) - 0.5) * 0.15 + (n1(y * 31.0 + uT * 0.8) - 0.5) * 0.045;
+            float d = abs(p.x - spine);
+            float w = clamp(uK, 0.0, 1.4) * 0.3 * pow(max(0.0, 1.0 - y * y), 0.85) * (0.65 + 0.7 * n1(y * 5.0 + 11.0));
+            float inside = (1.0 - smoothstep(w - 0.012, w + 0.004, d)) * ends;
+            // through it: light streaming out of a point beyond
+            float a = atan(p.y, p.x - spine) * 3.0;
+            float rays = n1(a * 7.0 + uT * 2.5) * n1(a * 19.0 - uT * 4.0);
+            vec3 deep = mix(vec3(0.5, 0.72, 1.45), vec3(1.7, 1.7, 1.8), smoothstep(0.15, 0.6, rays));
+            // the torn edge, white-hot, with a prismatic fringe and a glow bleeding out into space
+            float e = d - w;
+            float rim = exp(-abs(e) * 80.0) * smoothstep(0.0, 0.05, w);
+            vec3 prism = 0.5 + 0.5 * cos(6.2832 * (e * 7.0 + y * 0.7 - uT * 0.45 + vec3(0.0, 0.33, 0.67)));
+            float glow = exp(-max(e, 0.0) * 8.0) * 0.4;
+            // the crack it starts from, flickering, running ahead of the opening
+            float crack = exp(-d * 300.0) * (0.6 + 0.4 * n1(y * 40.0 + uT * 20.0)) * (1.0 - smoothstep(0.0, 0.08, w));
+            vec3 c = deep * inside * 1.15 + (vec3(1.6, 1.6, 1.7) * rim + prism * glow * 1.3 + vec3(1.3, 1.4, 1.8) * crack * 2.0) * ends;
+            gl_FragColor = vec4(c * smoothstep(0.0, 0.12, uK), 1.0);
           }`,
         depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
@@ -7219,10 +7238,10 @@ const Ship = (() => {
       // torn into ragged streaks that stream back past the windows (it's part of the backdrop pass, so only the
       // windows ever show it; it lies past that pass's near plane and over the planet)
       this.plasma = new THREE.Mesh(new THREE.SphereGeometry(60, 48, 32), new THREE.ShaderMaterial({
-        uniforms: { uT: { value: 0 }, uK: { value: 0 }, uV: { value: V(0.3, -0.95, 0).normalize() } },
+        uniforms: { uT: { value: 0 }, uK: { value: 0 }, uV: { value: V(0.3, -0.95, 0).normalize() }, uAir: { value: new THREE.Color(1, 0.55, 0.3) } },
         transparent: true, depthWrite: false, depthTest: false, side: THREE.BackSide, fog: false, blending: THREE.AdditiveBlending,
         vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: `uniform float uT, uK; uniform vec3 uV; varying vec3 vP;
+        fragmentShader: `uniform float uT, uK; uniform vec3 uV, uAir; varying vec3 vP;
           float h(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
           float n3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
             return mix(mix(mix(h(i), h(i + vec3(1,0,0)), f.x), mix(h(i + vec3(0,1,0)), h(i + vec3(1,1,0)), f.x), f.y),
@@ -7238,7 +7257,9 @@ const Ship = (() => {
             float ram = smoothstep(-0.15, 1.0, face);
             float streak = smoothstep(0.42, 0.85, s) * smoothstep(-0.95, 0.4, face);
             float k = (ram * ram * 1.1 + streak * 0.9) * flick * uK;
-            vec3 col = mix(vec3(0.9, 0.16, 0.05), vec3(1.6, 0.85, 0.42), clamp(ram * ram + streak * 0.35, 0.0, 1.0));
+            // the burning air takes the colour of this world's air: deep in the streaks, white-hot where it rams the hull
+            vec3 air = pow(uAir / max(max(uAir.r, uAir.g), max(uAir.b, 0.01)), vec3(2.2));
+            vec3 col = mix(mix(vec3(0.9, 0.16, 0.05), air * 1.1, 0.62), mix(vec3(1.6, 0.85, 0.42), air * 1.5 + 0.2, 0.5), clamp(ram * ram + streak * 0.35, 0.0, 1.0));
             gl_FragColor = vec4(col * k, 1.0);
           }`,
       }));
@@ -7371,7 +7392,7 @@ const Ship = (() => {
         c.material.customProgramCacheKey = () => 'cloudDetail';
       });
     }
-    setPlanet(tint, atmo) { this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); }
+    setPlanet(tint, atmo) { this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo); }
     // A new elliptical orbit: sometimes we swing in close, sometimes the whole world hangs far off like Saturn from a moon.
     // The ship holds its attitude so the planet stays framed in the windshield; our motion around it moves the sun.
     setOrbit(seed, look) {
@@ -7382,6 +7403,7 @@ const Ship = (() => {
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
       const a = R * r.range(1.6, 3.6), e = r.range(0.02, 0.07);
+      this.turn = 0;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       this.ring.visible = !!look.rings || r.chance(0.2);
@@ -7397,7 +7419,11 @@ const Ship = (() => {
       // arriving from a jump the world swells up out of the distance; landing, we fall toward it until it fills the
       // windows and slides beneath us (the horizon drops below the nose)
       if (this.arrive < 1) dist *= lerp(9, 1, this.arrive);
-      const D = o.D;
+      // In orbit the world hangs off to one side of the windshield. Diving in (or dropping out of a jump at it), the
+      // ship swings its nose round onto it first, so it goes in head-on rather than crabbing in sideways: the whole sky
+      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 dead ahead
+      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _ahead), this.turn || 0);
+      const D = _Dw.copy(o.D).applyQuaternion(q);
       if (this.approach > 0) {
         // diving out of orbit straight at the world from wherever the ship is: the planet stays where it is in the
         // windshield and only grows. The altitude shrinks geometrically, from the orbit's down to the top of the air,
@@ -7406,7 +7432,7 @@ const Ship = (() => {
         dist = R + h;
       }
       this.alt = dist - R;
-      this.pgroup.position.copy(D).multiplyScalar(dist);
+      this.pgroup.position.copy(D).multiplyScalar(dist); this.pgroup.quaternion.copy(q);
       this.pgroup.visible = !this.inWarp;
       this.plasma.material.uniforms.uV.value.copy(D);
       // the world turns beneath us; the sun appears to wheel around as we travel along the orbit
@@ -7414,9 +7440,9 @@ const Ship = (() => {
       for (const c of this.cloudLayers) c.rotation.y = nu * 1.02 + t * o.spin * 1.3;
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       const sa = o.sunPhase - nu;
-      this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize();
+      this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);
       this.sunCore.position.copy(this.sunDir).multiplyScalar(15000);
-      this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu);
+      this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); this.stars.quaternion.premultiply(q);
       this.atmo.material.uniforms.sunDir.value.copy(this.sunDir);
       // the air shell is seen from outside, or (falling into it) from within
       this.atmo.updateWorldMatrix(true, false); this.atmo.getWorldPosition(this.atmo.material.uniforms.uC.value);
@@ -7431,7 +7457,7 @@ const Ship = (() => {
         this.pdU.haze.value = sstep(R * 0.45, R * 0.02, this.alt) * 0.8;
       }
       // eclipse when the sun slips behind the planet's disc
-      const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(o.D), -1, 1));
+      const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(D), -1, 1));
       const vis = sstep(angR - 0.015, angR + 0.05, ang) * (this.inWarp ? 0 : 1);
       this.sunCore.material.opacity = vis;
       return { dir: this.sunDir, vis, dist };
@@ -9611,7 +9637,7 @@ const Voice = (() => {
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0 };
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1) };
   let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
@@ -9730,7 +9756,7 @@ const R = (() => {
 
   const POST_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const POST_FS = `
-    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp; uniform vec2 uSunUV;
+    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp; uniform vec2 uSunUV; uniform vec3 uHeatCol;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -9781,7 +9807,7 @@ const R = (() => {
       col += texture2D(tBloom, uv).rgb * uBloom;
       if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.35 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
       // ...and its glow floods in around the edges of everything, flickering
-      if (uHeat > 0.0) { float rr = length(c0); col += vec3(1.2, 0.4, 0.1) * uHeat * (0.55 + 0.45 * vnoise(uv * 5.0 + uTime * 3.0)) * smoothstep(0.35, 0.85, rr) * 0.6; }
+      if (uHeat > 0.0) { float rr = length(c0); col += uHeatCol * uHeat * (0.55 + 0.45 * vnoise(uv * 5.0 + uTime * 3.0)) * smoothstep(0.35, 0.85, rr) * 0.6; }
       col = aces(col * uExposure);
       col = pow(col, vec3(1.0 / 2.2));
       col = pow(col, vec3(1.0 / uBright));
@@ -9893,7 +9919,7 @@ const R = (() => {
     bloomPre = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: rt.texture }, uTx: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_PRE, depthTest: false, depthWrite: false });
     bloomBlur = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_BLUR, depthTest: false, depthWrite: false });
     post = new THREE.ShaderMaterial({
-      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 } },
+      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
       vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     const tri = new THREE.BufferGeometry();
@@ -10855,15 +10881,17 @@ const Player = (() => {
 // Input the keyboard and mouse do, so the game doesn't know the difference. There's no mouse capture on a touch screen:
 // "locked" just means you're playing (not in a menu, the terminal or chat). Settings.touch: 0 auto, 1 on, 2 off.
 const Touch = (() => {
-  const R0 = 56, LOOK = 1.7;   // stick radius (px); look speed against the mouse's
+  const R0 = 46, LOOK = 1.7;   // stick radius (px); look speed against the mouse's
   const T = { on: false };
   let root, pad, base, knob, crouchOn = false, shown = false;
   const stick = { id: null, x0: 0, y0: 0 }, look = { id: null, x: 0, y: 0 };
-  // the buttons: what each does, its label, where it sits (right, bottom, size in px; bottom-right corner)
+  // the buttons: what each does, its label, where it sits (right, bottom, size in px from the bottom-right corner,
+  // all scaled by SC); jump is the big one under the resting thumb, use just above it
+  const SC = 0.8;
   const BTNS = [
-    { k: 'use', label: 'USE', at: [26, 40, 88] },
+    { k: 'jump', label: 'JUMP', at: [26, 40, 88] },
     { k: 'e', label: 'E', at: [128, 24, 68], box: true },
-    { k: 'jump', label: 'JUMP', at: [34, 146, 62] },
+    { k: 'use', label: 'USE', at: [34, 146, 62] },
     { k: 'crouch', label: 'CROUCH', at: [116, 112, 58] },
     { k: 'scan', label: 'SCAN', at: [200, 54, 54] },
     { k: 'light', label: 'LIGHT', at: [38, 226, 50] },
@@ -10928,7 +10956,7 @@ const Touch = (() => {
     root = el('', ''); root.id = 'touch'; document.body.appendChild(root);
     pad = el('tpad'); root.appendChild(pad);
     base = el('tstick', '<div class="tknob"></div>'); knob = base.firstChild; root.appendChild(base);
-    for (const b of BTNS) { const d = button(b, 'act'); const [r, bt, s] = b.at; Object.assign(d.style, { right: `calc(${r}px + env(safe-area-inset-right))`, bottom: bt + 'px', width: s + 'px', height: s + 'px', fontSize: Math.round(s * (b.box ? 0.42 : 0.24)) + 'px' }); root.appendChild(d); }
+    for (const b of BTNS) { const d = button(b, 'act'); const [r, bt, s] = b.at.map((v) => Math.round(v * SC)); Object.assign(d.style, { right: `calc(${r}px + env(safe-area-inset-right))`, bottom: bt + 'px', width: s + 'px', height: s + 'px', fontSize: Math.round(s * (b.box ? 0.42 : 0.24)) + 'px' }); root.appendChild(d); }
     const bar = el('ttop'); for (const b of TOP) bar.appendChild(button(b, 'small')); root.appendChild(bar);
     const talk = button({ k: 'talk', label: 'TALK' }, 'act talk'); root.appendChild(talk);
     // the left of the screen moves you, the rest looks around
@@ -11026,7 +11054,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3();
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 5.6, end: 9.0 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
@@ -11074,7 +11102,7 @@ const G = {
     G.bombs = []; G.fuses = []; for (const b of G.blasts) for (const p of b.parts) R.scene.remove(p.o); G.blasts = [];
     for (const g of G.grenades) R.scene.remove(g.mesh); G.grenades = [];
     G.ship.snapShutters(false);
-    G.ship.approach = 0; G.ship.arrive = 1; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
+    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
     HUD.reset(); Player.resetVM(); Player.clearPerks(); G.clearMarks(); CrewCam.reset();
     R.fx.fade = 0; R.fx.damage = 0; R.fx.leech = 0; R.fx.static = 0; R.fx.flash = 0; R.fx.fear = 0; R.fx.health = 1; G.adrenaline = 0; G.orbitSeed = null;
   },
@@ -11280,8 +11308,10 @@ const G = {
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); }
   },
+  // the colour a world's air burns as you come down through it: its sky colour, deepened
+  entryColor(look) { const c = (G._fire || (G._fire = new THREE.Color())).set(look.atmo), m = Math.max(c.r, c.g, c.b, 0.01); return c.setRGB((c.r / m) ** 2.2, (c.g / m) ** 2.2, (c.b / m) ** 2.2); },
   enterOrbitState() {
-    G.ship.space.visible = true; G.ship.setDoor(false); G.ship.door.t = 0; G.ship.setFlood(false);
+    G.ship.space.visible = true; G.ship.setDoor(false); G.ship.door.t = 0; G.ship.setFlood(false); G.ship.turn = 0;
     G.flight = null; G.updateFlight(0); G.ship.setLanded(false); G.ship.setThrust(0, 0); G.ship.setEngines(0.4);
     G.lightSources = [...G.ship.lights];
   },
@@ -13038,6 +13068,8 @@ const G = {
       if (G.mode === 'landing') {
         // the fall: eased in by the burn, fastest through the middle, slowing as the air takes hold (the altitude
         // itself shrinks geometrically, in the ship's orbit code, so the world swells at a steady rate)
+        // first the nose swings round onto the world, through the burn
+        S.turn = sstep(0, 1.3, t);
         const w = clamp((t - 0.6) / (E.white - 0.6), 0, 1);
         S.approach = w * w * (3 - 2 * w);
         // the air starts where the ship actually reaches it
@@ -13080,10 +13112,10 @@ const G = {
       const J = JUMP, t = s.t, pu = S.portal.material.uniforms, tu = S.tunnel.material.uniforms;
       if (t < J.punch) {
         const u = t / J.punch; G.fovAdd = -5 * u * u; Player.addShake(0.05 + 0.3 * u * u); S.warp.material.uniforms.uK.value = 0;
-        // the mouth of the wormhole opens out of nothing ahead of the nose and comes rushing in to swallow the ship
-        const o = sstep(0.25, 1, u);
-        S.portal.visible = o > 0; pu.uK.value = sstep(0, 0.35, o); S.portal.scale.setScalar(lerp(40, 620, sstep(0, 0.4, o)));
-        S.portal.position.set(lerp(2600, 45, Math.pow(o, 2.4)), 1.6, 0);
+        // going this fast, space splits ahead of the nose: a crack, then a rip that gapes open and rushes in on the ship
+        const o = sstep(0.12, 1, u), rush = Math.pow(sstep(0.55, 1, u), 2.2);
+        S.portal.visible = o > 0; pu.uK.value = 0.06 + sstep(0.15, 0.85, o) * 1.0; S.portal.scale.setScalar(lerp(170, 620, rush));
+        S.portal.position.set(lerp(420, 34, rush), 1.6, 0);
         R.fx.warp = 0.35 * u * u;
       } else if (t < J.drop) {
         if (!s.punched) { s.punched = true; R.fx.flash = Math.max(R.fx.flash, 1.6); SFX.play('warp_in', null, { vol: 1 }); S.inWarp = true; S.warp.visible = true; S.portal.visible = false; S.tunnel.visible = true; }
@@ -13105,11 +13137,13 @@ const G = {
         S.warp.material.uniforms.uLen.value = 60;
         S.stars.material.uniforms.uFade.value = Math.min(1, (t - J.drop) * 1.5);
         S.arrive = 1 - Math.pow(1 - Math.min(1, u * 1.1), 3);
-        // spat out: the far mouth bursts open around the ship and is gone
-        const b = (t - J.drop) / 0.9;
-        S.portal.visible = b < 1; pu.uK.value = Math.max(0, 1 - b) * 1.2; S.portal.scale.setScalar(lerp(60, 2600, Math.sqrt(Math.min(1, b)))); S.portal.position.set(110, 1.6, 0);
+        // out through the far side of the tear, which zips shut around the ship; dropping out nose-on to the new world,
+        // the ship eases round into its orbit as it brakes
+        const b = (t - J.drop) / 0.55;
+        S.portal.visible = b < 1; pu.uK.value = Math.pow(Math.max(0, 1 - b), 2) * 1.2; S.portal.scale.setScalar(lerp(2600, 1500, Math.min(1, b))); S.portal.position.set(90, 1.6, 0);
+        S.turn = 1 - sstep(J.drop + 1.4, J.end, t);
         R.fx.warp = 0.6 * Math.max(0, 1 - (t - J.drop) / 1.4);
-        if (t > J.end) { S.arrive = 1; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
+        if (t > J.end) { S.arrive = 1; S.turn = 0; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
       }
       S.warp.material.uniforms.uT.value = t; pu.uT.value = t; tu.uT.value = t;
     } else if (s.kind === 'fired') {
@@ -13156,12 +13190,16 @@ const G = {
       // sunlight through the windows, gone while the planet eclipses the sun
       R.sun.intensity = 5.5 * sd.vis; R.sun.color.set(0xfff1dc);
       R.sun.position.copy(sd.dir).multiplyScalar(40); R.sun.target.position.set(0, 1.5, 0);
-      // entering the atmosphere: the burning air outside floods the cabin with orange light from ahead
+      // falling into this world's air, its colour creeps into the cabin; then the burning air outside floods it with
+      // fire from ahead, coloured by that air (a red world burns red, a green one green)
+      const S = G.ship, near = sstep(S.R * 0.08, S.R * 0.012, S.alt), fire = G.entryColor(look);
+      if (near > 0) R.hemi.color.lerp(_air.set(look.atmo), 0.3 * near);
       const heat = G.entryHeat || 0;
+      R.fx.heatCol.setRGB(1.2, 0.4, 0.1).lerp(_air.copy(fire).multiplyScalar(1.3), 0.6);
       if (heat > 0) {
-        R.sun.color.lerp(_orange.setRGB(1, 0.45, 0.16), heat); R.sun.intensity = lerp(R.sun.intensity, 10, heat);
+        R.sun.color.lerp(_orange.setRGB(1, 0.45, 0.16).lerp(fire, 0.6), heat); R.sun.intensity = lerp(R.sun.intensity, 10, heat);
         R.sun.position.lerp(_ahead.set(40, 8, 0), heat);
-        R.hemi.color.lerp(_orange.setRGB(0.5, 0.22, 0.08), heat); R.hemi.intensity += heat * 0.7;
+        R.hemi.color.lerp(_orange.setRGB(0.5, 0.22, 0.08).lerp(_air.copy(fire).multiplyScalar(0.45), 0.6), heat); R.hemi.intensity += heat * 0.7;
       }
       SFX.setEnv('orbit');
       R.fx.exposure = 1.0;

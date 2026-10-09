@@ -2,7 +2,7 @@
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0 };
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1) };
   let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
@@ -121,7 +121,7 @@ const R = (() => {
 
   const POST_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const POST_FS = `
-    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp; uniform vec2 uSunUV;
+    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp; uniform vec2 uSunUV; uniform vec3 uHeatCol;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -172,7 +172,7 @@ const R = (() => {
       col += texture2D(tBloom, uv).rgb * uBloom;
       if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.35 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
       // ...and its glow floods in around the edges of everything, flickering
-      if (uHeat > 0.0) { float rr = length(c0); col += vec3(1.2, 0.4, 0.1) * uHeat * (0.55 + 0.45 * vnoise(uv * 5.0 + uTime * 3.0)) * smoothstep(0.35, 0.85, rr) * 0.6; }
+      if (uHeat > 0.0) { float rr = length(c0); col += uHeatCol * uHeat * (0.55 + 0.45 * vnoise(uv * 5.0 + uTime * 3.0)) * smoothstep(0.35, 0.85, rr) * 0.6; }
       col = aces(col * uExposure);
       col = pow(col, vec3(1.0 / 2.2));
       col = pow(col, vec3(1.0 / uBright));
@@ -284,7 +284,7 @@ const R = (() => {
     bloomPre = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: rt.texture }, uTx: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_PRE, depthTest: false, depthWrite: false });
     bloomBlur = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_BLUR, depthTest: false, depthWrite: false });
     post = new THREE.ShaderMaterial({
-      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 } },
+      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
       vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     const tri = new THREE.BufferGeometry();

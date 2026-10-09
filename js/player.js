@@ -1,7 +1,9 @@
 'use strict';
 // Input + the local first-person player controller + held-item viewmodel.
 const Input = {
-  keys: new Set(), pressed: new Set(), mdx: 0, mdy: 0, wheel: 0, lmb: false, rmb: false, lmbP: false, rmbP: false, locked: false, canvas: null, onUnlock: null,
+  keys: new Set(), pressed: new Set(), mdx: 0, mdy: 0, wheel: 0, lmb: false, rmb: false, lmbP: false, rmbP: false, locked: false, canvas: null, onUnlock: null, onLock: null,
+  // a thumbstick (touch): how far right and forward it's pushed, -1..1
+  analog: { x: 0, y: 0 },
   init(canvas) {
     this.canvas = canvas;
     const typing = (e) => { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'); };
@@ -23,8 +25,15 @@ const Input = {
       if (!this.locked) { this.lmb = this.rmb = false; this.keys.clear(); if (this.onUnlock) this.onUnlock(); }
     });
   },
-  lock() { try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } },
-  unlock() { if (document.pointerLockElement) document.exitPointerLock(); },
+  // (on a touch screen there's no mouse to capture: locking just means playing, with the same side effects)
+  lock() {
+    if (Touch.on) { Touch.fullscreen(); if (!this.locked) { this.locked = true; if (this.onLock) this.onLock(); } return; }
+    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ }
+  },
+  unlock() {
+    if (Touch.on) { if (this.locked) { this.locked = false; this.lmb = this.rmb = false; this.keys.clear(); this.analog.x = this.analog.y = 0; if (this.onUnlock) this.onUnlock(); } return; }
+    if (document.pointerLockElement) document.exitPointerLock();
+  },
   down(c) { return this.keys.has(c); },
   hit(c) { return this.pressed.has(c); },
   endFrame() { this.pressed.clear(); this.lmbP = this.rmbP = false; this.mdx = this.mdy = 0; this.wheel = 0; },
@@ -269,7 +278,11 @@ const Player = (() => {
       // ---------- movement ----------
       const leeched = G.leechOn === me.id;
       let f = 0, st = 0;
-      if (!ui && seat == null) { f = (Input.down('KeyW') ? 1 : 0) - (Input.down('KeyS') ? 1 : 0); st = (Input.down('KeyD') ? 1 : 0) - (Input.down('KeyA') ? 1 : 0); }
+      if (!ui && seat == null) {
+        f = (Input.down('KeyW') ? 1 : 0) - (Input.down('KeyS') ? 1 : 0); st = (Input.down('KeyD') ? 1 : 0) - (Input.down('KeyA') ? 1 : 0);
+        // (a thumbstick says how far as well as which way: a light push is a slow walk)
+        if (Input.analog.x || Input.analog.y) { f = Input.analog.y; st = Input.analog.x; }
+      }
       // crouch while C is held
       crouch = !ui && seat == null && Input.down('KeyC');
       crouchT = damp(crouchT, crouch ? 1 : 0, 10, dt);
@@ -284,7 +297,7 @@ const Player = (() => {
       let speed = (sprint ? 6.3 * (adrenaline ? 1.2 : 1) : crouch ? 2.0 : 3.9) * wmul * (leeched ? 0.55 : 1) * fx.speed;
       const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)), rt = new THREE.Vector3(Math.cos(me.yaw), 0, -Math.sin(me.yaw));
       const want = fw.multiplyScalar(f).add(rt.multiplyScalar(st));
-      if (want.lengthSq() > 0) want.normalize().multiplyScalar(speed);
+      if (want.lengthSq() > 0) want.normalize().multiplyScalar(speed * Math.min(1, Math.hypot(f, st)));
       const acc = onGround ? 11 : 2.2;
       vel.x = damp(vel.x, want.x, acc, dt); vel.z = damp(vel.z, want.z, acc, dt);
       kick.multiplyScalar(Math.exp(-dt * 5));

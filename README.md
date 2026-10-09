@@ -18,6 +18,19 @@ You need an internet connection: the 3D engine, the fonts and the multiplayer ma
 
 Use **headphones** and play in a **dark room**. All the audio is positional, and a lot of the danger is something you hear before you see it.
 
+## On a phone or tablet
+
+Open the play link on your phone and turn it sideways. Touch controls come up by themselves:
+
+- **Left thumb:** a thumbstick appears wherever you put it down. Push gently to walk slowly, and past the rim to sprint.
+- **Right side:** drag anywhere to look around.
+- **Buttons under your right thumb:** USE (hold it to talk on a walkie-talkie), **E** to interact (it lights up when there's something to use), JUMP, CROUCH (stays on until you tap it again), SCAN, LIGHT and DROP.
+- **Hotbar:** tap a slot to hold what's in it. II pauses and CHAT opens the chat.
+
+To **install it** like an app: on Android, use INSTALL APP in the main menu (or *Add to Home screen* in Chrome's menu). On iPhone or iPad, tap Share, then *Add to Home Screen*. It then opens full screen and in landscape, and once it has loaded it also works offline in single player.
+
+Phones start with a lighter picture (lower resolution, no flashlight shadows), which you can turn up in *Settings*. *Settings → Touch controls* can also force the touch controls on or off (on a touchscreen laptop, say).
+
 ## Playing with friends
 
 1. One person picks **HOST ONLINE GAME → NEW RUN**. They get a 5-letter lobby code, shown top-right and in the **Esc** menu, with copy buttons.
@@ -105,5 +118,6 @@ The terminal's `BESTIARY` command has notes on each creature. Short version: **l
 - `Build.bat` + `build.ps1`: rebuild `share/` from the source.
 - `Play.bat` + `serve.ps1`: run the source through a local server.
 - `tools/build.mjs`, `tools/serve.mjs` (`npm run build`, `npm run serve`): the same two for Mac, Linux or a cloud machine with Node.js.
+- `manifest.webmanifest`, `sw.js`, `icons/`: what lets the hosted game install as an app and run offline.
 - `CLAUDE.md`: notes for anyone (or any Claude session) working on the code.
 - Progress saves in your browser automatically whenever the ship is in orbit.

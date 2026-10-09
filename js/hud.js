@@ -86,6 +86,8 @@ const HUD = (() => {
         if (e.key === 'Enter') { const t = ci.value.trim(); if (t) G.request({ a: 'chat', text: t.slice(0, 120), radio: G.holdingWalkie() }); HUD.closeChat(); }
         if (e.key === 'Escape') HUD.closeChat();
       });
+      // (a phone's keyboard has no Escape: putting it away closes the chat)
+      ci.addEventListener('blur', () => { if (Touch.on && chatOpen) setTimeout(() => HUD.closeChat(), 0); });
       const ti = $('term-input');
       ti.addEventListener('keydown', (e) => {
         e.stopPropagation();
@@ -96,12 +98,12 @@ const HUD = (() => {
         else if (e.key === 'PageDown' || e.key === 'PageUp') { $('term-out').scrollTop += (e.key === 'PageDown' ? 1 : -1) * 200; updateMore(); e.preventDefault(); }
         else SFX.play('key');
       });
-      $('term-out').addEventListener('click', (e) => { const c = e.target.closest('.cmd'); if (c) runTerm(c.dataset.cmd); ti.focus(); });
+      $('term-out').addEventListener('click', (e) => { const c = e.target.closest('.cmd'); if (c) runTerm(c.dataset.cmd); if (!Touch.on) ti.focus(); });
       $('term-out').addEventListener('scroll', updateMore);
       $('term-exit').addEventListener('click', () => HUD.closeTerminal(true));
       $('terminal').addEventListener('mousedown', (e) => { if (e.target.id === 'terminal') HUD.closeTerminal(true); });
       const bar = $('term-bar');
-      for (const c of QUICK) { const b = document.createElement('button'); b.textContent = c.toUpperCase(); b.dataset.cmd = c; b.onclick = () => { runTerm(c); ti.focus(); }; bar.appendChild(b); }
+      for (const c of QUICK) { const b = document.createElement('button'); b.textContent = c.toUpperCase(); b.dataset.cmd = c; b.onclick = () => { runTerm(c); if (!Touch.on) ti.focus(); }; bar.appendChild(b); }
     },
     show(v) { $('hud').classList.toggle('hidden', !v); },
     vitals(hp, st, exh, w) {
@@ -157,7 +159,8 @@ const HUD = (() => {
       if (G.run) HUD.termStats(G.run);
       const s = $('term-screen'); s.classList.remove('boot'); void s.offsetWidth; s.classList.add('boot');
       home();
-      setTimeout(() => $('term-input').focus(), 0);
+      // (on a touch screen the keyboard only comes up when you tap the command line; the buttons cover most things)
+      if (!Touch.on) setTimeout(() => $('term-input').focus(), 0);
       SFX.play('beep', null, { f: 660 }); SFX.play('static', null, { dur: 0.25, vol: 0.5 });
       G.ship.drawTerminal(['MERCY OS  v2.31', '----------------', 'USER SESSION', 'ACTIVE', '> _']);
       clearTimeout(tearTimer); tearTimer = setTimeout(tear, 1500);

@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Graveyard Shift">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <title>Graveyard Shift</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050505'/%3E%3Cellipse cx='11' cy='14' rx='4' ry='7' fill='%23f2a65a'/%3E%3Cellipse cx='21' cy='14' rx='4' ry='7' fill='%23f2a65a'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -71,6 +78,7 @@
 <div id="pause" class="hidden"></div>
 <div id="fade"></div>
 <div id="clicktoplay" class="hidden"><div>CLICK TO CONTINUE</div></div>
+<div id="rotate"><div class="ph"></div><div>TURN YOUR PHONE SIDEWAYS</div></div>
 <div id="loading"><div class="ld">ESTABLISHING UPLINK<span class="blink">_</span></div><div id="loaderr"></div></div>
 
 <script type="module">
@@ -78,7 +86,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 window.THREE = THREE;
 window.BufferGeometryUtils = BufferGeometryUtils;
-const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'game', 'main'];
+const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'game', 'main'];
 try {
   // the one-file build (build.ps1) embeds every script in the page; the dev copy loads them from js/
   const packed = document.querySelectorAll('script[type="text/x-gs"]');
@@ -97,6 +105,8 @@ try {
     }
   }
   window.startGame();
+  // installed as an app (or opened from the web), keep the game playable without a connection once it has loaded
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 } catch (e) {
   document.getElementById('loaderr').textContent = String(e && e.message || e);
   console.error(e);

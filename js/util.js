@@ -84,10 +84,17 @@ const RES_LEVELS = [
   { label: 'ULTRA', h: 760 },
 ];
 
+// a phone or tablet: a finger is the main pointer and there are touch points
+const TOUCH_DEVICE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
 const Settings = {
-  sens: 1, volume: 0.8, fov: 72, res: 2, bright: 1, name: '', suit: 0, voice: false, ptt: false, invertY: false, shadows: true,
-  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows'],
-  load() { const o = Store.get('gs_settings', {}); for (const k of this.KEYS) if (o[k] !== undefined) this[k] = o[k]; },
+  sens: 1, volume: 0.8, fov: 72, res: 2, bright: 1, name: '', suit: 0, voice: false, ptt: false, invertY: false, shadows: true, touch: 0,
+  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'touch'],
+  load() {
+    const o = Store.get('gs_settings', null);
+    // first time on a phone: a lighter picture to start with (it can be turned up in the settings)
+    if (!o && TOUCH_DEVICE) { this.res = 1; this.shadows = false; this.fov = 78; }
+    if (o) for (const k of this.KEYS) if (o[k] !== undefined) this[k] = o[k];
+  },
   save() { const o = {}; for (const k of this.KEYS) o[k] = this[k]; Store.set('gs_settings', o); },
 };
 

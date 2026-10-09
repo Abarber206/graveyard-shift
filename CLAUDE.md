@@ -41,6 +41,9 @@ Keep that file current when gameplay changes.
   - Shared materials are `MATS.get(name)` / `MATS.rep` / `MATS.aged`.
   - Item models are in `items.js` (`ItemMeshes`), creatures in `monsters.js` (`MonModels`), the crew robot in `avatar.js`.
   - The ship is built in `ship.js` (`pb`/`pc`/`ps`/`pt` push geometry into material buckets, which are merged).
+- **Touch** (`touch.js`) drives the same `Input` the keyboard and mouse do (`Input.analog` for the stick). On a touch
+  screen, `Input.lock()` / `unlock()` just mean playing / not playing. The hosted copy installs as an app
+  (`manifest.webmanifest`, `sw.js`, `icons/`).
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style
@@ -58,4 +61,6 @@ The browser won't grant pointer lock to automated clicks, so drive the game from
 - **Move the player:** `Player.spawn(x, y, z, yaw)` (yaw: facing is `(-sin yaw, -cos yaw)`), then set `G.me().pitch`.
   Inside the facility, set `G.me().zone = 'in'` first.
 - **Flights:** `G.hostLand()` lands at `G.run.route` (about 13 s until you're on site); `G.hostDepart('lever')` takes off.
+- **Phone:** `resize_window` 740×360 emulates a touch device. If the pane is hidden, no frames run, so step by hand:
+  `G.update(1/60); Touch.update(); Input.endFrame();`.
 - **Errors:** add `window.addEventListener('error', ...)` and check the console. To measure hitches, wrap `G.update` / `R.render`.

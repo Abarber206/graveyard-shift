@@ -179,13 +179,14 @@ const Menu = (() => {
       const b = d.querySelector('button'); const upd = () => (b.textContent = get());
       b.onclick = () => { setv(); Settings.save(); upd(); }; upd(); rows.push(d);
     };
-    slider('MOUSE SENSITIVITY', 'sens', 0.2, 3, 0.05, (v) => v.toFixed(2));
+    slider(Touch.on ? 'LOOK SENSITIVITY' : 'MOUSE SENSITIVITY', 'sens', 0.2, 3, 0.05, (v) => v.toFixed(2));
     slider('VOLUME', 'volume', 0, 1, 0.01, (v) => Math.round(v * 100) + '%', () => SFX.setVolume(Settings.volume));
     slider('FIELD OF VIEW', 'fov', 55, 100, 1, (v) => v + '°', () => R.resize());
     slider('BRIGHTNESS', 'bright', 0.6, 2, 0.05, (v) => v.toFixed(2));
     toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); });
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
-    toggle('INVERT MOUSE Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
+    toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
+    toggle('TOUCH CONTROLS', () => ['AUTO', 'ON', 'OFF'][Settings.touch] + (Touch.on ? ' (ON)' : ' (OFF)'), () => { Settings.touch = (Settings.touch + 1) % 3; Touch.apply(); });
     toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (Settings.voice && G.online) Voice.enable(); });
     toggle('VOICE MODE', () => (Settings.ptt ? 'HOLD V' : 'OPEN MIC'), () => { Settings.ptt = !Settings.ptt; Voice.setPTT(false); });
     return [html('<div class="mtitle">SETTINGS</div>'), ...rows, html('<div style="height:10px"></div>'), btn('BACK', back)];
@@ -195,8 +196,18 @@ const Menu = (() => {
     <div class="mtext">Land at a site, find the facility entrance, and haul scrap back to the ship. The ship leaves at <b>midnight</b> — anyone not aboard is left behind. Sell from orbit at the terminal; the Company pays better as the deadline approaches.</div>
     <div class="mtext">Things live down there. Listen. Look up. Don't stare. Keep the hatch shut after dark.</div>
     <div class="keys"><span>WASD</span><span>Move</span><span>SHIFT</span><span>Sprint</span><span>C (HOLD)</span><span>Crouch (quiet)</span><span>SPACE</span><span>Jump</span><span>E</span><span>Interact / pick up</span><span>LMB</span><span>Use held item</span><span>RMB</span><span>Scan for scrap</span><span>F</span><span>Toggle flashlight</span><span>G</span><span>Drop item</span><span>1-5 / WHEEL</span><span>Switch slot</span><span>T / ENTER</span><span>Chat</span><span>V</span><span>Push-to-talk (if set)</span><span>ESC</span><span>Pause</span></div>`;
+  // on a touch screen the controls are the ones on the glass
+  const HOWTO_TOUCH = `<div class="mtitle">HOW TO PLAY</div>
+    <div class="mtext">Land, find the facility, haul scrap back to the ship before <b>midnight</b>, sell it from orbit to make <b>quota</b>. Anyone not aboard when the ship leaves is left behind.</div>
+    <div class="keys"><span>LEFT THUMB</span><span>Move (push to the rim to sprint)</span><span>DRAG RIGHT</span><span>Look around</span><span>USE</span><span>Use held item (hold for radio)</span><span>E</span><span>Interact, pick up, sit (lights up when you can)</span><span>JUMP / CROUCH</span><span>Crouch stays on till you tap it again</span><span>SCAN</span><span>Scan for scrap</span><span>LIGHT / DROP</span><span>Flashlight, drop held item</span><span>HOTBAR</span><span>Tap a slot to hold it</span><span>II / CHAT</span><span>Pause, chat</span></div>`;
+  // installing as an app: the browser offers it (Android, desktop Chrome); on iPhone it's the Share menu
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (G.mode === 'menu' && !$('menu').classList.contains('hidden')) menu.main(); });
+  const standalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+  const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const menu = {
     init() {
+      Input.onLock = () => { Menu.pause(false); $('clicktoplay').classList.add('hidden'); };
       MenuScene.enter();
       addEventListener('pointerdown', () => SFX.init());
       addEventListener('keydown', () => SFX.init(), { once: true });
@@ -226,7 +237,9 @@ const Menu = (() => {
         btn('HOST ONLINE GAME', menu.host, { disabled: !Net.available }),
         btn('JOIN ONLINE GAME', menu.join, { disabled: !Net.available }),
         btn('SETTINGS', () => set(settingsNodes(() => menu.main()))),
-        btn('HOW TO PLAY', () => set(html(HOWTO), btn('BACK', () => menu.main()))),
+        btn('HOW TO PLAY', () => set(html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', () => menu.main()))),
+        installEvt && !standalone() ? btn('INSTALL APP', () => { const e = installEvt; installEvt = null; e.prompt(); e.userChoice.finally(() => menu.main()); }) : null,
+        iOS && !standalone() && location.protocol === 'https:' ? html('<div class="mtext" style="margin-top:8px;font-size:18px">To install: tap Share, then <b>Add to Home Screen</b>.</div>') : null,
         !Net.available ? html('<div class="mtext" style="margin-top:10px;font-size:18px">Online play needs an internet connection (PeerJS failed to load).</div>') : null,
       );
     },
@@ -307,7 +320,7 @@ const Menu = (() => {
         G.online ? inviteNodes() : null,
         btn('RESUME', () => Input.lock()),
         btn('SETTINGS', () => fill(settingsNodes(main))),
-        btn('HOW TO PLAY', () => fill([html(HOWTO), btn('BACK', main)])),
+        btn('HOW TO PLAY', () => fill([html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', main)])),
         btn(G.isHost ? (G.online ? 'END SESSION' : 'QUIT') : 'LEAVE GAME', () => { if (G.isHost && G.mode === 'orbit') G.save(); G.quit(); }),
       ]);
       main();
@@ -349,6 +362,7 @@ function frame(now) {
   const needClick = G.mode !== 'menu' && !Input.locked && !HUD.termOpen && !HUD.paused && !HUD.chatOpen && $('summary').classList.contains('hidden');
   const ctp = $('clicktoplay');
   if (needClick === ctp.classList.contains('hidden')) ctp.classList.toggle('hidden', !needClick);
+  Touch.update();
   Input.endFrame();
 }
 
@@ -359,6 +373,7 @@ window.startGame = function () {
   Input.init($('view'));
   Player.init();
   HUD.init();
+  Touch.apply();
   G.init();
   Menu.init();
   $('loading').classList.add('hidden');

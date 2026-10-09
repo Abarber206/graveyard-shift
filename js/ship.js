@@ -17,7 +17,7 @@ const Ship = (() => {
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
   const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
-  const _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
+  const _siteAir = new THREE.Color(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -1756,6 +1756,39 @@ const Ship = (() => {
             vec3 c = uTint * (e > 0.0 ? 0.16 + 0.6 * hz : 0.1 + 0.45 * hz) * uK; gl_FragColor = vec4(c, 1.0); }`,
       }));
       this.airSky.visible = false; this.airSky.renderOrder = 5; this.airSky.frustumCulled = false; sp.add(this.airSky);
+      // where we're coming down: diving in, the site shows dead ahead on the surface, a dark speck on the ground itself that
+      // grows into a little compound (a long hall, sheds, a stack) amid its rubble, a few lit windows, a red beacon blinking
+      {
+        const g = new THREE.Group(), mats = [], M = (c, op = 1) => { const m = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, fog: false, depthWrite: op >= 1 }); m.userData.base = op; m.userData.col = new THREE.Color(c); mats.push(m); return m; };
+        const add = (geo, m, x, y, z, ry = 0) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.y = ry; g.add(me); return me; };
+        const dark = M(0x111214);
+        add(new THREE.BoxGeometry(0.75, 0.2, 0.36), dark, 0.15, 0.1, -0.2, 0.3); add(new THREE.BoxGeometry(0.32, 0.13, 0.3), dark, -0.45, 0.065, 0.1, 0.3);
+        add(new THREE.BoxGeometry(0.18, 0.09, 0.16), dark, 0.55, 0.045, 0.35, -0.2); add(new THREE.CylinderGeometry(0.035, 0.045, 0.55, 8), dark, -0.1, 0.275, -0.45);
+        add(new THREE.BoxGeometry(0.16, 0.01, 0.16), M(0x2a2824), -0.2, 0.005, 0.75);
+        // rubble strewn round it: broken walls, slabs, junk (a fixed scatter: the same every time)
+        const rub = M(0x2c2a26); let sd = 7;
+        const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+        // (in heaps, not a ring: a few clumps of different sizes, a trail strewn off one way, odd strays further out)
+        const gauss = () => rnd() + rnd() + rnd() - 1.5;
+        const piece = (x, z, w) => add(new THREE.BoxGeometry(w * (0.6 + rnd() * 1.2), w * (0.3 + rnd() * 0.5), w * (0.6 + rnd())), rnd() < 0.55 ? dark : rub, x, w * 0.2, z, rnd() * 3);
+        for (const [cx, cz, n, sp] of [[0.8, 0.6, 14, 0.45], [-1.2, -0.5, 10, 0.4], [0.3, -1.6, 7, 0.55], [-0.5, 1.6, 5, 0.35], [2.2, -0.8, 5, 0.5]]) for (let i = 0; i < n; i++) piece(cx + gauss() * sp, cz + gauss() * sp, 0.025 + rnd() * rnd() * 0.12);
+        for (let i = 0; i < 18; i++) { const u = rnd(); piece(1.0 + u * 3.2 + gauss() * 0.25, 0.7 + u * 1.6 + gauss() * 0.3, 0.02 + rnd() * 0.07 * (1 - u * 0.7)); }
+        for (let i = 0; i < 26; i++) { const a = rnd() * TAU, r = 1.6 + rnd() * rnd() * 3.6; piece(Math.cos(a) * r, Math.sin(a) * r * (0.6 + rnd() * 0.5), 0.015 + rnd() * 0.05); }
+        // and some of it over the buildings: slabs and chunks fallen on the roofs, tipped up, heaped against the walls
+        for (const [bx, bz, hw, hd, top, n] of [[0.15, -0.2, 0.37, 0.18, 0.2, 7], [-0.45, 0.1, 0.16, 0.15, 0.13, 4], [0.55, 0.35, 0.09, 0.08, 0.09, 2]]) for (let i = 0; i < n; i++) {
+          const w = 0.03 + rnd() * 0.07, onTop = rnd() < 0.6, x = bx + gauss() * hw * (onTop ? 0.9 : 1.6), z = bz + gauss() * hd * (onTop ? 0.9 : 1.6);
+          const me = add(new THREE.BoxGeometry(w * (0.8 + rnd()), w * (0.25 + rnd() * 0.4), w * (0.6 + rnd())), rnd() < 0.5 ? dark : rub, x, onTop ? top + w * 0.1 : w * 0.25, z);
+          me.rotation.set((rnd() - 0.5) * 0.9, rnd() * 3, (rnd() - 0.5) * 0.9);
+        }
+        const lit = M(0xffc070);
+        for (const [x, z] of [[-0.05, -0.02], [0.12, -0.03], [0.3, -0.05], [-0.48, 0.25]]) add(new THREE.BoxGeometry(0.035, 0.035, 0.01), lit, x, 0.12, z, 0.3);
+        const bc = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xff2a14, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
+        bc.scale.set(0.5, 0.5, 1); bc.position.set(-0.1, 0.6, -0.45); bc.material.userData.base = 1; g.add(bc);
+        // (at night its yard lights make a warm smudge of light in the dark, the only light for miles)
+        const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xffb060, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
+        gl.scale.set(1.2, 1.2, 1); gl.position.set(0, 0.2, 0); g.add(gl); this.siteGlow = gl; this.siteLit = lit;
+        g.userData = { mats, beacon: bc }; g.visible = false; g.renderOrder = 4; g.scale.setScalar(4); sp.add(g); this.siteMark = g;   // (far larger than life, so you can pick it out before the air catches fire)
+      }
       this.sunDir = V(1, 0.3, 0).normalize();
       this.setOrbit(1, {});
       this.space.visible = false;
@@ -1936,6 +1969,21 @@ const Ship = (() => {
         a.uK.value = k; a.uUp.value.copy(up); a.uTint.value.copy(this.atmo.material.uniforms.tint.value);
         this.airSky.visible = k > 0.002 && !this.inWarp;
         this.pdU.haze.value = sstep(R * 0.45, R * 0.02, this.alt) * 0.8;
+      }
+      // the site, dead ahead on the surface while we dive (it fades in once there's any chance of making it out)
+      {
+        const sm = this.siteMark, k = this.approach > 0 && !this.inWarp ? sstep(R * 0.3, R * 0.12, this.alt) : 0;
+        sm.visible = k > 0.002;
+        if (sm.visible) {
+          sm.position.copy(D).multiplyScalar(this.alt - 0.2); sm.quaternion.setFromUnitVectors(_up0, _dh.copy(D).negate());
+          // (seen through the same air as the ground round it: the haze over the world tints it too, by day)
+          const hz = this.pdU.haze.value * 0.5, day = 1 - 0.85 * sstep(0.15, -0.25, _dh.dot(this.sunDir));
+          _siteAir.copy(this.planetMat.color).multiplyScalar(0.3).lerp(this.atmo.material.uniforms.tint.value, 0.3).multiplyScalar(day);
+          for (const m of sm.userData.mats) { m.opacity = k * m.userData.base; if (m !== this.siteLit) m.color.copy(m.userData.col).lerp(_siteAir, hz); }
+          sm.userData.beacon.material.opacity = k * ((t * 1.3) % 1 < 0.18 ? 1 : 0.12);
+          const night = sstep(0.15, -0.25, _dh.dot(this.sunDir));
+          this.siteGlow.material.opacity = k * 0.55 * night; this.siteLit.opacity = k * (0.6 + 0.4 * night);
+        }
       }
       // eclipse when the sun slips behind the planet's disc
       const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(D), -1, 1));

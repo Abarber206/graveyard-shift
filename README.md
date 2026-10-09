@@ -1,5 +1,7 @@
 # GRAVEYARD SHIFT
 
+**Play it now:** https://abarber206.github.io/graveyard-shift/ (or download `share/GraveyardShift.html` and double-click it)
+
 A co-op salvage horror game. You and your crew work the night shift for **Mercy Salvage Co.**: land at abandoned sites, go down into dark procedurally generated facilities, haul scrap back to the ship before midnight, and sell it to meet the profit quota. Miss the quota and you're fired.
 
 Single player, or online co-op with up to 6 players (room codes, no port forwarding). Paint your robot any colour you like on the colour wheel before you start.

@@ -72,6 +72,7 @@ const UPGRADES = {
   cells: { name: 'Extended Cells', price: 90, desc: 'All batteries last 60% longer.' },
   belt: { name: 'Utility Belt', price: 250, desc: 'A fifth inventory slot.' },
   flood: { name: 'Ship Floodlight', price: 60, desc: 'A powerful lamp on the ship roof. Find your way home.' },
+  rover: { name: 'Scout Rover', price: 240, desc: 'A remote-control rover with a camera and a cargo basket. Drive it from the console by the airlock. It can be carried, with both hands, slowly.' },
 };
 
 const ItemMeshes = (() => {

@@ -8,7 +8,7 @@ Keep that file current when gameplay changes.
 - `index.html` loads three.js r160 (import map, jsdelivr) and PeerJS (jsdelivr), then loads `js/*.js` in the order
   given by `const files = [...]` in its loader. There is no bundler and there are no npm dependencies.
 - Every `js/*.js` file is a plain `'use strict'` script that defines globals (`G`, `R`, `TEX`, `MATS`, `Ship`,
-  `Facility`, `Exterior`, `Avatar`, `Monster`, `HUD`, `Player`, `SFX`, `CrewCam`, `Net`...). There are no ES modules.
+  `Facility`, `Exterior`, `Avatar`, `Monster`, `HUD`, `Player`, `SFX`, `CrewCam`, `Rover`, `Net`...). There are no ES modules.
 - To serve the dev copy, use the preview config `game` (Windows, `serve.ps1`) or `game-node` (`node tools/serve.mjs 8139`).
   Either way the game is at `http://localhost:8139/`.
 - To build, run `node tools/build.mjs` (or `build.ps1` / `Build.bat` on Windows). It regenerates `share/GraveyardShift.html`
@@ -57,7 +57,8 @@ Keep that file current when gameplay changes.
 The browser won't grant pointer lock to automated clicks, so drive the game from JavaScript:
 
 - **Start a run:** click `SINGLE PLAYER`, then `NEW RUN`. Keep the game unpaused with
-  `setInterval(() => HUD.paused && HUD.pause(false), 200)`.
+  `setInterval(() => HUD.paused && Menu.pause(false), 200)` (and set `Input.locked = true` so the HUD isn't blocking).
+- **Rover:** `G.hostTerminal(0, 'buy rover')`; drive by holding keys in `Input.keys` while stepping frames.
 - **Move the player:** `Player.spawn(x, y, z, yaw)` (yaw: facing is `(-sin yaw, -cos yaw)`), then set `G.me().pitch`.
   Inside the facility, set `G.me().zone = 'in'` first.
 - **Flights:** `G.hostLand()` lands at `G.run.route` (about 13 s until you're on site); `G.hostDepart('lever')` takes off.

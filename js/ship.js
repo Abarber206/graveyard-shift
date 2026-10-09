@@ -14,11 +14,11 @@ const Ship = (() => {
   const H = 3.4, V = (x, y, z) => new THREE.Vector3(x, y, z);
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
-  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _pq = new THREE.Quaternion();
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
   const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
-  const _siteAir = new THREE.Color(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
+  const _sw = new THREE.Vector3(), _sl = new THREE.Vector3(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -1482,6 +1482,26 @@ const Ship = (() => {
       this.wash = new THREE.Points(g, this.washMat); this.wash.frustumCulled = false; this.wash.visible = false;
       this.washP = []; for (let i = 0; i < N; i++) this.washP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1 });
       this.washAcc = 0;
+      // the smoke the main engines pour out when they open up: world-space, left hanging in the air along the way it
+      // went (fresh puffs still glowing from the flame), slowly swelling and thinning out
+      {
+        const SN = 360, sp = new Float32Array(SN * 3), sa = new Float32Array(SN), ss = new Float32Array(SN), sg = new THREE.BufferGeometry();
+        sg.setAttribute('position', new THREE.BufferAttribute(sp, 3)); sg.setAttribute('aAge', new THREE.BufferAttribute(sa, 1)); sg.setAttribute('aSize', new THREE.BufferAttribute(ss, 1));
+        this.smokeMat = new THREE.ShaderMaterial({
+          uniforms: { uCol: { value: new THREE.Color(0.34, 0.33, 0.32) }, uFire: { value: new THREE.Color(1.6, 0.62, 0.18) } },
+          vertexShader: `attribute float aAge; attribute float aSize; varying float vA; varying float vD;
+            void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = aAge; vD = -mv.z;
+              gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * 520.0 / max(0.5, -mv.z), 0.0, 900.0); }`,
+          fragmentShader: `uniform vec3 uCol, uFire; varying float vA; varying float vD;
+            void main(){ float r = length(gl_PointCoord - 0.5); if (vA <= 0.0 || vA >= 1.0) discard;
+              float a = smoothstep(0.5, 0.1, r) * smoothstep(0.0, 0.04, vA) * pow(1.0 - vA, 1.5) * 0.5 * exp(-vD / 700.0);
+              gl_FragColor = vec4(mix(uFire, uCol, smoothstep(0.015, 0.09, vA)), a); }`,
+          transparent: true, depthWrite: false,
+        });
+        this.smoke = new THREE.Points(sg, this.smokeMat); this.smoke.frustumCulled = false; this.smoke.visible = false;
+        this.smokeP = []; for (let i = 0; i < SN; i++) this.smokeP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1 });
+        this.smokeAcc = 0; this.smokeFrom = null;
+      }
     }
     // ---------- the Company's delivery drone (in orbit it brings purchases in through the airlock) ----------
     buildRobot() {
@@ -1591,6 +1611,37 @@ const Ship = (() => {
       this.wash.visible = live > 0;
       this.washMat.uniforms.uCol.value.copy(color); this.washMat.uniforms.uGlow.value.copy(glow);
     }
+    // the burst's smoke: puffs out of the main nozzles while `rate` (0..1) is up, strung along the path the tail swept this
+    // frame so a fast ship leaves an unbroken trail, blown back out of the nozzles and slowing to drift and spread
+    updateSmoke(dt, rate, color) {
+      const P = this.smokeP, geo = this.smoke.geometry, pos = geo.attributes.position, age = geo.attributes.aAge, sz = geo.attributes.aSize;
+      const M = this.group.matrixWorld, nz = _smN.set(HULL.x0 - ENGINES.main[1] * 0.87 - 0.6, ENGINES.main[0], 0).applyMatrix4(M), back = _smB.set(-1, 0, 0).transformDirection(M);
+      const from = this.smokeFrom || nz;
+      this.smokeAcc = rate > 0.01 ? Math.min(this.smokeAcc + dt * 70 * rate, 30) : 0;
+      let live = 0;
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        if (p.t >= 1 && this.smokeAcc >= 1) {
+          this.smokeAcc -= 1;
+          const u = Math.random(), sp = 9 + Math.random() * 9, j = 0.5;
+          p.x = from.x + (nz.x - from.x) * u + (Math.random() - 0.5) * j; p.y = from.y + (nz.y - from.y) * u + (Math.random() - 0.5) * j; p.z = from.z + (nz.z - from.z) * u + (Math.random() - 0.5) * j;
+          p.vx = back.x * sp + (Math.random() - 0.5) * 2; p.vy = back.y * sp + (Math.random() - 0.5) * 2; p.vz = back.z * sp + (Math.random() - 0.5) * 2;
+          p.t = 0; p.life = 3.5 + Math.random() * 2.5; p.s0 = 1.2 + Math.random() * 1.2;
+        }
+        if (p.t < 1) {
+          p.t += dt / p.life;
+          const drag = Math.exp(-dt * 1.3); p.vx *= drag; p.vy = p.vy * drag + dt * 0.5; p.vz *= drag;
+          p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+          live++;
+        }
+        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, Math.min(p.t, 1)); sz.setX(i, p.s0 * (1 + p.t * 5));
+      }
+      this.smokeFrom = (this.smokeFrom || new THREE.Vector3()).copy(nz);
+      pos.needsUpdate = true; age.needsUpdate = true; sz.needsUpdate = true;
+      this.smoke.visible = live > 0;
+      this.smokeMat.uniforms.uCol.value.copy(color);
+    }
+    clearSmoke() { for (const p of this.smokeP) p.t = 1; this.smoke.visible = false; this.smokeFrom = null; this.smokeAcc = 0; }
     // on the ground with gear down and the ramp out, or stowed for flight (no animation)
     setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp; }
     // the ground camera's tripod is out only while the ship is down with its ramp out
@@ -1800,37 +1851,85 @@ const Ship = (() => {
       }));
       this.airSky.visible = false; this.airSky.renderOrder = 5; this.airSky.frustumCulled = false; sp.add(this.airSky);
       // where we're coming down: diving in, the site shows dead ahead on the surface, a dark speck on the ground itself that
-      // grows into a little compound (a long hall, sheds, a stack) amid its rubble, a few lit windows, a red beacon blinking
+      // grows into a little compound (a long hall, sheds, a stack) amid its rubble, a few lit windows, a red beacon blinking.
+      // It's drawn as pixel art seen from straight above (crisp square texels, single-pixel rubble, a one-pixel bevel and
+      // drop shadow on each roof, a dithered glow at night) on one flat decal, so it reads cleanly at the game's resolution
+      // instead of crawling the way a heap of tiny boxes does. It isn't painted on: it shades the planet's own ground
+      // (darker where the walls and their shadows are, paler where concrete lies broken), so it's the colour of that world,
+      // and the haze over that world veils it like the ground round it (the cloud deck breaks open over the site as we dive)
       {
-        const g = new THREE.Group(), mats = [], M = (c, op = 1) => { const m = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, fog: false, depthWrite: op >= 1 }); m.userData.base = op; m.userData.col = new THREE.Color(c); mats.push(m); return m; };
-        const add = (geo, m, x, y, z, ry = 0) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.y = ry; g.add(me); return me; };
-        const dark = M(0x111214);
-        add(new THREE.BoxGeometry(0.75, 0.2, 0.36), dark, 0.15, 0.1, -0.2, 0.3); add(new THREE.BoxGeometry(0.32, 0.13, 0.3), dark, -0.45, 0.065, 0.1, 0.3);
-        add(new THREE.BoxGeometry(0.18, 0.09, 0.16), dark, 0.55, 0.045, 0.35, -0.2); add(new THREE.CylinderGeometry(0.035, 0.045, 0.55, 8), dark, -0.1, 0.275, -0.45);
-        add(new THREE.BoxGeometry(0.16, 0.01, 0.16), M(0x2a2824), -0.2, 0.005, 0.75);
+        const g = new THREE.Group(), N = 128, E = 8, px = N / (2 * E);
+        // (base: how much each pixel darkens or lightens the ground, 128 = untouched; lit: windows, and the glow in alpha)
+        const base = new Uint8Array(N * N * 4).fill(128), lit = new Uint8Array(N * N * 4);
+        // (rows run up the texture: row 0 is the far edge, z = +E)
+        const put = (i, j, s) => { if (i < 0 || j < 0 || i >= N || j >= N) return; const o = (j * N + i) * 4; base[o] = base[o + 1] = base[o + 2] = clamp(Math.round(s * 128), 0, 255); };
+        // a rotated block, as whole pixels (anything smaller than a pixel still leaves a one-pixel speck)
+        const rect = (x, z, w, d, ry, s) => {
+          const cs = Math.cos(ry), sn = Math.sin(ry), r = Math.hypot(w, d) / 2; let n = 0;
+          for (let j = Math.floor((E - z - r) * px); j <= Math.ceil((E - z + r) * px); j++) for (let i = Math.floor((x - r + E) * px); i <= Math.ceil((x + r + E) * px); i++) {
+            const wx = (i + 0.5) / px - E - x, wz = E - (j + 0.5) / px - z, lx = wx * cs - wz * sn, lz = wx * sn + wz * cs;
+            if (Math.abs(lx) <= w / 2 && Math.abs(lz) <= d / 2) { put(i, j, s); n++; }
+          }
+          if (!n) put(Math.floor((x + E) * px), Math.floor((E - z) * px), s);
+        };
+        const P = 1 / px, SH = 0.42, DARK = 0.58, PALE = 1.22;
+        // a building, square to the grid so its edges stay crisp: its shadow a pixel or two off to one side, then its roof (the hall itself is the black block)
+        const block = (x, z, w, d, h, roof) => { const o = P * (1 + Math.round(h * 8)); rect(x + o, z - o, w, d, 0, SH); rect(x, z, w, d, 0, roof); };
+        rect(-0.2, 0.75, 0.16, 0.16, 0, 1.3);
+        block(0.15, -0.2, 0.75, 0.36, 0.2, 0.06); block(-0.45, 0.14, 0.3, 0.26, 0.13, 0.3); block(0.55, 0.35, 0.18, 0.16, 0.09, 0.36);
         // rubble strewn round it: broken walls, slabs, junk (a fixed scatter: the same every time)
-        const rub = M(0x2c2a26); let sd = 7;
+        let sd = 7;
         const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
         // (in heaps, not a ring: a few clumps of different sizes, a trail strewn off one way, odd strays further out)
         const gauss = () => rnd() + rnd() + rnd() - 1.5;
-        const piece = (x, z, w) => add(new THREE.BoxGeometry(w * (0.6 + rnd() * 1.2), w * (0.3 + rnd() * 0.5), w * (0.6 + rnd())), rnd() < 0.55 ? dark : rub, x, w * 0.2, z, rnd() * 3);
+        const piece = (x, z, w) => { const sx = w * (0.6 + rnd() * 1.2); rnd(); const sz = w * (0.6 + rnd()); rect(x, z, sx, sz, rnd() * 3, rnd() < 0.55 ? DARK : PALE); };
         for (const [cx, cz, n, sp] of [[0.8, 0.6, 14, 0.45], [-1.2, -0.5, 10, 0.4], [0.3, -1.6, 7, 0.55], [-0.5, 1.6, 5, 0.35], [2.2, -0.8, 5, 0.5]]) for (let i = 0; i < n; i++) piece(cx + gauss() * sp, cz + gauss() * sp, 0.025 + rnd() * rnd() * 0.12);
         for (let i = 0; i < 18; i++) { const u = rnd(); piece(1.0 + u * 3.2 + gauss() * 0.25, 0.7 + u * 1.6 + gauss() * 0.3, 0.02 + rnd() * 0.07 * (1 - u * 0.7)); }
         for (let i = 0; i < 26; i++) { const a = rnd() * TAU, r = 1.6 + rnd() * rnd() * 3.6; piece(Math.cos(a) * r, Math.sin(a) * r * (0.6 + rnd() * 0.5), 0.015 + rnd() * 0.05); }
-        // and some of it over the buildings: slabs and chunks fallen on the roofs, tipped up, heaped against the walls
-        for (const [bx, bz, hw, hd, top, n] of [[0.15, -0.2, 0.37, 0.18, 0.2, 7], [-0.45, 0.1, 0.16, 0.15, 0.13, 4], [0.55, 0.35, 0.09, 0.08, 0.09, 2]]) for (let i = 0; i < n; i++) {
+        // and some of it over the buildings: slabs and chunks fallen on the roofs (paler than the roof), heaped against the walls
+        for (const [bx, bz, hw, hd, , n] of [[0.15, -0.2, 0.37, 0.18, 0.2, 7], [-0.45, 0.1, 0.16, 0.15, 0.13, 4], [0.55, 0.35, 0.09, 0.08, 0.09, 2]]) for (let i = 0; i < n; i++) {
           const w = 0.03 + rnd() * 0.07, onTop = rnd() < 0.6, x = bx + gauss() * hw * (onTop ? 0.9 : 1.6), z = bz + gauss() * hd * (onTop ? 0.9 : 1.6);
-          const me = add(new THREE.BoxGeometry(w * (0.8 + rnd()), w * (0.25 + rnd() * 0.4), w * (0.6 + rnd())), rnd() < 0.5 ? dark : rub, x, onTop ? top + w * 0.1 : w * 0.25, z);
-          me.rotation.set((rnd() - 0.5) * 0.9, rnd() * 3, (rnd() - 0.5) * 0.9);
+          const sx = w * (0.8 + rnd()); rnd(); const sz = w * (0.6 + rnd()); rnd();
+          rect(x, z, sx, sz, rnd() * 3, onTop ? 1.05 : rnd() < 0.5 ? DARK : PALE); if (onTop) rnd();
         }
-        const lit = M(0xffc070);
-        for (const [x, z] of [[-0.05, -0.02], [0.12, -0.03], [0.3, -0.05], [-0.48, 0.25]]) add(new THREE.BoxGeometry(0.035, 0.035, 0.01), lit, x, 0.12, z, 0.3);
+        // the stack: a dark round top and a long thin shadow
+        for (let s = 1; s <= 6; s++) rect(-0.1 + s * P * 0.9, -0.45 - s * P * 0.9, P * 1.4, P * 1.4, 0, 0.45 + s * 0.07);
+        rect(-0.1, -0.45, 0.09, 0.09, 0.78, 0.5); put(Math.floor((-0.1 + E) * px) - 1, Math.floor((E + 0.45) * px) - 1, 1.15);
+        // its lit windows (warm pixels in the roofs), and at night its yard lights: a warm smudge, dithered, the only light for miles
+        const putL = (i, j, c, a) => { if (i < 0 || j < 0 || i >= N || j >= N) return; const o = (j * N + i) * 4; if (c != null) { lit[o] = (c >> 16) & 255; lit[o + 1] = (c >> 8) & 255; lit[o + 2] = c & 255; } if (a != null) lit[o + 3] = a; };
+        for (const [x, z] of [[-0.05, -0.02], [0.12, -0.03], [0.3, -0.05], [-0.48, 0.25]]) putL(Math.floor((x + E) * px), Math.floor((E - z) * px), 0xffc070);
+        const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+          const d = Math.hypot((i + 0.5) / px - E, E - (j + 0.5) / px), v = clamp(1 - d / 1.1, 0, 1) ** 2 * 3;
+          const lv = Math.floor(v) + ((v % 1) > (bayer[(j & 3) * 4 + (i & 3)] + 0.5) / 16 ? 1 : 0);
+          putL(i, j, null, Math.min(3, lv) * 85);
+        }
+        // (far off, the mipmaps shrink it to a soft smudge of shade; close, every texel is a crisp square)
+        const tex = (data, srgb) => { const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapNearestFilter; t.generateMipmaps = true; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
+        const vs = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+        // the shading multiplies whatever ground is under it (fading out as the haze thickens)...
+        const mat = new THREE.ShaderMaterial({
+          uniforms: { tBase: { value: tex(base) }, uK: { value: 0 }, uHz: { value: 0 } }, vertexShader: vs,
+          fragmentShader: `uniform sampler2D tBase; uniform float uK, uHz; varying vec2 vUv;
+            void main(){ float s = texture2D(tBase, vUv).r * (255.0 / 128.0); gl_FragColor = vec4(vec3(mix(1.0, s, uK * (1.0 - uHz))), 1.0); }`,
+          transparent: true, depthWrite: false, toneMapped: false, fog: false,
+          blending: THREE.CustomBlending, blendSrc: THREE.DstColorFactor, blendDst: THREE.ZeroFactor,
+        });
+        // ...and its lights add on top
+        const lmat = new THREE.ShaderMaterial({
+          uniforms: { tLit: { value: tex(lit, true) }, uK: { value: 0 }, uLit: { value: 0 }, uGlow: { value: 0 } }, vertexShader: vs,
+          fragmentShader: `uniform sampler2D tLit; uniform float uK, uLit, uGlow; varying vec2 vUv;
+            void main(){ vec4 l = texture2D(tLit, vUv); gl_FragColor = vec4((l.rgb * uLit + vec3(1.0, 0.45, 0.13) * l.a * uGlow) * uK, 1.0); }`,
+          transparent: true, depthWrite: false, toneMapped: false, fog: false, blending: THREE.AdditiveBlending,
+        });
+        const quad = new THREE.PlaneGeometry(2 * E, 2 * E).rotateX(-Math.PI / 2);
+        const decal = new THREE.Mesh(quad, mat); decal.position.y = 0.01; g.add(decal);
+        const lights = new THREE.Mesh(quad, lmat); lights.position.y = 0.01; lights.renderOrder = 1; g.add(lights);
         const bc = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xff2a14, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
-        bc.scale.set(0.5, 0.5, 1); bc.position.set(-0.1, 0.6, -0.45); bc.material.userData.base = 1; g.add(bc);
-        // (at night its yard lights make a warm smudge of light in the dark, the only light for miles)
-        const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xffb060, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
-        gl.scale.set(1.2, 1.2, 1); gl.position.set(0, 0.2, 0); g.add(gl); this.siteGlow = gl; this.siteLit = lit;
-        g.userData = { mats, beacon: bc }; g.visible = false; g.renderOrder = 4; g.scale.setScalar(4); sp.add(g); this.siteMark = g;   // (far larger than life, so you can pick it out before the air catches fire)
+        bc.scale.set(0.5, 0.5, 1); bc.position.set(-0.1, 0.6, -0.45); bc.renderOrder = 1; g.add(bc);
+        g.userData = { beacon: bc }; this.siteMat = mat; this.siteLights = lmat;
+        // (far larger than life, so you can pick it out before the air catches fire; drawn after the air, shading the hazed ground, and less the thicker the haze)
+        g.visible = false; g.renderOrder = 6; g.scale.setScalar(4); sp.add(g); this.siteMark = g;
       }
       this.sunDir = V(1, 0.3, 0).normalize();
       this.setOrbit(1, {});
@@ -1927,18 +2026,22 @@ const Ship = (() => {
             }`;
       this.cloudLayers = [this.clouds];
       for (let i = 1; i < 3; i++) { const c = new THREE.Mesh(this.clouds.geometry, this.clouds.material.clone()); this.tilt.add(c); this.cloudLayers.push(c); }
+      // (diving in, the cloud breaks over the site, so you come down through a gap toward the ground and what's on it:
+      // xyz is the site's direction in each layer's own frame, w how open the gap is; its edge is ragged with the cloud)
+      const holeR = { value: new THREE.Vector2(1 - Math.cos(0.036), 1 - Math.cos(0.11)) };
       this.cloudLayers.forEach((c, i) => {
-        const layer = { value: i };
+        const layer = { value: i }, hole = { value: new THREE.Vector4() }; c.userData.hole = hole;
         c.scale.setScalar([0.999, 1.0002, 1.0014][i]); c.renderOrder = i;
         c.material.opacity = [0.6, 0.45, 0.35][i];
         c.material.onBeforeCompile = (sh) => {
-          sh.uniforms.uLayer = layer;
+          sh.uniforms.uLayer = layer; sh.uniforms.uHole = hole; sh.uniforms.uHoleR = holeR;
           vert(sh);
-          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer;\nvoid main() {')
+          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR;\nvoid main() {')
             .replace('#include <map_fragment>', `#include <map_fragment>
               {
                 float hgt, det = pdFbm(normalize(vPDir) + 3.7 + uLayer * 0.61, 26.0, 2.5, 0.8, hgt);
                 float base = sampledDiffuseColor.a, dens = base * (0.9 + det * 1.8), th = uLayer * 0.17;
+                dens *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y * (0.8 + det * 0.5), 1.0 - dot(normalize(vPDir), uHole.xyz)));
                 diffuseColor.a = opacity * smoothstep(th, th + 0.5, dens);
                 diffuseColor.rgb *= 0.76 + 0.16 * uLayer;
                 pdHeight = base + det * 0.12;
@@ -2017,15 +2120,16 @@ const Ship = (() => {
       {
         const sm = this.siteMark, k = this.approach > 0 && !this.inWarp ? sstep(R * 0.3, R * 0.12, this.alt) : 0;
         sm.visible = k > 0.002;
+        for (const c of this.cloudLayers) c.userData.hole.value.w = 0;
         if (sm.visible) {
           sm.position.copy(D).multiplyScalar(this.alt - 0.2); sm.quaternion.setFromUnitVectors(_up0, _dh.copy(D).negate());
-          // (seen through the same air as the ground round it: the haze over the world tints it too, by day)
-          const hz = this.pdU.haze.value * 0.5, day = 1 - 0.85 * sstep(0.15, -0.25, _dh.dot(this.sunDir));
-          _siteAir.copy(this.planetMat.color).multiplyScalar(0.3).lerp(this.atmo.material.uniforms.tint.value, 0.3).multiplyScalar(day);
-          for (const m of sm.userData.mats) { m.opacity = k * m.userData.base; if (m !== this.siteLit) m.color.copy(m.userData.col).lerp(_siteAir, hz); }
+          sm.updateMatrixWorld(); sm.getWorldPosition(_sw);
+          for (const c of this.cloudLayers) { const h = c.userData.hole.value; c.updateMatrixWorld(); const l = c.worldToLocal(_sl.copy(_sw)).normalize(); h.set(l.x, l.y, l.z, sstep(0, 0.35, k)); }
           sm.userData.beacon.material.opacity = k * ((t * 1.3) % 1 < 0.18 ? 1 : 0.12);
-          const night = sstep(0.15, -0.25, _dh.dot(this.sunDir));
-          this.siteGlow.material.opacity = k * 0.55 * night; this.siteLit.opacity = k * (0.6 + 0.4 * night);
+          // (the thickening air washes it out along with the ground round it; the cloud deck passes over both)
+          const night = sstep(0.15, -0.25, _dh.dot(this.sunDir)), U = this.siteMat.uniforms, L = this.siteLights.uniforms;
+          U.uK.value = k; U.uHz.value = this.pdU.haze.value * 0.55;
+          L.uK.value = k * (1 - this.pdU.haze.value * 0.4); L.uLit.value = 0.15 + 0.85 * night; L.uGlow.value = 0.38 * night;
         }
       }
       // eclipse when the sun slips behind the planet's disc
@@ -2094,6 +2198,7 @@ const Ship = (() => {
         // an open hatch in flight is a window, not a way out
         if (c.tag === 'door' && this.door.t > 0.6 && !this.airborne) continue;
         if (c.tag === 'idoor' && this.idoor.t > 0.6) continue;
+        if (c.tag === 'rover' && !Rover.owned) continue;
         if (circleBox(p, rad, c.x0, c.x1, c.z0, c.z1)) hit = true;
       }
       for (const o of this.obbs) if (obbCollide(p, rad, o)) hit = true;

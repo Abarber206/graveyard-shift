@@ -154,6 +154,19 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #bars.on i { height: 11vh; }
 #hud.cine #crosshair, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
 #voiceind { position: absolute; left: 30px; bottom: 110px; font-size: 18px; color: #b6ffb0; }
+/* driving the rover: you're looking down its camera (scanlines, the corners of the frame, its readout) */
+#rovercam { position: fixed; inset: 0; pointer-events: none; z-index: 4; color: #b8ffc4; text-shadow: 0 0 6px rgba(120,255,150,.55); font-size: 22px; letter-spacing: 1px;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); }
+#rovercam::before, #rovercam::after { content: ''; position: absolute; left: 4vw; right: 4vw; top: 5vh; bottom: 5vh; border: 2px solid rgba(184,255,196,.5); }
+#rovercam::after { left: 50%; top: 50%; right: auto; bottom: auto; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-width: 1px; border-color: rgba(184,255,196,.35); }
+#rovercam::before { -webkit-mask: linear-gradient(#000 0 0) top left / 40px 40px no-repeat, linear-gradient(#000 0 0) top right / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom left / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom right / 40px 40px no-repeat;
+  mask: linear-gradient(#000 0 0) top left / 40px 40px no-repeat, linear-gradient(#000 0 0) top right / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom left / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom right / 40px 40px no-repeat; }
+#rovercam .rc-tag { position: absolute; left: calc(4vw + 16px); top: calc(5vh + 10px); }
+#rovercam .rc-rec { position: absolute; right: calc(4vw + 16px); top: calc(5vh + 10px); color: #ff7060; text-shadow: 0 0 6px rgba(255,80,60,.6); animation: rcblink 1s steps(1) infinite; }
+#rovercam .rc-hint { position: absolute; left: 0; right: 0; bottom: calc(5vh + 10px); text-align: center; font-size: 18px; opacity: .6; }
+body.touch #rovercam .rc-hint { display: none; }
+#hud.rc #clock { opacity: 0; }
+@keyframes rcblink { 50% { opacity: 0; } }
 
 /* --------------- TERMINAL ---------------- */
 #terminal { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,.55); z-index: 20; }
@@ -922,6 +935,7 @@ const SFX = (() => {
     },
     run_far(d, t) { for (let i = 0; i < 8; i++) S.step(d, t + i * 0.27, { surf: 'concrete', pitch: 0.9 }); },
     bell(d, t) { [1, 2.4, 3.9, 5.2].forEach((r, i) => osc(d, 'sine', 620 * r, null, t, 2.6 - i * 0.4, 0.25 / (i + 1))); },
+    toot(d, t) { for (const k of [0, 0.17]) { osc(d, 'square', 1180, 1165, t + k, 0.12, 0.07, 0.004); osc(d, 'square', 1485, 1470, t + k, 0.12, 0.04, 0.004); } },
     horn(d, t) { const w = shaper(d, 10); osc(w, 'sawtooth', 415, 410, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 421, 418, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 622, 615, t, 1.1, 0.22, 0.02); },
     bang(d, t) { nz(d, t, 0.7, 1, 'lowpass', 8000, 250, 0.5, 0.002); osc(d, 'sine', 70, 28, t, 0.9, 1, 0.002); },
     tinnitus(d, t) { osc(d, 'sine', 4100, 3950, t, 4.5, 0.06, 0.01); },
@@ -2236,6 +2250,7 @@ const UPGRADES = {
   cells: { name: 'Extended Cells', price: 90, desc: 'All batteries last 60% longer.' },
   belt: { name: 'Utility Belt', price: 250, desc: 'A fifth inventory slot.' },
   flood: { name: 'Ship Floodlight', price: 60, desc: 'A powerful lamp on the ship roof. Find your way home.' },
+  rover: { name: 'Scout Rover', price: 240, desc: 'A remote-control rover with a camera and a cargo basket. Drive it from the console by the airlock. It can be carried, with both hands, slowly.' },
 };
 
 const ItemMeshes = (() => {
@@ -5647,11 +5662,11 @@ const Ship = (() => {
   const H = 3.4, V = (x, y, z) => new THREE.Vector3(x, y, z);
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
-  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _pq = new THREE.Quaternion();
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
   const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
-  const _siteAir = new THREE.Color(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
+  const _sw = new THREE.Vector3(), _sl = new THREE.Vector3(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -7115,6 +7130,26 @@ const Ship = (() => {
       this.wash = new THREE.Points(g, this.washMat); this.wash.frustumCulled = false; this.wash.visible = false;
       this.washP = []; for (let i = 0; i < N; i++) this.washP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1 });
       this.washAcc = 0;
+      // the smoke the main engines pour out when they open up: world-space, left hanging in the air along the way it
+      // went (fresh puffs still glowing from the flame), slowly swelling and thinning out
+      {
+        const SN = 360, sp = new Float32Array(SN * 3), sa = new Float32Array(SN), ss = new Float32Array(SN), sg = new THREE.BufferGeometry();
+        sg.setAttribute('position', new THREE.BufferAttribute(sp, 3)); sg.setAttribute('aAge', new THREE.BufferAttribute(sa, 1)); sg.setAttribute('aSize', new THREE.BufferAttribute(ss, 1));
+        this.smokeMat = new THREE.ShaderMaterial({
+          uniforms: { uCol: { value: new THREE.Color(0.34, 0.33, 0.32) }, uFire: { value: new THREE.Color(1.6, 0.62, 0.18) } },
+          vertexShader: `attribute float aAge; attribute float aSize; varying float vA; varying float vD;
+            void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = aAge; vD = -mv.z;
+              gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * 520.0 / max(0.5, -mv.z), 0.0, 900.0); }`,
+          fragmentShader: `uniform vec3 uCol, uFire; varying float vA; varying float vD;
+            void main(){ float r = length(gl_PointCoord - 0.5); if (vA <= 0.0 || vA >= 1.0) discard;
+              float a = smoothstep(0.5, 0.1, r) * smoothstep(0.0, 0.04, vA) * pow(1.0 - vA, 1.5) * 0.5 * exp(-vD / 700.0);
+              gl_FragColor = vec4(mix(uFire, uCol, smoothstep(0.015, 0.09, vA)), a); }`,
+          transparent: true, depthWrite: false,
+        });
+        this.smoke = new THREE.Points(sg, this.smokeMat); this.smoke.frustumCulled = false; this.smoke.visible = false;
+        this.smokeP = []; for (let i = 0; i < SN; i++) this.smokeP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1 });
+        this.smokeAcc = 0; this.smokeFrom = null;
+      }
     }
     // ---------- the Company's delivery drone (in orbit it brings purchases in through the airlock) ----------
     buildRobot() {
@@ -7224,6 +7259,37 @@ const Ship = (() => {
       this.wash.visible = live > 0;
       this.washMat.uniforms.uCol.value.copy(color); this.washMat.uniforms.uGlow.value.copy(glow);
     }
+    // the burst's smoke: puffs out of the main nozzles while `rate` (0..1) is up, strung along the path the tail swept this
+    // frame so a fast ship leaves an unbroken trail, blown back out of the nozzles and slowing to drift and spread
+    updateSmoke(dt, rate, color) {
+      const P = this.smokeP, geo = this.smoke.geometry, pos = geo.attributes.position, age = geo.attributes.aAge, sz = geo.attributes.aSize;
+      const M = this.group.matrixWorld, nz = _smN.set(HULL.x0 - ENGINES.main[1] * 0.87 - 0.6, ENGINES.main[0], 0).applyMatrix4(M), back = _smB.set(-1, 0, 0).transformDirection(M);
+      const from = this.smokeFrom || nz;
+      this.smokeAcc = rate > 0.01 ? Math.min(this.smokeAcc + dt * 70 * rate, 30) : 0;
+      let live = 0;
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        if (p.t >= 1 && this.smokeAcc >= 1) {
+          this.smokeAcc -= 1;
+          const u = Math.random(), sp = 9 + Math.random() * 9, j = 0.5;
+          p.x = from.x + (nz.x - from.x) * u + (Math.random() - 0.5) * j; p.y = from.y + (nz.y - from.y) * u + (Math.random() - 0.5) * j; p.z = from.z + (nz.z - from.z) * u + (Math.random() - 0.5) * j;
+          p.vx = back.x * sp + (Math.random() - 0.5) * 2; p.vy = back.y * sp + (Math.random() - 0.5) * 2; p.vz = back.z * sp + (Math.random() - 0.5) * 2;
+          p.t = 0; p.life = 3.5 + Math.random() * 2.5; p.s0 = 1.2 + Math.random() * 1.2;
+        }
+        if (p.t < 1) {
+          p.t += dt / p.life;
+          const drag = Math.exp(-dt * 1.3); p.vx *= drag; p.vy = p.vy * drag + dt * 0.5; p.vz *= drag;
+          p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+          live++;
+        }
+        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, Math.min(p.t, 1)); sz.setX(i, p.s0 * (1 + p.t * 5));
+      }
+      this.smokeFrom = (this.smokeFrom || new THREE.Vector3()).copy(nz);
+      pos.needsUpdate = true; age.needsUpdate = true; sz.needsUpdate = true;
+      this.smoke.visible = live > 0;
+      this.smokeMat.uniforms.uCol.value.copy(color);
+    }
+    clearSmoke() { for (const p of this.smokeP) p.t = 1; this.smoke.visible = false; this.smokeFrom = null; this.smokeAcc = 0; }
     // on the ground with gear down and the ramp out, or stowed for flight (no animation)
     setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp; }
     // the ground camera's tripod is out only while the ship is down with its ramp out
@@ -7433,37 +7499,85 @@ const Ship = (() => {
       }));
       this.airSky.visible = false; this.airSky.renderOrder = 5; this.airSky.frustumCulled = false; sp.add(this.airSky);
       // where we're coming down: diving in, the site shows dead ahead on the surface, a dark speck on the ground itself that
-      // grows into a little compound (a long hall, sheds, a stack) amid its rubble, a few lit windows, a red beacon blinking
+      // grows into a little compound (a long hall, sheds, a stack) amid its rubble, a few lit windows, a red beacon blinking.
+      // It's drawn as pixel art seen from straight above (crisp square texels, single-pixel rubble, a one-pixel bevel and
+      // drop shadow on each roof, a dithered glow at night) on one flat decal, so it reads cleanly at the game's resolution
+      // instead of crawling the way a heap of tiny boxes does. It isn't painted on: it shades the planet's own ground
+      // (darker where the walls and their shadows are, paler where concrete lies broken), so it's the colour of that world,
+      // and the haze over that world veils it like the ground round it (the cloud deck breaks open over the site as we dive)
       {
-        const g = new THREE.Group(), mats = [], M = (c, op = 1) => { const m = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, fog: false, depthWrite: op >= 1 }); m.userData.base = op; m.userData.col = new THREE.Color(c); mats.push(m); return m; };
-        const add = (geo, m, x, y, z, ry = 0) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.y = ry; g.add(me); return me; };
-        const dark = M(0x111214);
-        add(new THREE.BoxGeometry(0.75, 0.2, 0.36), dark, 0.15, 0.1, -0.2, 0.3); add(new THREE.BoxGeometry(0.32, 0.13, 0.3), dark, -0.45, 0.065, 0.1, 0.3);
-        add(new THREE.BoxGeometry(0.18, 0.09, 0.16), dark, 0.55, 0.045, 0.35, -0.2); add(new THREE.CylinderGeometry(0.035, 0.045, 0.55, 8), dark, -0.1, 0.275, -0.45);
-        add(new THREE.BoxGeometry(0.16, 0.01, 0.16), M(0x2a2824), -0.2, 0.005, 0.75);
+        const g = new THREE.Group(), N = 128, E = 8, px = N / (2 * E);
+        // (base: how much each pixel darkens or lightens the ground, 128 = untouched; lit: windows, and the glow in alpha)
+        const base = new Uint8Array(N * N * 4).fill(128), lit = new Uint8Array(N * N * 4);
+        // (rows run up the texture: row 0 is the far edge, z = +E)
+        const put = (i, j, s) => { if (i < 0 || j < 0 || i >= N || j >= N) return; const o = (j * N + i) * 4; base[o] = base[o + 1] = base[o + 2] = clamp(Math.round(s * 128), 0, 255); };
+        // a rotated block, as whole pixels (anything smaller than a pixel still leaves a one-pixel speck)
+        const rect = (x, z, w, d, ry, s) => {
+          const cs = Math.cos(ry), sn = Math.sin(ry), r = Math.hypot(w, d) / 2; let n = 0;
+          for (let j = Math.floor((E - z - r) * px); j <= Math.ceil((E - z + r) * px); j++) for (let i = Math.floor((x - r + E) * px); i <= Math.ceil((x + r + E) * px); i++) {
+            const wx = (i + 0.5) / px - E - x, wz = E - (j + 0.5) / px - z, lx = wx * cs - wz * sn, lz = wx * sn + wz * cs;
+            if (Math.abs(lx) <= w / 2 && Math.abs(lz) <= d / 2) { put(i, j, s); n++; }
+          }
+          if (!n) put(Math.floor((x + E) * px), Math.floor((E - z) * px), s);
+        };
+        const P = 1 / px, SH = 0.42, DARK = 0.58, PALE = 1.22;
+        // a building, square to the grid so its edges stay crisp: its shadow a pixel or two off to one side, then its roof (the hall itself is the black block)
+        const block = (x, z, w, d, h, roof) => { const o = P * (1 + Math.round(h * 8)); rect(x + o, z - o, w, d, 0, SH); rect(x, z, w, d, 0, roof); };
+        rect(-0.2, 0.75, 0.16, 0.16, 0, 1.3);
+        block(0.15, -0.2, 0.75, 0.36, 0.2, 0.06); block(-0.45, 0.14, 0.3, 0.26, 0.13, 0.3); block(0.55, 0.35, 0.18, 0.16, 0.09, 0.36);
         // rubble strewn round it: broken walls, slabs, junk (a fixed scatter: the same every time)
-        const rub = M(0x2c2a26); let sd = 7;
+        let sd = 7;
         const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
         // (in heaps, not a ring: a few clumps of different sizes, a trail strewn off one way, odd strays further out)
         const gauss = () => rnd() + rnd() + rnd() - 1.5;
-        const piece = (x, z, w) => add(new THREE.BoxGeometry(w * (0.6 + rnd() * 1.2), w * (0.3 + rnd() * 0.5), w * (0.6 + rnd())), rnd() < 0.55 ? dark : rub, x, w * 0.2, z, rnd() * 3);
+        const piece = (x, z, w) => { const sx = w * (0.6 + rnd() * 1.2); rnd(); const sz = w * (0.6 + rnd()); rect(x, z, sx, sz, rnd() * 3, rnd() < 0.55 ? DARK : PALE); };
         for (const [cx, cz, n, sp] of [[0.8, 0.6, 14, 0.45], [-1.2, -0.5, 10, 0.4], [0.3, -1.6, 7, 0.55], [-0.5, 1.6, 5, 0.35], [2.2, -0.8, 5, 0.5]]) for (let i = 0; i < n; i++) piece(cx + gauss() * sp, cz + gauss() * sp, 0.025 + rnd() * rnd() * 0.12);
         for (let i = 0; i < 18; i++) { const u = rnd(); piece(1.0 + u * 3.2 + gauss() * 0.25, 0.7 + u * 1.6 + gauss() * 0.3, 0.02 + rnd() * 0.07 * (1 - u * 0.7)); }
         for (let i = 0; i < 26; i++) { const a = rnd() * TAU, r = 1.6 + rnd() * rnd() * 3.6; piece(Math.cos(a) * r, Math.sin(a) * r * (0.6 + rnd() * 0.5), 0.015 + rnd() * 0.05); }
-        // and some of it over the buildings: slabs and chunks fallen on the roofs, tipped up, heaped against the walls
-        for (const [bx, bz, hw, hd, top, n] of [[0.15, -0.2, 0.37, 0.18, 0.2, 7], [-0.45, 0.1, 0.16, 0.15, 0.13, 4], [0.55, 0.35, 0.09, 0.08, 0.09, 2]]) for (let i = 0; i < n; i++) {
+        // and some of it over the buildings: slabs and chunks fallen on the roofs (paler than the roof), heaped against the walls
+        for (const [bx, bz, hw, hd, , n] of [[0.15, -0.2, 0.37, 0.18, 0.2, 7], [-0.45, 0.1, 0.16, 0.15, 0.13, 4], [0.55, 0.35, 0.09, 0.08, 0.09, 2]]) for (let i = 0; i < n; i++) {
           const w = 0.03 + rnd() * 0.07, onTop = rnd() < 0.6, x = bx + gauss() * hw * (onTop ? 0.9 : 1.6), z = bz + gauss() * hd * (onTop ? 0.9 : 1.6);
-          const me = add(new THREE.BoxGeometry(w * (0.8 + rnd()), w * (0.25 + rnd() * 0.4), w * (0.6 + rnd())), rnd() < 0.5 ? dark : rub, x, onTop ? top + w * 0.1 : w * 0.25, z);
-          me.rotation.set((rnd() - 0.5) * 0.9, rnd() * 3, (rnd() - 0.5) * 0.9);
+          const sx = w * (0.8 + rnd()); rnd(); const sz = w * (0.6 + rnd()); rnd();
+          rect(x, z, sx, sz, rnd() * 3, onTop ? 1.05 : rnd() < 0.5 ? DARK : PALE); if (onTop) rnd();
         }
-        const lit = M(0xffc070);
-        for (const [x, z] of [[-0.05, -0.02], [0.12, -0.03], [0.3, -0.05], [-0.48, 0.25]]) add(new THREE.BoxGeometry(0.035, 0.035, 0.01), lit, x, 0.12, z, 0.3);
+        // the stack: a dark round top and a long thin shadow
+        for (let s = 1; s <= 6; s++) rect(-0.1 + s * P * 0.9, -0.45 - s * P * 0.9, P * 1.4, P * 1.4, 0, 0.45 + s * 0.07);
+        rect(-0.1, -0.45, 0.09, 0.09, 0.78, 0.5); put(Math.floor((-0.1 + E) * px) - 1, Math.floor((E + 0.45) * px) - 1, 1.15);
+        // its lit windows (warm pixels in the roofs), and at night its yard lights: a warm smudge, dithered, the only light for miles
+        const putL = (i, j, c, a) => { if (i < 0 || j < 0 || i >= N || j >= N) return; const o = (j * N + i) * 4; if (c != null) { lit[o] = (c >> 16) & 255; lit[o + 1] = (c >> 8) & 255; lit[o + 2] = c & 255; } if (a != null) lit[o + 3] = a; };
+        for (const [x, z] of [[-0.05, -0.02], [0.12, -0.03], [0.3, -0.05], [-0.48, 0.25]]) putL(Math.floor((x + E) * px), Math.floor((E - z) * px), 0xffc070);
+        const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+          const d = Math.hypot((i + 0.5) / px - E, E - (j + 0.5) / px), v = clamp(1 - d / 1.1, 0, 1) ** 2 * 3;
+          const lv = Math.floor(v) + ((v % 1) > (bayer[(j & 3) * 4 + (i & 3)] + 0.5) / 16 ? 1 : 0);
+          putL(i, j, null, Math.min(3, lv) * 85);
+        }
+        // (far off, the mipmaps shrink it to a soft smudge of shade; close, every texel is a crisp square)
+        const tex = (data, srgb) => { const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapNearestFilter; t.generateMipmaps = true; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
+        const vs = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+        // the shading multiplies whatever ground is under it (fading out as the haze thickens)...
+        const mat = new THREE.ShaderMaterial({
+          uniforms: { tBase: { value: tex(base) }, uK: { value: 0 }, uHz: { value: 0 } }, vertexShader: vs,
+          fragmentShader: `uniform sampler2D tBase; uniform float uK, uHz; varying vec2 vUv;
+            void main(){ float s = texture2D(tBase, vUv).r * (255.0 / 128.0); gl_FragColor = vec4(vec3(mix(1.0, s, uK * (1.0 - uHz))), 1.0); }`,
+          transparent: true, depthWrite: false, toneMapped: false, fog: false,
+          blending: THREE.CustomBlending, blendSrc: THREE.DstColorFactor, blendDst: THREE.ZeroFactor,
+        });
+        // ...and its lights add on top
+        const lmat = new THREE.ShaderMaterial({
+          uniforms: { tLit: { value: tex(lit, true) }, uK: { value: 0 }, uLit: { value: 0 }, uGlow: { value: 0 } }, vertexShader: vs,
+          fragmentShader: `uniform sampler2D tLit; uniform float uK, uLit, uGlow; varying vec2 vUv;
+            void main(){ vec4 l = texture2D(tLit, vUv); gl_FragColor = vec4((l.rgb * uLit + vec3(1.0, 0.45, 0.13) * l.a * uGlow) * uK, 1.0); }`,
+          transparent: true, depthWrite: false, toneMapped: false, fog: false, blending: THREE.AdditiveBlending,
+        });
+        const quad = new THREE.PlaneGeometry(2 * E, 2 * E).rotateX(-Math.PI / 2);
+        const decal = new THREE.Mesh(quad, mat); decal.position.y = 0.01; g.add(decal);
+        const lights = new THREE.Mesh(quad, lmat); lights.position.y = 0.01; lights.renderOrder = 1; g.add(lights);
         const bc = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xff2a14, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
-        bc.scale.set(0.5, 0.5, 1); bc.position.set(-0.1, 0.6, -0.45); bc.material.userData.base = 1; g.add(bc);
-        // (at night its yard lights make a warm smudge of light in the dark, the only light for miles)
-        const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xffb060, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
-        gl.scale.set(1.2, 1.2, 1); gl.position.set(0, 0.2, 0); g.add(gl); this.siteGlow = gl; this.siteLit = lit;
-        g.userData = { mats, beacon: bc }; g.visible = false; g.renderOrder = 4; g.scale.setScalar(4); sp.add(g); this.siteMark = g;   // (far larger than life, so you can pick it out before the air catches fire)
+        bc.scale.set(0.5, 0.5, 1); bc.position.set(-0.1, 0.6, -0.45); bc.renderOrder = 1; g.add(bc);
+        g.userData = { beacon: bc }; this.siteMat = mat; this.siteLights = lmat;
+        // (far larger than life, so you can pick it out before the air catches fire; drawn after the air, shading the hazed ground, and less the thicker the haze)
+        g.visible = false; g.renderOrder = 6; g.scale.setScalar(4); sp.add(g); this.siteMark = g;
       }
       this.sunDir = V(1, 0.3, 0).normalize();
       this.setOrbit(1, {});
@@ -7560,18 +7674,22 @@ const Ship = (() => {
             }`;
       this.cloudLayers = [this.clouds];
       for (let i = 1; i < 3; i++) { const c = new THREE.Mesh(this.clouds.geometry, this.clouds.material.clone()); this.tilt.add(c); this.cloudLayers.push(c); }
+      // (diving in, the cloud breaks over the site, so you come down through a gap toward the ground and what's on it:
+      // xyz is the site's direction in each layer's own frame, w how open the gap is; its edge is ragged with the cloud)
+      const holeR = { value: new THREE.Vector2(1 - Math.cos(0.036), 1 - Math.cos(0.11)) };
       this.cloudLayers.forEach((c, i) => {
-        const layer = { value: i };
+        const layer = { value: i }, hole = { value: new THREE.Vector4() }; c.userData.hole = hole;
         c.scale.setScalar([0.999, 1.0002, 1.0014][i]); c.renderOrder = i;
         c.material.opacity = [0.6, 0.45, 0.35][i];
         c.material.onBeforeCompile = (sh) => {
-          sh.uniforms.uLayer = layer;
+          sh.uniforms.uLayer = layer; sh.uniforms.uHole = hole; sh.uniforms.uHoleR = holeR;
           vert(sh);
-          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer;\nvoid main() {')
+          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR;\nvoid main() {')
             .replace('#include <map_fragment>', `#include <map_fragment>
               {
                 float hgt, det = pdFbm(normalize(vPDir) + 3.7 + uLayer * 0.61, 26.0, 2.5, 0.8, hgt);
                 float base = sampledDiffuseColor.a, dens = base * (0.9 + det * 1.8), th = uLayer * 0.17;
+                dens *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y * (0.8 + det * 0.5), 1.0 - dot(normalize(vPDir), uHole.xyz)));
                 diffuseColor.a = opacity * smoothstep(th, th + 0.5, dens);
                 diffuseColor.rgb *= 0.76 + 0.16 * uLayer;
                 pdHeight = base + det * 0.12;
@@ -7650,15 +7768,16 @@ const Ship = (() => {
       {
         const sm = this.siteMark, k = this.approach > 0 && !this.inWarp ? sstep(R * 0.3, R * 0.12, this.alt) : 0;
         sm.visible = k > 0.002;
+        for (const c of this.cloudLayers) c.userData.hole.value.w = 0;
         if (sm.visible) {
           sm.position.copy(D).multiplyScalar(this.alt - 0.2); sm.quaternion.setFromUnitVectors(_up0, _dh.copy(D).negate());
-          // (seen through the same air as the ground round it: the haze over the world tints it too, by day)
-          const hz = this.pdU.haze.value * 0.5, day = 1 - 0.85 * sstep(0.15, -0.25, _dh.dot(this.sunDir));
-          _siteAir.copy(this.planetMat.color).multiplyScalar(0.3).lerp(this.atmo.material.uniforms.tint.value, 0.3).multiplyScalar(day);
-          for (const m of sm.userData.mats) { m.opacity = k * m.userData.base; if (m !== this.siteLit) m.color.copy(m.userData.col).lerp(_siteAir, hz); }
+          sm.updateMatrixWorld(); sm.getWorldPosition(_sw);
+          for (const c of this.cloudLayers) { const h = c.userData.hole.value; c.updateMatrixWorld(); const l = c.worldToLocal(_sl.copy(_sw)).normalize(); h.set(l.x, l.y, l.z, sstep(0, 0.35, k)); }
           sm.userData.beacon.material.opacity = k * ((t * 1.3) % 1 < 0.18 ? 1 : 0.12);
-          const night = sstep(0.15, -0.25, _dh.dot(this.sunDir));
-          this.siteGlow.material.opacity = k * 0.55 * night; this.siteLit.opacity = k * (0.6 + 0.4 * night);
+          // (the thickening air washes it out along with the ground round it; the cloud deck passes over both)
+          const night = sstep(0.15, -0.25, _dh.dot(this.sunDir)), U = this.siteMat.uniforms, L = this.siteLights.uniforms;
+          U.uK.value = k; U.uHz.value = this.pdU.haze.value * 0.55;
+          L.uK.value = k * (1 - this.pdU.haze.value * 0.4); L.uLit.value = 0.15 + 0.85 * night; L.uGlow.value = 0.38 * night;
         }
       }
       // eclipse when the sun slips behind the planet's disc
@@ -7727,6 +7846,7 @@ const Ship = (() => {
         // an open hatch in flight is a window, not a way out
         if (c.tag === 'door' && this.door.t > 0.6 && !this.airborne) continue;
         if (c.tag === 'idoor' && this.idoor.t > 0.6) continue;
+        if (c.tag === 'rover' && !Rover.owned) continue;
         if (circleBox(p, rad, c.x0, c.x1, c.z0, c.z1)) hit = true;
       }
       for (const o of this.obbs) if (obbCollide(p, rad, o)) hit = true;
@@ -7970,6 +8090,14 @@ class Avatar {
     this.phase = Math.random() * TAU; this.vel = new THREE.Vector3(); this.lastPos = null; this.lastYaw = null;
     this.legYaw = 0; this.moveBlend = 0; this.runBlend = 0; this.air = 0; this.crouchBlend = 0; this.yawRate = 0;
     this.t = Math.random() * 10; this.look = { yaw: 0, target: 0, timer: 2 };
+  }
+  // both arms round something that isn't an item in their hands (the rover, drawn on its own): just the pose.
+  // (hw: half its width across the chest; d: how far it reaches out in front, both in metres)
+  setHug(hw, d) {
+    if (this.heldKey === 'hug') return;
+    this.setHeld(null); this.heldKey = 'hug'; this.style = 'carry2';
+    const zc = -0.2 * AV_SCALE - d / 2;
+    this.carryDim = { hw: Math.min(0.3, (hw + 0.02) / AV_SCALE), z: zc / AV_SCALE };
   }
   setHeld(type, id = 0) {
     const key = type ? itemLook(type, id) : null;
@@ -10828,6 +10956,8 @@ const Player = (() => {
   }
   function weightOf(me) {
     let w = 0; for (const id of me.slots) { const it = id != null && G.items.get(id); if (it) w += ITEMS[it.type].weight; }
+    // (the rover in your arms, and what's in its basket)
+    if (me.id === G.localId && Rover.carriedByMe) { w += ROVER.WEIGHT; for (const it of Rover.basket()) w += ITEMS[it.type].weight; }
     return w * (G.run && G.run.upgrades.harness ? 0.5 : 1);
   }
   function selItem(me) { const id = me.slots[me.sel]; return id != null ? G.items.get(id) : null; }
@@ -10940,6 +11070,8 @@ const Player = (() => {
         me.zoneView = p.zone;
         return;
       }
+      // ---------- at the rover's console: the view is the rover's (Rover.update has it); you stand still ----------
+      if (Rover.driving) { vm.root.visible = false; me.moving = me.sprint = me.air = false; target = null; HUD.prompt(null, me); return; }
       me.zoneView = me.zone;
       // ---------- look ----------
       if (!ui) {
@@ -10990,6 +11122,7 @@ const Player = (() => {
         const dx = me.pos.x - m.rpos.x, dz = me.pos.z - m.rpos.z, d = Math.hypot(dx, dz), r = m.def.radius + 0.3;
         if (d < r && d > 1e-3) { me.pos.x = m.rpos.x + (dx / d) * r; me.pos.z = m.rpos.z + (dz / d) * r; }
       }
+      Rover.push(me.pos, 0.3, me.zone);
       if (me.zone === 'in' && G.fac) {
         const f = G.fac;
         f.collide(me.pos, 0.32); f.collide(me.pos, 0.32);
@@ -11040,17 +11173,20 @@ const Player = (() => {
       if (Math.abs(cam.fov - tf) > 0.05) { cam.fov = tf; cam.updateProjectionMatrix(); }
       me.crouch = crouch; me.sprint = sprint && hs > 3; me.moving = hs > 0.8; me.air = !onGround && airT > 0.08;
       // ---------- inventory ----------
+      // (carrying the rover takes both arms: nothing else comes out of your pockets until it's set down)
+      const lugging = Rover.carriedByMe;
       const held = selItem(me);
-      const locked2h = held && ITEMS[held.type].twoHanded;
+      const locked2h = lugging || (held && ITEMS[held.type].twoHanded);
       if (!ui) {
         for (let i = 0; i < me.slots.length; i++) if (Input.hit('Digit' + (i + 1))) { if (locked2h) HUD.toast('Hands full — [G] to drop'); else me.sel = i; }
         if (Input.wheel && !locked2h) me.sel = (me.sel + Input.wheel + me.slots.length) % me.slots.length;
         else if (Input.wheel && locked2h) HUD.toast('Hands full — [G] to drop');
       }
-      const cur = selItem(me);
+      const cur = lugging ? null : selItem(me);
       setVM(cur ? cur.type : null, cur ? cur.id : 0);
       // drop
-      if (!ui && Input.hit('KeyG') && cur) G.dropHeld();
+      if (!ui && Input.hit('KeyG') && lugging) Rover.requestDrop();
+      else if (!ui && Input.hit('KeyG') && cur) G.dropHeld();
       // flashlight hotkey
       if (!ui && Input.hit('KeyF')) {
         const fl = me.slots.map((id) => id != null && G.items.get(id)).find((it) => it && ITEMS[it.type].light);
@@ -11242,7 +11378,7 @@ const Touch = (() => {
     if (!play) return;
     root.classList.toggle('dead', !me.alive);
     root.querySelector('[data-k=use] span').textContent = me.alive ? 'USE' : 'NEXT';
-    root.querySelector('[data-k=e]').classList.toggle('ready', !!Player.target);
+    root.querySelector('[data-k=e]').classList.toggle('ready', !!Player.target || Rover.driving);
     root.querySelector('.talk').classList.toggle('hidden', !(G.online && Settings.voice && Settings.ptt));
   };
   // full screen and on its side, if the browser lets a page ask (it has to be in answer to a tap)
@@ -11253,6 +11389,319 @@ const Touch = (() => {
     try { const p = rq.call(d, { navigationUI: 'hide' }); if (p && p.then) p.then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {}); } catch (e) { /* not allowed here */ }
   };
   return T;
+})();
+
+</script>
+<script type="text/x-gs" data-file="rover">
+'use strict';
+// The scout rover: a little remote-control truck with a camera on a mast, a headlight, and a wire basket on its back.
+// It's a ship upgrade from the store and parks in the bay beside the airlock. Whoever takes the console by it drives:
+// their view becomes the rover's camera (grainier the further it gets from the ship), and it'll go down the ramp, out
+// across the ground and in through the facility doors. The crew can load what they find into its basket; whatever's in
+// the basket is aboard once the rover is. Left outside when the ship goes, it's lost. It can be carried, too: both
+// hands, and it's heavy enough to slow you right down.
+//
+// Whoever drives it moves it (the way your own body is yours); everyone else sees it through the host's snapshots. The
+// host decides who drives and what goes in and out of the basket.
+const ROVER = { WEIGHT: 30, SPEED: 4.4, REV: 1.9, TURN: 2.2, R: 0.32, SLOTS: 3, RANGE: 140, DOCK: { x: -0.55, z: 2.0, yaw: Math.PI }, CONSOLE: { x: -0.55, z: 3.62 } };
+
+const Rover = (() => {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const S = { owned: false, x: ROVER.DOCK.x, y: 0, z: ROVER.DOCK.z, yaw: ROVER.DOCK.yaw, zone: 'out', driver: null, carrier: null, lit: false };
+  let mesh = null, wheels = [], lamp = null, lampGlow = null, led = null, buf = [], driving = false, v = 0, vy = 0, camYaw = 0, camPitch = -0.12, spin = 0;
+  let pitch = 0, roll = 0, noiseT = 0, feed = null, feedCam = null, feedT = 0, screen = null, overlay = null, hornT = 0, driveT = 0, spd = 0;
+  const _p = V(0, 0, 0), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _m = new THREE.Matrix4();
+  // forward along the rover's nose (its local +x), for a heading
+  const fwd = (yaw) => V(Math.cos(yaw), 0, -Math.sin(yaw));
+  const groundAt = (x, z, y, zone) => zone === 'in' && G.fac ? G.fac.floorY(x, z, y) : G.groundAt(x, z);
+
+  // ---------- the model ----------
+  function build() {
+    const g = new THREE.Group(), body = MATS.rep('painted', 1, 1, 0xc9a227), dark = MATS.get('darkmetal'), blk = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85 });
+    const add = (geo, m, x, y, z, parent = g) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; parent.add(me); return me; };
+    // a low yellow chassis with a black bumper band, the deck it carries, a sloped nose with the headlight in it
+    add(new THREE.BoxGeometry(0.62, 0.14, 0.4), body, 0, 0.2, 0);
+    add(new THREE.BoxGeometry(0.66, 0.05, 0.44), blk, 0, 0.14, 0);
+    { const n = add(new THREE.BoxGeometry(0.14, 0.1, 0.38), body, 0.3, 0.22, 0); n.rotation.z = -0.5; }
+    lamp = add(new THREE.CircleGeometry(0.035, 12), new THREE.MeshBasicMaterial({ color: 0x333333 }), 0.352, 0.225, 0); lamp.rotation.y = Math.PI / 2; lamp.rotation.x = 0;
+    lamp.rotation.set(0, Math.PI / 2, 0); lamp.castShadow = false;
+    lampGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xfff0d0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    lampGlow.position.set(0.37, 0.225, 0); lampGlow.scale.set(0.35, 0.35, 1); g.add(lampGlow);
+    // four chunky wheels on stub axles
+    for (const [x, z] of [[0.2, 0.23], [0.2, -0.23], [-0.2, 0.23], [-0.2, -0.23]]) {
+      const w = new THREE.Group(); w.position.set(x, 0.11, z); g.add(w);
+      const tire = add(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 14), blk, 0, 0, 0, w); tire.rotation.x = Math.PI / 2;
+      const hub = add(new THREE.CylinderGeometry(0.05, 0.05, 0.085, 8), dark, 0, 0, 0, w); hub.rotation.x = Math.PI / 2;
+      for (let i = 0; i < 3; i++) { const t = add(new THREE.BoxGeometry(0.022, 0.2, 0.086), blk, 0, 0, 0, w); t.rotation.z = (i / 3) * Math.PI; }
+      wheels.push(w);
+    }
+    // the camera on its mast at the front, an aerial at the back with a light that blinks while it's live
+    add(new THREE.CylinderGeometry(0.015, 0.02, 0.24, 8), dark, 0.2, 0.39, 0);
+    add(new THREE.BoxGeometry(0.1, 0.07, 0.09), dark, 0.22, 0.52, 0);
+    { const l = add(new THREE.CylinderGeometry(0.025, 0.028, 0.03, 10), blk, 0.28, 0.52, 0); l.rotation.z = Math.PI / 2; }
+    add(new THREE.CylinderGeometry(0.004, 0.004, 0.42, 5), dark, -0.26, 0.48, 0.15);
+    led = add(new THREE.SphereGeometry(0.012, 6, 4), new THREE.MeshBasicMaterial({ color: 0x220a06 }), -0.26, 0.69, 0.15);
+    // the basket: a wire cage over the back of the deck
+    const wire = MATS.get('steelBolt'), bx = -0.08, bw = 0.4, bd = 0.34, bh = 0.15, by = 0.27;
+    add(new THREE.BoxGeometry(bw, 0.008, bd), MATS.rep('grate', 0.4, 0.35), bx, by, 0);
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) add(new THREE.CylinderGeometry(0.006, 0.006, bh, 4), wire, bx + dx * bw / 2, by + bh / 2, dz * bd / 2);
+    for (const s of [-1, 1]) { add(new THREE.BoxGeometry(bw, 0.008, 0.008), wire, bx, by + bh, s * bd / 2); add(new THREE.BoxGeometry(0.008, 0.008, bd), wire, bx + s * bw / 2, by + bh, 0); }
+    for (let i = 1; i < 4; i++) for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.003, 0.003, bh, 3), wire, bx - bw / 2 + (i / 4) * bw, by + bh / 2, s * bd / 2);
+    g.visible = false; R.scene.add(g);
+    return g;
+  }
+  // the console in the bay: a pedestal with a sloped panel, a stick and buttons, and a little tube showing what the
+  // rover sees; a stencil saying what it is
+  function buildConsole(ship) {
+    const C = ROVER.CONSOLE, g = new THREE.Group(); g.position.set(C.x, 0, C.z); ship.group.add(g);
+    const add = (geo, m, x, y, z) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; g.add(me); return me; };
+    const paint = MATS.rep('painted', 0.6, 0.6, 0x5f6a5c), dark = MATS.get('darkmetal');
+    add(new THREE.BoxGeometry(0.62, 0.86, 0.34), paint, 0, 0.43, 0.02);
+    { const t = add(new THREE.BoxGeometry(0.66, 0.05, 0.36), dark, 0, 0.88, -0.02); t.rotation.x = -0.25; }
+    { const st = add(new THREE.CylinderGeometry(0.012, 0.014, 0.16, 8), dark, -0.12, 0.98, -0.06); st.rotation.x = -0.25; add(new THREE.SphereGeometry(0.03, 10, 8), new THREE.MeshStandardMaterial({ color: 0xa01a10, roughness: 0.4 }), -0.12, 1.06, -0.08); }
+    for (let i = 0; i < 4; i++) { const b = add(new THREE.CylinderGeometry(0.016, 0.016, 0.012, 10), new THREE.MeshStandardMaterial({ color: [0x1c8a3a, 0xc4961e, 0x8a1c14, 0x2c4a6e][i], emissive: [0x1c8a3a, 0xc4961e, 0x8a1c14, 0x2c4a6e][i], emissiveIntensity: 0.25 }), 0.06 + (i % 2) * 0.07, 0.915, -0.04 - Math.floor(i / 2) * 0.07); b.rotation.x = -0.25; }
+    // the screen in its housing, tipped up toward whoever stands there
+    const hous = add(new THREE.BoxGeometry(0.5, 0.36, 0.2), dark, 0, 1.23, 0.1); hous.rotation.x = 0.18;
+    feed = new THREE.WebGLRenderTarget(256, 192, { depthBuffer: true });
+    screen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.3), new THREE.ShaderMaterial({
+      uniforms: { tFeed: { value: feed.texture }, uLive: { value: 0 }, uT: { value: 0 }, uNoise: { value: 0 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform sampler2D tFeed; uniform float uLive, uT, uNoise; varying vec2 vUv;
+        float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+        void main(){
+          vec3 c = texture2D(tFeed, vUv).rgb * 2.4; c = c / (1.0 + c);
+          float l = dot(c, vec3(0.299, 0.587, 0.114)); c = mix(vec3(l), c, 0.5) * vec3(0.82, 1.0, 0.86);
+          c *= 0.86 + 0.14 * sin(vUv.y * 420.0 + uT * 3.0);
+          float n = h(floor(vUv * vec2(128.0, 96.0)) + fract(uT * 7.3));
+          c = mix(c, vec3(n * 0.7), clamp(uNoise, 0.0, 1.0)) * uLive + vec3(0.02, 0.05, 0.03) * (1.0 - uLive) * n;
+          vec2 d = vUv - 0.5; c *= 1.0 - dot(d, d) * 1.1;
+          gl_FragColor = vec4(c * 1.15, 1.0); }`,
+      toneMapped: false, fog: false,
+    }));
+    screen.position.set(0, 1.235, -0.0); screen.rotation.set(0.18 + Math.PI, 0, Math.PI); g.add(screen);
+    screen.position.z = 0.1 - 0.101 * Math.cos(0.18); screen.position.y = 1.23 + 0.101 * Math.sin(0.18);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.07), new THREE.MeshStandardMaterial({ map: TEX.sign('ROVER CONTROL', { w: 256, h: 44, size: 30, bg: '#1b1b18', fg: '#e0b040', border: false }), roughness: 0.7 }));
+    sign.position.set(0, 0.74, -0.151); sign.rotation.y = Math.PI; g.add(sign);
+    feedCam = new THREE.PerspectiveCamera(78, 256 / 192, 0.05, 260);
+    ship.col(C.x - 0.33, C.x + 0.33, C.z - 0.17, C.z + 0.25, 'rover');
+    ship.interact.push({ kind: 'rover', x: C.x, y: 1.0, z: C.z - 0.2, r: 0.45 });
+    g.visible = false;
+    return g;
+  }
+  let consoleG = null;
+
+  // ---------- state ----------
+  const R0 = {
+    init(ship) {
+      mesh = build(); consoleG = buildConsole(ship);
+      overlay = document.createElement('div'); overlay.id = 'rovercam'; overlay.className = 'hidden';
+      overlay.innerHTML = '<div class="rc-tag">ROVER-1 · <span class="rc-link">LINK 100%</span></div><div class="rc-rec">● REC</div><div class="rc-hint">W A S D DRIVE · F LIGHT · SPACE HORN · E LET GO</div>';
+      document.body.appendChild(overlay);
+    },
+    get owned() { return S.owned; },
+    get state() { return S; },
+    get driving() { return driving; },
+    get zone() { return S.zone; },
+    get carriedByMe() { return S.owned && S.carrier != null && S.carrier === G.localId; },
+    // set it down just in front of you, on whatever floor is there
+    requestDrop() {
+      const me = G.me(); if (!me) return;
+      const f = V(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)); let x = me.pos.x + f.x * 0.7, z = me.pos.z + f.z * 0.7;
+      if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
+      G.request({ a: 'roverDrop', x, y: groundAt(x, z, me.pos.y + 0.3, me.zone), z, yaw: me.yaw + Math.PI / 2, zone: me.zone });
+    },
+    setOwned(on) { if (on && !S.owned) R0.dock(); S.owned = !!on; mesh.visible = consoleG.visible = S.owned; if (!on && driving) R0.stopDriving(); },
+    // back on its spot in the bay
+    dock() { Object.assign(S, { x: ROVER.DOCK.x, y: 0, z: ROVER.DOCK.z, yaw: ROVER.DOCK.yaw, zone: 'out', lit: false }); buf = []; v = 0; vy = 0; },
+    // aboard: in the ship, on its deck
+    aboard() { return S.zone === 'out' && G.ship.onFootprint(S.x, S.z) && S.y > -0.5 && S.y < 1; },
+    basket() { return [...G.items.values()].filter((it) => it.basket != null).sort((a, b) => a.basket - b.basket); },
+    freeSlot() { const used = new Set(R0.basket().map((it) => it.basket)); for (let i = 0; i < ROVER.SLOTS; i++) if (!used.has(i)) return i; return -1; },
+    // where a basket slot sits in the world right now (drawn position)
+    slotPos(i, out) {
+      const lx = -0.17 + (i % 2) * 0.17, lz = i === 2 ? 0 : (i ? 0.07 : -0.07), ly = 0.3 + (i === 2 ? 0.08 : 0);
+      out.set(lx, ly, lz).applyEuler(_e.set(roll, S.yaw, pitch, 'YXZ')).add(_p.set(S.x, S.y, S.z));
+      return out;
+    },
+    serialize() { return { x: S.x, y: S.y, z: S.z, yaw: S.yaw, zone: S.zone, driver: S.driver, carrier: S.carrier, lit: S.lit }; },
+    apply(o) { if (o) { Object.assign(S, o); buf = []; } },
+    // the pose that goes over the network (driver -> host -> everyone)
+    netPose() { return [+S.x.toFixed(2), +S.y.toFixed(2), +S.z.toFixed(2), +S.yaw.toFixed(3), S.zone === 'in' ? 1 : 0, S.lit ? 1 : 0]; },
+    applyNet(a) {
+      if (driving) return;
+      const zone = a[4] ? 'in' : 'out';
+      if (zone !== S.zone) buf = [];
+      S.zone = zone; S.lit = !!a[5];
+      buf.push({ t: G.now, x: a[0], y: a[1], z: a[2], yaw: a[3] }); if (buf.length > 10) buf.shift();
+      if (buf.length === 1) Object.assign(S, { x: a[0], y: a[1], z: a[2], yaw: a[3] });
+    },
+    startDriving() { driving = true; driveT = 0; buf = []; camYaw = 0; camPitch = -0.12; v = 0; overlay.classList.remove('hidden'); $('hud').classList.add('cine', 'rc'); SFX.play('servo', null, { vol: 0.5, dur: 0.4, pitch: 1.6 }); },
+    stopDriving() { if (!driving) return; driving = false; v = 0; buf = []; overlay.classList.add('hidden'); $('hud').classList.remove('cine', 'rc'); R.fx.static = 0; R.flash.intensity = 0; SFX.play('static', null, { dur: 0.25, vol: 0.5 }); },
+    // the link: clear by the ship, grainier the further out it goes, worse still under ground
+    link() {
+      if (S.zone === 'in') { const d = G.fac ? G.fac.depthOfY(S.y) : 0; return clamp(0.82 - 0.22 * d - Math.hypot(S.x, S.z) * 0.0012, 0.15, 0.85); }
+      return clamp(1 - Math.max(0, Math.hypot(S.x, S.z) - 25) / ROVER.RANGE, 0.12, 1);
+    },
+
+    // ---------- every frame ----------
+    update(dt) {
+      if (!S.owned) return;
+      const me = G.me();
+      if (S.carrier != null) carried(dt); else if (driving) drive(dt, me); else follow(dt);
+      present(dt);
+      if (G.isHost) hostTick(dt);
+      renderFeed(dt, me);
+    },
+
+    // it's solid: you walk round it, not through it (unless it's in someone's arms)
+    push(p, rad, zone) {
+      if (!S.owned || S.carrier != null || zone !== S.zone || p.y > S.y + 0.6 || p.y < S.y - 1.2) return;
+      const dx = p.x - S.x, dz = p.z - S.z, d = Math.hypot(dx, dz), r = ROVER.R + rad;
+      if (d < r && d > 1e-4) { p.x = S.x + (dx / d) * r; p.z = S.z + (dz / d) * r; }
+    },
+    // the console, and the basket when you're standing by the rover
+    interactables(me, out) {
+      if (!S.owned || driving || S.carrier != null) return;
+      if (me.zone !== S.zone || Math.hypot(me.pos.x - S.x, me.pos.z - S.z) > 1.6 || Math.abs(me.pos.y - S.y) > 1.5) return;
+      if (S.driver == null) out.push({ kind: 'roverPick', ref: 0, x: S.x, y: S.y + 0.2, z: S.z, r: 0.4, label: 'Pick up the rover (heavy)' });
+      const id = me.slots[me.sel], held = id != null && G.items.get(id), p = R0.slotPos(1, V(0, 0, 0));
+      if (held && R0.freeSlot() >= 0) out.push({ kind: 'basketPut', ref: held.id, x: p.x, y: p.y + 0.1, z: p.z, r: 0.45, label: 'Put ' + ITEMS[held.type].name + ' in the rover\'s basket' });
+      else {
+        const top = R0.basket().slice(-1)[0];
+        if (top && me.slots.indexOf(null) >= 0 && !held) out.push({ kind: 'basketTake', ref: top.id, x: p.x, y: p.y + 0.1, z: p.z, r: 0.45, label: 'Take ' + ITEMS[top.type].name + ' from the basket', value: ITEMS[top.type].kind === 'scrap' ? top.value : 0 });
+      }
+    },
+  };
+
+  // ---------- driving (on the driver's own machine) ----------
+  function drive(dt, me) {
+    const I = Input, ui = HUD.blocking;
+    if (!me || !me.alive || G.flight) { G.request({ a: 'undrive' }); R0.stopDriving(); return; }
+    driveT += dt;
+    if (!ui && I.hit('KeyE') && driveT > 0.3) { G.request({ a: 'undrive' }); R0.stopDriving(); return; }
+    const link = R0.link();
+    let thr = 0, steer = 0;
+    if (!ui) {
+      thr = (I.down('KeyW') ? 1 : 0) - (I.down('KeyS') ? 1 : 0); steer = (I.down('KeyD') ? 1 : 0) - (I.down('KeyA') ? 1 : 0);
+      if (I.analog.x || I.analog.y) { thr = I.analog.y; steer = I.analog.x; }
+      const s = 0.0022 * Settings.sens;
+      camYaw = clamp(camYaw - I.mdx * s, -1.4, 1.4); camPitch = clamp(camPitch - I.mdy * s * (Settings.invertY ? -1 : 1), -0.9, 0.6);
+      // (left alone while it's driving forward, the camera swings back to look where it's going)
+      if (!I.mdx && thr > 0) camYaw = damp(camYaw, 0, 0.9, dt);
+      if (I.hit('KeyF')) { S.lit = !S.lit; SFX.play('click'); }
+      if (I.hit('Space') && hornT <= 0) { hornT = 0.8; G.request({ a: 'roverHorn' }); }
+    }
+    hornT -= dt;
+    // (a weak link makes it sluggish to answer)
+    const want = thr > 0 ? thr * ROVER.SPEED : thr * ROVER.REV, resp = 3.2 * (0.4 + 0.6 * link);
+    v = damp(v, want, resp, dt);
+    if (Math.abs(v) > 0.05) S.yaw -= steer * ROVER.TURN * dt * clamp(Math.abs(v) / 1.6, 0.35, 1) * Math.sign(v);
+    else S.yaw -= steer * ROVER.TURN * 0.6 * dt;
+    // move, then push out of anything solid; the ground (or the floor down there) carries it
+    const f = fwd(S.yaw), ox = S.x, oz = S.z;
+    const p = _p.set(S.x + f.x * v * dt, S.y, S.z + f.z * v * dt);
+    if (S.zone === 'in' && G.fac) { const F = G.fac; F.collide(p, ROVER.R); F.collide(p, ROVER.R); if (!F.floorAt(F.ti(p.x), F.tj(p.z))) p.set(ox, S.y, oz); }
+    else { if (G.ext && G.mode !== 'orbit') G.ext.collide(p, ROVER.R); G.ship.collide(p, ROVER.R); }
+    // (and it can't drive through people)
+    for (const q of G.players.values()) {
+      if (!q.alive || q.zone !== S.zone) continue;
+      const at = q.id === G.localId ? q.pos : q.rpos, dx = p.x - at.x, dz = p.z - at.z, d = Math.hypot(dx, dz), r = ROVER.R + 0.3;
+      if (d < r && d > 1e-4 && Math.abs(at.y - S.y) < 1.2) { p.x = at.x + (dx / d) * r; p.z = at.z + (dz / d) * r; }
+    }
+    S.x = p.x; S.z = p.z;
+    const moved = Math.hypot(S.x - ox, S.z - oz);
+    if (Math.abs(v) > 0.3 && moved < Math.abs(v) * dt * 0.3) v *= 0.6;   // ran into something
+    const gy = groundAt(S.x, S.z, S.y + 0.3, S.zone);
+    if (S.y > gy + 0.02) { vy -= 18 * dt; S.y = Math.max(gy, S.y + vy * dt); } else { S.y = gy; vy = 0; }
+    spin += (v * dt) / 0.11;
+    // through a facility door, in or out
+    portals();
+    // the view: from the camera on its mast, panned and tilted by the driver
+    const cam = R.camera, mp = V(0.31, 0.52, 0).applyEuler(_e.set(roll, S.yaw, pitch, 'YXZ')).add(V(S.x, S.y, S.z));
+    cam.position.copy(mp); cam.rotation.set(camPitch + pitch * 0.5, S.yaw - Math.PI / 2 + camYaw, roll * 0.5, 'YXZ'); cam.updateMatrixWorld();
+    if (Math.abs(cam.fov - 78) > 0.05) { cam.fov = 78; cam.updateProjectionMatrix(); }
+    me.zoneView = S.zone;
+    // its headlight is the flashlight the renderer already carries on the view
+    R.flash.intensity = S.lit ? 34 : 0; R.flash.distance = 22; R.flash.angle = 0.6; R.flash.position.set(0, -0.15, 0);
+    R.fx.static = clamp((1 - link) * 1.1, 0, 0.9);
+    overlay.querySelector('.rc-link').textContent = 'LINK ' + Math.round(link * 100) + '%';
+  }
+  // the facility's doors: drive up to one and you're through it (the way a person goes through)
+  function portals() {
+    if (!G.ext || !G.fac) return;
+    if (S.zone === 'out') {
+      for (const o of G.ext.interact) if (o.kind === 'enter' && Math.hypot(o.x - S.x, o.z - S.z) < 1.4) {
+        const ex = G.fac.exits.find((e) => e.kind === o.which) || G.fac.exits[0];
+        S.zone = 'in'; S.x = ex.spawn.x; S.z = ex.spawn.z; S.y = G.fac.floorY(S.x, S.z, FAC_Y0 + 0.3); S.yaw = ex.spawn.yaw + Math.PI / 2; v = 0;
+        SFX.play('door_open', null, { vol: 0.5 }); R.fx.fade = 1; return;
+      }
+    } else {
+      for (const ex of G.fac.exits) if (Math.hypot(ex.x - S.x, ex.z - S.z) < 0.9) {
+        const sp = ex.kind === 'fire' && G.ext.fire.spawn ? G.ext.fire.spawn : G.ext.entrance.spawn;
+        S.zone = 'out'; S.x = sp.x; S.z = sp.z; S.y = sp.y; S.yaw = sp.yaw + Math.PI / 2; v = 0;
+        SFX.play('door_open', null, { vol: 0.5 }); R.fx.fade = 1; return;
+      }
+    }
+  }
+  // ---------- carried: held out in front of whoever's got it, both hands ----------
+  function carried(dt) {
+    const p = G.players.get(S.carrier); if (!p) return;
+    const mine = p.id === G.localId, at = mine ? p.pos : (p.rpos || p.pos), yaw = mine ? p.yaw : (p.ryaw || p.yaw);
+    const f = V(-Math.sin(yaw), 0, -Math.cos(yaw));
+    S.x = at.x + f.x * 0.38; S.z = at.z + f.z * 0.38; S.y = at.y + 0.9; S.yaw = yaw; S.zone = p.zone || 'out';
+    buf = [];
+  }
+  // ---------- everyone else: follow the snapshots ----------
+  function follow(dt) {
+    if (buf.length < 2) { if (buf.length === 1) Object.assign(S, { x: buf[0].x, y: buf[0].y, z: buf[0].z, yaw: buf[0].yaw }); spd = 0; return; }
+    const t = G.now - 110;
+    let a = buf[0], b = buf[buf.length - 1];
+    for (let i = 0; i < buf.length - 1; i++) if (buf[i].t <= t && buf[i + 1].t >= t) { a = buf[i]; b = buf[i + 1]; break; }
+    const k = b.t > a.t ? clamp((t - a.t) / (b.t - a.t), 0, 1) : 1, ox = S.x, oz = S.z;
+    S.x = lerp(a.x, b.x, k); S.y = lerp(a.y, b.y, k); S.z = lerp(a.z, b.z, k); S.yaw = a.yaw + angDiff(a.yaw, b.yaw) * k;
+    const d = Math.hypot(S.x - ox, S.z - oz), f = fwd(S.yaw);
+    spin += (d * Math.sign((S.x - ox) * f.x + (S.z - oz) * f.z)) / 0.11; spd = d / Math.max(dt, 1e-3);
+  }
+  // ---------- the host: the noise it makes, and what it's carrying ----------
+  function hostTick(dt) {
+    noiseT -= dt;
+    const moving = driving ? Math.abs(v) > 0.4 : spd > 0.4;
+    if (noiseT <= 0 && moving && S.driver != null && G.mode !== 'orbit') { noiseT = 0.7; G.addNoise(V(S.x, S.y + 0.2, S.z), 6, S.zone, null); }
+  }
+  // ---------- drawing it ----------
+  function present(dt) {
+    // settle on the ground: lean with the slope under its wheels (unless someone's carrying it)
+    if (S.carrier != null) { pitch = damp(pitch, 0, 8, dt); roll = damp(roll, 0.2, 8, dt); }   // (tipped toward whoever's carrying it)
+    else if (S.zone === 'out' || G.fac) {
+      const f = fwd(S.yaw), r = V(f.z, 0, -f.x);
+      const h = (dx, dz) => groundAt(S.x + dx, S.z + dz, S.y + 0.3, S.zone);
+      const hf = h(f.x * 0.25, f.z * 0.25), hb = h(-f.x * 0.25, -f.z * 0.25), hr = h(r.x * 0.2, r.z * 0.2), hl = h(-r.x * 0.2, -r.z * 0.2);
+      pitch = damp(pitch, clamp(Math.atan2(hf - hb, 0.5), -0.5, 0.5), 10, dt); roll = damp(roll, clamp(Math.atan2(hr - hl, 0.4), -0.4, 0.4), 10, dt);
+    }
+    mesh.position.set(S.x, S.y, S.z); mesh.rotation.set(roll, S.yaw, pitch, 'YXZ');
+    for (const w of wheels) w.rotation.z = -spin;
+    // aboard a flying ship it rides along
+    if (G.shipMoved && G.posAboard(mesh.position)) { mesh.position.applyMatrix4(G.shipM); mesh.quaternion.premultiply(G.shipQ); }
+    const live = S.driver != null, t = performance.now() / 1000;
+    led.material.color.setHex(live && t % 1 < 0.2 ? 0xff3020 : 0x220a06);
+    lamp.material.color.setHex(S.lit ? 0xfff2d0 : 0x333333); lampGlow.material.opacity = S.lit && !driving ? 0.8 : 0;
+  }
+  // the console's tube: what the rover sees, a few times a second, while someone's near enough to watch
+  function renderFeed(dt, me) {
+    const live = S.driver != null, sh = screen.material.uniforms;
+    sh.uT.value = performance.now() / 1000; sh.uLive.value = live ? 1 : 0;
+    feedT -= dt; if (feedT > 0 || !live || !me || me.zone !== 'out') return;
+    const cp = consoleG.getWorldPosition(V(0, 0, 0)); if (R.camera.position.distanceTo(cp) > 9 && !driving) return;
+    feedT = 1 / 8;
+    const mp = V(0.31, 0.52, 0).applyEuler(_e.set(roll, S.yaw, pitch, 'YXZ')).add(V(S.x, S.y, S.z));
+    feedCam.position.copy(mp); feedCam.rotation.set(-0.12 + pitch * 0.5, S.yaw - Math.PI / 2, 0, 'YXZ');
+    if (G.shipMoved && G.posAboard(mp)) { feedCam.position.applyMatrix4(G.shipM); feedCam.quaternion.premultiply(G.shipQ); }
+    feedCam.updateMatrixWorld();
+    sh.uNoise.value = clamp((1 - R0.link()) * 1.1, 0, 0.9);
+    // (the outside world only shows if the rover is out in it; under ground, the screen is all it gets)
+    if (S.zone === 'in' || G.zoneOf(me) === S.zone) { screen.visible = false; R.renderView(feedCam, feed, 0, 0, 256, 192); screen.visible = true; }
+  }
+  return R0;
 })();
 
 </script>
@@ -11297,18 +11746,19 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 3;
+const PROTO = 4;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
   liftAt: 2.8, toDur: 11.5,              // takeoff: engines spool up for liftAt seconds, then lift; orbit at toDur
+  burst: 4.4,                            // ...and this long after lifting off, the main engines open up all at once
   sendoff: 4.5,                          // ...and this much longer when it leaves anyone behind (they watch it go)
   doorAlt: 40,                           // the hatch can be open below this altitude, and shuts itself above it
 };
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color();
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 5.6, end: 9.0 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
@@ -11328,8 +11778,9 @@ const G = {
   init() {
     G.ship = new Ship();
     G.ship.clockMinutes = () => (G.round ? G.round.time : null);
-    R.scene.add(G.ship.group); R.scene.add(G.ship.wash); R.setBackdrop(G.ship.space, G.ship.sunCore);
+    R.scene.add(G.ship.group); R.scene.add(G.ship.wash); R.scene.add(G.ship.smoke); R.setBackdrop(G.ship.space, G.ship.sunCore);
     CrewCam.init(G.ship);
+    Rover.init(G.ship);
     SFX.setOcclusion((p) => {
       const cam = R.camera.position;
       if (G.fac && cam.y < -50 && p.y < -50) return G.fac.los(cam.x, cam.z, p.x, p.z) ? 0 : 0.85;
@@ -11368,7 +11819,7 @@ const G = {
     G.run = save && save.run ? save.run : G.newRun();
     G.addPlayer({ id: 0, name: name || 'Crew', color: color || 0, peerId: Net.myPeerId, alive: true, zone: 'out' });
     // older saves may hold positions from the previous ship layout; keep anything that is not inside the cabin near the cargo racks
-    if (save && save.items) for (const s of save.items) { const ok = G.ship.inside(s.x, s.y + 0.3, s.z); G.createItem({ id: G.nextItemId++, type: s.type, value: s.value, x: ok ? s.x : -5 + Math.random(), y: ok ? s.y : 0, z: ok ? s.z : 1.5 + Math.random(), ry: s.ry, battery: s.battery ?? 1, inShip: true }); }
+    if (save && save.items) for (const s of save.items) { const ok = G.ship.inside(s.x, s.y + 0.3, s.z); G.createItem({ id: G.nextItemId++, type: s.type, value: s.value, x: ok ? s.x : -5 + Math.random(), y: ok ? s.y : 0, z: ok ? s.z : 1.5 + Math.random(), ry: s.ry, battery: s.battery ?? 1, inShip: s.bk == null || !G.run.upgrades.rover, bk: G.run.upgrades.rover ? s.bk : null }); }
     else G.createItem({ id: G.nextItemId++, type: 'flashlight', value: 0, x: 2.3, y: 0.92, z: -3.3, ry: 0.4, battery: 1, inShip: true });
     G.applyRunVisuals();
     G.enterOrbitState();
@@ -11406,10 +11857,10 @@ const G = {
     if (!G.isHost || !G.run) return;
     const items = [];
     for (const it of G.items.values()) {
-      const inShip = it.holder != null ? true : it.inShip;
+      const inShip = it.holder != null || it.basket != null ? true : it.inShip;
       if (!inShip) continue;
-      const held = it.holder != null;
-      items.push({ type: it.type, value: it.value, x: held ? -5 + Math.random() : it.pos.x, y: held ? 0 : it.pos.y, z: held ? 2 + Math.random() : it.pos.z, ry: it.ry, battery: it.battery });
+      const held = it.holder != null || it.basket != null;
+      items.push({ type: it.type, value: it.value, x: held ? -5 + Math.random() : it.pos.x, y: held ? 0 : it.pos.y, z: held ? 2 + Math.random() : it.pos.z, ry: it.ry, battery: it.battery, bk: it.basket ?? undefined });
     }
     Store.set(G.saveKey, { v: PROTO, run: G.run, items });
   },
@@ -11446,7 +11897,7 @@ const G = {
   },
   // ======================= items =======================
   createItem(d) {
-    const it = { id: d.id, type: d.type, value: d.value || 0, pos: new THREE.Vector3(d.x, d.y, d.z), ry: d.ry || 0, holder: d.holder ?? null, inShip: !!d.inShip, battery: d.battery ?? 1, on: !!d.on, fallV: 0, vis: new THREE.Vector3(d.x, d.y, d.z), box: d.c ?? null };
+    const it = { id: d.id, type: d.type, value: d.value || 0, pos: new THREE.Vector3(d.x, d.y, d.z), ry: d.ry || 0, holder: d.holder ?? null, inShip: !!d.inShip, battery: d.battery ?? 1, on: !!d.on, fallV: 0, vis: new THREE.Vector3(d.x, d.y, d.z), box: d.c ?? null, basket: d.bk ?? null };
     it.mesh = ItemMeshes.build(it.type, it.id);
     it.mesh.position.copy(it.pos); it.mesh.rotation.y = it.ry;
     R.scene.add(it.mesh);
@@ -11461,7 +11912,7 @@ const G = {
     for (const p of G.players.values()) { const k = p.slots.indexOf(id); if (k >= 0) p.slots[k] = null; }
     G.items.delete(id);
   },
-  iinfo(i) { return { id: i.id, type: i.type, value: i.value, x: i.pos.x, y: i.pos.y, z: i.pos.z, ry: i.ry, holder: i.holder, inShip: i.inShip, battery: i.battery, on: i.on, c: i.box }; },
+  iinfo(i) { return { id: i.id, type: i.type, value: i.value, x: i.pos.x, y: i.pos.y, z: i.pos.z, ry: i.ry, holder: i.holder, inShip: i.inShip, battery: i.battery, on: i.on, c: i.box, bk: i.basket }; },
   // an item shut inside a locker or cabinet can't be seen, scanned or taken until it is opened
   itemSealed(it) { return it.box != null && G.fac && G.fac.containers[it.box] && !G.fac.containers[it.box].open; },
   itemZone(it) { return it.pos.y < -50 ? 'in' : 'out'; },
@@ -11469,6 +11920,13 @@ const G = {
     for (const it of G.items.values()) {
       if (it.holder != null) { it.mesh.visible = false; continue; }
       it.mesh.visible = true;
+      // riding in the rover's basket: wherever it goes
+      if (it.basket != null) {
+        Rover.slotPos(it.basket, it.vis); it.pos.copy(it.vis); it.fallV = 0;
+        it.mesh.position.copy(it.vis); it.mesh.rotation.set(0, Rover.state.yaw + Math.PI / 2 + [0.12, -0.1, 0.3][it.basket], Rover.state.carrier != null ? 0.2 : 0, 'YXZ');
+        if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
+        continue;
+      }
       if (it.vis.y > it.pos.y + 0.001 || Math.abs(it.vis.x - it.pos.x) > 0.001) {
         it.fallV += 20 * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
@@ -11537,7 +11995,7 @@ const G = {
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
   },
   teardownSite(full) {
-    G.clearMarks(); Pods.clear(); G.podBusy = false;
+    G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke();
     for (const m of G.monsters.values()) R.scene.remove(m.mesh);
     G.monsters.clear();
     const disposeGroup = (g) => { if (!g) return; R.scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); };
@@ -11553,6 +12011,7 @@ const G = {
     const r = G.run; if (!r) return;
     G.ship.drawMonitor(r);
     HUD.termStats(r);
+    Rover.setOwned(!!r.upgrades.rover);
     // the main screen stays on whatever somebody last left it on
     CrewCam.setView(r.mon || 0);
     for (const p of G.players.values()) { const n = r.upgrades.belt ? 5 : 4; while (p.slots.length < n) p.slots.push(null); }
@@ -11600,6 +12059,7 @@ const G = {
       idoor: G.ship.idoor.open, lock: !!G.ship.lockCycling,
       robot: G.robot ? { t: G.robot.t, items: G.robot.items } : null,
       pods: Pods.serialize(),
+      rover: Rover.owned ? Rover.serialize() : null,
     };
   },
   applyFullState(s) {
@@ -11626,6 +12086,7 @@ const G = {
     if (s.robot) { G.robot = { t: s.robot.t, items: s.robot.items, done: {} }; for (const k in DELIVERY) if (DELIVERY[k] <= s.robot.t) G.robot.done[k] = true; G.ship.setRobotCargo(s.robot.items); }
     for (const p of s.pods || []) Pods.spawn(p);
     G.applyRunVisuals();
+    if (s.rover) Rover.apply(s.rover);
     const me = G.me();
     if (me) {
       if (me.alive) G.spawnInShip(me, G.localId);
@@ -11664,6 +12125,8 @@ const G = {
         p.pos.set(m.x, m.y, m.z); p.yaw = m.yaw; p.pitch = m.pitch; p.flags = m.f; p.sel = m.sel;
         G.decodeFlags(p);
         p.buf.push({ t: G.now, x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch }); if (p.buf.length > 12) p.buf.shift();
+        // (whoever's at the rover's console moves it)
+        if (Array.isArray(m.rv) && Rover.state.driver === conn.pid) Rover.applyNet(m.rv);
       } else if (m.t === 'req') G.hostRequest(conn.pid, m.r || {});
       return;
     }
@@ -11705,9 +12168,13 @@ const G = {
         ps.push([p.id, +p.pos.x.toFixed(2), +p.pos.y.toFixed(2), +p.pos.z.toFixed(2), +p.yaw.toFixed(3), +p.pitch.toFixed(2), f, p.sel]);
       }
       const ms = []; for (const m of G.monsters.values()) ms.push(m.serialize());
-      Net.broadcast({ t: 'snap', tm: G.round ? G.round.time : 0, p: ps, m: ms });
+      const snap = { t: 'snap', tm: G.round ? G.round.time : 0, p: ps, m: ms };
+      if (Rover.owned && Rover.state.carrier == null) snap.rv = Rover.netPose();
+      Net.broadcast(snap);
     } else if (me) {
-      Net.send({ t: 'ps', x: +me.pos.x.toFixed(2), y: +me.pos.y.toFixed(2), z: +me.pos.z.toFixed(2), yaw: +me.yaw.toFixed(3), pitch: +me.pitch.toFixed(2), f: G.encodeFlags(me), sel: me.sel });
+      const ps = { t: 'ps', x: +me.pos.x.toFixed(2), y: +me.pos.y.toFixed(2), z: +me.pos.z.toFixed(2), yaw: +me.yaw.toFixed(3), pitch: +me.pitch.toFixed(2), f: G.encodeFlags(me), sel: me.sel };
+      if (Rover.driving) ps.rv = Rover.netPose();
+      Net.send(ps);
     }
   },
   applySnap(m) {
@@ -11720,6 +12187,7 @@ const G = {
       p.buf.push({ t: G.now, x: a[1], y: a[2], z: a[3], yaw: a[4], pitch: a[5] }); if (p.buf.length > 12) p.buf.shift();
     }
     for (const a of m.m) { const mon = G.monsters.get(a[0]); if (mon) mon.applySnap(a, G.now); }
+    if (Array.isArray(m.rv) && Rover.state.carrier == null) Rover.applyNet(m.rv);
   },
   // ======================= events (all peers) =======================
   applyEvent(e) {
@@ -11771,7 +12239,7 @@ const G = {
       G.ship.space.visible = false;
       for (const d of e.items) G.createItem(d);
       G.round.total = e.items.reduce((s, d) => s + (ITEMS[d.type].kind === 'scrap' ? d.value : 0), 0);
-      for (const it of G.items.values()) if (it.inShip || it.holder != null) G.round.startShip.add(it.id);
+      for (const it of G.items.values()) if (it.inShip || it.holder != null || it.basket != null) G.round.startShip.add(it.id);
       G.mode = 'site';
       G.ship.setDoor(false); G.ship.door.t = 0; G.ship.setLanded(false);
       G.flight = { kind: 'land', t: 0, aboard: new Set(G.alivePlayers().map((p) => p.id)) };
@@ -11818,7 +12286,7 @@ const G = {
     hp(e) { const p = G.players.get(e.pid); if (p) p.hp = e.hp; },
     pick(e) {
       const it = G.items.get(e.item), p = G.players.get(e.pid); if (!it || !p) return;
-      it.holder = p.id; it.inShip = false; it.box = null;
+      it.holder = p.id; it.inShip = false; it.box = null; it.basket = null;
       for (const q of G.players.values()) { const k = q.slots.indexOf(it.id); if (k >= 0) q.slots[k] = null; }
       p.slots[e.slot] = it.id;
       if (p.id === G.localId) p.sel = e.slot;
@@ -11832,6 +12300,25 @@ const G = {
       it.holder = null; it.pos.set(e.x, e.y, e.z); it.ry = e.ry || 0; it.inShip = !!e.inShip;
       if (e.battery != null) it.battery = e.battery; if (e.on != null) it.on = e.on;
       it.fallV = 0;
+    },
+    // the rover: someone takes its console (or lets go of it); someone picks it up or sets it down
+    rover(e) {
+      const R0 = Rover.state; R0.driver = e.driver;
+      if (e.driver === G.localId && !Rover.driving) Rover.startDriving();
+      else if (e.driver !== G.localId && Rover.driving) Rover.stopDriving();
+      if (e.driver != null) SFX.play('beep', G.ship.group.localToWorld(new THREE.Vector3(ROVER.CONSOLE.x, 1.2, ROVER.CONSOLE.z)), { f: 990, vol: 0.4 });
+    },
+    roverCarry(e) {
+      const R0 = Rover.state; R0.carrier = e.pid;
+      if (e.pid == null && e.x != null) Rover.apply({ x: e.x, y: e.y, z: e.z, yaw: e.yaw, zone: e.zone || 'out' });
+      SFX.play(e.pid != null ? 'pickup' : 'drop', new THREE.Vector3(R0.x, R0.y + 0.2, R0.z), { vol: 0.9, metal: true, pitch: 0.7 });
+    },
+    // something put in the rover's basket
+    basket(e) {
+      const it = G.items.get(e.item); if (!it) return;
+      const p = G.players.get(it.holder); if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; }
+      it.holder = null; it.box = null; it.inShip = false; it.basket = e.slot; it.fallV = 0;
+      SFX.play('drop', new THREE.Vector3(Rover.state.x, Rover.state.y + 0.3, Rover.state.z), { vol: 0.6, metal: true, pitch: 1.2 });
     },
     // (fy: how far above where it settles it starts, so it drops into place)
     itemSpawn(e) { const it = G.createItem(e.d); it.vis.y += e.d.fy != null ? e.d.fy : 0.6; },
@@ -11988,6 +12475,8 @@ const G = {
     for (const it of [...G.items.values()]) if (!keep.has(it.id)) G.removeItem(it.id);
     G.teardownSite(false);
     G.run = e.run; G.applyRunVisuals();
+    // (if the rover came home, it's back on its spot in the bay)
+    Rover.state.driver = Rover.state.carrier = null; Rover.stopDriving(); Rover.dock();
     G.enterOrbitState();
     G.mode = 'orbit';
     G.deathCause = {};
@@ -12158,6 +12647,50 @@ const G = {
         G.emitSound('charge', new THREE.Vector3(-3.6, 1.3, -3.7), {});
         break;
       }
+      // the rover: one driver at a time, from the console in the bay; nobody drives it while the ship's flying
+      case 'drive': {
+        const R0 = Rover.state, C = ROVER.CONSOLE;
+        if (!Rover.owned || R0.driver != null || R0.carrier != null || !p.alive || p.zone !== 'out' || G.flight || G.mode !== 'site') return;
+        if (Math.hypot(at.x - C.x, at.z - C.z) > 2) return;
+        G.emit({ e: 'rover', driver: pid });
+        break;
+      }
+      case 'undrive': if (Rover.state.driver === pid) G.emit({ e: 'rover', driver: null }); break;
+      case 'roverHorn': {
+        const R0 = Rover.state; if (R0.driver !== pid) return;
+        G.emitSound('toot', new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), { vol: 1.2 });
+        G.addNoise(new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), 16, R0.zone, pid);
+        break;
+      }
+      case 'basketPut': {
+        const R0 = Rover.state, it = G.items.get(r.item);
+        if (!Rover.owned || !it || it.holder !== pid || R0.carrier != null || p.zone !== R0.zone || at.distanceTo(new THREE.Vector3(R0.x, R0.y, R0.z)) > 3) return;
+        const slot = Rover.freeSlot(); if (slot < 0) return;
+        G.emit({ e: 'basket', item: it.id, slot });
+        break;
+      }
+      case 'basketTake': {
+        const R0 = Rover.state, it = G.items.get(r.item);
+        if (!it || it.basket == null || !p.alive || p.zone !== R0.zone || at.distanceTo(new THREE.Vector3(R0.x, R0.y, R0.z)) > 3) return;
+        let slot = r.slot; if (slot == null || slot < 0 || slot >= p.slots.length || p.slots[slot] != null) slot = p.slots.indexOf(null);
+        if (slot < 0) return;
+        G.emit({ e: 'pick', item: it.id, pid, slot });
+        break;
+      }
+      // picked up in both arms (not while someone's driving it, or someone else has it)
+      case 'roverPick': {
+        const R0 = Rover.state;
+        if (!Rover.owned || R0.driver != null || R0.carrier != null || !p.alive || p.zone !== R0.zone || at.distanceTo(new THREE.Vector3(R0.x, R0.y, R0.z)) > 3) return;
+        G.emit({ e: 'roverCarry', pid });
+        break;
+      }
+      case 'roverDrop': {
+        const R0 = Rover.state; if (R0.carrier !== pid) return;
+        const x = +r.x, y = +r.y, z = +r.z; if (![x, y, z].every(Number.isFinite) || Math.hypot(x - p.pos.x, z - p.pos.z) > 3) return;
+        G.emit({ e: 'roverCarry', pid: null, x, y, z, yaw: +r.yaw || 0, zone: p.zone });
+        G.addNoise(new THREE.Vector3(x, y, z), 8, p.zone, pid);
+        break;
+      }
       default: break;
     }
   },
@@ -12182,6 +12715,7 @@ const G = {
       const fx = ok ? x : p.pos.x, fz = ok ? z : p.pos.z;
       G.emit({ e: 'drop', item: id, x: fx, y: ground, z: fz, ry: Math.random() * TAU, inShip: p.zone === 'out' && G.ship.inside(fx, ground + 0.3, fz) });
     });
+    G.hostRoverRelease(p);
     G.emit({ e: 'die', pid, cause, mon: monId, x: p.pos.x, y: ground, z: p.pos.z });
     for (const m of G.monsters.values()) if (m.type === 'leech' && m.victim === pid) m.detach();
     if (G.run) G.run.deaths = (G.run.deaths || 0) + 1;
@@ -12487,7 +13021,11 @@ const G = {
     const r = G.round, site = SITES[r.site], run = G.run;
     for (const p of G.alivePlayers()) if (!G.inShip(p)) G.killPlayer(p.id, 'left');
     const allDead = G.alivePlayers().length === 0;
-    const inShipNow = (it) => (it.holder != null ? (() => { const h = G.players.get(it.holder); return h && h.alive && G.inShip(h); })() : it.inShip);
+    // (the rover is aboard if it's in the bay, or in the arms of someone who is; what's in its basket goes with it)
+    const roverCarrier = Rover.owned && Rover.state.carrier != null ? G.players.get(Rover.state.carrier) : null;
+    const roverAboard = Rover.owned && (roverCarrier ? roverCarrier.alive && G.inShip(roverCarrier) : Rover.aboard());
+    const inShipNow = (it) => (it.basket != null ? roverAboard : it.holder != null ? (() => { const h = G.players.get(it.holder); return h && h.alive && G.inShip(h); })() : it.inShip);
+    if (Rover.owned && !roverAboard) { run.upgrades.rover = false; G.emit({ e: 'chat', text: 'The rover was left behind.', sys: true }); }
     const shipItems = [...G.items.values()].filter(inShipNow);
     const collectedItems = shipItems.filter((it) => ITEMS[it.type].kind === 'scrap' && !r.startShip.has(it.id));
     const collected = collectedItems.reduce((s, it) => s + it.value, 0);
@@ -12665,8 +13203,18 @@ const G = {
     }
     G.sendTo(pid, { t: 'term', lines: out });
   },
+  // whoever was at the rover's console lets go of it; whoever was carrying it drops it where they stand
+  hostRoverRelease(p) {
+    const R0 = Rover.state; if (!Rover.owned) return;
+    if (R0.driver === p.id) G.emit({ e: 'rover', driver: null });
+    if (R0.carrier === p.id) {
+      const y = p.zone === 'in' && G.fac ? G.fac.floorY(p.pos.x, p.pos.z, p.pos.y + 0.3) : G.groundAt(p.pos.x, p.pos.z);
+      G.emit({ e: 'roverCarry', pid: null, x: p.pos.x, y, z: p.pos.z, yaw: R0.yaw, zone: p.zone });
+    }
+  },
   hostPlayerLeft(pid) {
     const p = G.players.get(pid); if (!p) return;
+    G.hostRoverRelease(p);
     p.slots.forEach((id) => { if (id != null) G.emit({ e: 'drop', item: id, x: p.pos.x, y: p.zone === 'in' && G.fac ? G.fac.floorY(p.pos.x, p.pos.z, p.pos.y) : G.groundAt(p.pos.x, p.pos.z), z: p.pos.z, ry: 0, inShip: p.zone === 'out' && G.ship.inside(p.pos.x, p.pos.y + 0.3, p.pos.z) }); });
     for (const m of G.monsters.values()) if (m.type === 'leech' && m.victim === pid) m.detach();
     G.emit({ e: 'leave', id: pid });
@@ -12729,7 +13277,7 @@ const G = {
   // ship's transform. Outside, the world stays put and watches it come and go.
   flightPose(f) {
     const t = f.t, w = (a, b) => Math.sin(t * a + b);
-    const P = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, lift: 0, main: 0, gear: 1, ramp: 1, shake: 0 };
+    const P = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, lift: 0, main: 0, burst: 0, gear: 1, ramp: 1, shake: 0 };
     if (f.kind === 'land') {
       const D = FLY.landDur, u = clamp(t / D, 0, 1), e = 1 - u;
       // a braking dive: straight in along its heading from where it broke out of the cloud, steep at first, flattening
@@ -12748,11 +13296,12 @@ const G = {
       if (t >= D) { const k = t - D; P.x = 0; P.z = 0; P.yaw = 0; P.roll = 0; P.y = -0.12 * Math.sin(k * 10) * Math.exp(-k * 5); P.pitch = 0.012 * Math.sin(k * 8) * Math.exp(-k * 4); }
       P.shake = t < D ? 0.1 + 0.16 * P.lift : 0;
     } else {
-      const L = FLY.liftAt, k = Math.max(0, t - L);
-      // straight up off the struts to a hover; then the nose comes up and the main engines push it away along the nose,
-      // banking onto its heading as it climbs. The path always follows the nose: it flies, it never slides.
+      const L = FLY.liftAt, k = Math.max(0, t - L), B = FLY.burst;
+      // straight up off the struts to a hover; the nose comes up and it eases forward, heavy and slow... then the main
+      // engines open up all at once, a kick of flame and smoke, and it's gone, streaking away up its heading and banking
+      // onto it as it climbs. The path always follows the nose: it flies, it never slides.
       const pitchAt = (q) => 0.6 * sstep(1.4, 4.8, q), yawAt = (q) => 0.4 * sstep(2, 8, q);
-      const speedAt = (q) => (q < 1.8 ? 0 : 1.6 * (q - 1.8) * (q - 1.8));
+      const speedAt = (q) => (q < 1.8 ? 0 : 4 * sstep(1.8, 3.6, q) + 170 * sstep(B, B + 1.3, q) ** 1.5);
       let x = 0, y = 0, z = 0;
       for (let q = 1.8; q < k; q += 1 / 30) {
         const dq = Math.min(1 / 30, k - q), m = q + dq / 2, v = speedAt(m) * dq, p = pitchAt(m), yw = yawAt(m);
@@ -12767,11 +13316,14 @@ const G = {
       // spooling up, the whole frame trembles on its struts
       const spool = sstep(0.3, L, t) * (1 - sstep(0, 1.2, k));
       P.y += spool * 0.02 * Math.sin(t * 37); P.roll += spool * 0.004 * Math.sin(t * 29);
-      P.lift = t < L ? 0.15 + 0.7 * sstep(0.3, L, t) : 1 - 0.35 * sstep(4, 9, k);
-      P.main = 0.12 * sstep(0.3, L, t) + 0.88 * sstep(1.6, 3.6, k);
+      // (the mains idle along while it hovers; at the burst they flare out long and white-hot, then hold a roaring burn)
+      const kick = sstep(B - 0.1, B + 0.25, k), flare = k > B ? Math.exp(-(k - B) * 3) : 0;
+      P.lift = t < L ? 0.15 + 0.7 * sstep(0.3, L, t) : (1 - 0.35 * sstep(4, 9, k)) * (1 - 0.55 * sstep(B, B + 1, k));
+      P.main = 0.12 * sstep(0.3, L, t) + 0.3 * sstep(1.6, 3.6, k) + 1.15 * kick + 0.5 * flare * kick;
+      P.burst = sstep(B - 0.1, B + 0.4, k);
       P.gear = P.y > 6 ? 0 : 1;
       P.ramp = t < 0.35 ? 1 : 0;
-      P.shake = 0.06 + 0.22 * spool + 0.12 * P.lift;
+      P.shake = 0.06 + 0.22 * spool + 0.12 * P.lift + 0.6 * kick * (1 - sstep(B + 0.3, B + 2.2, k));
     }
     return P;
   },
@@ -12807,6 +13359,11 @@ const G = {
     const me = G.me(), aboard = G.playerAboard(me);
     if (f.kind === 'land' && !f.down && f.t >= FLY.landDur) { f.down = true; SFX.play('thud', new THREE.Vector3(-1, 0.2, 0), { vol: 1.1 }); if (me && me.alive) Player.addShake(aboard ? 0.9 : 0.35); }
     if (f.kind === 'takeoff' && !f.up && f.t >= FLY.liftAt) { f.up = true; SFX.play('clunk', new THREE.Vector3(-1, -0.3, 0), { vol: 0.9, pitch: 0.7 }); }
+    // the burst: a thump you feel through the deck (or hear roll across the ground) and the roar of the mains opening up
+    if (f.kind === 'takeoff' && !f.boom && f.t >= FLY.liftAt + FLY.burst - 0.1) {
+      f.boom = true; const tail = aboard ? null : new THREE.Vector3(-18, 2.5, 0).applyMatrix4(G.shipM);
+      SFX.play('explosion', tail, { vol: aboard ? 0.7 : 1.3, ref: 40 }); SFX.play('engine', tail, { dur: 4.5, vol: 1.5, ref: 60 });
+    }
     // climbing into the cloud deck, the blast shutters come down for the burn out of the air
     if (f.kind === 'takeoff' && f.t > (f.dur || FLY.toDur) - 1.3) S.setShutters(true);
     if (me && me.alive && aboard && dt > 0) Player.addShake(p.shake);
@@ -12818,6 +13375,7 @@ const G = {
       const base = B.water != null ? [0.66, 0.7, 0.66] : B.ground.trail;
       const col = new THREE.Color(base[0] * day, base[1] * day, base[2] * day), glow = new THREE.Color(0.7, 0.3, 0.08).multiplyScalar(p.lift * (1 - sstep(2, 18, alt)));
       S.updateWash(dt, strength, p.x, gy, p.z, (x, z) => G.ext.height(x, z), col, glow);
+      S.updateSmoke(dt, p.burst, _smokeCol.setRGB(0.34 * day, 0.33 * day, 0.32 * day));
     }
     if (f.kind === 'land' && f.t > FLY.landDur + 3.2) { G.flight = null; G.updateFlight(0); }
   },
@@ -12839,7 +13397,7 @@ const G = {
     R.camera.position.copy(G.simCam.position); R.camera.quaternion.copy(G.simCam.quaternion); G.camCarried = false;
   },
   // which world the view is in: your own; the dead see where they're watching; the send-off flies from one to the other
-  zoneOf(me) { return G.sendoff ? G.sendoff.zone : me.alive ? me.zone : (me.zoneView || me.zone); },
+  zoneOf(me) { return G.sendoff ? G.sendoff.zone : Rover.driving ? Rover.zone : me.alive ? me.zone : (me.zoneView || me.zone); },
   // ======================= the send-off =======================
   // Whoever the ship leaves behind (alive and not aboard when it lifts off, or dead with their body still down here)
   // gets one last look. The view starts on you, where you stand or where you fell, then flies the quickest way out:
@@ -13077,6 +13635,7 @@ const G = {
         if (o.kind === 'hatch') label = G.ship.door.open ? 'Close hatch' : 'Open hatch';
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
         if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id); label = it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
+        if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
         out.push({ kind: o.kind, ref: o, x: o.x, y: o.y, z: o.z, r: o.r, label });
       }
       if (G.ext) Pods.interactables(me, out);
@@ -13086,6 +13645,9 @@ const G = {
         out.push({ kind: 'seat', ref: i, x: s.x, y: s.y + 0.15, z: s.z, r: 0.38, label: 'Sit' });
       });
     }
+    Rover.interactables(me, out);
+    // (with the rover in your arms there's nothing else you can lay hands on)
+    if (Rover.carriedByMe) return out.filter((t) => t.kind === 'door' || t.kind === 'exit' || t.kind === 'enter' || t.kind === 'hatch' || t.kind === 'idoor');
     return out;
   },
   interact(t) {
@@ -13130,6 +13692,10 @@ const G = {
         break;
       }
       case 'hatch': G.request({ a: 'hatch' }); break;
+      case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
+      case 'roverPick': G.request({ a: 'roverPick' }); break;
+      case 'basketPut': G.request({ a: 'basketPut', item: t.ref }); break;
+      case 'basketTake': { const slot = me.slots[me.sel] == null ? me.sel : me.slots.indexOf(null); if (slot >= 0) G.request({ a: 'basketTake', item: t.ref, slot }); break; }
       case 'charger': {
         const id = me.slots[me.sel], it = id != null && G.items.get(id);
         if (it && ITEMS[it.type].battery) G.request({ a: 'charge', item: id }); else HUD.toast('Nothing to charge');
@@ -13242,6 +13808,7 @@ const G = {
     G.uncarryCamera();
     Player.update(dt);
     if (G.sendoff) G.updateSendoff(dt);
+    Rover.update(dt);
     G.carryCamera();
     me.talking = G.online && Voice.talking;
     if (G.isHost) G.hostTick(dt);
@@ -13286,7 +13853,7 @@ const G = {
       av.root.position.copy(p.rpos); av.root.rotation.set(0, p.ryaw || 0, 0);
       if (G.shipMoved && G.playerAboard(p)) { av.root.position.applyMatrix4(G.shipM); av.root.quaternion.premultiply(G.shipQ); }
       const id = p.slots[p.sel], it = id != null && G.items.get(id);
-      av.setHeld(it ? it.type : null, it ? it.id : 0);
+      if (Rover.owned && Rover.state.carrier === p.id) av.setHug(0.33, 0.44); else av.setHeld(it ? it.type : null, it ? it.id : 0);
       av.setLamp(!!p.flash);
       p.swingT = Math.max(0, (p.swingT || 0) - dt);
       av.update(dt, { at: p.rpos, yaw: p.ryaw || 0, speed: p.speed, crouch: p.crouch, sit: p.seat != null, air: !!p.air, pitch: p.rpitch || 0, swing: p.swingT > 0 ? Math.sin((1 - p.swingT / 0.45) * Math.PI) : 0 });
@@ -14048,7 +14615,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 window.THREE = THREE;
 window.BufferGeometryUtils = BufferGeometryUtils;
-const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'game', 'main'];
+const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'rover', 'game', 'main'];
 try {
   // the one-file build (build.ps1) embeds every script in the page; the dev copy loads them from js/
   const packed = document.querySelectorAll('script[type="text/x-gs"]');

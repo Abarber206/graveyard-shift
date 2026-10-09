@@ -172,6 +172,14 @@ class Avatar {
     this.legYaw = 0; this.moveBlend = 0; this.runBlend = 0; this.air = 0; this.crouchBlend = 0; this.yawRate = 0;
     this.t = Math.random() * 10; this.look = { yaw: 0, target: 0, timer: 2 };
   }
+  // both arms round something that isn't an item in their hands (the rover, drawn on its own): just the pose.
+  // (hw: half its width across the chest; d: how far it reaches out in front, both in metres)
+  setHug(hw, d) {
+    if (this.heldKey === 'hug') return;
+    this.setHeld(null); this.heldKey = 'hug'; this.style = 'carry2';
+    const zc = -0.2 * AV_SCALE - d / 2;
+    this.carryDim = { hw: Math.min(0.3, (hw + 0.02) / AV_SCALE), z: zc / AV_SCALE };
+  }
   setHeld(type, id = 0) {
     const key = type ? itemLook(type, id) : null;
     if (key === this.heldKey) return;

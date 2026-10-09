@@ -136,6 +136,19 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #bars.on i { height: 11vh; }
 #hud.cine #crosshair, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
 #voiceind { position: absolute; left: 30px; bottom: 110px; font-size: 18px; color: #b6ffb0; }
+/* driving the rover: you're looking down its camera (scanlines, the corners of the frame, its readout) */
+#rovercam { position: fixed; inset: 0; pointer-events: none; z-index: 4; color: #b8ffc4; text-shadow: 0 0 6px rgba(120,255,150,.55); font-size: 22px; letter-spacing: 1px;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); }
+#rovercam::before, #rovercam::after { content: ''; position: absolute; left: 4vw; right: 4vw; top: 5vh; bottom: 5vh; border: 2px solid rgba(184,255,196,.5); }
+#rovercam::after { left: 50%; top: 50%; right: auto; bottom: auto; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-width: 1px; border-color: rgba(184,255,196,.35); }
+#rovercam::before { -webkit-mask: linear-gradient(#000 0 0) top left / 40px 40px no-repeat, linear-gradient(#000 0 0) top right / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom left / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom right / 40px 40px no-repeat;
+  mask: linear-gradient(#000 0 0) top left / 40px 40px no-repeat, linear-gradient(#000 0 0) top right / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom left / 40px 40px no-repeat, linear-gradient(#000 0 0) bottom right / 40px 40px no-repeat; }
+#rovercam .rc-tag { position: absolute; left: calc(4vw + 16px); top: calc(5vh + 10px); }
+#rovercam .rc-rec { position: absolute; right: calc(4vw + 16px); top: calc(5vh + 10px); color: #ff7060; text-shadow: 0 0 6px rgba(255,80,60,.6); animation: rcblink 1s steps(1) infinite; }
+#rovercam .rc-hint { position: absolute; left: 0; right: 0; bottom: calc(5vh + 10px); text-align: center; font-size: 18px; opacity: .6; }
+body.touch #rovercam .rc-hint { display: none; }
+#hud.rc #clock { opacity: 0; }
+@keyframes rcblink { 50% { opacity: 0; } }
 
 /* --------------- TERMINAL ---------------- */
 #terminal { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,.55); z-index: 20; }

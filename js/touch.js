@@ -111,7 +111,7 @@ const Touch = (() => {
     if (!play) return;
     root.classList.toggle('dead', !me.alive);
     root.querySelector('[data-k=use] span').textContent = me.alive ? 'USE' : 'NEXT';
-    root.querySelector('[data-k=e]').classList.toggle('ready', !!Player.target);
+    root.querySelector('[data-k=e]').classList.toggle('ready', !!Player.target || Rover.driving);
     root.querySelector('.talk').classList.toggle('hidden', !(G.online && Settings.voice && Settings.ptt));
   };
   // full screen and on its side, if the browser lets a page ask (it has to be in answer to a tap)

@@ -149,6 +149,8 @@ const Player = (() => {
   }
   function weightOf(me) {
     let w = 0; for (const id of me.slots) { const it = id != null && G.items.get(id); if (it) w += ITEMS[it.type].weight; }
+    // (the rover in your arms, and what's in its basket)
+    if (me.id === G.localId && Rover.carriedByMe) { w += ROVER.WEIGHT; for (const it of Rover.basket()) w += ITEMS[it.type].weight; }
     return w * (G.run && G.run.upgrades.harness ? 0.5 : 1);
   }
   function selItem(me) { const id = me.slots[me.sel]; return id != null ? G.items.get(id) : null; }
@@ -261,6 +263,8 @@ const Player = (() => {
         me.zoneView = p.zone;
         return;
       }
+      // ---------- at the rover's console: the view is the rover's (Rover.update has it); you stand still ----------
+      if (Rover.driving) { vm.root.visible = false; me.moving = me.sprint = me.air = false; target = null; HUD.prompt(null, me); return; }
       me.zoneView = me.zone;
       // ---------- look ----------
       if (!ui) {
@@ -311,6 +315,7 @@ const Player = (() => {
         const dx = me.pos.x - m.rpos.x, dz = me.pos.z - m.rpos.z, d = Math.hypot(dx, dz), r = m.def.radius + 0.3;
         if (d < r && d > 1e-3) { me.pos.x = m.rpos.x + (dx / d) * r; me.pos.z = m.rpos.z + (dz / d) * r; }
       }
+      Rover.push(me.pos, 0.3, me.zone);
       if (me.zone === 'in' && G.fac) {
         const f = G.fac;
         f.collide(me.pos, 0.32); f.collide(me.pos, 0.32);
@@ -361,17 +366,20 @@ const Player = (() => {
       if (Math.abs(cam.fov - tf) > 0.05) { cam.fov = tf; cam.updateProjectionMatrix(); }
       me.crouch = crouch; me.sprint = sprint && hs > 3; me.moving = hs > 0.8; me.air = !onGround && airT > 0.08;
       // ---------- inventory ----------
+      // (carrying the rover takes both arms: nothing else comes out of your pockets until it's set down)
+      const lugging = Rover.carriedByMe;
       const held = selItem(me);
-      const locked2h = held && ITEMS[held.type].twoHanded;
+      const locked2h = lugging || (held && ITEMS[held.type].twoHanded);
       if (!ui) {
         for (let i = 0; i < me.slots.length; i++) if (Input.hit('Digit' + (i + 1))) { if (locked2h) HUD.toast('Hands full — [G] to drop'); else me.sel = i; }
         if (Input.wheel && !locked2h) me.sel = (me.sel + Input.wheel + me.slots.length) % me.slots.length;
         else if (Input.wheel && locked2h) HUD.toast('Hands full — [G] to drop');
       }
-      const cur = selItem(me);
+      const cur = lugging ? null : selItem(me);
       setVM(cur ? cur.type : null, cur ? cur.id : 0);
       // drop
-      if (!ui && Input.hit('KeyG') && cur) G.dropHeld();
+      if (!ui && Input.hit('KeyG') && lugging) Rover.requestDrop();
+      else if (!ui && Input.hit('KeyG') && cur) G.dropHeld();
       // flashlight hotkey
       if (!ui && Input.hit('KeyF')) {
         const fl = me.slots.map((id) => id != null && G.items.get(id)).find((it) => it && ITEMS[it.type].light);

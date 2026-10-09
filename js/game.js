@@ -97,7 +97,7 @@ const G = {
     G.bombs = []; G.fuses = []; for (const b of G.blasts) for (const p of b.parts) R.scene.remove(p.o); G.blasts = [];
     for (const g of G.grenades) R.scene.remove(g.mesh); G.grenades = [];
     G.ship.snapShutters(false);
-    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
+    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.dip = 1; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
     HUD.reset(); Player.resetVM(); Player.clearPerks(); G.clearMarks(); CrewCam.reset();
     R.fx.fade = 0; R.fx.damage = 0; R.fx.leech = 0; R.fx.static = 0; R.fx.flash = 0; R.fx.fear = 0; R.fx.health = 1; G.adrenaline = 0; G.orbitSeed = null;
   },
@@ -1718,7 +1718,7 @@ const G = {
     } else if (G.seq && G.seq.kind === 'land' && G.mode === 'landing') {
       // the burn, the quiet fall, then the roar of the air on the hull
       const t = G.seq.t;
-      level = 0.85 * sstep(0, 0.5, t) * (1 - sstep(ENTRY.burn, ENTRY.burn + 1.6, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
+      level = 0.9 * sstep(0, 0.5, t) * (1 - sstep(ENTRY.burn + 1.6, ENTRY.burn + 3.2, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
       gale = (G.entryHeat || 0) * 0.8;
     } else if (G.seq && G.seq.kind === 'jump') {
       const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5);
@@ -2063,8 +2063,11 @@ const G = {
       if (G.mode === 'landing') {
         // the fall: eased in by the burn, fastest through the middle, slowing as the air takes hold (the altitude
         // itself shrinks geometrically, in the ship's orbit code, so the world swells at a steady rate)
-        // first the nose swings round onto the world, through the burn
-        S.turn = sstep(0, 1.3, t);
+        // first the nose swings round until the world lies under it; then it dips, the ship pushing over to dive
+        // straight down into it with the engines roaring, and the view opens out as the world swells to fill it
+        S.turn = sstep(0, 1.2, t); S.dip = sstep(1.0, 2.6, t);
+        if (!s.roar && t > 0.9) { s.roar = true; SFX.play('engine', null, { dur: 5.5, vol: 1.3 }); }
+        G.fovAdd = 10 * sstep(0.3, 0.9, S.approach);
         const w = clamp((t - 0.6) / (E.white - 0.6), 0, 1);
         S.approach = w * w * (3 - 2 * w);
         // the air starts where the ship actually reaches it
@@ -2078,15 +2081,15 @@ const G = {
         const pm = S.plasma.material.uniforms;
         S.plasma.visible = G.entryHeat > 0.001; pm.uK.value = G.entryHeat; pm.uT.value = t;
         S.stars.material.uniforms.uFade.value = 1 - 0.9 * sstep(0.09, 0.03, hr);
-        S.setThrust(0, t < E.burn + 1.6 ? sstep(0, 0.5, t) * (1 - sstep(E.burn, E.burn + 1.6, t)) : 0);
-        Player.addShake(0.08 + 0.12 * sstep(0, 0.6, t) * (1 - sstep(E.burn, E.burn + 1.5, t)) + 0.55 * G.entryHeat);
+        S.setThrust(0, sstep(0, 0.5, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)));
+        Player.addShake(0.08 + 0.14 * sstep(0, 0.6, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.1 * sstep(1.0, 1.6, t) * (1 - sstep(2.2, 3.0, t)) + 0.55 * G.entryHeat);
         if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);
       } else {
         // through the worst of it: still shut in, then the power comes back, the shutters grind up on cloud, and the
         // ground appears below (not before the site is really there)
-        if (s.tLand == null) { s.tLand = t; S.approach = 0; G.entryHeat = 0; R.fx.heat = 0; S.plasma.visible = false; S.stars.material.uniforms.uFade.value = 1; S.setShutters(true); }
+        if (s.tLand == null) { s.tLand = t; G.fovAdd = 0; S.approach = 0; S.dip = 1; G.entryHeat = 0; R.fx.heat = 0; S.plasma.visible = false; S.stars.material.uniforms.uFade.value = 1; S.setShutters(true); }
         R.fx.white = 0;
         if (s.tUp == null && G.siteShown && t - s.tLand > 0.3) s.tUp = t;
         G.powerDip(s, dt, s.tUp == null);

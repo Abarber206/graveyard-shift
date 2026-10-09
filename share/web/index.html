@@ -5633,9 +5633,10 @@ const Ship = (() => {
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _pq = new THREE.Quaternion();
-  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up (dead ahead,
-  // a touch below the nose)
-  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _ahead = new THREE.Vector3(1, -0.06, 0).normalize(), _Dw = new THREE.Vector3();
+  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
+  // the nose, then (the nose dipped) dead ahead
+  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
+  const _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -7403,7 +7404,7 @@ const Ship = (() => {
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
       const a = R * r.range(1.6, 3.6), e = r.range(0.02, 0.07);
-      this.turn = 0;
+      this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       this.ring.visible = !!look.rings || r.chance(0.2);
@@ -7421,14 +7422,15 @@ const Ship = (() => {
       if (this.arrive < 1) dist *= lerp(9, 1, this.arrive);
       // In orbit the world hangs off to one side of the windshield. Diving in (or dropping out of a jump at it), the
       // ship swings its nose round onto it first, so it goes in head-on rather than crabbing in sideways: the whole sky
-      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 dead ahead
-      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _ahead), this.turn || 0);
+      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 swung round onto it;
+      // dip: 0 the world under the nose, 1 the nose pushed over into the dive, the world dead ahead
+      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _tgt.copy(_below).lerp(_ahead, this.dip == null ? 1 : this.dip).normalize()), this.turn || 0);
       const D = _Dw.copy(o.D).applyQuaternion(q);
       if (this.approach > 0) {
         // diving out of orbit straight at the world from wherever the ship is: the planet stays where it is in the
         // windshield and only grows. The altitude shrinks geometrically, from the orbit's down to the top of the air,
         // so the world swells at a steady rate instead of rushing up at the end.
-        const h0 = dist - R, h = h0 * Math.pow((R * 0.012) / h0, this.approach);
+        const h0 = dist - R, h = h0 * Math.pow((R * 0.008) / h0, this.approach);
         dist = R + h;
       }
       this.alt = dist - R;
@@ -11102,7 +11104,7 @@ const G = {
     G.bombs = []; G.fuses = []; for (const b of G.blasts) for (const p of b.parts) R.scene.remove(p.o); G.blasts = [];
     for (const g of G.grenades) R.scene.remove(g.mesh); G.grenades = [];
     G.ship.snapShutters(false);
-    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
+    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.dip = 1; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
     HUD.reset(); Player.resetVM(); Player.clearPerks(); G.clearMarks(); CrewCam.reset();
     R.fx.fade = 0; R.fx.damage = 0; R.fx.leech = 0; R.fx.static = 0; R.fx.flash = 0; R.fx.fear = 0; R.fx.health = 1; G.adrenaline = 0; G.orbitSeed = null;
   },
@@ -12723,7 +12725,7 @@ const G = {
     } else if (G.seq && G.seq.kind === 'land' && G.mode === 'landing') {
       // the burn, the quiet fall, then the roar of the air on the hull
       const t = G.seq.t;
-      level = 0.85 * sstep(0, 0.5, t) * (1 - sstep(ENTRY.burn, ENTRY.burn + 1.6, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
+      level = 0.9 * sstep(0, 0.5, t) * (1 - sstep(ENTRY.burn + 1.6, ENTRY.burn + 3.2, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
       gale = (G.entryHeat || 0) * 0.8;
     } else if (G.seq && G.seq.kind === 'jump') {
       const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5);
@@ -13068,8 +13070,11 @@ const G = {
       if (G.mode === 'landing') {
         // the fall: eased in by the burn, fastest through the middle, slowing as the air takes hold (the altitude
         // itself shrinks geometrically, in the ship's orbit code, so the world swells at a steady rate)
-        // first the nose swings round onto the world, through the burn
-        S.turn = sstep(0, 1.3, t);
+        // first the nose swings round until the world lies under it; then it dips, the ship pushing over to dive
+        // straight down into it with the engines roaring, and the view opens out as the world swells to fill it
+        S.turn = sstep(0, 1.2, t); S.dip = sstep(1.0, 2.6, t);
+        if (!s.roar && t > 0.9) { s.roar = true; SFX.play('engine', null, { dur: 5.5, vol: 1.3 }); }
+        G.fovAdd = 10 * sstep(0.3, 0.9, S.approach);
         const w = clamp((t - 0.6) / (E.white - 0.6), 0, 1);
         S.approach = w * w * (3 - 2 * w);
         // the air starts where the ship actually reaches it
@@ -13083,15 +13088,15 @@ const G = {
         const pm = S.plasma.material.uniforms;
         S.plasma.visible = G.entryHeat > 0.001; pm.uK.value = G.entryHeat; pm.uT.value = t;
         S.stars.material.uniforms.uFade.value = 1 - 0.9 * sstep(0.09, 0.03, hr);
-        S.setThrust(0, t < E.burn + 1.6 ? sstep(0, 0.5, t) * (1 - sstep(E.burn, E.burn + 1.6, t)) : 0);
-        Player.addShake(0.08 + 0.12 * sstep(0, 0.6, t) * (1 - sstep(E.burn, E.burn + 1.5, t)) + 0.55 * G.entryHeat);
+        S.setThrust(0, sstep(0, 0.5, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)));
+        Player.addShake(0.08 + 0.14 * sstep(0, 0.6, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.1 * sstep(1.0, 1.6, t) * (1 - sstep(2.2, 3.0, t)) + 0.55 * G.entryHeat);
         if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);
       } else {
         // through the worst of it: still shut in, then the power comes back, the shutters grind up on cloud, and the
         // ground appears below (not before the site is really there)
-        if (s.tLand == null) { s.tLand = t; S.approach = 0; G.entryHeat = 0; R.fx.heat = 0; S.plasma.visible = false; S.stars.material.uniforms.uFade.value = 1; S.setShutters(true); }
+        if (s.tLand == null) { s.tLand = t; G.fovAdd = 0; S.approach = 0; S.dip = 1; G.entryHeat = 0; R.fx.heat = 0; S.plasma.visible = false; S.stars.material.uniforms.uFade.value = 1; S.setShutters(true); }
         R.fx.white = 0;
         if (s.tUp == null && G.siteShown && t - s.tLand > 0.3) s.tUp = t;
         G.powerDip(s, dt, s.tUp == null);

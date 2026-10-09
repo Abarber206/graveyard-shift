@@ -14,9 +14,10 @@ const Ship = (() => {
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _pq = new THREE.Quaternion();
-  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up (dead ahead,
-  // a touch below the nose)
-  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _ahead = new THREE.Vector3(1, -0.06, 0).normalize(), _Dw = new THREE.Vector3();
+  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
+  // the nose, then (the nose dipped) dead ahead
+  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
+  const _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -1784,7 +1785,7 @@ const Ship = (() => {
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
       const a = R * r.range(1.6, 3.6), e = r.range(0.02, 0.07);
-      this.turn = 0;
+      this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       this.ring.visible = !!look.rings || r.chance(0.2);
@@ -1802,14 +1803,15 @@ const Ship = (() => {
       if (this.arrive < 1) dist *= lerp(9, 1, this.arrive);
       // In orbit the world hangs off to one side of the windshield. Diving in (or dropping out of a jump at it), the
       // ship swings its nose round onto it first, so it goes in head-on rather than crabbing in sideways: the whole sky
-      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 dead ahead
-      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _ahead), this.turn || 0);
+      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 swung round onto it;
+      // dip: 0 the world under the nose, 1 the nose pushed over into the dive, the world dead ahead
+      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _tgt.copy(_below).lerp(_ahead, this.dip == null ? 1 : this.dip).normalize()), this.turn || 0);
       const D = _Dw.copy(o.D).applyQuaternion(q);
       if (this.approach > 0) {
         // diving out of orbit straight at the world from wherever the ship is: the planet stays where it is in the
         // windshield and only grows. The altitude shrinks geometrically, from the orbit's down to the top of the air,
         // so the world swells at a steady rate instead of rushing up at the end.
-        const h0 = dist - R, h = h0 * Math.pow((R * 0.012) / h0, this.approach);
+        const h0 = dist - R, h = h0 * Math.pow((R * 0.008) / h0, this.approach);
         dist = R + h;
       }
       this.alt = dist - R;

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graveyard Shift</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050505'/%3E%3Cellipse cx='11' cy='14' rx='4' ry='7' fill='%23f2a65a'/%3E%3Cellipse cx='21' cy='14' rx='4' ry='7' fill='%23f2a65a'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="visor"></div>
+  <div id="stamina"><div id="stfill"></div></div>
+  <div id="weight"></div>
+  <div id="clock"><div id="clocktime">--:--</div><div id="clocksub"></div></div>
+  <div id="lobbycode"></div>
+  <div id="crosshair"></div>
+  <div id="prompt"></div>
+  <div id="slots"></div>
+  <div id="iteminfo"></div>
+  <div id="notice"><div id="noticetitle"></div><div id="noticesub"></div></div>
+  <div id="toast"></div>
+  <div id="scanring"></div>
+  <div id="scanlabels"></div>
+  <div id="bubbles"></div>
+  <div id="bars"><i></i><i></i></div>
+  <div id="chat"><div id="chatlog"></div><input id="chatinput" maxlength="120" autocomplete="off" spellcheck="false"></div>
+  <canvas id="tracker" width="180" height="180"></canvas>
+  <div id="struggle"></div>
+  <div id="spectate"></div>
+  <div id="voiceind"></div>
+</div>
+
+<div id="terminal" class="hidden">
+  <div id="term-bezel">
+    <div id="term-screen">
+      <div id="term-head"><span id="term-title">MERCY OS v2.31</span><span id="term-stats"></span><button id="term-exit">[ EXIT ]</button></div>
+      <div id="term-bar"></div>
+      <div id="term-out"></div>
+      <div id="term-more">&#9660; SCROLL FOR MORE</div>
+      <div id="term-line"><span>&gt;</span><input id="term-input" autocomplete="off" spellcheck="false" maxlength="60" placeholder="type a command"></div>
+    </div>
+  </div>
+  <div id="term-hint">ESC &middot; HELP</div>
+</div>
+
+<div id="summary" class="hidden"></div>
+
+<div id="menu">
+  <div id="title">
+    <h1 class="glitch" data-text="GRAVEYARD SHIFT">GRAVEYARD SHIFT</h1>
+    <div id="tagline">MERCY SALVAGE CO. &mdash; NIGHT RETRIEVAL DIVISION</div>
+  </div>
+  <div id="menupanel"></div>
+  <div id="menufoot">HEADPHONES RECOMMENDED &middot; PLAY IN THE DARK</div>
+</div>
+<div id="pause" class="hidden"></div>
+<div id="fade"></div>
+<div id="clicktoplay" class="hidden"><div>CLICK TO CONTINUE</div></div>
+<div id="loading"><div class="ld">ESTABLISHING UPLINK<span class="blink">_</span></div><div id="loaderr"></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+window.THREE = THREE;
+window.BufferGeometryUtils = BufferGeometryUtils;
+const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'game', 'main'];
+try {
+  // the one-file build (build.ps1) embeds every script in the page; the dev copy loads them from js/
+  const packed = document.querySelectorAll('script[type="text/x-gs"]');
+  if (packed.length) {
+    for (const b of packed) { const s = document.createElement('script'); s.textContent = b.textContent; document.body.appendChild(s); }
+    if (typeof window.startGame !== 'function') throw new Error('The game failed to start (see the browser console).');
+  } else {
+    for (const f of files) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'js/' + f + '.js';
+        s.onload = res;
+        s.onerror = () => rej(new Error('Could not load js/' + f + '.js'));
+        document.body.appendChild(s);
+      });
+    }
+  }
+  window.startGame();
+} catch (e) {
+  document.getElementById('loaderr').textContent = String(e && e.message || e);
+  console.error(e);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "graveyard-shift",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Co-op salvage horror game for the browser (three.js, no build step, no dependencies).",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "serve": "node tools/serve.mjs 8139"
+  }
+}

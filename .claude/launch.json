@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "game",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8139"],
+      "port": 8139
+    },
+    {
+      "name": "game-node",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.mjs", "8139"],
+      "port": 8139
+    }
+  ]
+}

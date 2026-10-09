@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+Thumbs.db
+# an old build output (the current one is share/GraveyardShift-web.zip)
+share/GraveyardShift.zip

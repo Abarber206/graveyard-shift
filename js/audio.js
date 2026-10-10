@@ -138,6 +138,61 @@ const SFX = (() => {
       [1380, 1460, 1550, 1645].forEach((f) => { const o = osc(bp, 'sawtooth', f, f * 1.04, t, 1.9, 0.12, 0.02); vib(o, t, 1.9, rnd(5, 9), 25); });
       osc(d, 'sine', 48, 30, t, 1.4, 0.8, 0.004);
     },
+    // something down the corridor has seen you: a wet, catching gasp; a rattle deep in its throat, creaking slow and
+    // then faster as it draws itself up; and over it a strangled, tearing shriek that tails off into the dark
+    noticed(d, t) {
+      // a voice: a throat, not an oscillator. It's built a pulse at a time, each a little early or late (jit) and
+      // louder or softer (shim), every other one weaker by sub (a rough, split voice), air hissing through each one
+      // (breath), at f(u) pulses a second u of the way through, swelling as amp(u); open: the longest a pulse stays open
+      const throat = (dur, f, o) => {
+        const sr = ctx.sampleRate, N = Math.floor(sr * dur), b = ctx.createBuffer(1, N, sr), w = b.getChannelData(0);
+        let n = 0, k = 0, peak = 1e-6;
+        while (n < N) {
+          const u = n / N, T = sr / (f(u) * (1 + rnd(-1, 1) * o.jit)), a = o.amp(u) * (1 + rnd(-1, 1) * o.shim) * (k++ % 2 ? 1 - (o.sub || 0) : 1);
+          const Tp = Math.min(0.4 * T, o.open * sr), Tn = Tp * 0.4;
+          let prev = 0;
+          for (let i = 0; i < T && n + i < N; i++) {
+            const g = i < Tp ? 0.5 * (1 - Math.cos(Math.PI * i / Tp)) : i < Tp + Tn ? Math.cos(Math.PI * (i - Tp) / (2 * Tn)) : 0;
+            const v = a * ((g - prev) * Tp * 0.5 + g * (Math.random() * 2 - 1) * o.breath);
+            w[n + i] = v; peak = Math.max(peak, Math.abs(v)); prev = g;
+          }
+          n += Math.max(1, Math.round(T));
+        }
+        for (let i = 0; i < N; i++) w[i] /= peak;
+        const s = ctx.createBufferSource(); s.buffer = b; return s;
+      };
+      // ...shaped by the mouth and throat it comes out of: formants gliding from one vowel to another ([from, to, Q, gain])
+      const mouth = (src, t0, list, gain, to) => {
+        const sum = ctx.createGain(); sum.gain.value = gain; sum.connect(to);
+        for (const [a, b, q, g] of list) {
+          const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+          bp.frequency.setValueAtTime(a, t0); bp.frequency.linearRampToValueAtTime(b, t0 + src.buffer.duration);
+          const gg = ctx.createGain(); gg.gain.value = g; src.connect(bp); bp.connect(gg); gg.connect(sum);
+        }
+        src.start(t0);
+      };
+      const ramp = (u, a, b) => Math.min(1, Math.max(0, (u - a) / (b - a)));
+      // (a pitch that drifts the way a voice does, never quite steady: a smooth random wander, depth either way)
+      const wander = (knots, depth) => { const k = Array.from({ length: knots + 1 }, () => rnd(-depth, depth)); return (u) => { const x = u * knots, i = Math.min(knots - 1, Math.floor(x)), f = x - i, s = f * f * (3 - 2 * f); return k[i] + (k[i + 1] - k[i]) * s; }; };
+      // the gasp, sucked in hard through the teeth, catching at the end
+      nz(d, t, 0.3, 0.32, 'bandpass', 1100, 2500, 1.3, 0.22);
+      nz(d, t + 0.04, 0.26, 0.14, 'highpass', 3600, null, 0.7, 0.2);
+      nz(d, t + 0.29, 0.03, 0.5, 'bandpass', 1500, 700, 3, 0.002);
+      // the rattle: wet, creaking pulses in a slack throat, tightening from a crackle into a croak (thick and muffled:
+      // it comes from deep down)
+      const croak = throat(1.9, (u) => 22 + 40 * Math.pow(u, 1.2), { jit: 0.35, shim: 0.6, open: 0.004, breath: 0.45, amp: (u) => ramp(u, 0, 0.1) * (1 - ramp(u, 0.72, 1)) });
+      mouth(croak, t + 0.3, [[380, 640, 5, 1], [820, 1080, 6, 0.6], [2300, 2550, 8, 0.12], [180, 220, 1.2, 0.7]], 1.3, filt(d, 'lowpass', 1900, 0.7));
+      // the shriek: lunging up, wavering, its voice cracking high for a moment, then sinking, rough and split, through
+      // a mouth stretched wide
+      const drift = wander(9, 0.07);
+      const shriek = throat(1.45, (u) => (u < 0.1 ? 300 + 260 * (u / 0.1) : 560 - 150 * ramp(u, 0.1, 1)) * (1 + drift(u)) * (u > 0.34 && u < 0.43 ? 1.42 : 1), { jit: 0.05, shim: 0.32, open: 1, breath: 0.6, sub: 0.45, amp: (u) => ramp(u, 0, 0.04) * Math.pow(1 - u, 1.5) * (1 + 0.25 * Math.sin(u * 61)) });
+      mouth(shriek, t + 0.82, [[920, 760, 5, 1], [1650, 2300, 7, 0.8], [3000, 3250, 9, 0.5], [4300, 4300, 10, 0.22]], 0.85, shaper(d, 6));
+      // and the breath going out of it after, a ragged rasp
+      nz(d, t + 2.05, 0.6, 0.12, 'bandpass', 900, 500, 1.6, 0.05);
+      // and the jolt of it, felt more than heard
+      osc(d, 'sine', 64, 30, t + 0.82, 1.3, 0.3, 0.01);
+      nz(d, t + 0.82, 0.9, 0.3, 'lowpass', 260, 90, 0.7, 0.02, brownBuf);
+    },
     heartbeat(d, t) { osc(d, 'sine', 62, 38, t, 0.14, 0.9, 0.005); osc(d, 'sine', 56, 36, t + 0.22, 0.16, 0.65, 0.005); },
     crawler_screech(d, t) {
       const w = shaper(d, 30);

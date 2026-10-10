@@ -1,7 +1,7 @@
 'use strict';
 // Menus, settings, pause screen, title backdrop and the main loop.
 const MenuScene = (() => {
-  let fac = null, pts = [], segs = [], total = 0, t = 0, pale = null, paleT = 14, paleShow = 0, active = false, flick = 0;
+  let fac = null, pts = [], segs = [], total = 0, t = 0, pale = null, paleT = 14, paleShow = 0, active = false, flick = 0, heard = false;
   function build() {
     fac = new Facility(90210, 20);
     fac.build();
@@ -56,13 +56,15 @@ const MenuScene = (() => {
       if (paleT <= 0 && !paleShow) {
         const a = at(s + 10);
         if (fac.los(p.x, p.z, a.x, a.z)) {
-          pale.position.set(a.x, FAC_Y0, a.z); pale.rotation.y = Math.atan2(p.x - a.x, p.z - a.z); pale.visible = true; paleShow = 2.6;
+          pale.position.set(a.x, FAC_Y0, a.z); pale.rotation.y = Math.atan2(p.x - a.x, p.z - a.z); pale.visible = true; paleShow = 2.6; heard = false;
           const P = pale.userData.parts; P.torso.rotation.x = 0.35; P.head.rotation.z = 0.5;
         } else paleT = 1;
       }
       if (paleShow > 0) {
         paleShow -= dt;
-        if (paleShow <= 0.35 && flick <= 0) { flick = 0.35; SFX.play('stinger', null, { vol: 0.35, pitch: 0.7 }); }
+        // (it sees you: from where it stands, down the corridor, its shriek landing as the light fails)
+        if (paleShow <= 1.3 && !heard) { heard = true; SFX.play('noticed', new THREE.Vector3(pale.position.x, FAC_Y0 + 2, pale.position.z), { vol: 1, ref: 10, rev: 0.9 }); }
+        if (paleShow <= 0.35 && flick <= 0) flick = 0.35;
         if (paleShow <= 0) { pale.visible = false; paleShow = 0; paleT = 20 + Math.random() * 15; }
       }
       R.fx.fear = 0.12 + (paleShow > 0 ? 0.25 : 0); R.fx.exposure = 1.25; R.fx.fade = damp(R.fx.fade, 0, 2, dt);

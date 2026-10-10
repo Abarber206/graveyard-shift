@@ -333,7 +333,7 @@ class Monster {
     if (d < near) return true;
     if (d < sight) {
       const f = this.forward(), dot = (dx * f.x + dz * f.z) / (d || 1);
-      if (dot > cone && (!this.g.fac || this.def.zone !== 'in' || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z))) return true;
+      if (dot > cone && (!this.g.fac || this.def.zone !== 'in' || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true))) return true;
     }
     for (const n of this.g.noises) if (n.pid === p.id && n.zone === this.def.zone && n.age < 0.4 && Math.hypot(n.x - this.pos.x, n.z - this.pos.z) < n.r) return true;
     return false;
@@ -390,7 +390,7 @@ class Monster {
         const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         if (d > 22) continue;
         const dot = (dx * f.x + dz * f.z) / (d || 1);
-        if ((dot > 0.15 || d < 5) && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z)) return p;
+        if ((dot > 0.15 || d < 5) && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) return p;
       }
       return null;
     };
@@ -421,7 +421,7 @@ class Monster {
         const p = this.g.players.get(this.target);
         if (!p || !p.alive || p.zone !== 'in') { this.setState('roam'); this.goal = null; break; }
         const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-        const sees = fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z);
+        const sees = fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true);
         this.lastSeenT = sees ? 0 : this.lastSeenT + dt;
         if (sees) this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
         const aim = this.lastKnown || p.pos;
@@ -542,7 +542,7 @@ class Monster {
     for (let t = 0; t < 14; t++) {
       const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; });
       if (!p) continue;
-      const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z) : false;
+      const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z, true) : false;
       const s = (vis ? -100 : 0) + (tgt ? Math.hypot(p.x - tgt.pos.x, p.z - tgt.pos.z) : 0) - Math.hypot(p.x - this.pos.x, p.z - this.pos.z) * 0.3;
       if (s > bs) { bs = s; best = p; }
     }

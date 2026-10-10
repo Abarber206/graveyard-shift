@@ -348,8 +348,11 @@ const R = (() => {
         if (s.fac && !power && s.state !== 'emergency') continue;
         let d = (s.x - cam.x) ** 2 + (s.y - cam.y) ** 2 + (s.z - cam.z) ** 2;
         if (d > (s.far || 40) ** 2) continue;
-        // a lamp you have no line of sight to (behind a wall or a closed door) must not light your side
-        if (losFn && d > 6 && !losFn(s)) continue;
+        // a lamp you have no line of sight to (behind a wall or a closed door) must not light your side; one seen only
+        // through a door's window spills some of its light through
+        const vis = losFn && d > 6 ? +losFn(s) : 1;
+        if (!vis) continue;
+        s.through = vis;
         cands.push([d, s]);
       }
       cands.sort((a, b) => a[0] - b[0]);
@@ -363,7 +366,7 @@ const R = (() => {
       s.lit = f;
       L.position.set(s.x, s.y, s.z); L.color.set(s.color);
       L.distance = s.range || 11;
-      L.intensity = f * (s.power || 1) * (s.ship ? 34 * fx.cabin : s.zone === 'out' ? 60 : 26);
+      L.intensity = f * (s.power || 1) * (s.ship ? 34 * fx.cabin : s.zone === 'out' ? 60 : 26) * (s.through ?? 1);
       if (onVisual) onVisual(s, f);
     }
   }

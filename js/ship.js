@@ -2312,9 +2312,9 @@ const Ship = (() => {
       for (const b of list) {
         // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
         // (their orbits are their own: from one day to the next a moon or rock swings in close or out far, and round)
-        const near = b.kind === 'planet' ? 1 : 0.5 + rr.next() * 1.2, ang = b.ang + (b.kind === 'planet' ? 0 : rr.range(-0.6, 0.6));
+        const near = b.near ?? (b.kind === 'planet' ? 1 : 0.5 + rr.next() * 1.2), ang = b.near != null || b.kind === 'planet' ? b.ang : b.ang + rr.range(-0.6, 0.6);
         const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(ang)).addScaledVector(v, Math.sin(ang));
-        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32) * near;
+        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(b.ar || 0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32) * near;
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
         let geo;
         if (b.kind === 'rock') {

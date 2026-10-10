@@ -38,6 +38,68 @@ class MinHeap {
 
 // Door hardware: lever sets, hinges, push bars and pull handles, built in a leaf's own frame:
 // x runs from the hinge edge (0) to the latch edge (w), y is height above the floor, the faces sit at z = ±t/2.
+// A door's vision panel: where it sits in the leaf (heights from the leaf's foot), the leaf with it cut out, the trim
+// round it (and the bars of a grille), the wired glass, and the shaft of lamplight that falls through it into the dark
+const Pane = {
+  W: 0.42, y0: 1.3, y1: 1.82,
+  leaf(w, h, t) {
+    const hw = w / 2, hh = h / 2, sh = new THREE.Shape(), x = Pane.W / 2, y0 = Pane.y0 - 0.005 - hh, y1 = Pane.y1 - 0.005 - hh;
+    sh.moveTo(-hw, -hh); sh.lineTo(hw, -hh); sh.lineTo(hw, hh); sh.lineTo(-hw, hh); sh.lineTo(-hw, -hh);
+    const hole = new THREE.Path(); hole.moveTo(-x, y0); hole.lineTo(-x, y1); hole.lineTo(x, y1); hole.lineTo(x, y0); hole.lineTo(-x, y0);
+    sh.holes.push(hole);
+    const g = new THREE.ExtrudeGeometry(sh, { depth: t, bevelEnabled: false, curveSegments: 1 });
+    g.translate(0, 0, -t / 2);
+    // (the door's texture spread over each face just as it is over a plain slab)
+    const P = g.attributes.position, U = g.attributes.uv;
+    for (let i = 0; i < P.count; i++) U.setXY(i, (P.getX(i) + hw) / w, (P.getY(i) + hh) / h);
+    return g;
+  },
+  trim(parts, kind, w, t) {
+    const cx = w / 2, cy = (Pane.y0 + Pane.y1) / 2, W = Pane.W, H = Pane.y1 - Pane.y0, b = 0.03, d = t + 0.024;
+    for (const y of [Pane.y1 + b / 2, Pane.y0 - b / 2]) parts.push({ geo: new THREE.BoxGeometry(W + 2 * b, b, d), matrix: mat(cx, y, 0) });
+    for (const s of [-1, 1]) parts.push({ geo: new THREE.BoxGeometry(b, H, d), matrix: mat(cx + s * (W / 2 + b / 2), cy, 0) });
+    if (kind === 'bars') {
+      for (let i = 1; i <= 5; i++) parts.push({ geo: new THREE.CylinderGeometry(0.011, 0.011, H, 6), matrix: mat(cx - W / 2 + (W * i) / 6, cy, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(W, 0.018, 0.014), matrix: mat(cx, cy, 0) });
+    }
+  },
+  glass() {
+    if (!Pane.glassMat) {
+      // safety glass with a diamond wire mesh in it, a little greenish and smeared
+      const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+      x.fillStyle = 'rgba(150,172,160,0.15)'; x.fillRect(0, 0, 64, 64);
+      x.strokeStyle = 'rgba(28,30,28,0.6)'; x.lineWidth = 1;
+      for (let i = -64; i < 128; i += 16) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + 64, 64); x.stroke(); x.beginPath(); x.moveTo(i + 64, 0); x.lineTo(i, 64); x.stroke(); }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(2, 2.5);
+      Pane.glassMat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.12, metalness: 0.2, side: THREE.DoubleSide, depthWrite: false });
+    }
+    return Pane.glassMat;
+  },
+  // a shaft running out from the window (leaf space +z; side -1 runs the other way), spreading, fading and tipping
+  // down toward the floor; through a grille it comes out in stripes
+  beam(kind, side) {
+    if (!Pane.beamGeo) {
+      const W = Pane.W, H = Pane.y1 - Pane.y0, L = 2.6, sp = 1.7, drop = 0.5, cy = (Pane.y0 + Pane.y1) / 2;
+      const ring = (a) => { const k = 1 + (sp - 1) * a, z = 0.03 + L * a, y = cy - drop * L * a; return [[-W / 2 * k, y - H / 2 * k, z], [W / 2 * k, y - H / 2 * k, z], [W / 2 * k, y + H / 2 * k, z], [-W / 2 * k, y + H / 2 * k, z]]; };
+      const A = ring(0), B = ring(1), pos = [], uv = [];
+      for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; pos.push(...A[i], ...A[j], ...B[j], ...A[i], ...B[j], ...B[i]); uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.computeBoundingSphere();
+      Pane.beamGeo = g;
+    }
+    const m = new THREE.Mesh(Pane.beamGeo, new THREE.ShaderMaterial({
+      uniforms: { uI: { value: 0 }, uBars: { value: kind === 'bars' ? 1 : 0 }, uCol: { value: new THREE.Color(1, 0.84, 0.6) } },
+      // (a haze, not a solid: each side of the shaft fades out toward its edges and wherever it's seen edge-on, and
+      // it thins away close up, so walking through it never shows a box)
+      vertexShader: 'varying vec2 vUv; varying vec3 vV; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = mv.xyz; gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'uniform float uI; uniform float uBars; uniform vec3 uCol; varying vec2 vUv; varying vec3 vV; void main(){ vec3 n = normalize(cross(dFdx(vV), dFdy(vV))); float d = length(vV), face = pow(abs(dot(n, vV / d)), 1.6); float edge = smoothstep(0.0, 0.35, vUv.x) * smoothstep(1.0, 0.65, vUv.x); float bars = mix(1.0, 0.2 + 0.8 * smoothstep(0.3, 0.75, abs(fract(vUv.x * 6.0) - 0.5) * 2.0), uBars); float a = uI * 0.07 * pow(1.0 - vUv.y, 1.4) * smoothstep(0.0, 0.12, vUv.y + 0.02) * edge * face * bars * smoothstep(0.6, 2.0, d) * (1.0 - smoothstep(14.0, 24.0, d)); gl_FragColor = vec4(uCol * a, 1.0); }',
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
+    m.scale.z = side; m.renderOrder = 4; m.visible = false;
+    return m;
+  },
+};
 const DoorKit = {
   // a lever on each face near the latch edge; the levers point back toward the hinge, as real ones do
   lever(parts, w, t, y = 1.0) {
@@ -362,6 +424,8 @@ const Facility = (() => {
         const ex = this.cx(i) + dx * TS / 2, ez = this.cz(j) + dy * TS / 2;
         const door = { id: this.doors.length, a: k, b: nk, nx: dx, nz: dy, x: ex, y: this.tileY(k), z: ez, lv: room.lv, open: r.chance(0.3), dir: 1, anim: 0, mesh: null };
         door.anim = door.open ? 1 : 0;
+        // a vision panel at eye height in every door: wired glass, or in rougher places a grille of bars
+        door.pane = Math.abs(Math.sin(ex * 12.9898 + ez * 78.233 + room.lv * 37.719) * 43758.5453) % 1 < 0.6 ? 'glass' : 'bars';
         this.doors.push(door);
         this.doorEdge.set(this.edgeKey(k, nk), door);
         // jamb colliders (always) + door panel collider (when closed)
@@ -1153,8 +1217,10 @@ const Facility = (() => {
         const me = new THREE.Mesh(geo, facMat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); grp.add(me);
       }
       // doors: frames + panels
-      const leafGeo = new THREE.BoxGeometry(LEAF_W, DH - 0.03, LEAF_T);
-      const leafHW = (() => { const parts = []; DoorKit.lever(parts, LEAF_W, LEAF_T); DoorKit.hinges(parts, DH - 0.03); return mergeGeoList(parts); })();
+      const leafGeo = Pane.leaf(LEAF_W, DH - 0.03, LEAF_T);
+      const leafHW = {};
+      for (const kind of ['glass', 'bars']) { const parts = []; DoorKit.lever(parts, LEAF_W, LEAF_T); DoorKit.hinges(parts, DH - 0.03); Pane.trim(parts, kind, LEAF_W, LEAF_T); leafHW[kind] = mergeGeoList(parts); }
+      const glassGeo = new THREE.PlaneGeometry(Pane.W, Pane.y1 - Pane.y0);
       for (const d of this.doors) {
         const tx = -d.nz, tz = d.nx;
         const base = Math.atan2(-tz, tx);
@@ -1168,12 +1234,28 @@ const Facility = (() => {
         const panel = new THREE.Mesh(leafGeo, facMat(d.lv > 0 ? 'door@' + d.lv : 'door'));
         panel.position.set(LEAF_W / 2, (DH - 0.03) / 2 + 0.005, 0); panel.castShadow = true; panel.receiveShadow = true;
         pivot.add(panel);
-        const hw = new THREE.Mesh(leafHW, MATS.get('hardware')); hw.castShadow = true; pivot.add(hw);
+        const hw = new THREE.Mesh(leafHW[d.pane], MATS.get('hardware')); hw.castShadow = true; pivot.add(hw);
+        if (d.pane === 'glass') { const g = new THREE.Mesh(glassGeo, Pane.glass()); g.position.set(LEAF_W / 2, (Pane.y0 + Pane.y1) / 2, 0); g.renderOrder = 3; pivot.add(g); }
+        // light from a lamp on the far side falling through the window (one shaft each way, lit from the other side)
+        d.beams = [1, -1].map((side) => { const m = Pane.beam(d.pane, side); m.position.set(LEAF_W / 2, 0, 0); pivot.add(m); return m; });
+        d.lampBy = {};
+        for (const side of [1, -1]) {
+          // (the nearest working lamp on that side that can see the door)
+          let best = null, bd = 9;
+          const fx = d.x + d.nx * side * 0.6, fz = d.z + d.nz * side * 0.6;
+          for (const l of this.lamps) {
+            if (Math.abs(l.fy - d.y) > 1 || ((l.x - d.x) * d.nx + (l.z - d.z) * d.nz) * side <= 0.2) continue;
+            const dd = Math.hypot(l.x - fx, l.z - fz); if (dd < bd && this.los(l.x, l.z, fx, fz)) { bd = dd; best = l; }
+          }
+          d.lampBy[side] = best ? { l: best, k: 1 - bd / 11 } : null;
+          if (best) (best.panes || (best.panes = [])).push({ d, side });
+        }
         // it can swing into the room (+1) or into the corridor (-1); it always swings away from whoever opens it
         d.base = base;
         d.swingP = angDiff(base, Math.atan2(-d.nz, d.nx)) * 0.97;
         d.swingN = angDiff(base, Math.atan2(d.nz, -d.nx)) * 0.97;
         d.mesh = pivot; this.applyDoor(d); grp.add(pivot);
+        { const a = d.base, lz = { x: Math.sin(a), z: Math.cos(a) }; d.leafSign = Math.sign(lz.x * d.nx + lz.z * d.nz) || 1; }
       }
       // locker and cabinet doors: hinged on the left front edge, a small pull at the right
       const chw = {};
@@ -1472,6 +1554,39 @@ const Facility = (() => {
     }
     // where to aim to open a locker/cabinet: the middle of its door
     containerFront(c) { const [x, z] = this.frame(c.x, c.z, c.ry)(0.05, c.d / 2 + 0.03); return { x, y: c.y + Math.min(1.15, c.h * 0.55), z }; }
+    // how much of a lamp's light gets to where the camera is: all of it in plain view, some of it through a door's
+    // window (seeing the lamp through the glass, or seeing a window it shines on), none through a wall
+    lampReach(cam, l) {
+      if (this.los(cam.x, cam.z, l.x, l.z)) return 1;
+      if (this.los(cam.x, cam.z, l.x, l.z, true)) return 0.4;
+      if (l.panes) for (const { d, side } of l.panes) {
+        if (d.broken || d.anim > 0.5) continue;
+        const sx = d.x - d.nx * side * 0.4, sz = d.z - d.nz * side * 0.4;
+        if (Math.hypot(sx - cam.x, sz - cam.z) < 14 && ((cam.x - d.x) * d.nx + (cam.z - d.z) * d.nz) * side < 0 && this.los(cam.x, cam.z, sx, sz)) return 0.28;
+      }
+      return 0;
+    }
+    // the light coming through each door's window: from a working lamp on one side into the gloom on the other
+    updatePanes() {
+      const cam = R.camera.position, power = !G.round || G.round.power;
+      const lit = (e) => {
+        if (!e) return 0;
+        const l = e.l; if (l.state === 'off' || (!power && l.state !== 'emergency')) return 0;
+        return e.k * clamp(l.lit ?? 1, 0, 1.2) * (l.state === 'emergency' ? 0.5 : 1);
+      };
+      for (const d of this.doors) {
+        if (!d.beams) continue;
+        const near = Math.abs(d.x - cam.x) < 26 && Math.abs(d.z - cam.z) < 26 && Math.abs(d.y - cam.y) < 5;
+        for (let i = 0; i < 2; i++) {
+          const side = i ? -1 : 1, u = d.beams[i].material.uniforms;
+          // (which way this shaft points in the world once the leaf is hung: it shows on the side away from its lamp)
+          const out = side * (d.leafSign || 1);
+          const v = near && !d.broken ? lit(d.lampBy[-out]) * (1 - 0.6 * Math.min(1, lit(d.lampBy[out]) * 1.5)) * (1 - d.anim) : 0;
+          u.uI.value = v; d.beams[i].visible = v > 0.01;
+          if (v > 0.01) u.uCol.value.setHex(d.lampBy[-out].l.color);
+        }
+      }
+    }
     applyDoor(d) { if (d.mesh) d.mesh.rotation.y = d.base + (d.dir < 0 ? d.swingN : d.swingP) * d.anim; }
     // open/close a door; a door only changes which way it swings while it is (nearly) shut
     setDoor(d, open, dir) {
@@ -1479,6 +1594,8 @@ const Facility = (() => {
       d.open = open;
     }
     update(dt) {
+      this.paneT = (this.paneT || 0) - dt;
+      if (this.paneT <= 0) { this.paneT = 0.12; this.updatePanes(); }
       for (const d of this.doors) {
         if (d.broken) continue;
         const tgt = d.open ? 1 : 0;
@@ -1532,8 +1649,9 @@ const Facility = (() => {
       return d && !d.open ? d : null;
     }
     doorBetween(i0, j0, i1, j1) { const a = this.idx(i0, j0), b = this.idx(i1, j1); return a < 0 || b < 0 ? null : this.doorEdge.get(this.edgeKey(a, b)) || null; }
-    // a clear straight line from a to b (seen from above): not through rock, a wall onto another level, or a shut door
-    los(ax, az, bx, bz) {
+    // a clear straight line from a to b (seen from above): not through rock, a wall onto another level, or a shut door.
+    // sight: only seeing (or light) has to get through, and a shut door's window lets it
+    los(ax, az, bx, bz, sight = false) {
       const x = (ax - this.ox) / TS, z = (az - this.oz) / TS, ex = (bx - this.ox) / TS, ez = (bz - this.oz) / TS;
       let i = Math.floor(x), j = Math.floor(z);
       const ti = Math.floor(ex), tj = Math.floor(ez);
@@ -1549,7 +1667,8 @@ const Facility = (() => {
         if (tmi < tmj) { if (tmi > 1) break; i += si; tmi += tdi; } else { if (tmj > 1) break; j += sj; tmj += tdj; }
         const pk = this.idx(pi, pj), k = this.idx(i, j);
         if (!this.connected(pk, k)) return false;
-        if (this.closedDoorBetween(pi, pj, i, j) || this.closedBlast(pk, k)) return false;
+        const shut = this.closedDoorBetween(pi, pj, i, j);
+        if ((shut && !(sight && shut.pane)) || this.closedBlast(pk, k)) return false;
       }
       return true;
     }

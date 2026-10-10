@@ -57,6 +57,18 @@ for (const w in BODIES) {
   for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: -1.2, el: 0.55 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
+// Where each moon and rock is today: how far out along its orbit (near: 1 its usual distance, under that closer in,
+// over it farther out) and how far round its world (phase). Decided by the day and the world, so the view from orbit,
+// the sky over the world's sites and the sky over its moon and rock all agree, and every crewmate sees the same.
+function orbitsToday(world, run) {
+  const rr = new RNG(((run ? run.day * 7919 + run.cycle * 104729 : 1) + [...world].reduce((s, c) => s + c.charCodeAt(0) * 131, 0)) >>> 0), out = {};
+  for (const b of BODIES[world] || []) out[b.key] = { near: 0.6 + rr.next() * 0.9, phase: rr.range(0, TAU) };
+  return out;
+}
+// where it is today, in the world's radii from its centre, in the plane they all go round in
+const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin(o.phase) * b.orbit * o.near });
+// the angle round from the world to another body, as seen from one of its moons (positive: anticlockwise)
+const turnFrom = (pm, po) => { const vx = po.x - pm.x, vz = po.z - pm.z; return Math.atan2(-pm.x * vz + pm.z * vx, -pm.x * vx - pm.z * vz); };
 // what is left in a room depends on what the room was for
 const LOOT = {
   office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4 },
@@ -81,7 +93,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 5;
+const PROTO = 6;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -132,7 +144,7 @@ const G = {
     for (const it of [...G.items.values()]) G.removeItem(it.id);
     for (const p of G.players.values()) if (p.avatar) p.avatar.dispose();
     for (const c of G.corpses) c.dispose();
-    G.players.clear(); G.items.clear(); G.monsters.clear(); G.corpses = [];
+    G.players.clear(); G.items.clear(); G.monsters.clear(); G.corpses = []; Bots.reset();
     G.noises = []; G.timers = []; G.grenades = []; G.round = null; G.leechOn = null; G.seq = null; G.flicker = 0;
     G.ship.setDoor(false); G.ship.door.t = 0;
     G.flight = null; G.updateFlight(0); G.ship.setLanded(false); SFX.setThrust(0, true, 0);
@@ -160,6 +172,7 @@ const G = {
     G.enterOrbitState();
     G.mode = 'orbit';
     G.spawnInShip(G.me(), 0);
+    Bots.restore();
     G.callSignal();
     if (!save) G.timers.push({ t: 1.2, fn: () => HUD.notice('DAY ' + G.run.day, 'Quota $' + G.run.quota + ' · ' + G.run.daysLeft + ' days', false, 5) });
     else G.timers.push({ t: 1.2, fn: () => HUD.notice('WELCOME BACK', 'Credits $' + G.run.credits + ' · Quota $' + G.run.sold + '/$' + G.run.quota, false, 4) });
@@ -204,7 +217,7 @@ const G = {
   addPlayer(info) {
     let p = G.players.get(info.id);
     if (!p) {
-      p = { id: info.id, name: info.name, color: info.color || 0, peerId: info.peerId, pos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), rpos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), yaw: info.yaw || 0, pitch: 0, hp: info.hp ?? 100, alive: info.alive ?? true, zone: info.zone || 'out', slots: info.slots || [null, null, null, null], sel: info.sel || 0, flags: 0, buf: [], noiseT: 0, speed: 0 };
+      p = { id: info.id, name: info.name, color: info.color || 0, peerId: info.peerId, pos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), rpos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), yaw: info.yaw || 0, pitch: 0, hp: info.hp ?? 100, alive: info.alive ?? true, zone: info.zone || 'out', slots: info.slots || [null, null, null, null], sel: info.sel || 0, flags: 0, buf: [], noiseT: 0, speed: 0, bot: !!info.bot };
       G.players.set(p.id, p);
       if (p.id !== G.localId) { p.avatar = new Avatar(p.name, p.color); R.scene.add(p.avatar.root); p.avatar.root.visible = p.alive; }
       else Player.setSuit(p.color);
@@ -225,7 +238,7 @@ const G = {
   hasItem(pid, type) { const p = G.players.get(pid); return !!p && p.slots.some((id) => id != null && G.items.get(id) && G.items.get(id).type === type); },
   holdingWalkie() { const me = G.me(); const id = me && me.slots[me.sel]; const it = id != null && G.items.get(id); return !!(it && it.type === 'walkie'); },
   inShip(p) { return p.zone === 'out' && G.ship.inside(p.pos.x, p.pos.y + 0.5, p.pos.z); },
-  pinfo(p) { return { id: p.id, name: p.name, color: p.color, peerId: p.peerId, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, hp: p.hp, alive: p.alive, zone: p.zone, slots: p.slots, sel: p.sel }; },
+  pinfo(p) { return { id: p.id, name: p.name, color: p.color, peerId: p.peerId, bot: p.bot || undefined, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, hp: p.hp, alive: p.alive, zone: p.zone, slots: p.slots, sel: p.sel }; },
   spawnInShip(p, idx) {
     const x = 1 + (idx % 3) * 1.1, z = 0.6 + Math.floor(idx / 3) * 1.0;
     p.pos.set(x, 0, z); p.zone = 'out';
@@ -300,7 +313,7 @@ const G = {
     b.steps = [
       () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs); },
       () => { b.facG = b.fac.build(); },
-      () => { b.ext = new Exterior(seed, site, weather, siteKey); b.ext.buildLand(); },
+      () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); b.ext.buildLand(); },
       () => { b.extG = b.ext.buildRest(); },
     ];
     G.siteBuild = b;
@@ -365,14 +378,35 @@ const G = {
   // gravity, as a share of the usual: light out on the surface of a moon or rock (the ship and the facilities keep
   // a full one of their own)
   gravity(zone, x, y, z) { return G.round && SITES[G.round.site].lowG && zone === 'out' && !G.ship.inside(x, y + 0.5, z) ? 0.3 : 1; },
+  // the sky over a site today. From a world: its moon and rock, bigger the closer in they've come, round the sky as far
+  // as they are round their orbits. From a moon or rock: the world (which never moves in its sky: it always keeps
+  // the same face to it), bigger the closer in its orbit has brought it, and the other one, the size it really looks
+  // from here and where it really is, out along the plane they all circle in
+  skyToday(key) {
+    const s = SITES[key], world = s.bonus || key, O = orbitsToday(world, G.run);
+    if (!s.bonus) return s.sky.map((e, i) => { const o = O[BODIES[world][i].key]; return Object.assign({}, e, { r: e.r / o.near, az: e.az + 0.5 * Math.sin(o.phase), fixed: true }); });
+    const me = BODIES[world].find((b) => b.key === key), pm = bodyAt(me, O[key]), others = BODIES[world].filter((b) => b !== me), W = s.sky[0];
+    const wd = new THREE.Vector3(Math.cos(W.az) * Math.cos(W.el), Math.sin(W.el), Math.sin(W.az) * Math.cos(W.el));
+    const t1 = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), wd).normalize(), t2 = new THREE.Vector3().crossVectors(wd, t1);
+    const road = t1.multiplyScalar(Math.cos(0.3)).addScaledVector(t2, Math.sin(0.3));
+    return s.sky.map((e, i) => {
+      if (e.kind === 'planet') return Object.assign({}, e, { r: Math.min(0.78, e.r / O[key].near), fixed: true });
+      const b = others[i - 1], po = bodyAt(b, O[b.key]), a = turnFrom(pm, po), dist = Math.hypot(po.x - pm.x, po.z - pm.z);
+      const d = wd.clone().multiplyScalar(Math.cos(a)).addScaledVector(road, Math.sin(a));
+      return Object.assign({}, e, { r: clamp(Math.asin(Math.min(0.5, b.size / dist)) * 1.3, 0.008, 0.09), az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), fixed: true, withWorld: true });
+    });
+  },
   // what hangs round the world the ship is orbiting, for the view from orbit (Ship.setBodies): its moon and rock, or
   // from round one of those, the world itself, enormous, and the other one
+  // (where they are, and how close, are today's: see orbitsToday)
   bodiesAround(route) {
     const s = SITES[route]; if (!s) return [];
-    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang, off: b.off, tint: b.tint }));
-    const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route);
-    return [{ kind: 'planet', size: Math.min(10, 1 / me.size), orbit: 0, ang: me.ang + Math.PI * 0.8, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings }]
-      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => ({ kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.abs(b.orbit - me.orbit) / me.size * 0.3), ang: b.ang, off: b.off, tint: b.tint })));
+    const O = orbitsToday(s.bonus || route, G.run);
+    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near }));
+    const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route), pm = bodyAt(me, O[route]), pa = me.ang + Math.PI * 0.8;
+    // (the world: bigger the closer in we are today; the other one: where it really is from here, and how far)
+    return [{ kind: 'planet', size: Math.min(10, 1 / me.size), orbit: 0, ang: pa, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings, ar: clamp(0.5 / O[route].near, 0.32, 0.75) }]
+      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
   },
   // Some days a facility beacon shows on one of the bodies circling the world the ship is at (or the one it belongs
   // to): a bonus site for that day only. Decided by the day, so every crewmate sees the same one
@@ -472,7 +506,7 @@ const G = {
     if (G.isHost && conn) {
       if (m.t === 'hello') {
         if (m.v !== PROTO) { Net.sendTo(conn, { t: 'deny', reason: 'Version mismatch. Make sure everyone has the same game files.' }); return; }
-        if (G.players.size >= 6) { Net.sendTo(conn, { t: 'deny', reason: 'Lobby is full (6 crew max).' }); return; }
+        if (G.players.size >= 6 && !Bots.makeRoom()) { Net.sendTo(conn, { t: 'deny', reason: 'Lobby is full (6 crew max).' }); return; }
         const id = G.nextPid++;
         conn.pid = id;
         const midRound = G.mode !== 'orbit';
@@ -814,7 +848,7 @@ const G = {
       SFX.play('bang', pos, { vol: 2, ref: 6 });
       const me = G.me(); if (!me || !me.alive) return;
       const cam = R.camera.position, d = cam.distanceTo(pos);
-      if (d < 14 && (me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, pos.x, pos.z))) {
+      if (d < 14 && (me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, pos.x, pos.z, true))) {
         const dir = R.camera.getWorldDirection(new THREE.Vector3()), to = pos.clone().sub(cam).normalize();
         const facing = dir.dot(to);
         R.fx.flash = Math.max(R.fx.flash, (facing > 0.3 ? 2.2 : 0.6) * (1 - d / 16));
@@ -857,12 +891,12 @@ const G = {
       const back = !p.alive || p.zone !== 'out' || !G.ship.inside(p.pos.x, p.pos.y + 0.5, p.pos.z);
       p.alive = true; p.hp = 100;
       if (p.avatar && back) { R.scene.remove(p.avatar.root); p.avatar = new Avatar(p.name, p.color); R.scene.add(p.avatar.root); }
-      if (p.id === G.localId && back) G.spawnInShip(p, i);
+      if ((p.id === G.localId || (G.isHost && p.bot)) && back) { G.spawnInShip(p, i); p.buf.length = 0; }
       i++;
     }
     HUD.hideSpectate(); HUD.struggle(false); R.fx.static = 0; R.fx.leech = 0; Player.clearPerks();
     G.showSummary(e.summary);
-    if (G.isHost) { G.save(); G.callSignal(); }
+    if (G.isHost) { Bots.newDay(); G.save(); G.callSignal(); }
   },
   showSummary(s) {
     const rows = [
@@ -920,21 +954,37 @@ const G = {
         break;
       }
       case 'door': {
-        const d = G.fac && G.fac.doors[r.id]; if (!d || !p.alive || d.broken) return;
+        const d = G.fac && G.fac.doors[r.id]; if (!d || !p.alive || d.broken || d.latch) return;
         if (Math.hypot(d.x - at.x, d.z - at.z) > 4.5) return;
         if (G.now - (d.lastT || 0) < 350) return;
         d.lastT = G.now;
-        G.emit({ e: 'door', id: d.id, open: !d.open, dir: G.doorDirFrom(d, at) });
-        G.addNoise(new THREE.Vector3(d.x, d.y + 1, d.z), 10, 'in', pid);
+        const dir = G.doorDirFrom(d, at), fac = G.fac, by = new THREE.Vector3(d.x, d.y + 1, d.z);
+        // opening, the handle goes down and the latch clicks back first; a moment later the door swings
+        if (!d.open) {
+          d.latch = true;
+          G.emitSound('click', by, { vol: 0.9 });
+          G.timers.push({ t: 0.32, fn: () => { d.latch = false; if (G.fac !== fac || d.open || d.broken) return; G.emit({ e: 'door', id: d.id, open: true, dir }); G.addNoise(by, 10, 'in', pid); } });
+          break;
+        }
+        G.emit({ e: 'door', id: d.id, open: false, dir });
+        G.addNoise(by, 10, 'in', pid);
         break;
       }
       case 'box': {
-        const c = G.fac && G.fac.containers[r.id]; if (!c || !p.alive) return;
+        const c = G.fac && G.fac.containers[r.id]; if (!c || !p.alive || c.latch) return;
         if (Math.hypot(c.x - at.x, c.z - at.z) > 3.5 || G.now - (c.lastT || 0) < 400) return;
         c.lastT = G.now;
-        G.emit({ e: 'box', id: c.id, open: !c.open });
-        // rusty hinges and a rattling steel door: anything nearby hears you rummaging
-        G.addNoise(new THREE.Vector3(c.x, c.y + 1, c.z), 9, 'in', pid);
+        const fac = G.fac, by = new THREE.Vector3(c.x, c.y + 1, c.z);
+        // (a locker's catch takes a moment too)
+        if (!c.open) {
+          c.latch = true;
+          G.emitSound('click', by, { vol: 0.7 });
+          // rusty hinges and a rattling steel door: anything nearby hears you rummaging
+          G.timers.push({ t: 0.25, fn: () => { c.latch = false; if (G.fac !== fac || c.open) return; G.emit({ e: 'box', id: c.id, open: true }); G.addNoise(by, 9, 'in', pid); } });
+          break;
+        }
+        G.emit({ e: 'box', id: c.id, open: false });
+        G.addNoise(by, 9, 'in', pid);
         break;
       }
       case 'hatch': {
@@ -951,7 +1001,8 @@ const G = {
         break;
       }
       case 'term': G.hostTerminal(pid, String(r.cmd || '').slice(0, 60)); break;
-      case 'chat': G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && G.hasItem(pid, 'walkie') }); break;
+      // (a line starting with / is a command, not something said out loud)
+      case 'chat': if (String(r.text || '').startsWith('/')) Bots.command(pid, String(r.text).slice(0, 60)); else G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && G.hasItem(pid, 'walkie') }); break;
       case 'struggle': {
         for (const m of G.monsters.values()) if (m.type === 'leech' && m.state === 'attached' && m.victim === pid) { m.grip -= 8 + Math.random() * 4; if (m.grip <= 0) m.detach(); }
         break;
@@ -1098,7 +1149,7 @@ const G = {
     const cp = Math.cos(p.pitch);
     const fx = -Math.sin(p.yaw) * cp, fy = Math.sin(p.pitch), fz = -Math.cos(p.yaw) * cp;
     if ((dx * fx + dy * fy + dz * fz) / d < dotMin) return false;
-    if (p.zone === 'in' && G.fac) return G.fac.los(p.pos.x, p.pos.z, pos.x, pos.z);
+    if (p.zone === 'in' && G.fac) return G.fac.los(p.pos.x, p.pos.z, pos.x, pos.z, true);
     return true;
   },
   isLit(pos) {
@@ -1110,7 +1161,7 @@ const G = {
     if (G.fac && G.round) for (const l of G.fac.lamps) {
       if (l.state === 'off') continue;
       if (!G.round.power && l.state !== 'emergency') continue;
-      if (Math.abs(l.x - pos.x) < 5 && Math.abs(l.z - pos.z) < 5 && Math.hypot(l.x - pos.x, l.z - pos.z) < 4.5 && G.fac.los(l.x, l.z, pos.x, pos.z)) return true;
+      if (Math.abs(l.x - pos.x) < 5 && Math.abs(l.z - pos.z) < 5 && Math.hypot(l.x - pos.x, l.z - pos.z) < 4.5 && G.fac.los(l.x, l.z, pos.x, pos.z, true)) return true;
     }
     return false;
   },
@@ -1182,7 +1233,7 @@ const G = {
       for (const m of G.monsters.values()) {
         if (m.dead || m.def.zone !== zone) continue;
         const d = Math.hypot(m.pos.x - at.x, m.pos.z - at.z);
-        if (d < 10 && (zone !== 'in' || G.fac.los(at.x, at.z, m.pos.x, m.pos.z))) { m.stun = 5.5; if (m.type === 'leech' && m.state === 'attached') m.detach(); }
+        if (d < 10 && (zone !== 'in' || G.fac.los(at.x, at.z, m.pos.x, m.pos.z, true))) { m.stun = 5.5; if (m.type === 'leech' && m.state === 'attached') m.detach(); }
       }
     } });
   },
@@ -1402,8 +1453,9 @@ const G = {
     const collected = collectedItems.reduce((s, it) => s + it.value, 0);
     const lost = allDead ? collected : 0;
     const keep = shipItems.filter((it) => !(allDead && collectedItems.includes(it))).map((it) => it.id);
-    const deaths = [...G.players.values()].filter((p) => !p.alive).map((p) => ({ name: p.name, cause: G.deathCause && G.deathCause[p.id] || 'unknown' }));
-    const fine = allDead ? 0 : Math.round(run.credits * 0.1 * deaths.length);
+    const deaths = [...G.players.values()].filter((p) => !p.alive).map((p) => ({ name: p.name, cause: G.deathCause && G.deathCause[p.id] || 'unknown', bot: p.bot || undefined }));
+    // (a lost bot is on the report, but the Company's insurance doesn't charge for one)
+    const fine = allDead ? 0 : Math.round(run.credits * 0.1 * deaths.filter((d) => !d.bot).length);
     run.credits = Math.max(0, run.credits - fine);
     run.daysLeft = Math.max(0, run.daysLeft - 1); run.day += 1;
     // (a beacon lasts the day: by the next the ship has hopped back to the world the moon or rock belongs to)
@@ -1633,7 +1685,9 @@ const G = {
       if (!r.warn1 && r.time >= 21 * 60) { r.warn1 = true; G.emit({ e: 'notice', title: '9:00 PM', sub: '' }); }
       if (!r.warn2 && r.time >= 23 * 60) { r.warn2 = true; G.emit({ e: 'notice', title: '11:00 PM', sub: '', danger: true, alarm: true }); }
       if (r.time >= 24 * 60) { G.hostDepart('midnight'); return; }
-      if (G.alivePlayers().length === 0) { r.allDeadT += dt; if (r.allDeadT > 4) { G.hostDepart('dead'); return; } }
+      // every person dead: the autopilot brings the ship home, as soon as any bots still standing are back aboard
+      const alive = G.alivePlayers();
+      if (!alive.some((p) => !p.bot) && alive.every((p) => G.inShip(p))) { r.allDeadT += dt; if (r.allDeadT > 4) { G.hostDepart('dead'); return; } }
       // spawns
       r.spawnT -= dt;
       if (r.spawnT <= 0) { r.spawnT = (55 + Math.random() * 50) * (1 - clamp((r.time - 480) / 960, 0, 1) * 0.35); G.hostSpawnInterior(null, false); }
@@ -2157,7 +2211,7 @@ const G = {
         continue;
       }
       // through a wall only at very short range
-      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, it.pos.x, it.pos.z)) continue;
+      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, it.pos.x, it.pos.z, true)) continue;
       const def = ITEMS[it.type];
       list.push({ x: it.vis.x, y: it.vis.y + 0.25, z: it.vis.z, text: def.name, value: def.kind === 'scrap' ? it.value : 0, kind: def.kind === 'scrap' && it.value >= 60 ? 'rich' : 'item', d });
     }
@@ -2167,14 +2221,14 @@ const G = {
       far(G.ext.entrance.x, G.ext.entrance.h + 5, G.ext.entrance.z, 'MAIN ENTRANCE', Math.hypot(me.pos.x - G.ext.entrance.x, me.pos.z - G.ext.entrance.z));
       far(G.ext.fire.x, G.ext.fire.h + 3.5, G.ext.fire.z, 'FIRE EXIT', Math.hypot(me.pos.x - G.ext.fire.x, me.pos.z - G.ext.fire.z));
     }
-    if (inside && G.fac) for (const ex of G.fac.exits) { const d = Math.hypot(ex.x - me.pos.x, ex.z - me.pos.z); if (d < 35 && G.fac.los(cam.x, cam.z, ex.x, ex.z)) far(ex.x, G.fac.floorY(ex.x, ex.z) + 2.2, ex.z, ex.kind === 'fire' ? 'FIRE EXIT' : 'MAIN EXIT', d); }
+    if (inside && G.fac) for (const ex of G.fac.exits) { const d = Math.hypot(ex.x - me.pos.x, ex.z - me.pos.z); if (d < 35 && G.fac.los(cam.x, cam.z, ex.x, ex.z, true)) far(ex.x, G.fac.floorY(ex.x, ex.z) + 2.2, ex.z, ex.kind === 'fire' ? 'FIRE EXIT' : 'MAIN EXIT', d); }
     for (const p of G.players.values()) if (p.id !== G.localId && p.alive && p.zone === me.zone && p.pos.distanceTo(me.pos) < 40) list.push({ x: p.rpos.x, y: p.rpos.y + 1.95, z: p.rpos.z, text: p.name, kind: 'player', d: p.rpos.distanceTo(cam) });
     // creatures: traced in red where the wave finds them, named, and followed while the mark lasts
     for (const m of G.monsters.values()) {
       if (!m.mesh || !m.mesh.visible || m.def.zone !== me.zone) continue;
       const d = m.rpos.distanceTo(cam);
       if (d > (inside ? 24 : 60)) continue;
-      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, m.rpos.x, m.rpos.z)) continue;
+      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, m.rpos.x, m.rpos.z, true)) continue;
       // a body reads as one: struck through in grey, no outline, no alarm
       if (m.dead) { list.push({ x: m.rpos.x, y: m.rpos.y + 0.9, z: m.rpos.z, text: m.def.name.toUpperCase(), sub: 'DEAD', kind: 'dead', d }); continue; }
       const head = () => new THREE.Vector3(m.rpos.x, m.rpos.y + (m.type === 'leech' ? -0.45 : m.def.height + 0.35), m.rpos.z), h = head();
@@ -2238,7 +2292,7 @@ const G = {
     Rover.update(dt);
     G.carryCamera();
     me.talking = G.online && Voice.talking;
-    if (G.isHost) G.hostTick(dt);
+    if (G.isHost) { G.hostTick(dt); Bots.update(dt); }
     G.netTick(dt);
     G.presentPlayers(dt);
     for (const m of G.monsters.values()) {
@@ -2277,13 +2331,15 @@ const G = {
       const av = p.avatar; if (!av) continue;
       av.root.visible = p.alive;
       if (!p.alive) continue;
-      av.root.position.copy(p.rpos); av.root.rotation.set(0, p.ryaw || 0, 0);
+      // (sitting down, the body faces the way the seat does; only the head turns to look about)
+      const seat = p.seat != null && G.ship.seats[p.seat], bodyYaw = seat ? seat.yaw : p.ryaw || 0;
+      av.root.position.copy(p.rpos); av.root.rotation.set(0, bodyYaw, 0);
       if (G.shipMoved && G.playerAboard(p)) { av.root.position.applyMatrix4(G.shipM); av.root.quaternion.premultiply(G.shipQ); }
       const id = p.slots[p.sel], it = id != null && G.items.get(id);
       if (Rover.owned && Rover.state.carrier === p.id) av.setHug(0.33, 0.44); else av.setHeld(it ? it.type : null, it ? it.id : 0);
       av.setLamp(!!p.flash);
       p.swingT = Math.max(0, (p.swingT || 0) - dt);
-      av.update(dt, { at: p.rpos, yaw: p.ryaw || 0, speed: p.speed, crouch: p.crouch, sit: p.seat != null, air: !!p.air, pitch: p.rpitch || 0, swing: p.swingT > 0 ? Math.sin((1 - p.swingT / 0.45) * Math.PI) : 0 });
+      av.update(dt, { at: p.rpos, yaw: bodyYaw, speed: p.speed, crouch: p.crouch, sit: p.seat != null, air: !!p.air, pitch: p.rpitch || 0, look: seat ? angDiff(seat.yaw, p.ryaw || 0) : null, swing: p.swingT > 0 ? Math.sin((1 - p.swingT / 0.45) * Math.PI) : 0 });
       const me = G.me();
       av.tag.visible = me && p.rpos.distanceTo(R.camera.position) < 14;
       if (G.leechOn === p.id) { /* leech mesh shows on their head */ }
@@ -2534,7 +2590,7 @@ const G = {
     G.ship.beaconOn = G.mode === 'landing' || G.mode === 'leaving' || !!(G.seq && G.seq.kind !== 'fired');
     // lights
     const power = G.round ? G.round.power : true;
-    const los = zone === 'in' && G.fac ? (s) => G.fac.los(cam.x, cam.z, s.x, s.z) : null;
+    const los = zone === 'in' && G.fac ? (s) => (s.fac ? G.fac.lampReach(cam, s) : G.fac.los(cam.x, cam.z, s.x, s.z) ? 1 : 0) : null;
     R.updateLights(G.lightSources, cam, zone, t, dt, power, (s, f) => { if (s.fac && G.fac) G.fac.setLampVisual(s, power || s.state === 'emergency' ? Math.max(0.05, f) : 0.04); }, los);
     // remote flashlights (+ a faint visible beam)
     const remotes = [...G.players.values()].filter((p) => p.id !== G.localId && p.alive && p.flash && p.zone === zone)
@@ -2561,7 +2617,7 @@ const G = {
     if (!inSpace && zone === 'in' && G.fac) {
       let best = null, bd = 1e9;
       for (const l of G.fac.lamps) { if (l.state === 'off' || !(l.lit > 0.05)) continue; const d = (l.x - cam.x) ** 2 + (l.z - cam.z) ** 2; if (d < bd) { bd = d; best = l; } }
-      if (best && bd < 81 && G.fac.los(cam.x, cam.z, best.x, best.z)) {
+      if (best && bd < 81 && G.fac.los(cam.x, cam.z, best.x, best.z, true)) {
         const d = Math.sqrt(bd);
         amb.buzz = Math.pow(clamp(1 - d / 8, 0, 1), 1.4) * Math.min(1, best.lit) * (power || best.state === 'emergency' ? 1 : 0);
         if (best.state === 'flicker' && power) amb.flickerLamp = new THREE.Vector3(best.x, best.y, best.z);
@@ -2584,7 +2640,7 @@ const G = {
       if (dist > 26) continue;
       const to = c.clone().sub(cam).normalize();
       const inView = camDir.dot(to) > 0.62;
-      const los = me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, c.x, c.z);
+      const los = me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, c.x, c.z, true);
       const flashOn = R.flash.intensity > 0 && camDir.dot(to) > 0.9 && dist < R.flash.distance;
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);

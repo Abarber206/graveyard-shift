@@ -276,7 +276,7 @@ const HUD = (() => {
         const range = b.kind === 'radio' ? 18 : 22, d = p.distanceTo(eye);
         const zone = me ? G.zoneOf(me) : 'out';
         let seen = d < range && (!b.zone || b.zone === zone);
-        if (seen && zone === 'in' && G.fac && d > 3) seen = G.fac.los(eye.x, eye.z, p.x, p.z);
+        if (seen && zone === 'in' && G.fac && d > 3) seen = G.fac.los(eye.x, eye.z, p.x, p.z, true);
         G.carryIfAboard(proj.copy(p)).project(cam);
         if (!seen || proj.z > 1) { b.el.style.opacity = 0; continue; }
         b.el.style.left = ((proj.x * 0.5 + 0.5) * W) + 'px';

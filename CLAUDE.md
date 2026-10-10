@@ -50,6 +50,15 @@ Keep that file current when gameplay changes.
 - **Touch** (`touch.js`) drives the same `Input` the keyboard and mouse do (`Input.analog` for the stick). On a touch
   screen, `Input.lock()` / `unlock()` just mean playing / not playing. The hosted copy installs as an app
   (`manifest.webmanifest`, `sw.js`, `icons/`).
+- **Crew bots** (`bots.js`, chat `/add bot`): ordinary players with `p.bot`, no peer, steered on the host by `Bots.update`
+  (after `hostTick`). They act only through `G.hostRequest` (pick, drop, door, box, hatch, idoor, struggle) and their
+  position goes out in snapshots like anyone's. Outside they follow the ship's walkway (`SHIPWAY`) and the trail
+  (`G.ext.path`), going round the hull where it stands over the trail; inside they path with `fac.findPath`.
+- **Seeing vs passing.** `fac.los(ax, az, bx, bz, sight)`: with `sight`, a shut door's window (`door.pane`) lets the
+  line through. Use it for anything about seeing or light (creature senses, `canSee`, the scanner, lamp culling via
+  `fac.lampReach`); leave it off for anything about moving or sound (paths, throws, drops, occlusion).
+- **Orbits are per day** (`orbitsToday`): the orbit view (`bodiesAround`) and each landing's sky (`G.skyToday`) read the
+  same numbers, so they always agree.
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style

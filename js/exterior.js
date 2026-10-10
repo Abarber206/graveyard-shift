@@ -1183,7 +1183,8 @@ const Exterior = (() => {
       const far = 'gl_Position.z = gl_Position.w * 0.99995;';
       for (const b of list) {
         // (a moon or rock's orbit brings it in close some days and takes it far out on others, round the sky as well)
-        const near = b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
+        // (today's sky comes already worked out from where everything really is: see G.skyToday)
+        const near = b.fixed || b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.fixed || b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
         const r = D * Math.sin(Math.min(0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
         if (b.kind === 'rock') {
           // (a lumpy, broken potato of a thing)
@@ -1217,8 +1218,9 @@ const Exterior = (() => {
         const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
         m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = air ? -9 : 2; m.frustumCulled = false;
-        const G0 = b.kind === 'planet' ? this.worldG : this.bodiesG;
-        G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo });
+        // (seen from a moon, the other one goes in the world's frame: where it is is reckoned from where the world is)
+        const G0 = b.kind === 'planet' || b.withWorld ? this.worldG : this.bodiesG;
+        G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo, world: G0 === this.worldG });
         if (b.kind !== 'planet') continue;
         // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
         const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
@@ -1347,7 +1349,7 @@ const Exterior = (() => {
       if (this.eclipsers && this.eclipsers.length) {
         const ry = this.skyRot0 + mins * 0.0012, v = _ecl; this.skyMins = mins;
         for (const e of this.eclipsers) {
-          v.copy(e.m.position).applyAxisAngle(_Y, e.kind === 'planet' ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
+          v.copy(e.m.position).applyAxisAngle(_Y, e.world ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
           const show = sstep(ang - 0.012, ang + 0.025, Math.acos(clamp(v.dot(L.sunDir), -1, 1)));
           if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; L.peek = Math.max(L.peek || 0, day * sstep(0, 0.08, show) * (1 - sstep(0.3, 1, show))); }
           if (e.kind === 'planet' && this.biome.airless) {

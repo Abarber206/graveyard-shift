@@ -281,12 +281,15 @@ class Avatar {
     const pitch = s.pitch || 0;
     const breathe = Math.sin(this.t * 1.7) * 0.012 * (1 - mv);
     this.torso.rotation.x = lerp(-(0.06 * mv + 0.2 * run) - cr * 0.32 + pitch * 0.12 + breathe, 0.1 + breathe, sit);
-    this.torso.rotation.y = (-this.legYaw - Math.sin(this.phase) * 0.1 * gait) * (1 - sit);
+    // seated, the body stays square to the seat and the head follows the view (s.look: how far round from straight
+    // ahead it is); past what a neck turns, the shoulders twist round with it
+    const look = s.look != null ? clamp(s.look, -1.9, 1.9) : null, twist = look != null ? look - clamp(look, -1.3, 1.3) : 0;
+    this.torso.rotation.y = (-this.legYaw - Math.sin(this.phase) * 0.1 * gait) * (1 - sit) + twist;
     // idle robots scan around now and then
     const L = this.look; L.timer -= dt;
     if (L.timer <= 0) { L.timer = 2 + Math.random() * 4; L.target = mv < 0.2 && Math.random() < 0.6 ? (Math.random() - 0.5) * 0.9 : 0; }
     L.yaw = damp(L.yaw, mv < 0.2 ? L.target : 0, 5, dt);
-    this.head.rotation.set(clamp(pitch * 0.75, -0.75, 0.75), L.yaw, 0);
+    this.head.rotation.set(clamp(pitch * 0.75, -0.75, 0.75), look != null ? look - twist : L.yaw, 0);
     // ---- arms ----
     const armAmp = lerp(0.38, 0.75, run) * gait * (1 - cr * 0.5);
     const elbowRest = 0.22 + run * 1.15 + cr * 0.35;

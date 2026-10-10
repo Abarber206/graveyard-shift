@@ -2859,6 +2859,68 @@ class MinHeap {
 
 // Door hardware: lever sets, hinges, push bars and pull handles, built in a leaf's own frame:
 // x runs from the hinge edge (0) to the latch edge (w), y is height above the floor, the faces sit at z = ±t/2.
+// A door's vision panel: where it sits in the leaf (heights from the leaf's foot), the leaf with it cut out, the trim
+// round it (and the bars of a grille), the wired glass, and the shaft of lamplight that falls through it into the dark
+const Pane = {
+  W: 0.42, y0: 1.3, y1: 1.82,
+  leaf(w, h, t) {
+    const hw = w / 2, hh = h / 2, sh = new THREE.Shape(), x = Pane.W / 2, y0 = Pane.y0 - 0.005 - hh, y1 = Pane.y1 - 0.005 - hh;
+    sh.moveTo(-hw, -hh); sh.lineTo(hw, -hh); sh.lineTo(hw, hh); sh.lineTo(-hw, hh); sh.lineTo(-hw, -hh);
+    const hole = new THREE.Path(); hole.moveTo(-x, y0); hole.lineTo(-x, y1); hole.lineTo(x, y1); hole.lineTo(x, y0); hole.lineTo(-x, y0);
+    sh.holes.push(hole);
+    const g = new THREE.ExtrudeGeometry(sh, { depth: t, bevelEnabled: false, curveSegments: 1 });
+    g.translate(0, 0, -t / 2);
+    // (the door's texture spread over each face just as it is over a plain slab)
+    const P = g.attributes.position, U = g.attributes.uv;
+    for (let i = 0; i < P.count; i++) U.setXY(i, (P.getX(i) + hw) / w, (P.getY(i) + hh) / h);
+    return g;
+  },
+  trim(parts, kind, w, t) {
+    const cx = w / 2, cy = (Pane.y0 + Pane.y1) / 2, W = Pane.W, H = Pane.y1 - Pane.y0, b = 0.03, d = t + 0.024;
+    for (const y of [Pane.y1 + b / 2, Pane.y0 - b / 2]) parts.push({ geo: new THREE.BoxGeometry(W + 2 * b, b, d), matrix: mat(cx, y, 0) });
+    for (const s of [-1, 1]) parts.push({ geo: new THREE.BoxGeometry(b, H, d), matrix: mat(cx + s * (W / 2 + b / 2), cy, 0) });
+    if (kind === 'bars') {
+      for (let i = 1; i <= 5; i++) parts.push({ geo: new THREE.CylinderGeometry(0.011, 0.011, H, 6), matrix: mat(cx - W / 2 + (W * i) / 6, cy, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(W, 0.018, 0.014), matrix: mat(cx, cy, 0) });
+    }
+  },
+  glass() {
+    if (!Pane.glassMat) {
+      // safety glass with a diamond wire mesh in it, a little greenish and smeared
+      const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+      x.fillStyle = 'rgba(150,172,160,0.15)'; x.fillRect(0, 0, 64, 64);
+      x.strokeStyle = 'rgba(28,30,28,0.6)'; x.lineWidth = 1;
+      for (let i = -64; i < 128; i += 16) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + 64, 64); x.stroke(); x.beginPath(); x.moveTo(i + 64, 0); x.lineTo(i, 64); x.stroke(); }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(2, 2.5);
+      Pane.glassMat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.12, metalness: 0.2, side: THREE.DoubleSide, depthWrite: false });
+    }
+    return Pane.glassMat;
+  },
+  // a shaft running out from the window (leaf space +z; side -1 runs the other way), spreading, fading and tipping
+  // down toward the floor; through a grille it comes out in stripes
+  beam(kind, side) {
+    if (!Pane.beamGeo) {
+      const W = Pane.W, H = Pane.y1 - Pane.y0, L = 2.6, sp = 1.7, drop = 0.5, cy = (Pane.y0 + Pane.y1) / 2;
+      const ring = (a) => { const k = 1 + (sp - 1) * a, z = 0.03 + L * a, y = cy - drop * L * a; return [[-W / 2 * k, y - H / 2 * k, z], [W / 2 * k, y - H / 2 * k, z], [W / 2 * k, y + H / 2 * k, z], [-W / 2 * k, y + H / 2 * k, z]]; };
+      const A = ring(0), B = ring(1), pos = [], uv = [];
+      for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; pos.push(...A[i], ...A[j], ...B[j], ...A[i], ...B[j], ...B[i]); uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.computeBoundingSphere();
+      Pane.beamGeo = g;
+    }
+    const m = new THREE.Mesh(Pane.beamGeo, new THREE.ShaderMaterial({
+      uniforms: { uI: { value: 0 }, uBars: { value: kind === 'bars' ? 1 : 0 }, uCol: { value: new THREE.Color(1, 0.84, 0.6) } },
+      // (a haze, not a solid: each side of the shaft fades out toward its edges and wherever it's seen edge-on, and
+      // it thins away close up, so walking through it never shows a box)
+      vertexShader: 'varying vec2 vUv; varying vec3 vV; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = mv.xyz; gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'uniform float uI; uniform float uBars; uniform vec3 uCol; varying vec2 vUv; varying vec3 vV; void main(){ vec3 n = normalize(cross(dFdx(vV), dFdy(vV))); float d = length(vV), face = pow(abs(dot(n, vV / d)), 1.6); float edge = smoothstep(0.0, 0.35, vUv.x) * smoothstep(1.0, 0.65, vUv.x); float bars = mix(1.0, 0.2 + 0.8 * smoothstep(0.3, 0.75, abs(fract(vUv.x * 6.0) - 0.5) * 2.0), uBars); float a = uI * 0.07 * pow(1.0 - vUv.y, 1.4) * smoothstep(0.0, 0.12, vUv.y + 0.02) * edge * face * bars * smoothstep(0.6, 2.0, d) * (1.0 - smoothstep(14.0, 24.0, d)); gl_FragColor = vec4(uCol * a, 1.0); }',
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
+    m.scale.z = side; m.renderOrder = 4; m.visible = false;
+    return m;
+  },
+};
 const DoorKit = {
   // a lever on each face near the latch edge; the levers point back toward the hinge, as real ones do
   lever(parts, w, t, y = 1.0) {
@@ -3183,6 +3245,8 @@ const Facility = (() => {
         const ex = this.cx(i) + dx * TS / 2, ez = this.cz(j) + dy * TS / 2;
         const door = { id: this.doors.length, a: k, b: nk, nx: dx, nz: dy, x: ex, y: this.tileY(k), z: ez, lv: room.lv, open: r.chance(0.3), dir: 1, anim: 0, mesh: null };
         door.anim = door.open ? 1 : 0;
+        // a vision panel at eye height in every door: wired glass, or in rougher places a grille of bars
+        door.pane = Math.abs(Math.sin(ex * 12.9898 + ez * 78.233 + room.lv * 37.719) * 43758.5453) % 1 < 0.6 ? 'glass' : 'bars';
         this.doors.push(door);
         this.doorEdge.set(this.edgeKey(k, nk), door);
         // jamb colliders (always) + door panel collider (when closed)
@@ -3974,8 +4038,10 @@ const Facility = (() => {
         const me = new THREE.Mesh(geo, facMat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); grp.add(me);
       }
       // doors: frames + panels
-      const leafGeo = new THREE.BoxGeometry(LEAF_W, DH - 0.03, LEAF_T);
-      const leafHW = (() => { const parts = []; DoorKit.lever(parts, LEAF_W, LEAF_T); DoorKit.hinges(parts, DH - 0.03); return mergeGeoList(parts); })();
+      const leafGeo = Pane.leaf(LEAF_W, DH - 0.03, LEAF_T);
+      const leafHW = {};
+      for (const kind of ['glass', 'bars']) { const parts = []; DoorKit.lever(parts, LEAF_W, LEAF_T); DoorKit.hinges(parts, DH - 0.03); Pane.trim(parts, kind, LEAF_W, LEAF_T); leafHW[kind] = mergeGeoList(parts); }
+      const glassGeo = new THREE.PlaneGeometry(Pane.W, Pane.y1 - Pane.y0);
       for (const d of this.doors) {
         const tx = -d.nz, tz = d.nx;
         const base = Math.atan2(-tz, tx);
@@ -3989,12 +4055,28 @@ const Facility = (() => {
         const panel = new THREE.Mesh(leafGeo, facMat(d.lv > 0 ? 'door@' + d.lv : 'door'));
         panel.position.set(LEAF_W / 2, (DH - 0.03) / 2 + 0.005, 0); panel.castShadow = true; panel.receiveShadow = true;
         pivot.add(panel);
-        const hw = new THREE.Mesh(leafHW, MATS.get('hardware')); hw.castShadow = true; pivot.add(hw);
+        const hw = new THREE.Mesh(leafHW[d.pane], MATS.get('hardware')); hw.castShadow = true; pivot.add(hw);
+        if (d.pane === 'glass') { const g = new THREE.Mesh(glassGeo, Pane.glass()); g.position.set(LEAF_W / 2, (Pane.y0 + Pane.y1) / 2, 0); g.renderOrder = 3; pivot.add(g); }
+        // light from a lamp on the far side falling through the window (one shaft each way, lit from the other side)
+        d.beams = [1, -1].map((side) => { const m = Pane.beam(d.pane, side); m.position.set(LEAF_W / 2, 0, 0); pivot.add(m); return m; });
+        d.lampBy = {};
+        for (const side of [1, -1]) {
+          // (the nearest working lamp on that side that can see the door)
+          let best = null, bd = 9;
+          const fx = d.x + d.nx * side * 0.6, fz = d.z + d.nz * side * 0.6;
+          for (const l of this.lamps) {
+            if (Math.abs(l.fy - d.y) > 1 || ((l.x - d.x) * d.nx + (l.z - d.z) * d.nz) * side <= 0.2) continue;
+            const dd = Math.hypot(l.x - fx, l.z - fz); if (dd < bd && this.los(l.x, l.z, fx, fz)) { bd = dd; best = l; }
+          }
+          d.lampBy[side] = best ? { l: best, k: 1 - bd / 11 } : null;
+          if (best) (best.panes || (best.panes = [])).push({ d, side });
+        }
         // it can swing into the room (+1) or into the corridor (-1); it always swings away from whoever opens it
         d.base = base;
         d.swingP = angDiff(base, Math.atan2(-d.nz, d.nx)) * 0.97;
         d.swingN = angDiff(base, Math.atan2(d.nz, -d.nx)) * 0.97;
         d.mesh = pivot; this.applyDoor(d); grp.add(pivot);
+        { const a = d.base, lz = { x: Math.sin(a), z: Math.cos(a) }; d.leafSign = Math.sign(lz.x * d.nx + lz.z * d.nz) || 1; }
       }
       // locker and cabinet doors: hinged on the left front edge, a small pull at the right
       const chw = {};
@@ -4293,6 +4375,39 @@ const Facility = (() => {
     }
     // where to aim to open a locker/cabinet: the middle of its door
     containerFront(c) { const [x, z] = this.frame(c.x, c.z, c.ry)(0.05, c.d / 2 + 0.03); return { x, y: c.y + Math.min(1.15, c.h * 0.55), z }; }
+    // how much of a lamp's light gets to where the camera is: all of it in plain view, some of it through a door's
+    // window (seeing the lamp through the glass, or seeing a window it shines on), none through a wall
+    lampReach(cam, l) {
+      if (this.los(cam.x, cam.z, l.x, l.z)) return 1;
+      if (this.los(cam.x, cam.z, l.x, l.z, true)) return 0.4;
+      if (l.panes) for (const { d, side } of l.panes) {
+        if (d.broken || d.anim > 0.5) continue;
+        const sx = d.x - d.nx * side * 0.4, sz = d.z - d.nz * side * 0.4;
+        if (Math.hypot(sx - cam.x, sz - cam.z) < 14 && ((cam.x - d.x) * d.nx + (cam.z - d.z) * d.nz) * side < 0 && this.los(cam.x, cam.z, sx, sz)) return 0.28;
+      }
+      return 0;
+    }
+    // the light coming through each door's window: from a working lamp on one side into the gloom on the other
+    updatePanes() {
+      const cam = R.camera.position, power = !G.round || G.round.power;
+      const lit = (e) => {
+        if (!e) return 0;
+        const l = e.l; if (l.state === 'off' || (!power && l.state !== 'emergency')) return 0;
+        return e.k * clamp(l.lit ?? 1, 0, 1.2) * (l.state === 'emergency' ? 0.5 : 1);
+      };
+      for (const d of this.doors) {
+        if (!d.beams) continue;
+        const near = Math.abs(d.x - cam.x) < 26 && Math.abs(d.z - cam.z) < 26 && Math.abs(d.y - cam.y) < 5;
+        for (let i = 0; i < 2; i++) {
+          const side = i ? -1 : 1, u = d.beams[i].material.uniforms;
+          // (which way this shaft points in the world once the leaf is hung: it shows on the side away from its lamp)
+          const out = side * (d.leafSign || 1);
+          const v = near && !d.broken ? lit(d.lampBy[-out]) * (1 - 0.6 * Math.min(1, lit(d.lampBy[out]) * 1.5)) * (1 - d.anim) : 0;
+          u.uI.value = v; d.beams[i].visible = v > 0.01;
+          if (v > 0.01) u.uCol.value.setHex(d.lampBy[-out].l.color);
+        }
+      }
+    }
     applyDoor(d) { if (d.mesh) d.mesh.rotation.y = d.base + (d.dir < 0 ? d.swingN : d.swingP) * d.anim; }
     // open/close a door; a door only changes which way it swings while it is (nearly) shut
     setDoor(d, open, dir) {
@@ -4300,6 +4415,8 @@ const Facility = (() => {
       d.open = open;
     }
     update(dt) {
+      this.paneT = (this.paneT || 0) - dt;
+      if (this.paneT <= 0) { this.paneT = 0.12; this.updatePanes(); }
       for (const d of this.doors) {
         if (d.broken) continue;
         const tgt = d.open ? 1 : 0;
@@ -4353,8 +4470,9 @@ const Facility = (() => {
       return d && !d.open ? d : null;
     }
     doorBetween(i0, j0, i1, j1) { const a = this.idx(i0, j0), b = this.idx(i1, j1); return a < 0 || b < 0 ? null : this.doorEdge.get(this.edgeKey(a, b)) || null; }
-    // a clear straight line from a to b (seen from above): not through rock, a wall onto another level, or a shut door
-    los(ax, az, bx, bz) {
+    // a clear straight line from a to b (seen from above): not through rock, a wall onto another level, or a shut door.
+    // sight: only seeing (or light) has to get through, and a shut door's window lets it
+    los(ax, az, bx, bz, sight = false) {
       const x = (ax - this.ox) / TS, z = (az - this.oz) / TS, ex = (bx - this.ox) / TS, ez = (bz - this.oz) / TS;
       let i = Math.floor(x), j = Math.floor(z);
       const ti = Math.floor(ex), tj = Math.floor(ez);
@@ -4370,7 +4488,8 @@ const Facility = (() => {
         if (tmi < tmj) { if (tmi > 1) break; i += si; tmi += tdi; } else { if (tmj > 1) break; j += sj; tmj += tdj; }
         const pk = this.idx(pi, pj), k = this.idx(i, j);
         if (!this.connected(pk, k)) return false;
-        if (this.closedDoorBetween(pi, pj, i, j) || this.closedBlast(pk, k)) return false;
+        const shut = this.closedDoorBetween(pi, pj, i, j);
+        if ((shut && !(sight && shut.pane)) || this.closedBlast(pk, k)) return false;
       }
       return true;
     }
@@ -5673,7 +5792,8 @@ const Exterior = (() => {
       const far = 'gl_Position.z = gl_Position.w * 0.99995;';
       for (const b of list) {
         // (a moon or rock's orbit brings it in close some days and takes it far out on others, round the sky as well)
-        const near = b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
+        // (today's sky comes already worked out from where everything really is: see G.skyToday)
+        const near = b.fixed || b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.fixed || b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
         const r = D * Math.sin(Math.min(0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
         if (b.kind === 'rock') {
           // (a lumpy, broken potato of a thing)
@@ -5707,8 +5827,9 @@ const Exterior = (() => {
         const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
         m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = air ? -9 : 2; m.frustumCulled = false;
-        const G0 = b.kind === 'planet' ? this.worldG : this.bodiesG;
-        G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo });
+        // (seen from a moon, the other one goes in the world's frame: where it is is reckoned from where the world is)
+        const G0 = b.kind === 'planet' || b.withWorld ? this.worldG : this.bodiesG;
+        G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo, world: G0 === this.worldG });
         if (b.kind !== 'planet') continue;
         // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
         const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
@@ -5837,7 +5958,7 @@ const Exterior = (() => {
       if (this.eclipsers && this.eclipsers.length) {
         const ry = this.skyRot0 + mins * 0.0012, v = _ecl; this.skyMins = mins;
         for (const e of this.eclipsers) {
-          v.copy(e.m.position).applyAxisAngle(_Y, e.kind === 'planet' ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
+          v.copy(e.m.position).applyAxisAngle(_Y, e.world ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
           const show = sstep(ang - 0.012, ang + 0.025, Math.acos(clamp(v.dot(L.sunDir), -1, 1)));
           if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; L.peek = Math.max(L.peek || 0, day * sstep(0, 0.08, show) * (1 - sstep(0.3, 1, show))); }
           if (e.kind === 'planet' && this.biome.airless) {
@@ -8168,9 +8289,9 @@ const Ship = (() => {
       for (const b of list) {
         // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
         // (their orbits are their own: from one day to the next a moon or rock swings in close or out far, and round)
-        const near = b.kind === 'planet' ? 1 : 0.5 + rr.next() * 1.2, ang = b.ang + (b.kind === 'planet' ? 0 : rr.range(-0.6, 0.6));
+        const near = b.near ?? (b.kind === 'planet' ? 1 : 0.5 + rr.next() * 1.2), ang = b.near != null || b.kind === 'planet' ? b.ang : b.ang + rr.range(-0.6, 0.6);
         const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(ang)).addScaledVector(v, Math.sin(ang));
-        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32) * near;
+        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(b.ar || 0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32) * near;
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
         let geo;
         if (b.kind === 'rock') {
@@ -8719,12 +8840,15 @@ class Avatar {
     const pitch = s.pitch || 0;
     const breathe = Math.sin(this.t * 1.7) * 0.012 * (1 - mv);
     this.torso.rotation.x = lerp(-(0.06 * mv + 0.2 * run) - cr * 0.32 + pitch * 0.12 + breathe, 0.1 + breathe, sit);
-    this.torso.rotation.y = (-this.legYaw - Math.sin(this.phase) * 0.1 * gait) * (1 - sit);
+    // seated, the body stays square to the seat and the head follows the view (s.look: how far round from straight
+    // ahead it is); past what a neck turns, the shoulders twist round with it
+    const look = s.look != null ? clamp(s.look, -1.9, 1.9) : null, twist = look != null ? look - clamp(look, -1.3, 1.3) : 0;
+    this.torso.rotation.y = (-this.legYaw - Math.sin(this.phase) * 0.1 * gait) * (1 - sit) + twist;
     // idle robots scan around now and then
     const L = this.look; L.timer -= dt;
     if (L.timer <= 0) { L.timer = 2 + Math.random() * 4; L.target = mv < 0.2 && Math.random() < 0.6 ? (Math.random() - 0.5) * 0.9 : 0; }
     L.yaw = damp(L.yaw, mv < 0.2 ? L.target : 0, 5, dt);
-    this.head.rotation.set(clamp(pitch * 0.75, -0.75, 0.75), L.yaw, 0);
+    this.head.rotation.set(clamp(pitch * 0.75, -0.75, 0.75), look != null ? look - twist : L.yaw, 0);
     // ---- arms ----
     const armAmp = lerp(0.38, 0.75, run) * gait * (1 - cr * 0.5);
     const elbowRest = 0.22 + run * 1.15 + cr * 0.35;
@@ -9117,7 +9241,7 @@ class Monster {
     if (d < near) return true;
     if (d < sight) {
       const f = this.forward(), dot = (dx * f.x + dz * f.z) / (d || 1);
-      if (dot > cone && (!this.g.fac || this.def.zone !== 'in' || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z))) return true;
+      if (dot > cone && (!this.g.fac || this.def.zone !== 'in' || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true))) return true;
     }
     for (const n of this.g.noises) if (n.pid === p.id && n.zone === this.def.zone && n.age < 0.4 && Math.hypot(n.x - this.pos.x, n.z - this.pos.z) < n.r) return true;
     return false;
@@ -9174,7 +9298,7 @@ class Monster {
         const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         if (d > 22) continue;
         const dot = (dx * f.x + dz * f.z) / (d || 1);
-        if ((dot > 0.15 || d < 5) && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z)) return p;
+        if ((dot > 0.15 || d < 5) && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) return p;
       }
       return null;
     };
@@ -9205,7 +9329,7 @@ class Monster {
         const p = this.g.players.get(this.target);
         if (!p || !p.alive || p.zone !== 'in') { this.setState('roam'); this.goal = null; break; }
         const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-        const sees = fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z);
+        const sees = fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true);
         this.lastSeenT = sees ? 0 : this.lastSeenT + dt;
         if (sees) this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
         const aim = this.lastKnown || p.pos;
@@ -9326,7 +9450,7 @@ class Monster {
     for (let t = 0; t < 14; t++) {
       const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; });
       if (!p) continue;
-      const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z) : false;
+      const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z, true) : false;
       const s = (vis ? -100 : 0) + (tgt ? Math.hypot(p.x - tgt.pos.x, p.z - tgt.pos.z) : 0) - Math.hypot(p.x - this.pos.x, p.z - this.pos.z) * 0.3;
       if (s > bs) { bs = s; best = p; }
     }
@@ -10884,8 +11008,11 @@ const R = (() => {
         if (s.fac && !power && s.state !== 'emergency') continue;
         let d = (s.x - cam.x) ** 2 + (s.y - cam.y) ** 2 + (s.z - cam.z) ** 2;
         if (d > (s.far || 40) ** 2) continue;
-        // a lamp you have no line of sight to (behind a wall or a closed door) must not light your side
-        if (losFn && d > 6 && !losFn(s)) continue;
+        // a lamp you have no line of sight to (behind a wall or a closed door) must not light your side; one seen only
+        // through a door's window spills some of its light through
+        const vis = losFn && d > 6 ? +losFn(s) : 1;
+        if (!vis) continue;
+        s.through = vis;
         cands.push([d, s]);
       }
       cands.sort((a, b) => a[0] - b[0]);
@@ -10899,7 +11026,7 @@ const R = (() => {
       s.lit = f;
       L.position.set(s.x, s.y, s.z); L.color.set(s.color);
       L.distance = s.range || 11;
-      L.intensity = f * (s.power || 1) * (s.ship ? 34 * fx.cabin : s.zone === 'out' ? 60 : 26);
+      L.intensity = f * (s.power || 1) * (s.ship ? 34 * fx.cabin : s.zone === 'out' ? 60 : 26) * (s.through ?? 1);
       if (onVisual) onVisual(s, f);
     }
   }
@@ -11319,7 +11446,7 @@ const HUD = (() => {
         const range = b.kind === 'radio' ? 18 : 22, d = p.distanceTo(eye);
         const zone = me ? G.zoneOf(me) : 'out';
         let seen = d < range && (!b.zone || b.zone === zone);
-        if (seen && zone === 'in' && G.fac && d > 3) seen = G.fac.los(eye.x, eye.z, p.x, p.z);
+        if (seen && zone === 'in' && G.fac && d > 3) seen = G.fac.los(eye.x, eye.z, p.x, p.z, true);
         G.carryIfAboard(proj.copy(p)).project(cam);
         if (!seen || proj.z > 1) { b.el.style.opacity = 0; continue; }
         b.el.style.left = ((proj.x * 0.5 + 0.5) * W) + 'px';
@@ -12287,6 +12414,628 @@ const Rover = (() => {
 })();
 
 </script>
+<script type="text/x-gs" data-file="bots">
+'use strict';
+// Crew bots: robot crewmates the host's game works, called aboard from the chat (/add bot). To everything else a bot is
+// an ordinary crewmate: it shows on the crew cams and the map, creatures hunt it, it can die or be left behind, and the
+// scrap it brings in counts. Only its feet are worked from here instead of by a person. Once the ship is down it walks
+// out through the airlock, down the ramp and along the trail to the plant, goes in at the front door with its shoulder
+// lamp on, and searches the floors for scrap (opening lockers as it goes). With its hands full, or the night getting on,
+// it carries the lot back up the ramp and sets it down in the bay. It runs from anything that comes for it, fights a
+// leech off its head, and says the odd word to whoever's near enough to hear.
+// Commands (anyone aboard can give them, in the chat): /add bot [how many], /remove bot [how many | all],
+// /bots return (come back aboard and wait), /bots work (back to it), /bots (the list).
+const Bots = (() => {
+  const B = {};
+  const brains = new Map();
+  const RAD = 0.32, WALK = 3.4, RUN = 6.0, MAX_CREW = 6;
+  const DX = (SHIP.doorX0 + SHIP.doorX1) / 2, HULL_Z = 4.05;
+  // the way through the ship: the bay aisle, inside the inner door, the airlock, the sill, the ramp, the foot of the ramp
+  const SHIPWAY = [{ x: DX, z: 1.3, tol: 0.4 }, { x: DX, z: 2.15, tol: 0.3 }, { x: DX, z: 3.3, tol: 0.3 }, { x: DX, z: 4.3, tol: 0.35 }, { x: DX, z: 5.3, tol: 0.5 }, { x: DX, z: 7.7, tol: 0.9 }];
+  const rng = new RNG((Math.random() * 1e9) | 0);
+  const isBot = (p) => !!(p && p.bot);
+  const bots = () => [...G.players.values()].filter(isBot);
+  const humansAlive = () => G.alivePlayers().some((p) => !p.bot);
+  const tell = (pid, text) => G.sendTo(pid, { t: 'ev', e: { e: 'chat', text, sys: true } });
+  // said out loud: it hangs over its head and reaches whoever is in earshot (never chattering)
+  const say = (p, b, text, gap = 8000) => { if (!p.alive || G.now - (b.saidT || -1e9) < gap) return; b.saidT = G.now; G.emit({ e: 'chat', pid: p.id, text }); };
+  const carrying = (p) => p.slots.some((id) => id != null && G.items.get(id));
+  const handsFull = (p) => p.slots.every((id) => id != null) || p.slots.some((id) => { const it = id != null && G.items.get(id); return it && ITEMS[it.type].twoHanded; });
+  const weight = (p) => p.slots.reduce((s, id) => { const it = id != null && G.items.get(id); return s + (it ? ITEMS[it.type].weight || 0 : 0); }, 0);
+  function fresh() {
+    return { state: 'aboard', route: null, ri: 0, path: null, pathT: 0, pathGoal: null, target: null, box: null, goal: null, known: new Set(), boxes: new Set(), skip: new Set(), seen: new Set(),
+      scanT: 0, cells: null, lastFind: G.now, mv: 0, trying: false, progT: 0, stuck: 0, side: null, dodge: null, watch: null, key: null, bestD: 0, bestT: 0, routeId: 0, flee: null, threatT: 0, recall: false, done: false, waitUntil: 0, mashT: 0, hatch: null, gateT: 0, dropT: 0, spots: null, saidT: -1e9, late: false };
+  }
+  const brain = (p) => { let b = brains.get(p.id); if (!b) { b = fresh(); brains.set(p.id, b); } return b; };
+  // how long (ms) it has gone without getting any closer to what it's after (key: what that is)
+  function slow(b, key, d) {
+    if (b.key !== key) { b.key = key; b.bestD = d; b.bestT = G.now; }
+    else if (d < b.bestD - 0.5) { b.bestD = d; b.bestT = G.now; }
+    return G.now - b.bestT;
+  }
+  let routes = 0;
+  const setRoute = (b, R) => { b.route = R; b.ri = 0; b.routeId = ++routes; };
+
+  // ---------------- the crew roster ----------------
+  function nextName() { const used = new Set(bots().map((p) => p.name)); for (let n = 1; ; n++) if (!used.has('Bot ' + n)) return 'Bot ' + n; }
+  function remember() { if (!G.run) return; G.run.bots = bots().map((p) => ({ name: p.name, color: p.color })); if (G.mode === 'orbit') G.save(); }
+  // a new bot stands up in the bay, ready for work (aboard and alive, even partway through a day)
+  B.spawn = (name, color) => {
+    const id = G.nextPid++, idx = G.players.size;
+    const x = 1 + (idx % 3) * 1.1, z = 0.6 + Math.floor(idx / 3) * 1.0;
+    G.emit({ e: 'join', p: { id, name: name || nextName(), color: color ?? G.distinctSuit((Math.random() * 1e3) | 0), peerId: null, bot: true, x, y: 0, z, yaw: -Math.PI / 2, alive: true, hp: 100, zone: 'out' } });
+    brains.set(id, fresh());
+    return G.players.get(id);
+  };
+  B.remove = (pid) => { const p = G.players.get(pid); if (!isBot(p)) return; brains.delete(pid); G.hostPlayerLeft(pid); };
+  // the crew is full and a person wants in: the newest bot steps aside for them
+  B.makeRoom = () => { const p = bots().pop(); if (!p) return false; B.remove(p.id); remember(); return true; };
+  // bots kept with a saved run come back with it
+  B.restore = () => { for (const s of (G.run && G.run.bots) || []) if (G.players.size < MAX_CREW) B.spawn(s.name, s.color); };
+  B.reset = () => brains.clear();
+  // back in orbit: everyone is aboard again, with a fresh night ahead
+  B.newDay = () => { for (const [id, b] of brains) { const n = fresh(); n.recall = b.recall; brains.set(id, n); } };
+
+  // ---------------- chat commands ----------------
+  const HELP = ['Crew bot commands:', '/add bot [how many]: call bots aboard (up to 6 crew in all)', '/remove bot [how many | all]: send bots away',
+    '/bots return: bring them back aboard to wait', '/bots work: send them back out scavenging'];
+  B.command = (pid, text) => {
+    const w = text.trim().toLowerCase().replace(/^\/+/, '').split(/\s+/), n = parseInt(w[2], 10);
+    if ((w[0] === 'add' || w[0] === 'spawn') && /^bots?$/.test(w[1] || '')) {
+      const want = clamp(Number.isFinite(n) ? n : 1, 1, MAX_CREW - 1), room = MAX_CREW - G.players.size;
+      if (room <= 0) { tell(pid, 'The crew is full (6 at most). /remove bot to make room.'); return; }
+      const made = [];
+      for (let i = 0; i < Math.min(want, room); i++) made.push(B.spawn());
+      G.emit({ e: 'chat', text: made.map((p) => p.name).join(', ') + ' joined the crew.', sys: true });
+      if (want > room) tell(pid, 'Only room for ' + room + ' more (6 crew at most).');
+      made.forEach((p, i) => G.timers.push({ t: 0.8 + i * 0.6, fn: () => { if (G.players.get(p.id)) say(p, brain(p), 'Reporting for the night shift.'); } }));
+      remember();
+      return;
+    }
+    if ((w[0] === 'remove' || w[0] === 'kick' || w[0] === 'delete') && /^bots?$/.test(w[1] || '')) {
+      const list = bots(); if (!list.length) { tell(pid, 'There are no bots aboard.'); return; }
+      const k = w[2] === 'all' ? list.length : clamp(Number.isFinite(n) ? n : 1, 1, list.length);
+      for (const p of list.slice(-k)) B.remove(p.id);
+      remember();
+      return;
+    }
+    if (w[0] === 'bots' || w[0] === 'bot') {
+      const list = bots();
+      if (/^(return|back|home|stay|stop|wait|come)$/.test(w[1] || '')) {
+        if (!list.length) { tell(pid, 'There are no bots aboard.'); return; }
+        for (const p of list) { const b = brain(p); b.recall = true; if (p.alive && !G.inShip(p)) say(p, b, 'On my way back.', 0); }
+        tell(pid, 'Bots: heading back to the ship.');
+        return;
+      }
+      if (/^(work|go|scavenge|resume|start)$/.test(w[1] || '')) {
+        if (!list.length) { tell(pid, 'There are no bots aboard.'); return; }
+        for (const p of list) { const b = brain(p); b.recall = false; b.done = false; b.waitUntil = 0; }
+        tell(pid, 'Bots: back to work.');
+        return;
+      }
+    }
+    for (const l of HELP) tell(pid, l);
+  };
+
+  // ---------------- moving about ----------------
+  // the world pushes back on a bot exactly as it does on anyone (walls, props, doors, the ship, the rover)
+  function settle(p, ox, oz) {
+    if (p.zone === 'in' && G.fac) {
+      const f = G.fac;
+      f.collide(p.pos, RAD); f.collide(p.pos, RAD);
+      if (!f.floorAt(f.ti(p.pos.x), f.tj(p.pos.z))) {
+        if (f.floorAt(f.ti(ox), f.tj(oz))) { p.pos.x = ox; p.pos.z = oz; }
+        else { const t = f.nearestWalkable(f.ti(p.pos.x), f.tj(p.pos.z)); if (t) { p.pos.x = f.cx(t[0]); p.pos.z = f.cz(t[1]); } }
+      }
+      p.pos.y = f.floorY(p.pos.x, p.pos.z, p.pos.y);
+      return;
+    }
+    const shipHere = !G.ship.airborne || G.playerAboard(p);
+    if (G.ext && G.mode !== 'orbit' && !(G.ship.airborne && shipHere)) G.ext.collide(p.pos, RAD);
+    if (shipHere) G.ship.collide(p.pos, RAD);
+    Rover.push(p.pos, 0.3, p.zone);
+    p.pos.y = G.groundAt(p.pos.x, p.pos.z, !shipHere);
+  }
+  // one stride toward (tx, tz): turn toward it (or keep facing `face`), walk, and let the world push back
+  function step(p, b, tx, tz, speed, dt, face) {
+    const dx = tx - p.pos.x, dz = tz - p.pos.z, d = Math.hypot(dx, dz);
+    if (d < 0.03) return d;
+    b.trying = true;
+    const w = b.watch != null && G.monsters.get(b.watch);
+    if (face == null && w && !w.dead && Math.hypot(w.pos.x - p.pos.x, w.pos.z - p.pos.z) < 16) face = Math.atan2(-(w.pos.x - p.pos.x), -(w.pos.z - p.pos.z));
+    p.yaw += clamp(angDiff(p.yaw, face != null ? face : Math.atan2(-dx, -dz)), -7 * dt, 7 * dt);
+    let s = Math.min(d, speed * clamp(1 - weight(p) / 110, 0.45, 1) * dt);
+    const x0 = p.pos.x, z0 = p.pos.z;
+    // (in short strides, so a slow frame can't carry it through a thin wall)
+    while (s > 1e-4) { const k = Math.min(s, 0.15), ox = p.pos.x, oz = p.pos.z; p.pos.x += (dx / d) * k; p.pos.z += (dz / d) * k; settle(p, ox, oz); s -= k; }
+    const moved = Math.hypot(p.pos.x - x0, p.pos.z - z0);
+    b.mv += moved;
+    if (moved > 0.3 * dt) { p.moving = true; p.sprint = speed > WALK + 0.5; }
+    return Math.hypot(tx - p.pos.x, tz - p.pos.z);
+  }
+  // making no headway for a while: step aside for a moment, and after that give up on where it was going
+  function watchProgress(p, b, dt) {
+    if (!b.progP) b.progP = p.pos.clone();
+    b.progT += dt;
+    if (b.progT < 1) return;
+    // (how far it actually got, not how much it shuffled: pressed against a door frame it jiggles on the spot)
+    const got = Math.hypot(p.pos.x - b.progP.x, p.pos.z - b.progP.z);
+    if (b.trying && got < 0.35) b.stuck++; else b.stuck = 0;
+    b.progT = 0; b.mv = 0; b.trying = false; b.progP.copy(p.pos);
+    if (b.stuck >= 2 && !b.side) b.side = { t: 0.8, a: p.yaw + (rng.next() < 0.5 ? 1 : -1) * (Math.PI / 2 + rng.range(-0.4, 0.4)) };
+  }
+  function sidestep(p, b, dt) {
+    if (!b.side) return false;
+    b.side.t -= dt;
+    step(p, b, p.pos.x - Math.sin(b.side.a), p.pos.z - Math.cos(b.side.a), WALK, dt);
+    if (b.side.t <= 0) b.side = null;
+    return true;
+  }
+  // through the facility the way the creatures go: along the corridors, down the stairwells, opening doors on the way
+  function walkIn(p, b, gx, gz, gy, speed, dt, face) {
+    const fac = G.fac; if (!fac) return -1;
+    b.pathT -= dt;
+    if (!b.path || b.pathT <= 0 || !b.pathGoal || Math.hypot(b.pathGoal.x - gx, b.pathGoal.z - gz) > 1) {
+      const path = fac.findPath(p.pos.x, p.pos.z, gx, gz, false, p.pos.y, gy);
+      if (!path) { b.path = null; return -1; }
+      b.path = path; b.pathGoal = { x: gx, z: gz }; b.pathT = 1.5 + rng.next();
+    }
+    while (b.path.length > 1 && Math.hypot(b.path[0].x - p.pos.x, b.path[0].z - p.pos.z) < 0.45) b.path.shift();
+    const wp = b.path[0];
+    let tx = wp.x, tz = wp.z;
+    // a doorway the straight line to the next waypoint goes through: open it if it's shut, square up to it, then
+    // straight through the middle (cutting the corner, it wedges on the jamb or the open door)
+    for (const d of fac.doors) {
+      if (Math.abs(d.x - p.pos.x) > 2.6 || Math.abs(d.z - p.pos.z) > 2.6 || Math.abs(d.y - p.pos.y) > 1) continue;
+      const s1 = (p.pos.x - d.x) * d.nx + (p.pos.z - d.z) * d.nz, s2 = (wp.x - d.x) * d.nx + (wp.z - d.z) * d.nz;
+      if (s1 * s2 >= 0) continue;   // (the waypoint is on this side: nothing to go through)
+      const u = s1 - s2 ? clamp(s1 / (s1 - s2), 0, 1) : 0, cx = p.pos.x + (wp.x - p.pos.x) * u, cz = p.pos.z + (wp.z - p.pos.z) * u;
+      if (Math.abs((cx - d.x) * -d.nz + (cz - d.z) * d.nx) > 1.2) continue;
+      if (!d.open && !d.broken && Math.hypot(d.x - p.pos.x, d.z - p.pos.z) < 2) G.hostRequest(p.id, { a: 'door', id: d.id });
+      const lat = (p.pos.x - d.x) * -d.nz + (p.pos.z - d.z) * d.nx, side = Math.sign(s1);
+      // (an open leaf on this side stands out 1.5 m from the hinge jamb: line up beyond its end, and from behind it,
+      // back out past its end first)
+      const leaf = d.open && !d.broken && d.dir === side && d.anim > 0.5, out = leaf ? 2.1 : 1.0;
+      let L = 0, S = -side * 1.3;
+      if (leaf && lat < -0.6 && Math.abs(s1) < 1.95) { L = lat; S = side * out; }
+      else if (Math.abs(lat) > 0.14 && Math.abs(s1) > 0.35 && b.stuck < 1) S = side * out;
+      tx = d.x + d.nx * S - d.nz * L; tz = d.z + d.nz * S + d.nx * L;
+      break;
+    }
+    step(p, b, tx, tz, speed, dt, face);
+    return Math.hypot(gx - p.pos.x, gz - p.pos.z);
+  }
+  function teleport(p, zone, x, y, z, yaw) {
+    p.zone = zone; p.pos.set(x, y, z); p.yaw = yaw; p.buf.length = 0; p.rpos.copy(p.pos);
+    G.emitSound('door_open', new THREE.Vector3(x, y + 1, z), { vol: 0.7 });
+  }
+
+  // ---------------- outside: the ship and the trail ----------------
+  const trail = () => (G.ext && G.ext.path) || [];
+  const frontDoor = () => G.ext && G.ext.interact.find((o) => o.kind === 'enter' && o.which === 'main');
+  function nearestTrail(x, z) { const T = trail(); let bi = 0, bd = Infinity; T.forEach((q, i) => { const d = Math.hypot(q.x - x, q.z - z); if (d < bd) { bd = d; bi = i; } }); return bi; }
+  const onShip = (p) => p.zone === 'out' && G.ship.onFootprint(p.pos.x, p.pos.z) && p.pos.z < HULL_Z + 0.3;
+  const onRamp = (p) => p.zone === 'out' && G.ship.rampAt(p.pos.x, p.pos.z) != null;
+  // On some sites the trail's first stretch runs right under the ship. Nobody can walk under it (outside, its
+  // footprint is as solid as its hull), so outdoors a bot goes round it by the tail or the nose, as people do.
+  const HB = { x0: -20.3, x1: 14.2, z0: -6.3, z1: 6.3 };   // (the hull is solid out to x -19..13, |z| 6; a stride clear of that)
+  const CORNERS = [{ x: HB.x0, z: HB.z0 }, { x: HB.x1, z: HB.z0 }, { x: HB.x1, z: HB.z1 }, { x: HB.x0, z: HB.z1 }];
+  const underShip = (q) => q.x > HB.x0 && q.x < HB.x1 && q.z > HB.z0 && q.z < HB.z1;
+  // does the straight line a-b pass under the ship? (running along the edge of its box doesn't count)
+  function crosses(a, b) {
+    const e = 0.05, dx = b.x - a.x, dz = b.z - a.z; let t0 = 0, t1 = 1;
+    for (const [k, q] of [[-dx, a.x - HB.x0 - e], [dx, HB.x1 - e - a.x], [-dz, a.z - HB.z0 - e], [dz, HB.z1 - e - a.z]]) {
+      if (Math.abs(k) < 1e-9) { if (q < 0) return false; continue; }
+      const r = q / k;
+      if (k < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+    }
+    return t0 < t1;
+  }
+  // the shortest way from a to b round the ship's corners (a little graph: a, the four corners, b)
+  function around(a, b) {
+    if (!crosses(a, b)) return [];
+    const N = [a, ...CORNERS, b], dist = N.map(() => Infinity), prev = N.map(() => -1), done = N.map(() => false);
+    dist[0] = 0;
+    for (;;) {
+      let u = -1; for (let i = 0; i < N.length; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
+      if (u < 0 || dist[u] === Infinity || u === N.length - 1) break;
+      done[u] = true;
+      for (let v = 0; v < N.length; v++) {
+        if (done[v] || crosses(N[u], N[v])) continue;
+        const d = dist[u] + Math.hypot(N[u].x - N[v].x, N[u].z - N[v].z); if (d < dist[v]) { dist[v] = d; prev[v] = u; }
+      }
+    }
+    const out = []; for (let v = prev[N.length - 1]; v > 0; v = prev[v]) out.unshift({ x: N[v].x, z: N[v].z, tol: 1.3 });
+    return out;
+  }
+  // outdoor waypoints onto a route: any under the ship left out, and the way round it put in between
+  function outdoors(R, pts, from) {
+    for (const q of pts) {
+      if (underShip(q)) continue;
+      const last = R.length ? R[R.length - 1] : from;
+      R.push(...around(last, q), q);
+    }
+  }
+  // out of the ship (from wherever it is aboard), down the trail, up to the plant's front door
+  function outRoute(p) {
+    const R = [], aboard = onShip(p) || onRamp(p);
+    if (aboard) for (const w of SHIPWAY) { if (w.z > p.pos.z - 0.2) R.push(w); }
+    const T = trail(), i0 = aboard ? 0 : nearestTrail(p.pos.x, p.pos.z), pts = [];
+    for (let i = i0; i < T.length; i++) pts.push({ x: T[i].x, z: T[i].z, tol: 1.8 });
+    const sp = G.ext.entrance.spawn, fd = frontDoor();
+    pts.push({ x: sp.x, z: sp.z, tol: 0.9 });
+    if (fd) pts.push({ x: fd.x, z: fd.z, tol: 1.2 });
+    outdoors(R, pts, { x: p.pos.x, z: p.pos.z });
+    return R;
+  }
+  // back along the trail from wherever it is outside, up the ramp and in
+  function homeRoute(p) {
+    const R = [], foot = SHIPWAY[SHIPWAY.length - 1];
+    if (onShip(p) || onRamp(p)) { for (let i = SHIPWAY.length - 1; i >= 0; i--) { const w = SHIPWAY[i]; if (w.z < p.pos.z + 0.2) R.push(w); } return R; }
+    const T = trail(), i0 = nearestTrail(p.pos.x, p.pos.z), pts = [];
+    for (let i = i0; i >= 0; i--) pts.push({ x: T[i].x, z: T[i].z, tol: 1.8 });
+    pts.push(foot);
+    outdoors(R, pts, { x: p.pos.x, z: p.pos.z });
+    for (let i = SHIPWAY.length - 2; i >= 0; i--) R.push(SHIPWAY[i]);
+    return R;
+  }
+  // the hatch and the airlock's inner door: a bot opens a shut door on its way through (and shuts the hatch again
+  // behind it if it found it shut: someone closed it for a reason)
+  function gate(p, b, w) {
+    const near = Math.abs(p.pos.x - DX) < 1.6;
+    const across = (zz) => near && (p.pos.z - zz) * (w.z - zz) < 0 && Math.abs(p.pos.z - zz) < 2.6;
+    if (across(HULL_Z)) {
+      if (!G.ship.door.open) {
+        if (G.now - b.gateT > 1500) { b.gateT = G.now; G.hostRequest(p.id, { a: 'hatch' }); if (G.ship.door.open) b.hatch = { side: Math.sign(w.z - HULL_Z) }; }
+        return false;
+      }
+      if (G.ship.door.t < 0.6) return false;
+    }
+    if (across(AIRLOCK.z0)) {
+      if (!G.ship.idoor.open) { if (!G.ship.lockCycling && G.now - b.gateT > 1500) { b.gateT = G.now; G.hostRequest(p.id, { a: 'idoor' }); } return false; }
+      if (G.ship.idoor.t < 0.6) return false;
+    }
+    return true;
+  }
+  function closeBehind(p, b) {
+    if (!b.hatch || (p.pos.z - HULL_Z) * b.hatch.side < 1.4) return;
+    const crowd = G.alivePlayers().some((q) => q.id !== p.id && q.zone === 'out' && Math.hypot(q.pos.x - DX, q.pos.z - HULL_Z) < 3);
+    if (G.ship.door.open && !crowd && G.mode === 'site') G.hostRequest(p.id, { a: 'hatch' });
+    b.hatch = null;
+  }
+  function follow(p, b, speed, dt) {
+    const R = b.route; if (!R) return true;
+    while (b.ri < R.length) {
+      const w = R[b.ri];
+      const key = 'r' + b.routeId + ':' + b.ri;
+      if (!gate(p, b, w)) { p.yaw += clamp(angDiff(p.yaw, Math.atan2(-(w.x - p.pos.x), -(w.z - p.pos.z))), -5 * dt, 5 * dt); b.key = null; b.trying = false; return false; }
+      const d = step(p, b, w.x, w.z, speed, dt);
+      closeBehind(p, b);
+      if (d < (w.tol || 1)) { b.ri++; continue; }
+      // can't get to this one: it's close enough to the next, carry on to that
+      if (slow(b, key, d) > 6000 && b.ri < R.length - 1) b.ri++;
+      return false;
+    }
+    return true;
+  }
+
+  // ---------------- inside: finding scrap ----------------
+  const cell = (fac, x, z, y) => Math.floor(x / 7) + ',' + Math.floor(z / 7) + ',' + Math.round(fac.depthOfY(y));
+  const wanted = (it) => { const D = ITEMS[it.type]; return D.kind === 'scrap' && !D.core && it.holder == null && it.basket == null && G.itemZone(it) === 'in' && !G.itemSealed(it); };
+  // a look round, like a scan of its own: scrap out in the open within sight on this floor, and shut lockers
+  function scan(p, b) {
+    const fac = G.fac;
+    for (const it of G.items.values()) {
+      if (b.known.has(it.id) || b.skip.has(it.id) || !wanted(it)) continue;
+      const d = Math.hypot(it.pos.x - p.pos.x, it.pos.z - p.pos.z);
+      if (d > 22 || Math.abs(it.pos.y - p.pos.y) > 3) continue;
+      if (d < 3.5 || fac.los(p.pos.x, p.pos.z, it.pos.x, it.pos.z, true)) b.known.add(it.id);
+    }
+    for (const c of fac.containers) {
+      if (c.open || b.boxes.has(c.id) || b.skip.has('c' + c.id) || Math.abs(c.y - p.pos.y) > 3) continue;
+      const d = Math.hypot(c.x - p.pos.x, c.z - p.pos.z); if (d > 14) continue;
+      // (it stands against a wall: look at the floor just in front of it)
+      const fx = c.x + (p.pos.x - c.x) * (0.9 / (d || 1)), fz = c.z + (p.pos.z - c.z) * (0.9 / (d || 1));
+      if (d < 4 || fac.los(p.pos.x, p.pos.z, fx, fz, true)) b.boxes.add(c.id);
+    }
+  }
+  function claimed(p) { const s = new Set(); for (const [id, o] of brains) if (id !== p.id && o.target != null) s.add(o.target); return s; }
+  function pickTarget(p, b) {
+    const taken = claimed(p); let best = null, bd = Infinity;
+    for (const id of b.known) {
+      const it = G.items.get(id);
+      if (!it || !wanted(it)) { b.known.delete(id); continue; }
+      // (a two-handed find waits until its hands are empty)
+      if (taken.has(id) || (ITEMS[it.type].twoHanded && carrying(p))) continue;
+      const d = Math.hypot(it.pos.x - p.pos.x, it.pos.z - p.pos.z) + Math.abs(it.pos.y - p.pos.y) * 4;
+      if (d < bd) { bd = d; best = id; }
+    }
+    return best;
+  }
+  function pickBox(p, b) {
+    let best = null, bd = Infinity;
+    for (const id of b.boxes) {
+      const c = G.fac.containers[id];
+      if (!c || c.open) { b.boxes.delete(id); continue; }
+      const d = Math.hypot(c.x - p.pos.x, c.z - p.pos.z) + Math.abs(c.y - p.pos.y) * 4;
+      if (d < bd) { bd = d; best = id; }
+    }
+    return best;
+  }
+  // somewhere it hasn't been yet, not too far off; once most of this floor has been covered, the floors below it
+  // (they were never stripped, so the scrap down there is worth more)
+  function exploreGoal(p, b) {
+    const fac = G.fac, here = Math.round(fac.depthOfY(p.pos.y));
+    if (!b.cells) {
+      b.cells = new Map();
+      for (let k = 0; k < fac.grid.length; k++) { const i = k % fac.W, j = Math.floor(k / fac.W); if (fac.walkable(i, j)) b.cells.set(cell(fac, fac.cx(i), fac.cz(j), fac.tileY(k)), Math.max(0, fac.lvl[k])); }
+    }
+    const total = {}, seen = {};
+    for (const [key, lv] of b.cells) { total[lv] = (total[lv] || 0) + 1; if (b.seen.has(key)) seen[lv] = (seen[lv] || 0) + 1; }
+    const covered = (lv) => (seen[lv] || 0) / (total[lv] || 1) > 0.55;
+    let best = null, bs = Infinity;
+    for (let t = 0; t < 60; t++) {
+      const q = fac.randomWalkable(rng); if (!q) break;
+      const k = fac.idx(q.i, q.j), y = fac.tileY(k), lv = Math.max(0, fac.lvl[k]), d = Math.hypot(q.x - p.pos.x, q.z - p.pos.z);
+      if (d < 8 && lv === here) continue;
+      let s = d * rng.range(0.6, 1.4) + (b.seen.has(cell(fac, q.x, q.z, y)) ? 80 : 0) + Math.abs(lv - here) * 6;
+      if (lv !== here && covered(here) && !covered(lv)) s -= 60;
+      if (s < bs) { bs = s; best = { x: q.x, z: q.z, y }; }
+    }
+    return best;
+  }
+  function grab(p, b, it) {
+    const slot = p.slots[p.sel] == null ? p.sel : p.slots.indexOf(null);
+    if (slot < 0) return;
+    G.hostRequest(p.id, { a: 'pick', item: it.id, slot });
+    if (it.holder !== p.id) { b.skip.add(it.id); return; }
+    p.sel = slot; b.known.delete(it.id); b.lastFind = G.now;
+    if (it.value >= 70) say(p, b, 'Found a ' + ITEMS[it.type].name.toLowerCase() + '!', 15000);
+  }
+
+  // ---------------- danger ----------------
+  function threat(p) {
+    let best = null, bd = Infinity;
+    for (const m of G.monsters.values()) {
+      if (m.dead || m.def.zone !== p.zone || m.stun > 0) continue;
+      // (a leech up on the ceiling can't be seen; one that's dropped can)
+      if (m.type === 'leech' && m.state !== 'fallen') continue;
+      const d = Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z);
+      if (d > (m.type === 'mannequin' ? 14 : p.zone === 'in' ? 8 : 20) || Math.abs(m.pos.y - p.pos.y) > 3) continue;
+      if (p.zone === 'in' && d > 2.5 && !G.fac.los(p.pos.x, p.pos.z, m.pos.x, m.pos.z, true)) continue;
+      if (d < bd) { bd = d; best = m; }
+    }
+    return best;
+  }
+  // is it coming for this one (or right on top of it)?
+  const CALM = new Set(['roam', 'wander', 'lurk', 'crawl', 'wait', 'idle']);
+  const hunting = (m, p) => (m.target === p.id && !CALM.has(m.state)) || Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z) < 4;
+  // a crawler charges dead straight and turns slowly: out of its line, sideways, is the way to live
+  function dodge(p, m) {
+    const f = m.forward(), side = Math.sign((p.pos.x - m.pos.x) * f.z - (p.pos.z - m.pos.z) * f.x) || 1, fac = G.fac;
+    for (const s of [side, -side]) for (const r of [2.6, 1.6]) {
+      const x = p.pos.x + f.z * s * r, z = p.pos.z - f.x * s * r;
+      if (fac.walkable(fac.ti(x), fac.tj(z)) && fac.los(p.pos.x, p.pos.z, x, z)) return { x, z, until: G.now + 650 };
+    }
+    return null;
+  }
+  // somewhere on this floor, a good way off and away from it
+  function fleeGoal(p, m) {
+    const fac = G.fac, ax = p.pos.x - m.pos.x, az = p.pos.z - m.pos.z, al = Math.hypot(ax, az) || 1;
+    let best = null, bs = -Infinity;
+    for (let t = 0; t < 40; t++) {
+      const q = fac.randomWalkable(rng); if (!q) break;
+      const dx = q.x - p.pos.x, dz = q.z - p.pos.z, d = Math.hypot(dx, dz);
+      if (d < 7 || d > 32 || Math.abs(fac.tileY(fac.idx(q.i, q.j)) - p.pos.y) > 2) continue;
+      const s = (dx * ax + dz * az) / (d * al) + Math.min(d, 20) / 40;
+      if (s > bs) { bs = s; best = { x: q.x, z: q.z }; }
+    }
+    return best;
+  }
+  const leechOn = (p) => [...G.monsters.values()].find((m) => m.type === 'leech' && m.state === 'attached' && m.victim === p.id);
+
+  // ---------------- the brain ----------------
+  function think(p, b, dt) {
+    p.moving = false; p.sprint = false;
+    p.flash = p.zone === 'in' ? 1 : 0;
+    p.pitch = damp(p.pitch, b.look || 0, 4, dt); b.look = 0;
+    if (!p.alive) return;
+    watchProgress(p, b, dt);
+    // a leech on its head: it stops and tears at it until it lets go
+    if (leechOn(p)) {
+      say(p, b, 'Get it off me!', 6000);
+      b.mashT -= dt; if (b.mashT <= 0) { b.mashT = 0.15 + rng.next() * 0.1; G.hostRequest(p.id, { a: 'struggle' }); }
+      return;
+    }
+    const site = (G.mode === 'site' || G.mode === 'leaving') && G.round && G.ext;
+    const aboard = G.inShip(p);
+    // in orbit, coming down or lifting off: aboard, it stands by
+    if (!site || (G.flight && aboard)) { b.state = aboard || !site ? 'aboard' : b.state; standBy(p, b, dt); return; }
+    const t = G.round.time, leaving = G.mode === 'leaving';
+    const recall = b.recall || leaving || t >= 22 * 60 || !humansAlive();
+    if (recall && !b.recall && !b.late && !aboard) { b.late = true; say(p, b, leaving ? 'Wait for me!' : !humansAlive() ? 'Heading back to the ship.' : 'Getting late. Heading back.', 0); }
+    const hurry = leaving || t >= 23 * 60;
+    // something coming: run (inside, away from it; outside, back to the ship)
+    b.threatT -= dt;
+    if (b.threatT <= 0) {
+      b.threatT = b.flee || b.watch != null ? 0.1 : 0.25;
+      const m = threat(p), w = b.watch != null && G.monsters.get(b.watch);
+      if (!w || w.dead || p.zone !== 'in' || Math.hypot(w.pos.x - p.pos.x, w.pos.z - p.pos.z) > 16 || !G.fac.los(p.pos.x, p.pos.z, w.pos.x, w.pos.z, true)) b.watch = null;
+      // a mannequin only moves while nobody's watching: no running from it, just eyes on it all the way past
+      if (m && m.type === 'mannequin' && p.zone === 'in') { b.watch = m.id; if (b.flee && b.flee.m === m.id) b.flee = null; }
+      else if (m) {
+        if (p.zone === 'in') {
+          const hunted = hunting(m, p);
+          // (out of the way at the last moment, once it's committed and close: any sooner and it just turns after it)
+          if (m.type === 'crawler' && m.state === 'charge' && m.target === p.id && !b.dodge) {
+            const dx = p.pos.x - m.pos.x, dz = p.pos.z - m.pos.z, dd = Math.hypot(dx, dz), f = m.forward();
+            if (dd < 5.5 && (dx * f.x + dz * f.z) / (dd || 1) > 0.7) b.dodge = dodge(p, m);
+          }
+          if (!b.flee || b.flee.m !== m.id || G.now > b.flee.until - 2000 || (hunted && !b.flee.run)) { const g = fleeGoal(p, m); if (g) { b.flee = { m: m.id, until: G.now + (hunted ? 4000 : 2500), goal: g, run: hunted }; b.path = null; } }
+          if (hunted) say(p, b, 'Something\'s down here!', 20000);
+        } else if (aboard) b.waitUntil = Math.max(b.waitUntil, G.now + 30000);
+        else if (b.state === 'out') {
+          say(p, b, 'Back to the ship!', 20000);
+          b.state = 'home'; setRoute(b, homeRoute(p)); b.waitUntil = G.now + 30000;
+        }
+      }
+    }
+    if (b.flee && (G.now > b.flee.until || p.zone !== 'in')) b.flee = null;
+    if (b.dodge) {
+      if (G.now > b.dodge.until || p.zone !== 'in') b.dodge = null;
+      else { step(p, b, b.dodge.x, b.dodge.z, RUN, dt); return; }
+    }
+    if (sidestep(p, b, dt)) return;
+    if (b.flee) {
+      const r = walkIn(p, b, b.flee.goal.x, b.flee.goal.z, undefined, b.flee.run ? RUN : WALK, dt);
+      if (r < 1.5 || r < 0) b.flee = null;
+      return;
+    }
+    switch (b.state) {
+      case 'aboard': {
+        if (!aboard && !onShip(p) && !onRamp(p)) { b.state = 'home'; setRoute(b, homeRoute(p)); break; }
+        const go = !recall && !b.done && G.now > b.waitUntil && p.hp >= 80 && !G.flight && t < 21.5 * 60 && G.mode === 'site';
+        if (go) { b.state = 'out'; setRoute(b, outRoute(p)); b.late = false; break; }
+        standBy(p, b, dt);
+        break;
+      }
+      case 'out': {
+        if (p.zone === 'in') { b.state = 'search'; break; }
+        if (recall) { b.state = 'home'; setRoute(b, homeRoute(p)); break; }
+        if (follow(p, b, WALK, dt)) {
+          // in at the front door
+          const ex = G.fac.exits.find((e) => e.kind === 'main') || G.fac.exits[0];
+          teleport(p, 'in', ex.spawn.x, FAC_Y0, ex.spawn.z, ex.spawn.yaw);
+          b.state = 'search'; b.path = null; b.target = null; b.box = null; b.goal = null; b.scanT = 0.3; b.lastFind = G.now;
+        }
+        break;
+      }
+      case 'search': {
+        if (p.zone !== 'in') { b.state = 'home'; setRoute(b, homeRoute(p)); break; }
+        const has = carrying(p), idle = G.now - b.lastFind;
+        if (!has && idle > 150000) b.done = true;
+        if (handsFull(p) || recall || b.done || p.hp < 45 || (has && (t >= 21.5 * 60 || idle > 90000))) {
+          if (handsFull(p)) say(p, b, 'Hands full. Taking this back.', 30000);
+          else if (p.hp < 45) say(p, b, 'I\'m hurt. Heading back.', 30000);
+          b.state = 'exit'; b.path = null; b.target = null; b.box = null;
+          break;
+        }
+        b.seen.add(cell(G.fac, p.pos.x, p.pos.z, p.pos.y));
+        b.scanT -= dt; if (b.scanT <= 0) { b.scanT = 1.2; scan(p, b); }
+        // after something it's spotted, then a shut locker, then wherever it hasn't been
+        if (b.target != null) {
+          const it = G.items.get(b.target);
+          if (!it || !wanted(it)) { b.target = null; break; }
+          const d = Math.hypot(it.pos.x - p.pos.x, it.pos.z - p.pos.z);
+          if (d < 3) b.look = clamp(Math.atan2(it.pos.y - (p.pos.y + 1.5), d), -1, 0.4);
+          const lag = slow(b, 'i' + it.id, d);
+          if ((d < 1.4 || (d < 2.6 && lag > 1500)) && Math.abs(it.pos.y - p.pos.y) < 2.5) { grab(p, b, it); b.target = null; break; }
+          if (walkIn(p, b, it.pos.x, it.pos.z, it.pos.y, WALK, dt) < 0 || lag > 8000) { b.skip.add(it.id); b.known.delete(it.id); b.target = null; }
+          break;
+        }
+        if (b.box != null) {
+          const c = G.fac.containers[b.box];
+          if (!c || c.open) { b.box = null; b.scanT = 0.2; break; }
+          const d = Math.hypot(c.x - p.pos.x, c.z - p.pos.z);
+          const lag = slow(b, 'c' + c.id, d);
+          if (d < 1.5 || (d < 3 && lag > 1500)) { G.hostRequest(p.id, { a: 'box', id: c.id }); b.boxes.delete(c.id); b.box = null; b.scanT = 0.6; break; }
+          if (walkIn(p, b, c.x, c.z, c.y, WALK, dt) < 0 || lag > 8000) { b.skip.add('c' + c.id); b.boxes.delete(c.id); b.box = null; }
+          break;
+        }
+        b.target = pickTarget(p, b);
+        if (b.target != null) { b.goal = null; b.path = null; break; }
+        b.box = pickBox(p, b);
+        if (b.box != null) { b.goal = null; b.path = null; break; }
+        if (!b.goal) b.goal = exploreGoal(p, b);
+        if (!b.goal) break;
+        const r = walkIn(p, b, b.goal.x, b.goal.z, b.goal.y, WALK, dt);
+        if (r < 1.5 || r < 0 || slow(b, 'g' + b.goal.x + ',' + b.goal.z, r) > 8000) b.goal = null;
+        break;
+      }
+      case 'exit': {
+        if (p.zone !== 'in') { b.state = 'home'; setRoute(b, homeRoute(p)); break; }
+        const ex = G.fac.exits.find((e) => e.kind === 'main') || G.fac.exits[0];
+        const r = walkIn(p, b, ex.x, ex.z, FAC_Y0, hurry ? RUN : WALK, dt), lag = slow(b, 'x', r);
+        if (lag > 6000) { b.path = null; b.key = null; }
+        if ((r >= 0 && r < 1.3) || (r >= 0 && r < 2.6 && lag > 1500)) {
+          const sp = G.ext.entrance.spawn;
+          teleport(p, 'out', sp.x, G.groundAt(sp.x, sp.z), sp.z, sp.yaw);
+          b.state = 'home'; setRoute(b, homeRoute(p));
+        }
+        break;
+      }
+      case 'home': {
+        if (p.zone === 'in') { b.state = 'exit'; break; }
+        if (follow(p, b, hurry || b.waitUntil > G.now ? RUN : WALK, dt)) { b.state = carrying(p) ? 'unload' : 'aboard'; b.spots = null; b.dropT = 0.3; }
+        break;
+      }
+      // in the bay: everything it carried set down on the deck, in a tidy spread
+      case 'unload': {
+        if (!carrying(p)) { b.state = 'aboard'; b.waitUntil = Math.max(b.waitUntil, G.now + 2500); break; }
+        if (!b.spots) b.spots = dropSpots(p.slots.filter((id) => id != null).length);
+        const s = b.spots[0];
+        const ds = Math.hypot(s.x - p.pos.x, s.z - p.pos.z);
+        if (ds > 1.1 && slow(b, 'u', ds) < 4000) { step(p, b, s.x, s.z, WALK, dt); break; }
+        b.look = -0.5;
+        b.dropT -= dt; if (b.dropT > 0) break;
+        b.dropT = 0.35;
+        const k = p.slots.findIndex((id) => id != null), id = p.slots[k], it = G.items.get(id), spot = b.spots.shift() || s;
+        if (b.spots.length === 0) b.spots.push(spot);
+        p.sel = k;
+        G.hostRequest(p.id, { a: 'drop', item: id, x: spot.x, y: 0, z: spot.z, ry: rng.range(0, TAU), battery: it ? it.battery : 1, on: false });
+        break;
+      }
+      default: b.state = 'aboard';
+    }
+  }
+  // standing by aboard: back to its own spot in the bay, out of everyone's way
+  function standBy(p, b, dt) {
+    if (G.flight || !G.inShip(p) || G.mode === 'landing') return;
+    const idx = [...G.players.keys()].indexOf(p.id), x = 1 + (idx % 3) * 1.1, z = 0.6 + Math.floor(idx / 3) * 1.0;
+    const d = Math.hypot(x - p.pos.x, z - p.pos.z);
+    if (d > 0.4 && slow(b, 's' + idx, d) < 5000) step(p, b, x, z, WALK, dt);
+    else if (d <= 0.4) b.key = null;
+  }
+  // clear deck in the bay, nearest the airlock first, away from the walkway and anything already set down
+  function dropSpots(n) {
+    const deck = [];
+    {
+      for (let x = -6.6; x <= -3.2; x += 0.5) for (let z = -3.4; z <= 1.6; z += 0.5) {
+        if (Math.abs(x - DX) < 0.9 && z > 0.6) continue;
+        const q = { x, y: 0, z };
+        if (!G.ship.inside(x, 0.3, z) || G.ship.collide(q, 0.45) || Math.hypot(q.x - x, q.z - z) > 1e-3) continue;
+        deck.push({ x, z });
+      }
+      deck.sort((a, b) => Math.hypot(a.x + 4.6, a.z - 0.8) - Math.hypot(b.x + 4.6, b.z - 0.8));
+    }
+    const out = [];
+    for (const s of deck) {
+      if (out.length >= n) break;
+      const busy = [...G.items.values()].some((it) => it.holder == null && it.inShip && Math.hypot(it.pos.x - s.x, it.pos.z - s.z) < 0.4);
+      if (!busy) out.push({ x: s.x + rng.range(-0.08, 0.08), z: s.z + rng.range(-0.08, 0.08) });
+    }
+    while (out.length < Math.max(1, n)) out.push({ x: -4.6 + rng.range(-0.5, 0.5), z: 0.8 + rng.range(-0.5, 0.5) });
+    return out;
+  }
+
+  // every frame, on the host: each bot thinks and moves, then goes out to everyone like any crewmate's position
+  B.update = (dt) => {
+    if (!G.isHost) return;
+    dt = Math.min(dt, 0.1);
+    for (const p of G.players.values()) {
+      if (!p.bot) continue;
+      const b = brain(p);
+      think(p, b, dt);
+      p.crouch = false; p.seat = null; p.air = false; p.radio = false; p.talking = false;
+      p.flags = (p.sprint ? 2 : 0) | (p.moving ? 4 : 0) | (p.flash ? 8 : 0) | (p.zone === 'in' ? 128 : 0);
+      p.buf.push({ t: G.now, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch }); if (p.buf.length > 12) p.buf.shift();
+    }
+  };
+  B.brainOf = (id) => brains.get(id);
+  return B;
+})();
+
+</script>
 <script type="text/x-gs" data-file="game">
 'use strict';
 // Game state, host-authoritative simulation, event replication, world management, scare director.
@@ -12347,6 +13096,18 @@ for (const w in BODIES) {
   for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: -1.2, el: 0.55 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
+// Where each moon and rock is today: how far out along its orbit (near: 1 its usual distance, under that closer in,
+// over it farther out) and how far round its world (phase). Decided by the day and the world, so the view from orbit,
+// the sky over the world's sites and the sky over its moon and rock all agree, and every crewmate sees the same.
+function orbitsToday(world, run) {
+  const rr = new RNG(((run ? run.day * 7919 + run.cycle * 104729 : 1) + [...world].reduce((s, c) => s + c.charCodeAt(0) * 131, 0)) >>> 0), out = {};
+  for (const b of BODIES[world] || []) out[b.key] = { near: 0.6 + rr.next() * 0.9, phase: rr.range(0, TAU) };
+  return out;
+}
+// where it is today, in the world's radii from its centre, in the plane they all go round in
+const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin(o.phase) * b.orbit * o.near });
+// the angle round from the world to another body, as seen from one of its moons (positive: anticlockwise)
+const turnFrom = (pm, po) => { const vx = po.x - pm.x, vz = po.z - pm.z; return Math.atan2(-pm.x * vz + pm.z * vx, -pm.x * vx - pm.z * vz); };
 // what is left in a room depends on what the room was for
 const LOOT = {
   office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4 },
@@ -12371,7 +13132,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 5;
+const PROTO = 6;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -12422,7 +13183,7 @@ const G = {
     for (const it of [...G.items.values()]) G.removeItem(it.id);
     for (const p of G.players.values()) if (p.avatar) p.avatar.dispose();
     for (const c of G.corpses) c.dispose();
-    G.players.clear(); G.items.clear(); G.monsters.clear(); G.corpses = [];
+    G.players.clear(); G.items.clear(); G.monsters.clear(); G.corpses = []; Bots.reset();
     G.noises = []; G.timers = []; G.grenades = []; G.round = null; G.leechOn = null; G.seq = null; G.flicker = 0;
     G.ship.setDoor(false); G.ship.door.t = 0;
     G.flight = null; G.updateFlight(0); G.ship.setLanded(false); SFX.setThrust(0, true, 0);
@@ -12450,6 +13211,7 @@ const G = {
     G.enterOrbitState();
     G.mode = 'orbit';
     G.spawnInShip(G.me(), 0);
+    Bots.restore();
     G.callSignal();
     if (!save) G.timers.push({ t: 1.2, fn: () => HUD.notice('DAY ' + G.run.day, 'Quota $' + G.run.quota + ' · ' + G.run.daysLeft + ' days', false, 5) });
     else G.timers.push({ t: 1.2, fn: () => HUD.notice('WELCOME BACK', 'Credits $' + G.run.credits + ' · Quota $' + G.run.sold + '/$' + G.run.quota, false, 4) });
@@ -12494,7 +13256,7 @@ const G = {
   addPlayer(info) {
     let p = G.players.get(info.id);
     if (!p) {
-      p = { id: info.id, name: info.name, color: info.color || 0, peerId: info.peerId, pos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), rpos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), yaw: info.yaw || 0, pitch: 0, hp: info.hp ?? 100, alive: info.alive ?? true, zone: info.zone || 'out', slots: info.slots || [null, null, null, null], sel: info.sel || 0, flags: 0, buf: [], noiseT: 0, speed: 0 };
+      p = { id: info.id, name: info.name, color: info.color || 0, peerId: info.peerId, pos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), rpos: new THREE.Vector3(info.x || 0, info.y || 0, info.z || 0), yaw: info.yaw || 0, pitch: 0, hp: info.hp ?? 100, alive: info.alive ?? true, zone: info.zone || 'out', slots: info.slots || [null, null, null, null], sel: info.sel || 0, flags: 0, buf: [], noiseT: 0, speed: 0, bot: !!info.bot };
       G.players.set(p.id, p);
       if (p.id !== G.localId) { p.avatar = new Avatar(p.name, p.color); R.scene.add(p.avatar.root); p.avatar.root.visible = p.alive; }
       else Player.setSuit(p.color);
@@ -12515,7 +13277,7 @@ const G = {
   hasItem(pid, type) { const p = G.players.get(pid); return !!p && p.slots.some((id) => id != null && G.items.get(id) && G.items.get(id).type === type); },
   holdingWalkie() { const me = G.me(); const id = me && me.slots[me.sel]; const it = id != null && G.items.get(id); return !!(it && it.type === 'walkie'); },
   inShip(p) { return p.zone === 'out' && G.ship.inside(p.pos.x, p.pos.y + 0.5, p.pos.z); },
-  pinfo(p) { return { id: p.id, name: p.name, color: p.color, peerId: p.peerId, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, hp: p.hp, alive: p.alive, zone: p.zone, slots: p.slots, sel: p.sel }; },
+  pinfo(p) { return { id: p.id, name: p.name, color: p.color, peerId: p.peerId, bot: p.bot || undefined, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, hp: p.hp, alive: p.alive, zone: p.zone, slots: p.slots, sel: p.sel }; },
   spawnInShip(p, idx) {
     const x = 1 + (idx % 3) * 1.1, z = 0.6 + Math.floor(idx / 3) * 1.0;
     p.pos.set(x, 0, z); p.zone = 'out';
@@ -12590,7 +13352,7 @@ const G = {
     b.steps = [
       () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs); },
       () => { b.facG = b.fac.build(); },
-      () => { b.ext = new Exterior(seed, site, weather, siteKey); b.ext.buildLand(); },
+      () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); b.ext.buildLand(); },
       () => { b.extG = b.ext.buildRest(); },
     ];
     G.siteBuild = b;
@@ -12655,14 +13417,35 @@ const G = {
   // gravity, as a share of the usual: light out on the surface of a moon or rock (the ship and the facilities keep
   // a full one of their own)
   gravity(zone, x, y, z) { return G.round && SITES[G.round.site].lowG && zone === 'out' && !G.ship.inside(x, y + 0.5, z) ? 0.3 : 1; },
+  // the sky over a site today. From a world: its moon and rock, bigger the closer in they've come, round the sky as far
+  // as they are round their orbits. From a moon or rock: the world (which never moves in its sky: it always keeps
+  // the same face to it), bigger the closer in its orbit has brought it, and the other one, the size it really looks
+  // from here and where it really is, out along the plane they all circle in
+  skyToday(key) {
+    const s = SITES[key], world = s.bonus || key, O = orbitsToday(world, G.run);
+    if (!s.bonus) return s.sky.map((e, i) => { const o = O[BODIES[world][i].key]; return Object.assign({}, e, { r: e.r / o.near, az: e.az + 0.5 * Math.sin(o.phase), fixed: true }); });
+    const me = BODIES[world].find((b) => b.key === key), pm = bodyAt(me, O[key]), others = BODIES[world].filter((b) => b !== me), W = s.sky[0];
+    const wd = new THREE.Vector3(Math.cos(W.az) * Math.cos(W.el), Math.sin(W.el), Math.sin(W.az) * Math.cos(W.el));
+    const t1 = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), wd).normalize(), t2 = new THREE.Vector3().crossVectors(wd, t1);
+    const road = t1.multiplyScalar(Math.cos(0.3)).addScaledVector(t2, Math.sin(0.3));
+    return s.sky.map((e, i) => {
+      if (e.kind === 'planet') return Object.assign({}, e, { r: Math.min(0.78, e.r / O[key].near), fixed: true });
+      const b = others[i - 1], po = bodyAt(b, O[b.key]), a = turnFrom(pm, po), dist = Math.hypot(po.x - pm.x, po.z - pm.z);
+      const d = wd.clone().multiplyScalar(Math.cos(a)).addScaledVector(road, Math.sin(a));
+      return Object.assign({}, e, { r: clamp(Math.asin(Math.min(0.5, b.size / dist)) * 1.3, 0.008, 0.09), az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), fixed: true, withWorld: true });
+    });
+  },
   // what hangs round the world the ship is orbiting, for the view from orbit (Ship.setBodies): its moon and rock, or
   // from round one of those, the world itself, enormous, and the other one
+  // (where they are, and how close, are today's: see orbitsToday)
   bodiesAround(route) {
     const s = SITES[route]; if (!s) return [];
-    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang, off: b.off, tint: b.tint }));
-    const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route);
-    return [{ kind: 'planet', size: Math.min(10, 1 / me.size), orbit: 0, ang: me.ang + Math.PI * 0.8, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings }]
-      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => ({ kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.abs(b.orbit - me.orbit) / me.size * 0.3), ang: b.ang, off: b.off, tint: b.tint })));
+    const O = orbitsToday(s.bonus || route, G.run);
+    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near }));
+    const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route), pm = bodyAt(me, O[route]), pa = me.ang + Math.PI * 0.8;
+    // (the world: bigger the closer in we are today; the other one: where it really is from here, and how far)
+    return [{ kind: 'planet', size: Math.min(10, 1 / me.size), orbit: 0, ang: pa, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings, ar: clamp(0.5 / O[route].near, 0.32, 0.75) }]
+      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
   },
   // Some days a facility beacon shows on one of the bodies circling the world the ship is at (or the one it belongs
   // to): a bonus site for that day only. Decided by the day, so every crewmate sees the same one
@@ -12762,7 +13545,7 @@ const G = {
     if (G.isHost && conn) {
       if (m.t === 'hello') {
         if (m.v !== PROTO) { Net.sendTo(conn, { t: 'deny', reason: 'Version mismatch. Make sure everyone has the same game files.' }); return; }
-        if (G.players.size >= 6) { Net.sendTo(conn, { t: 'deny', reason: 'Lobby is full (6 crew max).' }); return; }
+        if (G.players.size >= 6 && !Bots.makeRoom()) { Net.sendTo(conn, { t: 'deny', reason: 'Lobby is full (6 crew max).' }); return; }
         const id = G.nextPid++;
         conn.pid = id;
         const midRound = G.mode !== 'orbit';
@@ -13104,7 +13887,7 @@ const G = {
       SFX.play('bang', pos, { vol: 2, ref: 6 });
       const me = G.me(); if (!me || !me.alive) return;
       const cam = R.camera.position, d = cam.distanceTo(pos);
-      if (d < 14 && (me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, pos.x, pos.z))) {
+      if (d < 14 && (me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, pos.x, pos.z, true))) {
         const dir = R.camera.getWorldDirection(new THREE.Vector3()), to = pos.clone().sub(cam).normalize();
         const facing = dir.dot(to);
         R.fx.flash = Math.max(R.fx.flash, (facing > 0.3 ? 2.2 : 0.6) * (1 - d / 16));
@@ -13147,12 +13930,12 @@ const G = {
       const back = !p.alive || p.zone !== 'out' || !G.ship.inside(p.pos.x, p.pos.y + 0.5, p.pos.z);
       p.alive = true; p.hp = 100;
       if (p.avatar && back) { R.scene.remove(p.avatar.root); p.avatar = new Avatar(p.name, p.color); R.scene.add(p.avatar.root); }
-      if (p.id === G.localId && back) G.spawnInShip(p, i);
+      if ((p.id === G.localId || (G.isHost && p.bot)) && back) { G.spawnInShip(p, i); p.buf.length = 0; }
       i++;
     }
     HUD.hideSpectate(); HUD.struggle(false); R.fx.static = 0; R.fx.leech = 0; Player.clearPerks();
     G.showSummary(e.summary);
-    if (G.isHost) { G.save(); G.callSignal(); }
+    if (G.isHost) { Bots.newDay(); G.save(); G.callSignal(); }
   },
   showSummary(s) {
     const rows = [
@@ -13210,21 +13993,37 @@ const G = {
         break;
       }
       case 'door': {
-        const d = G.fac && G.fac.doors[r.id]; if (!d || !p.alive || d.broken) return;
+        const d = G.fac && G.fac.doors[r.id]; if (!d || !p.alive || d.broken || d.latch) return;
         if (Math.hypot(d.x - at.x, d.z - at.z) > 4.5) return;
         if (G.now - (d.lastT || 0) < 350) return;
         d.lastT = G.now;
-        G.emit({ e: 'door', id: d.id, open: !d.open, dir: G.doorDirFrom(d, at) });
-        G.addNoise(new THREE.Vector3(d.x, d.y + 1, d.z), 10, 'in', pid);
+        const dir = G.doorDirFrom(d, at), fac = G.fac, by = new THREE.Vector3(d.x, d.y + 1, d.z);
+        // opening, the handle goes down and the latch clicks back first; a moment later the door swings
+        if (!d.open) {
+          d.latch = true;
+          G.emitSound('click', by, { vol: 0.9 });
+          G.timers.push({ t: 0.32, fn: () => { d.latch = false; if (G.fac !== fac || d.open || d.broken) return; G.emit({ e: 'door', id: d.id, open: true, dir }); G.addNoise(by, 10, 'in', pid); } });
+          break;
+        }
+        G.emit({ e: 'door', id: d.id, open: false, dir });
+        G.addNoise(by, 10, 'in', pid);
         break;
       }
       case 'box': {
-        const c = G.fac && G.fac.containers[r.id]; if (!c || !p.alive) return;
+        const c = G.fac && G.fac.containers[r.id]; if (!c || !p.alive || c.latch) return;
         if (Math.hypot(c.x - at.x, c.z - at.z) > 3.5 || G.now - (c.lastT || 0) < 400) return;
         c.lastT = G.now;
-        G.emit({ e: 'box', id: c.id, open: !c.open });
-        // rusty hinges and a rattling steel door: anything nearby hears you rummaging
-        G.addNoise(new THREE.Vector3(c.x, c.y + 1, c.z), 9, 'in', pid);
+        const fac = G.fac, by = new THREE.Vector3(c.x, c.y + 1, c.z);
+        // (a locker's catch takes a moment too)
+        if (!c.open) {
+          c.latch = true;
+          G.emitSound('click', by, { vol: 0.7 });
+          // rusty hinges and a rattling steel door: anything nearby hears you rummaging
+          G.timers.push({ t: 0.25, fn: () => { c.latch = false; if (G.fac !== fac || c.open) return; G.emit({ e: 'box', id: c.id, open: true }); G.addNoise(by, 9, 'in', pid); } });
+          break;
+        }
+        G.emit({ e: 'box', id: c.id, open: false });
+        G.addNoise(by, 9, 'in', pid);
         break;
       }
       case 'hatch': {
@@ -13241,7 +14040,8 @@ const G = {
         break;
       }
       case 'term': G.hostTerminal(pid, String(r.cmd || '').slice(0, 60)); break;
-      case 'chat': G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && G.hasItem(pid, 'walkie') }); break;
+      // (a line starting with / is a command, not something said out loud)
+      case 'chat': if (String(r.text || '').startsWith('/')) Bots.command(pid, String(r.text).slice(0, 60)); else G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && G.hasItem(pid, 'walkie') }); break;
       case 'struggle': {
         for (const m of G.monsters.values()) if (m.type === 'leech' && m.state === 'attached' && m.victim === pid) { m.grip -= 8 + Math.random() * 4; if (m.grip <= 0) m.detach(); }
         break;
@@ -13388,7 +14188,7 @@ const G = {
     const cp = Math.cos(p.pitch);
     const fx = -Math.sin(p.yaw) * cp, fy = Math.sin(p.pitch), fz = -Math.cos(p.yaw) * cp;
     if ((dx * fx + dy * fy + dz * fz) / d < dotMin) return false;
-    if (p.zone === 'in' && G.fac) return G.fac.los(p.pos.x, p.pos.z, pos.x, pos.z);
+    if (p.zone === 'in' && G.fac) return G.fac.los(p.pos.x, p.pos.z, pos.x, pos.z, true);
     return true;
   },
   isLit(pos) {
@@ -13400,7 +14200,7 @@ const G = {
     if (G.fac && G.round) for (const l of G.fac.lamps) {
       if (l.state === 'off') continue;
       if (!G.round.power && l.state !== 'emergency') continue;
-      if (Math.abs(l.x - pos.x) < 5 && Math.abs(l.z - pos.z) < 5 && Math.hypot(l.x - pos.x, l.z - pos.z) < 4.5 && G.fac.los(l.x, l.z, pos.x, pos.z)) return true;
+      if (Math.abs(l.x - pos.x) < 5 && Math.abs(l.z - pos.z) < 5 && Math.hypot(l.x - pos.x, l.z - pos.z) < 4.5 && G.fac.los(l.x, l.z, pos.x, pos.z, true)) return true;
     }
     return false;
   },
@@ -13472,7 +14272,7 @@ const G = {
       for (const m of G.monsters.values()) {
         if (m.dead || m.def.zone !== zone) continue;
         const d = Math.hypot(m.pos.x - at.x, m.pos.z - at.z);
-        if (d < 10 && (zone !== 'in' || G.fac.los(at.x, at.z, m.pos.x, m.pos.z))) { m.stun = 5.5; if (m.type === 'leech' && m.state === 'attached') m.detach(); }
+        if (d < 10 && (zone !== 'in' || G.fac.los(at.x, at.z, m.pos.x, m.pos.z, true))) { m.stun = 5.5; if (m.type === 'leech' && m.state === 'attached') m.detach(); }
       }
     } });
   },
@@ -13692,8 +14492,9 @@ const G = {
     const collected = collectedItems.reduce((s, it) => s + it.value, 0);
     const lost = allDead ? collected : 0;
     const keep = shipItems.filter((it) => !(allDead && collectedItems.includes(it))).map((it) => it.id);
-    const deaths = [...G.players.values()].filter((p) => !p.alive).map((p) => ({ name: p.name, cause: G.deathCause && G.deathCause[p.id] || 'unknown' }));
-    const fine = allDead ? 0 : Math.round(run.credits * 0.1 * deaths.length);
+    const deaths = [...G.players.values()].filter((p) => !p.alive).map((p) => ({ name: p.name, cause: G.deathCause && G.deathCause[p.id] || 'unknown', bot: p.bot || undefined }));
+    // (a lost bot is on the report, but the Company's insurance doesn't charge for one)
+    const fine = allDead ? 0 : Math.round(run.credits * 0.1 * deaths.filter((d) => !d.bot).length);
     run.credits = Math.max(0, run.credits - fine);
     run.daysLeft = Math.max(0, run.daysLeft - 1); run.day += 1;
     // (a beacon lasts the day: by the next the ship has hopped back to the world the moon or rock belongs to)
@@ -13923,7 +14724,9 @@ const G = {
       if (!r.warn1 && r.time >= 21 * 60) { r.warn1 = true; G.emit({ e: 'notice', title: '9:00 PM', sub: '' }); }
       if (!r.warn2 && r.time >= 23 * 60) { r.warn2 = true; G.emit({ e: 'notice', title: '11:00 PM', sub: '', danger: true, alarm: true }); }
       if (r.time >= 24 * 60) { G.hostDepart('midnight'); return; }
-      if (G.alivePlayers().length === 0) { r.allDeadT += dt; if (r.allDeadT > 4) { G.hostDepart('dead'); return; } }
+      // every person dead: the autopilot brings the ship home, as soon as any bots still standing are back aboard
+      const alive = G.alivePlayers();
+      if (!alive.some((p) => !p.bot) && alive.every((p) => G.inShip(p))) { r.allDeadT += dt; if (r.allDeadT > 4) { G.hostDepart('dead'); return; } }
       // spawns
       r.spawnT -= dt;
       if (r.spawnT <= 0) { r.spawnT = (55 + Math.random() * 50) * (1 - clamp((r.time - 480) / 960, 0, 1) * 0.35); G.hostSpawnInterior(null, false); }
@@ -14447,7 +15250,7 @@ const G = {
         continue;
       }
       // through a wall only at very short range
-      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, it.pos.x, it.pos.z)) continue;
+      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, it.pos.x, it.pos.z, true)) continue;
       const def = ITEMS[it.type];
       list.push({ x: it.vis.x, y: it.vis.y + 0.25, z: it.vis.z, text: def.name, value: def.kind === 'scrap' ? it.value : 0, kind: def.kind === 'scrap' && it.value >= 60 ? 'rich' : 'item', d });
     }
@@ -14457,14 +15260,14 @@ const G = {
       far(G.ext.entrance.x, G.ext.entrance.h + 5, G.ext.entrance.z, 'MAIN ENTRANCE', Math.hypot(me.pos.x - G.ext.entrance.x, me.pos.z - G.ext.entrance.z));
       far(G.ext.fire.x, G.ext.fire.h + 3.5, G.ext.fire.z, 'FIRE EXIT', Math.hypot(me.pos.x - G.ext.fire.x, me.pos.z - G.ext.fire.z));
     }
-    if (inside && G.fac) for (const ex of G.fac.exits) { const d = Math.hypot(ex.x - me.pos.x, ex.z - me.pos.z); if (d < 35 && G.fac.los(cam.x, cam.z, ex.x, ex.z)) far(ex.x, G.fac.floorY(ex.x, ex.z) + 2.2, ex.z, ex.kind === 'fire' ? 'FIRE EXIT' : 'MAIN EXIT', d); }
+    if (inside && G.fac) for (const ex of G.fac.exits) { const d = Math.hypot(ex.x - me.pos.x, ex.z - me.pos.z); if (d < 35 && G.fac.los(cam.x, cam.z, ex.x, ex.z, true)) far(ex.x, G.fac.floorY(ex.x, ex.z) + 2.2, ex.z, ex.kind === 'fire' ? 'FIRE EXIT' : 'MAIN EXIT', d); }
     for (const p of G.players.values()) if (p.id !== G.localId && p.alive && p.zone === me.zone && p.pos.distanceTo(me.pos) < 40) list.push({ x: p.rpos.x, y: p.rpos.y + 1.95, z: p.rpos.z, text: p.name, kind: 'player', d: p.rpos.distanceTo(cam) });
     // creatures: traced in red where the wave finds them, named, and followed while the mark lasts
     for (const m of G.monsters.values()) {
       if (!m.mesh || !m.mesh.visible || m.def.zone !== me.zone) continue;
       const d = m.rpos.distanceTo(cam);
       if (d > (inside ? 24 : 60)) continue;
-      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, m.rpos.x, m.rpos.z)) continue;
+      if (inside && G.fac && d > 6 && !G.fac.los(cam.x, cam.z, m.rpos.x, m.rpos.z, true)) continue;
       // a body reads as one: struck through in grey, no outline, no alarm
       if (m.dead) { list.push({ x: m.rpos.x, y: m.rpos.y + 0.9, z: m.rpos.z, text: m.def.name.toUpperCase(), sub: 'DEAD', kind: 'dead', d }); continue; }
       const head = () => new THREE.Vector3(m.rpos.x, m.rpos.y + (m.type === 'leech' ? -0.45 : m.def.height + 0.35), m.rpos.z), h = head();
@@ -14528,7 +15331,7 @@ const G = {
     Rover.update(dt);
     G.carryCamera();
     me.talking = G.online && Voice.talking;
-    if (G.isHost) G.hostTick(dt);
+    if (G.isHost) { G.hostTick(dt); Bots.update(dt); }
     G.netTick(dt);
     G.presentPlayers(dt);
     for (const m of G.monsters.values()) {
@@ -14567,13 +15370,15 @@ const G = {
       const av = p.avatar; if (!av) continue;
       av.root.visible = p.alive;
       if (!p.alive) continue;
-      av.root.position.copy(p.rpos); av.root.rotation.set(0, p.ryaw || 0, 0);
+      // (sitting down, the body faces the way the seat does; only the head turns to look about)
+      const seat = p.seat != null && G.ship.seats[p.seat], bodyYaw = seat ? seat.yaw : p.ryaw || 0;
+      av.root.position.copy(p.rpos); av.root.rotation.set(0, bodyYaw, 0);
       if (G.shipMoved && G.playerAboard(p)) { av.root.position.applyMatrix4(G.shipM); av.root.quaternion.premultiply(G.shipQ); }
       const id = p.slots[p.sel], it = id != null && G.items.get(id);
       if (Rover.owned && Rover.state.carrier === p.id) av.setHug(0.33, 0.44); else av.setHeld(it ? it.type : null, it ? it.id : 0);
       av.setLamp(!!p.flash);
       p.swingT = Math.max(0, (p.swingT || 0) - dt);
-      av.update(dt, { at: p.rpos, yaw: p.ryaw || 0, speed: p.speed, crouch: p.crouch, sit: p.seat != null, air: !!p.air, pitch: p.rpitch || 0, swing: p.swingT > 0 ? Math.sin((1 - p.swingT / 0.45) * Math.PI) : 0 });
+      av.update(dt, { at: p.rpos, yaw: bodyYaw, speed: p.speed, crouch: p.crouch, sit: p.seat != null, air: !!p.air, pitch: p.rpitch || 0, look: seat ? angDiff(seat.yaw, p.ryaw || 0) : null, swing: p.swingT > 0 ? Math.sin((1 - p.swingT / 0.45) * Math.PI) : 0 });
       const me = G.me();
       av.tag.visible = me && p.rpos.distanceTo(R.camera.position) < 14;
       if (G.leechOn === p.id) { /* leech mesh shows on their head */ }
@@ -14824,7 +15629,7 @@ const G = {
     G.ship.beaconOn = G.mode === 'landing' || G.mode === 'leaving' || !!(G.seq && G.seq.kind !== 'fired');
     // lights
     const power = G.round ? G.round.power : true;
-    const los = zone === 'in' && G.fac ? (s) => G.fac.los(cam.x, cam.z, s.x, s.z) : null;
+    const los = zone === 'in' && G.fac ? (s) => (s.fac ? G.fac.lampReach(cam, s) : G.fac.los(cam.x, cam.z, s.x, s.z) ? 1 : 0) : null;
     R.updateLights(G.lightSources, cam, zone, t, dt, power, (s, f) => { if (s.fac && G.fac) G.fac.setLampVisual(s, power || s.state === 'emergency' ? Math.max(0.05, f) : 0.04); }, los);
     // remote flashlights (+ a faint visible beam)
     const remotes = [...G.players.values()].filter((p) => p.id !== G.localId && p.alive && p.flash && p.zone === zone)
@@ -14851,7 +15656,7 @@ const G = {
     if (!inSpace && zone === 'in' && G.fac) {
       let best = null, bd = 1e9;
       for (const l of G.fac.lamps) { if (l.state === 'off' || !(l.lit > 0.05)) continue; const d = (l.x - cam.x) ** 2 + (l.z - cam.z) ** 2; if (d < bd) { bd = d; best = l; } }
-      if (best && bd < 81 && G.fac.los(cam.x, cam.z, best.x, best.z)) {
+      if (best && bd < 81 && G.fac.los(cam.x, cam.z, best.x, best.z, true)) {
         const d = Math.sqrt(bd);
         amb.buzz = Math.pow(clamp(1 - d / 8, 0, 1), 1.4) * Math.min(1, best.lit) * (power || best.state === 'emergency' ? 1 : 0);
         if (best.state === 'flicker' && power) amb.flickerLamp = new THREE.Vector3(best.x, best.y, best.z);
@@ -14874,7 +15679,7 @@ const G = {
       if (dist > 26) continue;
       const to = c.clone().sub(cam).normalize();
       const inView = camDir.dot(to) > 0.62;
-      const los = me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, c.x, c.z);
+      const los = me.zone !== 'in' || !G.fac || G.fac.los(cam.x, cam.z, c.x, c.z, true);
       const flashOn = R.flash.intensity > 0 && camDir.dot(to) > 0.9 && dist < R.flash.distance;
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);
@@ -15349,7 +16154,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 window.THREE = THREE;
 window.BufferGeometryUtils = BufferGeometryUtils;
-const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'rover', 'game', 'main'];
+const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'rover', 'bots', 'game', 'main'];
 try {
   // the one-file build (build.ps1) embeds every script in the page; the dev copy loads them from js/
   const packed = document.querySelectorAll('script[type="text/x-gs"]');

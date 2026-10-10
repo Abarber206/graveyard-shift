@@ -1118,6 +1118,13 @@ const Exterior = (() => {
             c += sunCol * (pow(sd, 7.0) * 0.3 + pow(sd, 90.0) * 0.8) + vec3(0.5, 0.56, 0.7) * pow(md, 60.0) * 0.12 * night;
             float disc = smoothstep(0.99935, 0.9997, sd);
             c += sunCol * disc * 3.0;
+            // a thin high layer of wisps, streaked out and drifting its own way (the deck below passes in front of it)
+            if (h > 0.0) {
+              vec2 q2 = d.xz / (h + 0.35) * 0.55 + vec2(-uTime * 0.0035, uTime * 0.0012) + seed * 1.7;
+              float w2 = fbm(q2 * vec2(1.0, 3.2) + 11.0);
+              float c2 = smoothstep(1.0 - cover * 0.75, 1.15 - cover * 0.75, w2) * smoothstep(0.02, 0.25, h) * 0.55;
+              c = mix(c, mix(cloudLit, vec3(1.0), 0.15) * 1.05 + sunCol * pow(sd, 6.0) * 0.3, c2);
+            }
             // drifting cloud deck, lit from the sun's side, darker underneath
             if (h > -0.02) {
               vec2 q = d.xz / (max(h, 0.0) + 0.1) * 1.4 + vec2(uTime * 0.006, uTime * 0.0022) + seed;
@@ -1214,6 +1221,10 @@ const Exterior = (() => {
           transparent: true, depthWrite: false, fog: false,
         }));
         cl.position.copy(m.position); cl.scale.setScalar(r); cl.rotation.copy(m.rotation); cl.renderOrder = m.renderOrder + 1; cl.frustumCulled = false; this.bodiesG.add(cl); this.bodies.push(cl);
+        // (and a thin high layer above that, its own wisps, slowly drifting over the deck below)
+        const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); hi.material.uniforms.map = cl.material.uniforms.map; hi.material.uniforms.uSun = mat.uniforms.uSun; hi.material.uniforms.uVis = mat.uniforms.uVis;
+        hi.position.copy(m.position); hi.scale.setScalar(r * 1.025); hi.rotation.set(m.rotation.x + 0.4, m.rotation.y + 2.1, m.rotation.z - 0.3); hi.renderOrder = m.renderOrder + 2; hi.frustumCulled = false;
+        this.bodiesG.add(hi); this.bodies.push(hi); (this.highClouds || (this.highClouds = [])).push(hi);
         if (b.rings) {
           const rg = new THREE.RingGeometry(1.35, 2.3, 160, 1), uv = rg.attributes.uv, p = rg.attributes.position;
           for (let i = 0; i < uv.count; i++) uv.setXY(i, (Math.hypot(p.getX(i), p.getY(i)) - 1.35) / 0.95, 0.5);
@@ -1234,6 +1245,7 @@ const Exterior = (() => {
       const vis = this.biome.airless ? 1 : (1 - L.cover * 0.8) * (this.weather === 'fog' ? 0.25 : 1);
       this.bodiesG.rotation.y = t * 0.0006;
       for (const m of this.bodies) { const u = m.material.uniforms; u.uSun.value.copy(L.sunDir); u.uVis.value = vis * (1 + 0.7 * L.night); }
+      if (this.highClouds) for (const c of this.highClouds) c.rotateY(0.00025);
     }
     buildRain(grp) {
       // each drop is a short line; both of its vertices share the drop's head position (position) and differ

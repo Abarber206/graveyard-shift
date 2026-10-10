@@ -17,7 +17,7 @@ const Ship = (() => {
   const H = 3.4, V = (x, y, z) => new THREE.Vector3(x, y, z);
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
-  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _smJ = new THREE.Vector3(), _smD = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _smJ = new THREE.Vector3(), _smD = new THREE.Vector3(), _occ = new THREE.Vector3(), _camP = new THREE.Vector3(0, 1.6, 0), _pq = new THREE.Quaternion();
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
   const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
@@ -2147,7 +2147,7 @@ const Ship = (() => {
     // resolving as you fall: each finer octave fades in once it is a few pixels across (so nothing ever shimmers),
     // and lights the land as relief. Low over it, the air thickens into haze toward the horizon.
     planetDetail() {
-      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 } };
+      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) } };
       const NOISE = `varying vec3 vPDir; float pdHeight = 0.0;
         float pdh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
         float pdn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -2179,9 +2179,9 @@ const Ship = (() => {
         `;
       const vert = (sh) => { sh.vertexShader = 'varying vec3 vPDir;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vPDir = position;'); };
       this.planetMat.onBeforeCompile = (sh) => {
-        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air;
-        vert(sh);
-        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir; uniform vec3 uPdTint, uPdSun; uniform sampler2D uPdCMap;\nvoid main() {')
+        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW;
+        vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
           .replace('#include <map_fragment>', `#include <map_fragment>
             {
               // land (bright in the texture) gets rough, mottled ground and real relief; the sea stays nearly flat
@@ -2217,6 +2217,10 @@ const Ship = (() => {
               vec3 gn = normalize(vNormal); float mu = clamp(dot(gn, normalize(vViewPosition)), 0.0, 1.0);
               float lit = smoothstep(-0.2, 0.45, dot(gn, directionalLights[0].direction));
               outgoingLight = mix(outgoingLight, uPdTint * (0.05 + 0.55 * lit), pow(1.0 - mu, 2.5) * uPdHaze);
+              // the shadows of what circles it: dark round spots sliding over its day side, soft at the edge (the further
+              // off the moon, the softer)
+              for (int i = 0; i < 3; i++) { vec4 c = uPdCast[i]; if (c.w > 0.0) { vec3 rel = c.xyz - vWP; float tt = dot(rel, uPdSunW);
+                if (tt > 0.0) { float d = length(rel - uPdSunW * tt), pen = c.w * 0.04 + tt * 0.0093; outgoingLight *= mix(0.05, 1.0, smoothstep(c.w - pen, c.w + pen, d)); } } }
               // (no air to soften it: a hard line between day and night, and the night side black)
               outgoingLight = mix(outgoingLight * smoothstep(-0.015, 0.08, dot(gn, directionalLights[0].direction)) + totalEmissiveRadiance, outgoingLight, uPdAir);
             }
@@ -2235,18 +2239,23 @@ const Ship = (() => {
               normal = normalize(abs(dt) * normal - sign(dt) * (hx * r1 + hy * r2));
             }`;
       this.cloudLayers = [this.clouds];
-      for (let i = 1; i < 3; i++) { const c = new THREE.Mesh(this.clouds.geometry, this.clouds.material.clone()); this.tilt.add(c); this.cloudLayers.push(c); }
+      for (let i = 1; i < 4; i++) { const c = new THREE.Mesh(this.clouds.geometry, this.clouds.material.clone()); this.tilt.add(c); this.cloudLayers.push(c); }
       // (diving in, the cloud breaks over the site, so you come down through a gap toward the ground and what's on it:
       // xyz is the site's direction in each layer's own frame, w how open the gap is; its edge is ragged with the cloud)
       const holeR = { value: new THREE.Vector2(1 - Math.cos(0.036), 1 - Math.cos(0.11)) };
       this.cloudLayers.forEach((c, i) => {
         const layer = { value: i }, hole = { value: new THREE.Vector4() }; c.userData.hole = hole;
-        c.scale.setScalar([0.999, 1.0002, 1.0014][i]); c.renderOrder = i;
-        c.material.opacity = [0.6, 0.45, 0.35][i];
+        // (three shells make the main deck; the fourth is a thin high layer above it, its own wisps drifting faster)
+        c.scale.setScalar([0.999, 1.0002, 1.0014, 1.0085][i]); c.renderOrder = i;
+        c.material.opacity = [0.6, 0.45, 0.35, 0.34][i];
         c.material.onBeforeCompile = (sh) => {
-          sh.uniforms.uLayer = layer; sh.uniforms.uHole = hole; sh.uniforms.uHoleR = holeR;
-          vert(sh);
-          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR;\nvoid main() {')
+          sh.uniforms.uLayer = layer; sh.uniforms.uHole = hole; sh.uniforms.uHoleR = holeR; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW;
+          vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR; uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; varying vec3 vWP;\nvoid main() {')
+            // (the clouds lie in the moons' shadows too)
+            .replace('#include <opaque_fragment>', `for (int i = 0; i < 3; i++) { vec4 c = uPdCast[i]; if (c.w > 0.0) { vec3 rel = c.xyz - vWP; float tt = dot(rel, uPdSunW);
+                if (tt > 0.0) { float d = length(rel - uPdSunW * tt), pen = c.w * 0.04 + tt * 0.0093; outgoingLight *= mix(0.05, 1.0, smoothstep(c.w - pen, c.w + pen, d)); } } }
+              #include <opaque_fragment>`)
             .replace('#include <map_fragment>', `#include <map_fragment>
               {
                 float hgt, det = pdFbm(normalize(vPDir) + 3.7 + uLayer * 0.61, 26.0, 2.5, 0.8, hgt);
@@ -2278,8 +2287,25 @@ const Ship = (() => {
     setBodies(list) {
       const R = this.R, o = this.orb;
       if (!this.bodiesG) { this.bodiesG = new THREE.Group(); this.pgroup.add(this.bodiesG); }
-      for (const m of [...this.bodiesG.children]) { this.bodiesG.remove(m); m.traverse((q) => { if (q.geometry) q.geometry.dispose(); }); }
-      this.bodyRims = [];
+      for (const m of [...this.bodiesG.children]) { this.bodiesG.remove(m); if (!m.userData.shared) m.geometry.dispose(); }
+      // (the ones that orbit, slowly; everything that can throw a shadow on the world we're circling, or be in its shadow)
+      this.bodyRims = []; this.bodyOrbits = []; this.casters = [];
+      if (!this.occU) { this.occU = { value: new THREE.Vector4() }; this.sunWU = { value: this.sunDir }; }
+      // a moon, rock or world out there: lit by the sun, dark in the shadow of the world we're circling when it passes
+      // behind it, and (a moon or rock) black past its terminator, the backdrop's soft fill light not wrapping round it
+      const shade = (mat, harsh) => {
+        mat.onBeforeCompile = (sh) => {
+          sh.uniforms.uOcc = this.occU; sh.uniforms.uSunW = this.sunWU;
+          sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+          sh.fragmentShader = 'uniform vec4 uOcc; uniform vec3 uSunW; varying vec3 vWP;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `{
+              vec3 rel = uOcc.xyz - vWP; float tt = dot(rel, uSunW);
+              if (tt > 0.0) { float d = length(rel - uSunW * tt), pen = uOcc.w * 0.03 + tt * 0.0093; outgoingLight *= mix(0.02, 1.0, smoothstep(uOcc.w - pen, uOcc.w + pen, d)); }
+              ${harsh ? '#if NUM_DIR_LIGHTS > 0\n outgoingLight *= smoothstep(-0.015, 0.08, dot(nonPerturbedNormal, directionalLights[0].direction));\n #endif' : ''}
+            }
+            #include <opaque_fragment>`);
+        };
+        mat.customProgramCacheKey = () => (harsh ? 'bodyHarsh' : 'bodySoft');
+      };
       const a = (o.ra + o.rp) / 2, cam = new THREE.Vector3().copy(o.D).multiplyScalar(-a), lim = Math.asin(Math.min(0.99, R / a));
       const u = new THREE.Vector3().crossVectors(o.D, new THREE.Vector3(0, 1, 0)).normalize(), v = new THREE.Vector3().crossVectors(u, o.D).normalize();
       const rr = new RNG(list.length * 977 + Math.round(a));
@@ -2298,18 +2324,15 @@ const Ship = (() => {
         } else geo = new THREE.SphereGeometry(1, 64, 32);
         const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
         const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', normalMap: nm, normalScale: new THREE.Vector2(2.2, 2.2) }));
-        // (a moon or rock is black past its terminator, like the world: the backdrop's soft fill light doesn't wrap round it)
-        if (b.kind !== 'planet') {
-          m.material.onBeforeCompile = (sh) => {
-            sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#if NUM_DIR_LIGHTS > 0
-              outgoingLight *= smoothstep(-0.015, 0.08, dot(nonPerturbedNormal, directionalLights[0].direction));
-            #endif
-            #include <opaque_fragment>`);
-          };
-          m.material.customProgramCacheKey = () => 'harshBody';
-        }
+        shade(m.material, b.kind !== 'planet');
         m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
-        this.bodiesG.add(m);
+        this.bodiesG.add(m); this.casters.push(m);
+        // (a moon or rock goes slowly round, a moon in about forty minutes, a rock in under twenty: its own way round,
+        // tipped a little, mostly across the sky so it circles the world rather than hiding behind it)
+        if (b.kind !== 'planet') {
+          const bn = pos.clone().normalize(), want = o.D.clone().negate().addScaledVector(v, 0.35);
+          this.bodyOrbits.push({ m, base: pos.clone(), axis: want.addScaledVector(bn, -want.dot(bn)).normalize(), speed: (b.kind === 'moon' ? TAU / 2400 : TAU / 1100) * (rr.next() < 0.5 ? 1 : -1) });
+        }
         // a world with air (seen from one of its moons) wears a thin glowing limb on its sunlit side, and its rings
         if (b.atmo != null) {
           const rim = new THREE.Mesh(new THREE.SphereGeometry(1.03, 48, 24), new THREE.ShaderMaterial({
@@ -2321,7 +2344,7 @@ const Ship = (() => {
           rim.position.copy(pos); rim.scale.setScalar(rad); rim.frustumCulled = false; this.bodiesG.add(rim); this.bodyRims.push(rim.material.uniforms.uSun);
         }
         if (b.rings) {
-          const ring = new THREE.Mesh(this.ring.geometry, this.ring.material); ring.position.copy(pos); ring.scale.setScalar(rad / R); ring.rotation.set(-Math.PI / 2 + 0.35, 0, 0.6); this.bodiesG.add(ring);
+          const ring = new THREE.Mesh(this.ring.geometry, this.ring.material); ring.position.copy(pos); ring.scale.setScalar(rad / R); ring.rotation.set(-Math.PI / 2 + 0.35, 0, 0.6); ring.userData.shared = true; this.bodiesG.add(ring);
         }
       }
     }
@@ -2370,7 +2393,7 @@ const Ship = (() => {
       this.plasma.material.uniforms.uV.value.copy(D);
       // the world turns beneath us; the sun appears to wheel around as we travel along the orbit
       this.planet.rotation.y = nu + t * o.spin;
-      for (const c of this.cloudLayers) c.rotation.y = nu * 1.02 + t * o.spin * 1.3;
+      this.cloudLayers.forEach((c, i) => { c.rotation.y = nu * 1.02 + t * o.spin * 1.3 + (i === 3 ? 1.7 + t * o.spin * 1.4 : 0); });
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       const sa = o.sunPhase - nu;
       this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);
@@ -2378,6 +2401,15 @@ const Ship = (() => {
       this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); this.stars.quaternion.premultiply(q);
       this.atmo.material.uniforms.sunDir.value.copy(this.sunDir);
       if (this.bodyRims) for (const u of this.bodyRims) u.value.copy(this.sunDir);
+      // what circles the world, slowly going round it; where they are for the shadows they throw on it, and its on them
+      if (this.bodyOrbits) {
+        for (const bo of this.bodyOrbits) bo.m.position.copy(bo.base).applyAxisAngle(bo.axis, t * bo.speed);
+        this.pgroup.updateMatrixWorld(true);
+        this.planet.getWorldPosition(_occ); this.occU.value.set(_occ.x, _occ.y, _occ.z, R);
+        const C = this.pdU.cast.value;
+        for (let i = 0; i < 3; i++) { const m = this.casters[i]; if (m) { m.getWorldPosition(_occ); C[i].set(_occ.x, _occ.y, _occ.z, m.scale.x); } else C[i].set(0, 0, 0, 0); }
+      }
+      this.pdU.sunW.value.copy(this.sunDir);
       // the air shell is seen from outside, or (falling into it) from within
       this.atmo.updateWorldMatrix(true, false); this.atmo.getWorldPosition(this.atmo.material.uniforms.uC.value);
       this.atmo.material.side = this.alt < R * 0.055 ? THREE.BackSide : THREE.FrontSide;
@@ -2408,7 +2440,12 @@ const Ship = (() => {
       }
       // eclipse when the sun slips behind the planet's disc
       const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(D), -1, 1));
-      const vis = sstep(angR - 0.015, angR + 0.05, ang) * (this.inWarp ? 0 : 1);
+      let vis = sstep(angR - 0.015, angR + 0.05, ang) * (this.inWarp ? 0 : 1);
+      // (and while a moon or rock crosses the sun's face: the glare and the light through the windows dim with it)
+      if (this.casters) for (const m of this.casters) {
+        m.getWorldPosition(_occ).sub(_camP); const dd = _occ.length(), am = Math.asin(Math.min(0.999, m.scale.x / dd));
+        vis *= sstep(am - 0.004, am + 0.015, Math.acos(clamp(this.sunDir.dot(_occ.divideScalar(dd)), -1, 1)));
+      }
       this.sunCore.material.opacity = vis;
       return { dir: this.sunDir, vis, dist };
     }

@@ -2324,8 +2324,9 @@ const G = {
         S.turn = ease(0, 2.4); S.dip = ease(1.6, 4.0);
         if (!s.roar && t > 1.6) { s.roar = true; SFX.play('engine', null, { dur: 5.5, vol: 1.3 }); }
         G.fovAdd = 10 * sstep(0.3, 0.9, S.approach);
-        const w = clamp((t - 0.6) / (E.white - 0.6), 0, 1);
-        S.approach = w * w * (3 - 2 * w);
+        // (never easing off: the world is still swelling, faster and faster, when the shutters slam down over it)
+        const w = clamp((t - 0.6) / (E.white - 1.2), 0, 1);
+        S.approach = Math.pow(w, 1.35);
         // the air starts where the ship actually reaches it
         const hr = S.alt / S.R;
         G.entryHeat = S.airless ? 0 : sstep(0.07, 0.03, hr) * (1 - sstep(E.white - 0.5, E.white + 0.4, t));   // (no air, nothing to burn)
@@ -2338,7 +2339,7 @@ const G = {
         S.plasma.visible = G.entryHeat > 0.001; pm.uK.value = G.entryHeat; pm.uT.value = t;
         S.stars.material.uniforms.uFade.value = 1 - 0.9 * sstep(0.09, 0.03, hr);
         S.setThrust(0, sstep(0, 0.5, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)));
-        Player.addShake(0.05 + 0.08 * sstep(0, 1.2, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.04 * sstep(1.6, 2.6, t) * (1 - sstep(3.2, 4.2, t)) + 0.55 * G.entryHeat);
+        Player.addShake(0.05 + 0.08 * sstep(0, 1.2, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.04 * sstep(1.6, 2.6, t) * (1 - sstep(3.2, 4.2, t)) + 0.55 * G.entryHeat + 0.1 * sstep(0.55, 1, S.approach) + (S.airless ? 0.22 * sstep(0.6, 1, S.approach) : 0));   // (and a mounting rumble; with no air to burn through, the braking burn)
         if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);

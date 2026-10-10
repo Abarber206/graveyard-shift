@@ -208,6 +208,14 @@ body.touch #rovercam .rc-hint { display: none; }
 @keyframes glitchA { 0%, 93%, 100% { transform: none; clip-path: inset(100% 0 0 0); } 94% { transform: translate(-4px, 1px); clip-path: inset(10% 0 60% 0); } 96% { transform: translate(5px, -2px); clip-path: inset(55% 0 20% 0); } 98% { transform: translate(-2px, 0); clip-path: inset(30% 0 45% 0); } }
 @keyframes glitchB { 0%, 88%, 100% { transform: none; clip-path: inset(100% 0 0 0); } 89% { transform: translate(4px, 0); clip-path: inset(70% 0 5% 0); } 91% { transform: translate(-6px, 2px); clip-path: inset(5% 0 75% 0); } }
 #menupanel { display: flex; flex-direction: column; gap: 6px; min-width: 360px; max-width: 520px; }
+/* a screen too tall for the window splits into two columns side by side (and shrinks if it must: fitToScreen) */
+#menupanel.cols, #pause .inner.cols, #summary .panel.cols { display: block; columns: 2; column-gap: 36px; max-width: none; width: min(88vw, 900px); }
+#menupanel.cols > *, #pause .inner.cols > *, #summary .panel.cols > * { break-inside: avoid; }
+#menupanel.cols > *, #pause .inner.cols > * { margin-bottom: 6px; }
+#menupanel.cols .btn, #pause .inner.cols .btn { display: block; }
+/* (settings rows, two to a screen, keep to their own column) */
+.cols .setrow { gap: 8px; } .cols .setrow > span:first-child { flex: 1; min-width: 0; }
+.cols .setrow input[type=range] { width: 84px; flex: none; } .cols .setrow .sv { width: 46px; flex: none; } .cols .setrow button { min-width: 0; width: 104px; flex: none; }
 #menufoot { position: absolute; bottom: 22px; left: 9vw; font-size: 18px; letter-spacing: 3px; color: #5a4a3a; }
 .btn { pointer-events: auto; background: transparent; border: none; color: #cdbfae; font-family: 'VT323', monospace; font-size: 32px; letter-spacing: 3px; text-align: left; padding: 4px 10px; cursor: pointer; position: relative; transition: color .15s, padding .15s; }
 .btn:hover, .btn:focus-visible { color: var(--amber-hi); padding-left: 26px; outline: none; text-shadow: 0 0 10px rgba(242,166,90,.6); }
@@ -298,9 +306,10 @@ body.touch #voiceind { bottom: auto; top: calc(60px + env(safe-area-inset-top));
   #tracker { width: 120px; height: 120px; right: 16px; bottom: 16px; }
   #spectate { font-size: 19px; bottom: 76px; } #struggle { font-size: 22px; }
   .slabel .tag { font-size: 14px; } .bubble { font-size: 18px; }
-  #menu { padding-left: 5vw; justify-content: flex-start; padding-top: 3vh; }
+  #menu { padding: 8px 0 8px 5vw; }
+  #menu.sub #title { display: none; }
   #title h1 { font-size: 42px; letter-spacing: 5px; } #tagline { font-size: 13px; letter-spacing: 3px; margin: 4px 0 8px 2px; }
-  #menupanel { min-width: 300px; max-height: 74vh; overflow-y: auto; touch-action: pan-y; padding-right: 8px; }
+  #menupanel { min-width: 300px; padding-right: 8px; touch-action: pan-y; }
   #menufoot { display: none; }
   .btn { font-size: 24px; padding: 2px 10px; } .btn.small { font-size: 19px; }
   .mtitle { font-size: 22px; margin-bottom: 4px; } .mtext { font-size: 17px; }
@@ -308,8 +317,8 @@ body.touch #voiceind { bottom: auto; top: calc(60px + env(safe-area-inset-top));
   .setrow { font-size: 17px; } .setrow input[type=range] { width: 140px; } .setrow .sv { width: 70px; } .setrow button { font-size: 17px; min-width: 110px; }
   .code { font-size: 40px; } .keys { grid-template-columns: 130px 1fr; font-size: 16px; }
   .suitpick canvas { width: 110px; height: 110px; } .suitprev { width: 64px; height: 64px; }
-  #pause { padding-left: 5vw; } #pause .inner { min-width: 300px; max-height: 94vh; overflow-y: auto; touch-action: pan-y; padding: 8px 8px 8px 0; }
-  #summary .panel { padding: 12px 20px; font-size: 17px; max-height: 94vh; overflow-y: auto; } #summary h2 { font-size: 27px; } #summary .grade { font-size: 56px; } #summary .sub { margin-bottom: 8px; }
+  #pause { padding-left: 5vw; } #pause .inner { min-width: 300px; touch-action: pan-y; padding: 8px 8px 8px 0; }
+  #summary .panel { padding: 12px 20px; font-size: 17px; touch-action: pan-y; } #summary h2 { font-size: 27px; } #summary .grade { font-size: 56px; } #summary .sub { margin-bottom: 8px; }
   #term-bezel { width: 98vw; height: 96vh; padding: 8px; border-radius: 10px; }
   #term-screen { font-size: 17px; padding: 8px 10px; } #term-head { font-size: 15px; gap: 8px; } #term-exit { font-size: 17px; }
   #term-bar { gap: 4px 6px; padding: 4px 0; } #term-bar button { font-size: 16px; padding: 2px 8px; }

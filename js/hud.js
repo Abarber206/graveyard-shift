@@ -234,10 +234,13 @@ const HUD = (() => {
     letterbox(on) { $('bars').classList.toggle('on', on); $('hud').classList.toggle('cine', on); },
     struggle(on) { $('struggle').classList.toggle('on', on); $('struggle').innerHTML = on ? 'SOMETHING IS ON YOUR HEAD<br><span style="font-size:22px">MASH [E] TO TEAR IT OFF</span>' : ''; },
     voice(t) { $('voiceind').textContent = t || ''; },
+    // (the report fits the screen like the menus do)
+    fitSummary() { const s = $('summary'); if (!s.classList.contains('hidden')) fitToScreen(s.querySelector('.panel'), innerHeight - 20); },
     summary(html, btnLabel, onClose) {
       const s = $('summary');
       s.innerHTML = `<div class="panel">${html}<button class="btn" id="sumclose">${esc(btnLabel || 'CONTINUE')}</button></div>`;
       s.classList.remove('hidden'); overlay = true;
+      HUD.fitSummary();
       Input.unlock();
       $('sumclose').onclick = () => { s.classList.add('hidden'); overlay = false; if (onClose) onClose(); else Input.lock(); };
     },

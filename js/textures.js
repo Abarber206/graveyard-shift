@@ -291,6 +291,42 @@ const TEX = (() => {
       for (let i = 0; i < 140; i++) { const v = r.range(90, 150) | 0; g.fillStyle = `rgba(${v},${v},${v},.5)`; g.fillRect(r.next() * 256, r.next() * 256, r.range(1, 3), r.range(1, 2)); }
       speckle(g, 256, 256, 16); return finish(c);
     },
+    // wind-packed snow: soft drifts, sastrugi ridges, a little grit and the odd rock showing through
+    terrainSnow() {
+      const [c, g] = C(256, 256);
+      g.fillStyle = '#d8dee6'; g.fillRect(0, 0, 256, 256);
+      blotches(g, 256, 256, 60, '240,244,250', 0.2, 0.5, 10, 50); blotches(g, 256, 256, 40, '176,186,200', 0.12, 0.3, 8, 34);
+      for (let i = 0; i < 70; i++) { const y = r.next() * 256, x = r.next() * 256; g.strokeStyle = `rgba(${r.next() < 0.5 ? '255,255,255' : '160,172,190'},${r.range(0.15, 0.35)})`; g.lineWidth = r.range(1, 2.5); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 14, y - r.range(-4, 4), x + r.range(20, 40), y + r.range(-3, 3)); g.stroke(); }
+      blotches(g, 256, 256, 10, '96,100,110', 0.2, 0.45, 2, 7);
+      speckle(g, 256, 256, 8); return finish(c);
+    },
+    // a salt pan: a white crust broken into polygons, their raised rims, a little grey grit in the cracks
+    terrainSalt() {
+      const [c, g] = C(256, 256);
+      g.fillStyle = '#e4dccb'; g.fillRect(0, 0, 256, 256);
+      blotches(g, 256, 256, 50, '246,242,232', 0.2, 0.5, 10, 46); blotches(g, 256, 256, 30, '196,186,166', 0.12, 0.3, 8, 30);
+      // (a jittered grid of cells, each outlined by a raised rim)
+      const N = 6, P = [];
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) P.push([i * 256 / N + (i % N ? r.range(-12, 12) : 0), j * 256 / N + (j % N ? r.range(-12, 12) : 0)]);
+      g.lineCap = 'round';
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+        const p = P[j * (N + 1) + i];
+        for (const [di, dj] of [[1, 0], [0, 1]]) { if (i + di > N || j + dj > N) continue; const q = P[(j + dj) * (N + 1) + i + di];
+          g.strokeStyle = 'rgba(255,255,250,.85)'; g.lineWidth = 4; g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+          g.strokeStyle = 'rgba(120,108,90,.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(p[0] + 1, p[1] + 1); g.lineTo(q[0] + 1, q[1] + 1); g.stroke(); }
+      }
+      speckle(g, 256, 256, 10); return finish(c);
+    },
+    // basalt: black glassy rock, flow lines, ochre sulphur crusts and ember-red seams
+    terrainBasalt() {
+      const [c, g] = C(256, 256);
+      g.fillStyle = '#26221f'; g.fillRect(0, 0, 256, 256);
+      blotches(g, 256, 256, 60, '52,46,42', 0.15, 0.4, 8, 40); blotches(g, 256, 256, 40, '10,9,9', 0.2, 0.5, 6, 30);
+      for (let i = 0; i < 30; i++) { const y = r.next() * 256; g.strokeStyle = `rgba(70,64,58,${r.range(0.15, 0.35)})`; g.lineWidth = r.range(1, 3); g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(80, y + r.range(-10, 10), 170, y + r.range(-10, 10), 256, y); g.stroke(); }
+      blotches(g, 256, 256, 14, '170,130,40', 0.08, 0.2, 3, 12);
+      cracks(g, 256, 256, 8, 'rgba(160,44,12,.55)');
+      speckle(g, 256, 256, 14); return finish(c);
+    },
     // old red brick in Flemish bond, sooty and mortar-stained (the mill)
     brick() {
       const [c, g] = C(256, 256);
@@ -591,17 +627,21 @@ const TEX = (() => {
       return finish(c, true, false);
     },
     rings() {
-      // planetary ring bands: noisy density with a dark gap, fading at both edges
+      // a ring system's profile from its inner edge (left) to its outer (right): alpha how dense it is, colour how bright.
+      // A faint, greyish inner ring of fine ringlets; the broad, dense, bright main ring; a dark division; a fainter
+      // outer ring with a thin gap near its edge; and past a clear stretch, one thin bright strand
       const [c, g] = C(1024, 4);
       const nz = new Noise2D(21);
       const id = g.createImageData(1024, 4), d = id.data;
       for (let x = 0; x < 1024; x++) {
-        const u = x / 1024;
-        let a = 0.3 + 0.45 * (nz.noise(u * 38, 0.5) * 0.5 + 0.5) + 0.25 * nz.noise(u * 170, 3.1);
-        if (u > 0.56 && u < 0.61) a *= 0.08;
-        a *= sstep(0, 0.06, u) * sstep(1, 0.88, u);
-        const b = 205 + 45 * nz.noise(u * 70, 7);
-        for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b * 0.92; d[i + 2] = b * 0.8; d[i + 3] = clamp(a, 0, 1) * 255; }
+        const u = (x + 0.5) / 1024, n = (k, s) => nz.noise(u * k, s) * 0.5 + 0.5;
+        let a = 0, b = 0;
+        if (u < 0.22) { a = (0.1 + 0.16 * n(90, 0.5) + 0.1 * Math.max(0, Math.sin(u * 420 + n(30, 2) * 6)) ** 6) * sstep(0, 0.04, u); b = 115 + 30 * n(40, 4); }
+        else if (u < 0.55) { a = 0.72 + 0.26 * n(60, 1.5) - 0.12 * n(260, 6) ** 3; a *= 1 - 0.25 * sstep(0.22, 0.27, u) * (1 - sstep(0.24, 0.3, u)); b = 215 + 35 * n(50, 7) - 25 * sstep(0.5, 0.55, u); }
+        else if (u < 0.6) { a = 0.04 + 0.08 * Math.max(0, Math.sin(u * 900)) ** 4; b = 95; }
+        else if (u < 0.9) { a = (0.48 + 0.18 * n(45, 3.3) + 0.1 * n(200, 8)) * (u > 0.855 && u < 0.866 ? 0.02 : 1); b = 165 + 30 * n(35, 5); }
+        else if (u > 0.95 && u < 0.962) { a = 0.55 * Math.sin((u - 0.95) / 0.012 * Math.PI); b = 235; }
+        for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b * 0.93; d[i + 2] = b * 0.82; d[i + 3] = clamp(a, 0, 1) * 255; }
       }
       g.putImageData(id, 0, 0);
       return finish(c, false, false);

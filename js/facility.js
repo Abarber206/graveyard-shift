@@ -158,7 +158,6 @@ const Facility = (() => {
   const DEEP_W = { boiler: 1.9, machine: 1.6, storage: 1.1, morgue: 1.5, hall: 1.3, lab: 0.8, lockers: 0.8, office: 0.4 };
   // the surfaces a lower level wears down: they take that level's darker, grimier finish ('wall@2' and so on)
   const AGED = new Set(['wall', 'wallTile', 'floor', 'floorTile', 'ceiling', 'painted', 'rust', 'darkmetal', 'metal', 'wood', 'crate', 'door', 'locker', 'vent', 'bunker', 'cloth', 'sheet', 'hazard', 'labPanel', 'grate']);
-  const facMat = (key) => { const at = key.indexOf('@'); return at < 0 ? MATS.get(key) : MATS.aged(key.slice(0, at), +key.slice(at + 1)); };
   const TYPE_W = { storage: 3, office: 2, machine: 1.5, lab: 2, lockers: 1.5, boiler: 1, morgue: 1.2, hall: 0.6 };
   // what each site was before it was abandoned decides what its rooms are
   const THEME_W = {
@@ -166,10 +165,47 @@ const Facility = (() => {
     kessler: { lab: 4, morgue: 2.5, office: 2, storage: 1.5, lockers: 1.5, machine: 0.6, boiler: 0.4, hall: 0.4 },     // research annex
     nadir: { machine: 3.5, boiler: 3, storage: 2, lockers: 1.6, hall: 1.4, office: 0.8, lab: 0.4, morgue: 0.3 },       // pumping station
     hollow: { morgue: 2.2, lab: 2, storage: 2, machine: 1.8, hall: 1.6, boiler: 1.2, lockers: 1, office: 0.7 },        // ???
+    verdigris: { lab: 3, storage: 2.5, hall: 1.5, office: 1, lockers: 1, machine: 1, boiler: 0.8, morgue: 0.2 },       // hydroponic farm
+    rimefall: { storage: 4, machine: 2.4, lockers: 1.4, office: 1.2, hall: 1.2, morgue: 1, boiler: 0.6, lab: 0.6 },     // cold storage
+    agnes: { morgue: 2.4, lockers: 2.4, office: 2.2, lab: 1.6, hall: 1, storage: 1, boiler: 0.8, machine: 0.2 },       // sanatorium
+    brinewell: { storage: 3, machine: 2.6, hall: 2.2, boiler: 1.6, lockers: 1.2, office: 1, morgue: 0.4, lab: 0.2 },   // shipyard
+    saltreach: { machine: 3.6, boiler: 2.6, storage: 2, hall: 1.6, lab: 1, lockers: 1, office: 0.8, morgue: 0.2 },     // brine refinery
+    vesper: { boiler: 3.8, machine: 3, hall: 2, storage: 1.6, lockers: 0.8, morgue: 0.8, office: 0.4, lab: 0.2 },      // foundry
+  };
+  // What each world's plant was fitted out with inside: each of the usual surfaces swapped for its own (a material and a
+  // tint), and the colour its strip lights burn (lamp, blended into what each room's own lights are)
+  const FINISH = {
+    // potting-shed timber, wet green-stained concrete, white grow-room panels over drainage grating, the grow lights' magenta
+    verdigris: { wall: ['wood', 0xb0a080], wallTile: ['labPanel', 0xc8d8c0], floor: ['floor', 0x7a8a6a], floorTile: ['grate', 0x8a9a80], ceiling: ['perf', 0x9aa890], door: ['door', 0x7f9a78], lamp: 0xff9ae8 },
+    // insulated freezer panels, steel grating underfoot, cold blue-white light
+    rimefall: { wall: ['labPanel', 0xc4d4e2], wallTile: ['labPanel', 0xb4c6d6], floor: ['grate', 0xa8b8c8], floorTile: ['floorTile', 0xaabccc], ceiling: ['metal', 0xb0c0cc], door: ['door', 0xc0d0dc], lamp: 0xc8e8ff },
+    // institutional green tile, worn linoleum, old wooden doors, yellowed light
+    agnes: { wall: ['wallTile', 0x98b49a], wallTile: ['wallTile', 0xc8ccb8], floor: ['floorTile', 0x9a9282], floorTile: ['floorTile', 0xb0aa98], ceiling: ['ceiling', 0xb8b2a0], door: ['wood', 0x9a7a58], lamp: 0xf2eaa8 },
+    // a ship's insides: rusted plate, painted bulkheads, deck plating, a sea-green cast
+    brinewell: { wall: ['rust', 0x8a9a96], wallTile: ['painted', 0x5f8a86], floor: ['metal', 0x6a7a78], floorTile: ['metal', 0x7a8a88], ceiling: ['painted', 0x506a68], door: ['painted', 0x3f6a66], lamp: 0xb8ffe8 },
+    // cream-painted steel, grating, safety-yellow doors, sodium light
+    saltreach: { wall: ['painted', 0xd8cca0], wallTile: ['wallTile', 0xe0dcc8], floor: ['grate', 0xa09880], floorTile: ['floorTile', 0xc8c0a8], ceiling: ['metal', 0xa8a088], door: ['painted', 0xd0a428], lamp: 0xffc070 },
+    // sooty firebrick, black slag concrete, rusted doors, furnace-orange light
+    vesper: { wall: ['brick', 0x7a5a50], wallTile: ['bunker', 0x5a5450], floor: ['floor', 0x5a524c], floorTile: ['metal', 0x5a5450], ceiling: ['bunker', 0x4a4440], door: ['rust', 0x8a6a5a], lamp: 0xff9a50 },
+  };
+  const _lampC = new THREE.Color(), _lampF = new THREE.Color();
+  const AGE_T = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34]], finCache = {};
+  // a world's own version of a surface (worn the way MATS.aged wears one, on the levels below)
+  const finMat = (theme, base, f, lv) => {
+    const k = theme + ':' + base + '@' + lv; if (finCache[k]) return finCache[k];
+    const m = MATS.get(f[0]).clone(); if (f[1] != null) m.color = new THREE.Color(f[1]);
+    if (lv > 0) { const t = AGE_T[Math.min(3, lv)]; m.color.multiply(new THREE.Color(t[0], t[1], t[2])); if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv); if (m.metalness) m.metalness *= 0.6; }
+    return (finCache[k] = m);
   };
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
   class Fac {
+    // a surface ('wall', or 'wall@2' a level down), in this world's own finish when it has one
+    mat(key) {
+      const at = key.indexOf('@'), base = at < 0 ? key : key.slice(0, at), lv = at < 0 ? 0 : +key.slice(at + 1), f = FINISH[this.theme] && FINISH[this.theme][base];
+      if (f) return finMat(this.theme, base, f, lv);
+      return at < 0 ? MATS.get(key) : MATS.aged(base, lv);
+    }
     // stairs: the stairwell plan, one entry per level under the ground floor. [n]: two levels joined by n stairwells.
     // [a, b]: three levels; a main stairwell serves all three, and one more runs down to each of the lower two.
     constructor(seed, size, theme, stairs) {
@@ -477,6 +513,8 @@ const Facility = (() => {
         const range = this.grid[k] !== 2 ? 6.2 : h >= 5 ? 8.5 : 7;
         // the further down, the weaker what's left of the supply; the lowest emergency circuit glows red
         if (state === 'emergency' && deep > 1.5) color = 0xff5a30;
+        // (each world's fittings burn their own colour; the emergency circuit is the same red everywhere)
+        else if (state !== 'emergency' && FINISH[this.theme]) color = _lampC.set(color).lerp(_lampF.set(FINISH[this.theme].lamp), 0.6).getHex();
         this.lamps.push({ i, j, x: this.cx(i), y: base + h - 0.12, fy: base, z: this.cz(j), tilt: 0, color, state, axis, range, power: (state === 'emergency' ? 0.55 : h >= 5 ? 1.4 : 1) * (1 - 0.16 * deep), phase: r.next() * 100, zone: 'in', lit: 1, idx: this.lamps.length });
       };
       // deeper down more of the tubes are dead and most of the rest are failing; on the lowest level only the
@@ -1214,7 +1252,7 @@ const Facility = (() => {
         geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
-        const me = new THREE.Mesh(geo, facMat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); grp.add(me);
+        const me = new THREE.Mesh(geo, this.mat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); grp.add(me);
       }
       // doors: frames + panels
       const leafGeo = Pane.leaf(LEAF_W, DH - 0.03, LEAF_T);
@@ -1231,7 +1269,7 @@ const Facility = (() => {
         // the leaf hangs on three hinges at the jamb; a lever set on each face at the latch edge
         const pivot = new THREE.Group();
         pivot.position.set(d.x + tx * LEAF_AXIS, d.y, d.z + tz * LEAF_AXIS);
-        const panel = new THREE.Mesh(leafGeo, facMat(d.lv > 0 ? 'door@' + d.lv : 'door'));
+        const panel = new THREE.Mesh(leafGeo, this.mat(d.lv > 0 ? 'door@' + d.lv : 'door'));
         panel.position.set(LEAF_W / 2, (DH - 0.03) / 2 + 0.005, 0); panel.castShadow = true; panel.receiveShadow = true;
         pivot.add(panel);
         const hw = new THREE.Mesh(leafHW[d.pane], MATS.get('hardware')); hw.castShadow = true; pivot.add(hw);
@@ -1263,7 +1301,7 @@ const Facility = (() => {
         const L = this.frame(c.x, c.z, c.ry), [hx, hz] = L(-c.w / 2 + 0.01, c.d / 2);
         const pivot = new THREE.Group(); pivot.position.set(hx, c.y, hz); pivot.rotation.y = c.ry;
         const dw = c.w - 0.02, dh = c.h - 0.05, dm = c.kind === 'locker' ? 'locker' : 'painted';
-        const door = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 0.02), facMat(c.lv > 0 ? dm + '@' + c.lv : dm));
+        const door = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 0.02), this.mat(c.lv > 0 ? dm + '@' + c.lv : dm));
         door.position.set(dw / 2, 0.025 + dh / 2, 0.01); door.castShadow = true; door.receiveShadow = true; pivot.add(door);
         if (!chw[c.kind]) { const parts = []; const y = c.kind === 'locker' ? 0.95 : 0.55; DoorKit.pull(parts, dw - 0.07, 0.02, 1, y, y + 0.2, 0.009); chw[c.kind] = mergeGeoList(DoorKit.place(parts, mat(0, 0, 0.01))); }
         const hw = new THREE.Mesh(chw[c.kind], MATS.get('hardware')); pivot.add(hw);
@@ -1304,7 +1342,7 @@ const Facility = (() => {
       for (const m in this.buckets) {
         const geo = mergeGeoList(this.buckets[m]);
         if (!geo) continue;
-        const mat = facMat(m);
+        const mat = this.mat(m);
         const me = new THREE.Mesh(geo, mat);
         me.castShadow = !mat.transparent && m !== 'paper'; me.receiveShadow = true;
         if (mat.transparent) me.renderOrder = 2;
@@ -1512,7 +1550,7 @@ const Facility = (() => {
         this.pbox('hazard', TS - 0.84, 0.12, 0.52, d.x, d.y + CH - 0.46, d.z, ry);
         this.lv = 0;
         const g = new THREE.Group(); g.position.set(d.x, d.y, d.z); g.rotation.y = ry; grp.add(g);
-        const slab = new THREE.Mesh(this.wbox(TS - 0.8, CH - 0.1, 0.26, 1.5), facMat(d.lv > 0 ? 'painted@' + d.lv : 'painted'));
+        const slab = new THREE.Mesh(this.wbox(TS - 0.8, CH - 0.1, 0.26, 1.5), this.mat(d.lv > 0 ? 'painted@' + d.lv : 'painted'));
         slab.position.y = (CH - 0.1) / 2; slab.castShadow = true; slab.receiveShadow = true; g.add(slab);
         const band = new THREE.Mesh(new THREE.BoxGeometry(TS - 0.82, 0.16, 0.28), MATS.get('hazard')); band.position.y = 0.12; g.add(band);
         const tex = TEX.sign(d.code, { w: 256, h: 192, size: 130, bold: true, border: false, bg: 'rgba(0,0,0,0)', fg: 'rgba(225,190,70,.92)' });
@@ -1546,7 +1584,7 @@ const Facility = (() => {
       d.broken = true; d.open = true; d.anim = 1;
       d.mesh.visible = false;
       // the panel is torn off its hinges and lands flat inside the room
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(DW - 0.04, 0.07, DH - 0.02), facMat(d.lv > 0 ? 'door@' + d.lv : 'door'));
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(DW - 0.04, 0.07, DH - 0.02), this.mat(d.lv > 0 ? 'door@' + d.lv : 'door'));
       slab.position.set(d.x + d.nx * 1.5, d.y + 0.05, d.z + d.nz * 1.5);
       slab.rotation.set(0.04, d.base + 0.3, 0.02);
       slab.castShadow = true; slab.receiveShadow = true;

@@ -1,6 +1,86 @@
 'use strict';
 // Procedural outdoor landing site: terrain, dead forest, a winding trail, the processing-plant complex
 // (facility entrance), fire exit, pylons, wrecks, sky + weather.
+
+// A ringed world's rings, worked out the same way wherever they're seen from (the sky over its moon or rock, or from
+// orbit round any of them). They're a flat sheet of ice and rock round the world's middle, as dense at each distance out
+// as the ring texture says, with lanes swept clear by whatever goes round inside them. Each line of sight is followed
+// to where it crosses the sheet, so they're right however near or far: the world (and anything else out there) hides
+// what's behind it; sunlight lights the face it falls on and filters through to the other, where the thin parts glow and
+// the thick ones go dark; seen slantwise even the thin parts close up; the world's shadow and the shadows of its moons and
+// rocks fall across them, sharp; and their own shadow lies across the world (and whatever's inside them) in bands.
+// Everything is in one space: the world's centre uRingC, the sheet's normal uRingN, uRingR (inner and outer edge in
+// the world's radii, the world's radius, 1 if there are rings at all), two lanes in uRingGap (radius, half-width), and
+// up to three other bodies in uRingOcc (centre, radius) that hide the rings and shade them.
+const Rings = {
+  uniforms() {
+    return { uRingMap: { value: TEX.get('rings') }, uRingC: { value: new THREE.Vector3() }, uRingN: { value: new THREE.Vector3(0, 1, 0) }, uRingR: { value: new THREE.Vector4(1.3, 3, 1, 0) },
+      uRingGap: { value: new THREE.Vector4() }, uRingOcc: { value: [new THREE.Vector4(0, 0, 0, 0), new THREE.Vector4(0, 0, 0, 0), new THREE.Vector4(0, 0, 0, 0)] }, uRingCol: { value: new THREE.Color(1, 1, 1) } };
+  },
+  // today's rings (ringsToday) round a world of this tint; k: how bright they come out in that view
+  set(U, sys, tint, k = 1) {
+    if (!sys) { U.uRingR.value.w = 0; return; }
+    U.uRingR.value.set(sys.in, sys.out, U.uRingR.value.z || 1, 1);
+    const g = sys.gaps || []; U.uRingGap.value.set(g[0] ? g[0][0] : 0, g[0] ? g[0][1] : 0, g[1] ? g[1][0] : 0, g[1] ? g[1][1] : 0);
+    U.uRingCol.value.set(tint).lerp(_ringW, 0.3).multiplyScalar(k);
+  },
+  GLSL: `uniform sampler2D uRingMap; uniform vec3 uRingC, uRingN, uRingCol; uniform vec4 uRingR, uRingGap; uniform vec4 uRingOcc[3];
+    // the sheet r of the world's radii out: its colour, and how dense it is (alpha)
+    vec4 ringTx(float r) { return texture2D(uRingMap, vec2(clamp((r - uRingR.x) / (uRingR.y - uRingR.x), 0.0, 1.0), 0.5)); }
+    // fine ringlets, far finer than the texture: there close up, fading out before they're fine enough to shimmer
+    float ringN1(float x) { float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(fract(sin(i * 12.9898) * 43758.5453), fract(sin((i + 1.0) * 12.9898) * 43758.5453), f); }
+    float ringFine(float r) { float k = r * 2400.0; return mix(1.0, 0.4 + 1.2 * ringN1(k) * ringN1(k * 0.31 + 7.0), 1.0 - smoothstep(0.2, 0.8, fwidth(k))); }
+    // and broader bands of brighter and duller ice, coarse enough to show even where the sheet is seen edge-on
+    float ringBands(float r) { float k = r * 90.0, k2 = r * 23.0; return mix(1.0, 0.72 + 0.5 * ringN1(k) * (0.6 + 0.4 * ringN1(k2 + 3.0)), 1.0 - smoothstep(0.25, 0.9, fwidth(k))); }
+    // its optical depth there (nothing, up to about 3 in the thick of the main ring), the lanes cut clean
+    float ringTau(float r, float a) {
+      float g0 = max(uRingGap.y, 1e-6), g1 = max(uRingGap.w, 1e-6);
+      return -log(1.0 - 0.94 * a) * 1.1 * step(uRingR.x, r) * step(r, uRingR.y) * uRingR.w
+        * smoothstep(g0 * 0.9, g0, abs(r - uRingGap.x)) * smoothstep(g1 * 0.9, g1, abs(r - uRingGap.z));
+    }
+    // how much sunlight is left at P once it's come through the rings, toward the sun S
+    float ringThrough(vec3 P, vec3 S) {
+      float sn = dot(S, uRingN), t = dot(uRingC - P, uRingN) / (abs(sn) < 1e-4 ? 1e-4 : sn);
+      float r = length(P + S * t - uRingC) / uRingR.z;
+      return exp(-ringTau(r, ringTx(r).a) * step(0.0, t) / max(abs(sn), 0.03));
+    }
+    // where a line first meets a sphere (centre, radius): -1 if it misses, 0 if it starts inside
+    float ringHit(vec3 o, vec3 d, vec4 s) { vec3 oc = o - s.xyz; float b = dot(oc, d), h = b * b - dot(oc, oc) + s.w * s.w; if (h < 0.0) return -1.0; h = sqrt(h); return -b + h < 0.0 ? -1.0 : max(-b - h, 0.0); }
+    // how much of the sun a sphere leaves showing at P: a sharp shadow, with only the sliver of penumbra the sun's disc gives
+    float ringSun(vec3 P, vec3 S, vec4 s) { vec3 rel = s.xyz - P; float t = dot(rel, S); if (t <= 0.0 || s.w <= 0.0) return 1.0; float pen = t * 0.0047 + s.w * 0.002; return smoothstep(s.w - pen, s.w + pen, length(rel - S * t)); }
+    // the rings along a line of sight from o in direction d, the sun toward S: colour and cover, and how far off (t)
+    vec4 ringSee(vec3 o, vec3 d, vec3 S, out float t) {
+      float dn = dot(d, uRingN); t = dot(uRingC - o, uRingN) / (abs(dn) < 1e-6 ? 1e-6 : dn);
+      vec3 P = o + d * t; float r = length(P - uRingC) / uRingR.z;
+      vec4 tx = ringTx(r); float fine = ringFine(r), bands = ringBands(r), tau = ringTau(r, tx.a) * fine;
+      if (t <= 0.0 || tau < 1e-4) return vec4(0.0);
+      vec4 W = vec4(uRingC, uRingR.z); float h = ringHit(o, d, W);
+      if (h >= 0.0 && h < t) return vec4(0.0);
+      for (int i = 0; i < 3; i++) { h = ringHit(o, d, uRingOcc[i]); if (uRingOcc[i].w > 0.0 && h >= 0.0 && h < t) return vec4(0.0); }
+      float mu = max(abs(dn), 0.01), sn = dot(S, uRingN), mu0 = max(abs(sn), 0.01), cover = 1.0 - exp(-tau / mu);
+      float lit = ringSun(P, S, W);
+      for (int i = 0; i < 3; i++) lit *= ringSun(P, S, uRingOcc[i]);
+      // (the sunlit face: light scattered back off it; the far face: only what scatters on through)
+      float IF = sn * dot(o - uRingC, uRingN) > 0.0 ? mu0 / (mu0 + mu) * (1.0 - exp(-tau * (1.0 / mu0 + 1.0 / mu)))
+        : 0.75 * (abs(mu - mu0) < 0.003 ? tau / mu * exp(-tau / mu) : mu0 / (mu - mu0) * (exp(-tau / mu) - exp(-tau / mu0)));
+      // (the thick rings are the bright ones, the thin ones dusky, so the rings keep their bands even edge-on)
+      float alb = mix(0.45, 1.15, smoothstep(0.08, 1.8, tau)) * bands * mix(1.0, fine, 0.5);
+      return vec4(tx.rgb * uRingCol * alb * (IF * lit * 1.5 + 0.004 * cover) / max(cover, 1e-3), cover);
+    }
+`,
+  // (the same, worked out here: how much sunlight reaches P through the rings, for the sun on the ground and the glare)
+  through(U, P, S) {
+    const N = U.uRingN.value, C = U.uRingC.value, R4 = U.uRingR.value; if (!R4.w) return 1;
+    const sn = S.dot(N), t = (C.dot(N) - P.dot(N)) / (Math.abs(sn) < 1e-4 ? 1e-4 : sn); if (t <= 0) return 1;
+    const r = _ringP.copy(P).addScaledVector(S, t).sub(C).length() / R4.z;
+    if (r < R4.x || r > R4.y) return 1;
+    if (!Rings.prof) { const im = TEX.get('rings').image, d = im.getContext('2d').getImageData(0, 0, im.width, 1).data; Rings.prof = Float32Array.from({ length: im.width }, (_, i) => d[i * 4 + 3] / 255); }
+    const pr = Rings.prof, g = U.uRingGap.value, a = pr[Math.round(clamp((r - R4.x) / (R4.y - R4.x), 0, 1) * (pr.length - 1))];
+    const lane = (c, w) => (w > 0 ? sstep(w * 0.9, w, Math.abs(r - c)) : 1);
+    return Math.exp(-(-Math.log(1 - 0.94 * a) * 1.1 * lane(g.x, g.y) * lane(g.z, g.w)) / Math.max(Math.abs(sn), 0.03));
+  },
+};
+const _ringW = new THREE.Color(1, 1, 1), _ringP = new THREE.Vector3(), _pollen = new THREE.Color(1.3, 1.25, 0.5);
 function obbCollide(p, r, c) {
   const dx = p.x - c.x, dz = p.z - c.z, cs = Math.cos(c.ry), sn = Math.sin(c.ry);
   const q = { x: dx * cs - dz * sn, z: dx * sn + dz * cs };
@@ -59,6 +139,78 @@ const BIOMES = {
     sky: { top: [0.72, 0.38, 0.34], hor: [0.9, 0.46, 0.36], sun: [1.0, 0.42, 0.28], hemi: [0.9, 0.52, 0.48], dim: 0.8, fogAdd: 0.006 },
     motes: 'ash', plant: 'ruin', sign: 'S I T E   0',
     vehicles: { colors: [0x2a2624], van: 0.3, burnt: true },
+  },
+  // a hothouse world: an overgrown hydroponic farm under a warm green haze, everything dripping and growing
+  verdigris: {
+    relief: 'hills', water: null, terrainTex: 'terrainMarsh',
+    ground: { a: [0.66, 0.78, 0.52], b: [0.54, 0.66, 0.42], damp: [0.36, 0.44, 0.3], moss: [0.52, 0.72, 0.4], rock: [0.55, 0.6, 0.5], trail: [0.52, 0.46, 0.36], yard: [0.56, 0.6, 0.52] },
+    trees: { n: 380, snag: 0.04, swamp: 0.5, bark: 0x6a7a4a, charred: 0 },
+    rocks: { n: 60, big: 0.1, tint: 0x6a7a5a, spires: 0 },
+    deadwood: { logs: 40, stumps: 16, charred: false },
+    grass: { kind: 'fern', dens: 0.5, h: 1.3 },
+    sky: { top: [0.85, 1.0, 0.75], hor: [0.95, 1.06, 0.72], sun: [1.05, 1.0, 0.78], hemi: [0.85, 1.0, 0.75], dim: 0.95, fogAdd: 0.01 },
+    motes: 'pollen', plant: 'farm', sign: 'VERDIGRIS AGRICULTURAL',
+    vehicles: { colors: [0x4a6a3a, 0xa8a088, 0x8a5a2a], van: 0.6, burnt: false },
+  },
+  // an ice world: wind-scoured snowfields and frozen rock under a hard white sky, snow always coming down
+  rimefall: {
+    relief: 'hills', water: null, terrainTex: 'terrainSnow',
+    ground: { a: [1.0, 1.0, 1.02], b: [0.9, 0.93, 0.97], damp: [0.72, 0.76, 0.82], moss: [0.94, 0.96, 1.0], rock: [0.62, 0.64, 0.68], trail: [0.7, 0.7, 0.72], yard: [0.76, 0.78, 0.82] },
+    trees: { n: 90, snag: 0.5, swamp: 0, bark: 0x34343a, charred: 0 },
+    rocks: { n: 160, big: 0.2, tint: 0x6a6e78, spires: 6 },
+    deadwood: { logs: 10, stumps: 12, charred: false },
+    grass: { kind: 'frost', dens: 0.14, h: 0.7 },
+    sky: { top: [0.85, 0.95, 1.12], hor: [1.08, 1.12, 1.2], sun: [0.95, 1.0, 1.1], hemi: [0.9, 1.0, 1.15], dim: 1.05, fogAdd: 0.008 },
+    motes: 'snow', plant: 'depot', sign: 'RIMEFALL COLD STORAGE',
+    vehicles: { colors: [0xb8c8d0, 0x8a2a20, 0x4a5a6a], van: 0.7, burnt: false },
+  },
+  // a moor: low rolling heather and peat under a bruised violet sky, mist lying in the hollows
+  agnes: {
+    relief: 'hills', water: null, terrainTex: 'terrain',
+    ground: { a: [0.64, 0.52, 0.58], b: [0.54, 0.44, 0.48], damp: [0.36, 0.32, 0.34], moss: [0.5, 0.5, 0.42], rock: [0.58, 0.56, 0.56], trail: [0.46, 0.4, 0.36], yard: [0.52, 0.5, 0.5] },
+    trees: { n: 70, snag: 0.7, swamp: 0.1, bark: 0x4a4440, charred: 0 },
+    rocks: { n: 110, big: 0.2, tint: 0x7a7672, spires: 0 },
+    deadwood: { logs: 14, stumps: 18, charred: false },
+    grass: { kind: 'heather', dens: 0.44, h: 0.8 },
+    sky: { top: [0.86, 0.8, 0.98], hor: [0.95, 0.88, 1.0], sun: [1.0, 0.92, 0.95], hemi: [0.9, 0.85, 1.0], dim: 0.9, fogAdd: 0.01 },
+    motes: 'spores', plant: 'asylum', sign: 'ST. AGNES SANATORIUM',
+    vehicles: { colors: [0x2a2a2a, 0xd8d8d0, 0x5a2a2a], van: 0.5, burnt: false },
+  },
+  // a drowned coast: grey mudflats and black tidal pools, driftwood, rusting hulks, rain off the sea
+  brinewell: {
+    relief: 'marsh', water: -0.5, terrainTex: 'terrainMarsh',
+    ground: { a: [0.86, 0.9, 0.98], b: [0.74, 0.78, 0.86], damp: [0.5, 0.54, 0.6], moss: [0.7, 0.8, 0.8], rock: [0.66, 0.68, 0.72], trail: [0.82, 0.8, 0.78], yard: [0.74, 0.74, 0.78] },
+    trees: { n: 20, snag: 1, swamp: 0, bark: 0x5a5a58, charred: 0 },
+    rocks: { n: 140, big: 0.25, tint: 0x3a3e42, spires: 0 },
+    deadwood: { logs: 54, stumps: 4, charred: false },
+    grass: { kind: 'dry', dens: 0.2, h: 0.9, tint: [0.78, 0.86, 0.8] },
+    sky: { top: [0.78, 0.88, 0.95], hor: [0.85, 0.95, 1.0], sun: [0.95, 1.0, 1.0], hemi: [0.8, 0.9, 0.95], dim: 0.85, fogAdd: 0.008 },
+    motes: 'spores', plant: 'dock', sign: 'BRINEWELL DRY DOCK',
+    vehicles: { colors: [0x2a4a6a, 0xa86a2a, 0x6a6a6a], van: 0.5, burnt: false },
+  },
+  // a dead salt sea: a white crust out to the horizon, cracked in polygons, under a bleached yellow sky
+  saltreach: {
+    relief: 'flats', water: null, terrainTex: 'terrainSalt',
+    ground: { a: [1.0, 0.98, 0.94], b: [0.92, 0.9, 0.85], damp: [0.8, 0.76, 0.7], moss: [0.95, 0.92, 0.86], rock: [0.7, 0.66, 0.6], trail: [0.72, 0.68, 0.62], yard: [0.66, 0.64, 0.6] },
+    trees: { n: 0, snag: 0, swamp: 0, bark: null, charred: 0 },
+    rocks: { n: 40, big: 0.1, tint: 0xc8c0b0, spires: 0 },
+    deadwood: { logs: 0, stumps: 0, charred: false },
+    grass: { kind: 'none', dens: -1, h: 0.5 },
+    sky: { top: [1.05, 1.0, 0.8], hor: [1.2, 1.12, 0.85], sun: [1.15, 1.05, 0.85], hemi: [1.1, 1.05, 0.9], dim: 1.08, fogAdd: 0.004 },
+    motes: 'dust', plant: 'refinery', sign: 'SALTREACH BRINE WORKS',
+    vehicles: { colors: [0xd8d8d0, 0xc89a2a, 0x8a3a2a], van: 0.4, burnt: false },
+  },
+  // a volcanic world: black basalt mesas and glassy flows under a sulphur sky, embers on the wind
+  vesper: {
+    relief: 'canyon', water: null, terrainTex: 'terrainBasalt',
+    ground: { a: [0.44, 0.42, 0.42], b: [0.36, 0.34, 0.34], damp: [0.26, 0.24, 0.24], moss: [0.42, 0.38, 0.32], rock: [0.32, 0.31, 0.32], trail: [0.44, 0.4, 0.36], yard: [0.42, 0.4, 0.39] },
+    trees: { n: 30, snag: 1, swamp: 0, bark: 0x1a1816, charred: 1 },
+    rocks: { n: 260, big: 0.3, tint: 0x2a2828, spires: 40 },
+    deadwood: { logs: 10, stumps: 20, charred: true },
+    grass: { kind: 'ash', dens: 0.06, h: 0.5 },
+    sky: { top: [0.9, 0.62, 0.4], hor: [1.2, 0.86, 0.45], sun: [1.15, 0.75, 0.4], hemi: [1.0, 0.7, 0.5], dim: 0.85, fogAdd: 0.008 },
+    motes: 'embers', plant: 'foundry', sign: 'VESPER SMELTING CO.',
+    vehicles: { colors: [0x2a2624, 0x5a3a2a], van: 0.4, burnt: true },
   },
   // a moon: grey dust and craters under a black sky, stars out by day, the world it circles hanging huge overhead;
   // no air, no weather, nothing growing, and the gravity's light out here (see SITES[...].lowG)
@@ -144,6 +296,10 @@ const Exterior = (() => {
         const step = 3.2, f = h / step, k = Math.floor(f);
         h = (k + sstep(0.62, 0.92, f - k)) * step;
         return h + n.noise(x * 0.06, z * 0.06) * 0.5;
+      }
+      if (R === 'flats') {
+        // a dead sea bed: flat to the horizon, only the faintest swell to it
+        return n.fbm(x * 0.004, z * 0.004, 3) * 2.4 + n.noise(x * 0.05, z * 0.05) * 0.15;
       }
       if (R === 'craters') {
         let h = n.fbm(x * 0.008, z * 0.008, 4) * 9 + n.noise(x * 0.05, z * 0.05) * 1.0;
@@ -555,6 +711,23 @@ const Exterior = (() => {
           const ex = x0 + Math.sin(a) * l, ey = 128 - Math.cos(a) * l * 0.9; g.beginPath(); g.moveTo(64 + (x0 - 64) * 0.2, 128); g.lineTo(ex, ey); g.stroke();
           for (let k = 0; k < 4; k++) { g.fillStyle = `rgb(${120 + v},${128 + v},${96 + v})`; g.fillRect(lerp(x0, ex, k / 4) + rr.range(-3, 3), lerp(128, ey, k / 4) + rr.range(-3, 3), 3, 2); }
         }
+      } else if (kind === 'fern') {
+        // lush ferns and broad leaves, every shade of green
+        for (let i = 0; i < 18; i++) {
+          const x0 = rr.range(20, 108), a = rr.range(-1.1, 1.1), l = rr.range(50, 110), v = rr.range(-18, 18) | 0, ex = x0 + Math.sin(a) * l * 0.6, ey = 128 - Math.cos(a * 0.6) * l;
+          g.strokeStyle = `rgb(${54 + v},${96 + v},${40 + v})`; g.lineWidth = 1.6; g.beginPath(); g.moveTo(x0, 128); g.quadraticCurveTo(x0, ey + 20, ex, ey); g.stroke();
+          for (let k = 1; k < 9; k++) { const t = k / 9, px = lerp(x0, ex, t), py = lerp(128, ey, t), w = (1 - t) * 13 + 3; g.fillStyle = `rgb(${66 + v},${118 + v},${46 + v})`; g.beginPath(); g.ellipse(px - w * 0.5, py, w * 0.6, 2.2, -0.5, 0, TAU); g.ellipse(px + w * 0.5, py, w * 0.6, 2.2, 0.5, 0, TAU); g.fill(); }
+        }
+      } else if (kind === 'frost') {
+        // stiff, frozen stalks rimed white
+        for (let i = 0; i < 26; i++) { const v = rr.range(-10, 10) | 0; blade(rr.range(14, 114), rr.range(24, 70), rr.range(-6, 6), rr.range(1.2, 2.2), rr.chance(0.6) ? `rgb(${210 + v},${220 + v},${232 + v})` : `rgb(${120 + v},${118 + v},${110 + v})`); }
+      } else if (kind === 'heather') {
+        // low, wiry heather: dark stems crowded with purple flower-heads
+        for (let i = 0; i < 30; i++) {
+          const x0 = rr.range(12, 116), h = rr.range(30, 70), bend = rr.range(-10, 10), v = rr.range(-14, 14) | 0;
+          blade(x0, h, bend, rr.range(1.2, 2), `rgb(${70 + v},${58 + v},${48 + v})`);
+          for (let k = 0; k < 5; k++) { g.fillStyle = rr.chance(0.75) ? `rgb(${126 + v},${70 + v},${120 + v})` : `rgb(${150 + v},${110 + v},${150 + v})`; g.fillRect(x0 + bend * (0.6 + k * 0.08) + rr.range(-3, 3), 128 - h * (0.55 + k * 0.09), 3, 3); }
+        }
       } else if (kind === 'ash') {
         // burnt stubble: black stalks, a few grey tips
         for (let i = 0; i < 22; i++) { const v = rr.range(-8, 8) | 0; blade(rr.range(14, 114), rr.range(30, 90), rr.range(-14, 14), rr.range(1.2, 2.4), rr.chance(0.75) ? `rgb(${26 + v},${24 + v},${22 + v})` : `rgb(${92 + v},${88 + v},${84 + v})`); }
@@ -617,8 +790,8 @@ const Exterior = (() => {
           m4.makeRotationY(hash(i, j, 5) * TAU); m4.scale(new THREE.Vector3(s, s * (0.7 + hash(i, j, 6) * 0.6) * GR.h, s)); m4.setPosition(x, y - 0.05, z);
           gi.setMatrixAt(ng, m4);
           // toned to sit in the ground colour rather than glow on top of it
-          const tint = hash(i, j, 7), v = 0.5 + tint * 0.22;
-          gi.setColorAt(ng, col.setRGB(v, v * 0.98, v * 0.9));
+          const tint = hash(i, j, 7), v = 0.5 + tint * 0.22, gt = GR.tint || [1, 0.98, 0.9];
+          gi.setColorAt(ng, col.setRGB(v * gt[0], v * gt[1], v * gt[2]));
           ng++;
         }
         if (d < 26 && hash(i, j, 8) < 0.07 + bare * 0.18 && np < 900) {
@@ -636,7 +809,8 @@ const Exterior = (() => {
       for (let i = 0; i < n; i++) { p.set([rr.range(-14, 14), rr.range(-6, 10), rr.range(-14, 14)], i * 3); s[i] = rr.next(); }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('aSeed', new THREE.BufferAttribute(s, 1));
       // what drifts depends on the world: spores, fireflies over the marsh, canyon dust, falling ash and embers
-      const M = { spores: [1, 0.05, 0, 0], fireflies: [0.25, 0.0, 1, 0], dust: [2.4, 0.0, 0, 0], ash: [0.45, 0.7, 0, 0.07] }[this.biome.motes] || [1, 0.05, 0, 0];
+      // (wind, fall, wander, how many are embers): snow comes down steadily; embers ride up on the heat
+      const M = { spores: [1, 0.05, 0, 0], fireflies: [0.25, 0.0, 1, 0], dust: [2.4, 0.0, 0, 0], ash: [0.45, 0.7, 0, 0.07], snow: [0.7, 1.5, 0, 0], pollen: [0.4, 0.02, 0.35, 0], embers: [0.8, -0.35, 0, 0.55] }[this.biome.motes] || [1, 0.05, 0, 0];
       this.moteMat = new THREE.ShaderMaterial({
         uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uCol: { value: new THREE.Color(0.8, 0.8, 0.75) }, uOp: { value: 0.5 }, uWind: { value: M[0] }, uFall: { value: M[1] }, uGlow: { value: 0 }, uEmber: { value: M[3] }, uFly: { value: M[2] }, uShipInv: this.shipInv },
         vertexShader: `uniform float uTime, uWind, uFall, uGlow, uEmber, uFly; uniform vec3 uCam; uniform mat4 uShipInv; attribute float aSeed; varying float vA; varying float vE; varying float vB;
@@ -677,14 +851,24 @@ const Exterior = (() => {
       const b = this.cbase, rr = new RNG(this.seed + 5);
       const B = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
       const PL = this.biome.plant;
-      // what the place was built from: brick mill, white-clad lab, rust-streaked corrugated pump house, black ruin
+      // what the place was built from: brick mill, white-clad lab, rust-streaked corrugated pump house, black ruin; pale
+      // blue cladding at the cold store, sage panels at the farm, dark old brick at the sanatorium, sea-green sheds at the
+      // docks, white-painted steel at the refinery, soot-black firebrick at the foundry
       const conc = (w, h) => PL === 'mill' ? MATS.rep('brick', Math.max(1, w / 4), Math.max(1, h / 4))
         : PL === 'lab' ? MATS.rep('labPanel', Math.max(1, w / 6), Math.max(1, h / 6))
         : PL === 'pump' ? MATS.rep('corrugated', Math.max(1, w / 3), Math.max(1, h / 3), 0xa0704e)
         : PL === 'ruin' ? MATS.rep('bunker', Math.max(1, w / 7), Math.max(1, h / 7), 0x5a5550)
+        : PL === 'depot' ? MATS.rep('corrugated', Math.max(1, w / 3), Math.max(1, h / 3), 0xa4b4c0)
+        : PL === 'farm' ? MATS.rep('labPanel', Math.max(1, w / 6), Math.max(1, h / 6), 0xa8b896)
+        : PL === 'asylum' ? MATS.rep('brick', Math.max(1, w / 4), Math.max(1, h / 4), 0x9a8a80)
+        : PL === 'dock' ? MATS.rep('corrugated', Math.max(1, w / 3), Math.max(1, h / 3), 0x4f7f86)
+        : PL === 'refinery' ? MATS.rep('painted', Math.max(1, w / 5), Math.max(1, h / 5), 0xdcd6c4)
+        : PL === 'foundry' ? MATS.rep('brick', Math.max(1, w / 4), Math.max(1, h / 4), 0x4a3a36)
         : MATS.rep('bunker', Math.max(1, w / 7), Math.max(1, h / 7));
       const dark = MATS.get('darkmetal'), rust = MATS.get('rust');
-      const roof = PL === 'lab' ? MATS.rep('labPanel', 6, 4, 0x9a9c96) : PL === 'mill' ? MATS.rep('corrugated', 12, 8, 0x4a4844) : dark;
+      const snow = this.snowMat || (this.snowMat = new THREE.MeshStandardMaterial({ color: 0xe6edf4, roughness: 0.95 }));
+      const roof = PL === 'lab' ? MATS.rep('labPanel', 6, 4, 0x9a9c96) : PL === 'mill' ? MATS.rep('corrugated', 12, 8, 0x4a4844) : PL === 'depot' ? snow
+        : PL === 'farm' ? MATS.rep('corrugated', 12, 8, 0x56684a) : PL === 'asylum' ? MATS.rep('bunker', 8, 6, 0x3a3c44) : PL === 'dock' ? MATS.rep('rust', 8, 6) : dark;
       // main hall, wing, tower, rooftop plant
       this.place(grp, B(56, 27, 38, conc(56, 27)), 0, 10.5, -20, b);
       this.place(grp, B(57, 1.2, 39, roof), 0, 24.6, -20, b);
@@ -706,6 +890,54 @@ const Exterior = (() => {
           this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 30, 16), MATS.rep('labPanel', 2, 5)), x, 24 + 15, z, b);
           for (const y of [48, 52]) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 1.2, 16), MATS.rep('painted', 1, 1, 0xa02018)), x, y, z, b);
           this.blinkLight(grp, b, x, 54.6, z, 0xff2010, 2.2);
+        }
+      } else if (PL === 'depot') {
+        // a radio mast on the tower, its light blinking through the snow
+        this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.3, 22, 8), dark), 35, 42 + 11, -27, b);
+        for (const y of [46, 50.5, 55, 59.5]) this.place(grp, B(3.4 - (y - 46) * 0.14, 0.12, 0.12, dark), 35, y, -27, b);
+        this.blinkLight(grp, b, 35, 64.3, -27, 0xff2010, 1.6);
+      } else if (PL === 'farm') {
+        // grain silos behind the hall: ribbed bins with conical caps, and the bucket elevator leg that fills them
+        for (const [x, z, r0, h] of [[10, -45, 3.4, 26], [18.5, -45, 3.4, 26], [26.5, -44.5, 2.6, 20]]) {
+          this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(r0, r0, h + 2, 24), MATS.rep('corrugated', 6, 3, 0xb8b8a8)), x, h / 2 - 1, z, b);
+          this.place(grp, new THREE.Mesh(new THREE.ConeGeometry(r0 * 1.05, 2.6, 24), MATS.rep('corrugated', 6, 1, 0x8a8a7a)), x, h + 1.3, z, b);
+          this.circLocal(b, x, z, r0 + 0.2);
+        }
+        this.place(grp, B(1.2, 31, 1.2, dark), 14.2, 14.5, -40.6, b);
+        this.place(grp, B(9.5, 0.8, 0.8, dark), 14.2, 29.6, -43, b, 0, Math.PI / 2);
+      } else if (PL === 'asylum') {
+        // the bell tower: a steep slate spire, and a clock on every face, stopped
+        this.place(grp, new THREE.Mesh(new THREE.ConeGeometry(10.4, 17, 4), MATS.rep('bunker', 4, 4, 0x34363e)), 35, 42 + 8.5, -27, b, 0, Math.PI / 4);
+        const face = new THREE.MeshStandardMaterial({ color: 0xd8d0b8, roughness: 0.8 }), hand = MATS.get('dark');
+        for (let k = 0; k < 4; k++) {
+          const a = k * Math.PI / 2, ox = Math.sin(a) * 7.03, oz = Math.cos(a) * 7.03;
+          this.place(grp, new THREE.Mesh(new THREE.CircleGeometry(2.6, 28), face), 35 + ox, 36, -27 + oz, b, 0, a);
+          this.place(grp, B(0.22, 1.9, 0.06), 35 + ox * 1.003, 36.8, -27 + oz * 1.003, b, 0, a, 0.5).material = hand;
+          this.place(grp, B(0.26, 1.3, 0.06), 35 + ox * 1.006, 36, -27 + oz * 1.006, b, 0, a, 2.4).material = hand;
+        }
+        for (const [x, z] of [[-18, -10], [-18, -30], [14, -10], [14, -30]]) this.place(grp, B(2.2, 5, 1.4, MATS.rep('brick', 1, 1, 0x7a6a62)), x, 31, z, b);
+      } else if (PL === 'dock') {
+        // the harbour-master's cab on the tower, glazed all round, its port and starboard lights
+        const gl = new THREE.MeshStandardMaterial({ map: TEX.get('dirtGlass'), roughness: 0.2, metalness: 0.5 });
+        this.place(grp, B(15.4, 3.6, 15.4, gl), 35, 43.8, -27, b); this.place(grp, B(16.4, 0.7, 16.4, dark), 35, 45.9, -27, b);
+        this.blinkLight(grp, b, 28.2, 46.6, -20.2, 0xff2010, 2.4); this.blinkLight(grp, b, 41.8, 46.6, -20.2, 0x20ff60, 2.4);
+      } else if (PL === 'refinery') {
+        // the flare stack, off behind the hall, still burning off the gas; distillation columns on the roof
+        this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.3, 58, 12), MATS.rep('painted', 1, 8, 0xb8b0a0)), 24, 29, -46, b); this.circLocal(b, 24, -46, 1.4);
+        // (its guy wires, out to the ground on four sides)
+        for (let k = 0; k < 4; k++) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 30, 4), dark), 24 + Math.cos(k * 1.57) * 3, 15, -46 + Math.sin(k * 1.57) * 3, b, -Math.sin(k * 1.57) * 0.2, 0, Math.cos(k * 1.57) * 0.2);
+        this.flame(grp, b, 24, 59.2, -46, 1.6);
+        for (const [x, z, h] of [[-15, -32, 24], [-8.5, -32, 30]]) {
+          this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, h, 16), MATS.rep('painted', 2, 6, 0xd0c8b4)), x, 25.2 + h / 2, z, b);
+          for (let y = 25.2 + 5; y < 25.2 + h; y += 6) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.15, 16), MATS.rep('grate', 3, 3)), x, y, z, b);
+        }
+      } else if (PL === 'foundry') {
+        // three great stacks, their mouths still glowing from the furnaces under them
+        const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.7, 0.18) });
+        for (const [x, z, rad] of [[10, -33, 3.2], [18.5, -35, 3.2], [26.5, -31, 2.8]]) {
+          this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.85, rad, 44, 18), MATS.rep('brick', 3, 8, 0x3a2c28)), x, 24 + 22, z, b);
+          this.place(grp, new THREE.Mesh(new THREE.TorusGeometry(rad * 0.8, 0.35, 6, 18), glow), x, 68.2, z, b, Math.PI / 2);
+          this.flame(grp, b, x, 68.6, z, 0.9);
         }
       } else if (PL === 'ruin') {
         this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.8, 16, 18), MATS.rep('bunker', 2, 3, 0x3a3634)), 16, 24 + 8, -32, b);
@@ -734,9 +966,49 @@ const Exterior = (() => {
           for (const y of [3, 7.5]) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(3.66, 3.66, 0.5, 24, 1, true), glowG), x, y, z, b);
           this.circLocal(b, x, z, 3.8);
         }
+      } else if (PL === 'depot') {
+        // the refrigeration plant's ammonia tanks, lying on their saddles, frosted white
+        for (const [x, z] of [[-33, 7], [-44, 4]]) {
+          const tm = MATS.rep('painted', 3, 1, 0xdfe6ea);
+          this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 10, 20), tm), x, 3.6, z, b, Math.PI / 2);
+          for (const s2 of [-1, 1]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(2.4, 20, 10), tm); cap.scale.set(1, 1, 0.45); this.place(grp, cap, x, 3.6, z + s2 * 5, b); this.place(grp, B(4.4, 1.6, 0.8, dark), x, 0.8, z + s2 * 3.4, b); }
+          this.place(grp, new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.5, 11), snow), x, 6.1, z, b);
+          this.obbLocal(b, x, z, 2.5, 6.2);
+        }
+      } else if (PL === 'farm') {
+        // two water tanks for the irrigation, green-painted, with their ladders
+        for (const [x, z] of [[-33, 7], [-44, 4]]) {
+          this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(3.8, 3.8, 9, 24), MATS.rep('painted', 3, 2, 0x56784a)), x, 4.5 - 0.5, z, b);
+          this.place(grp, new THREE.Mesh(new THREE.ConeGeometry(4, 1.6, 24), MATS.rep('painted', 3, 1, 0x46603c)), x, 8.8, z, b);
+          this.place(grp, B(0.5, 9, 0.1, dark), x, 4.5, z + 3.85, b);
+          this.circLocal(b, x, z, 4);
+        }
+      } else if (PL === 'asylum') {
+        // the chapel: a small gabled hall with a bell-cote over the door, beside the graveyard
+        const cx = -40, cz = 8;
+        this.place(grp, B(10, 7, 14, conc(10, 7)), cx, 3.5, cz, b); this.obbLocal(b, cx, cz, 5.2, 7.2);
+        this.place(grp, this.gable(11, 4.6, 14.8, roof), cx, 7, cz, b);
+        this.place(grp, B(1.6, 2.4, 1.6, conc(2, 2)), cx, 12.4, cz + 6.4, b); this.place(grp, new THREE.Mesh(new THREE.ConeGeometry(1.3, 2.2, 4), roof), cx, 14.7, cz + 6.4, b, 0, Math.PI / 4);
+        this.place(grp, B(1.8, 3.2, 0.1, MATS.get('wood')), cx, 1.6, cz + 7.03, b);
+        for (const z of [cz - 4, cz, cz + 4]) for (const sx of [-1, 1]) this.place(grp, this.plane(1.1, 2.6, new THREE.MeshStandardMaterial({ map: TEX.get('dirtGlass'), roughness: 0.2, metalness: 0.5 })), cx + sx * 5.02, 3.8, z, b, 0, sx * Math.PI / 2);
+      } else if (PL === 'refinery') {
+        // spheres for the gas, up on their legs, a walkway round each one's middle
+        for (const [x, z] of [[-33, 7], [-44, 4]]) {
+          this.place(grp, new THREE.Mesh(new THREE.SphereGeometry(4.4, 24, 16), MATS.rep('painted', 3, 2, 0xe8e2d0)), x, 7.4, z, b);
+          this.place(grp, new THREE.Mesh(new THREE.TorusGeometry(4.6, 0.12, 6, 28), dark), x, 7.4, z, b, Math.PI / 2);
+          for (let k = 0; k < 8; k++) { const a = k * TAU / 8, lx = x + Math.cos(a) * 3.9, lz = z + Math.sin(a) * 3.9; this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 7.4, 6), dark), lx, 3.7, lz, b); this.circLocal(b, lx, lz, 0.3); }
+        }
+      } else if (PL === 'foundry') {
+        // the blast furnace: a tapering stack of riveted plate, its tap hole glowing at the foot
+        const cx = -36, cz = 6;
+        this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.6, 24, 18), MATS.rep('rust', 3, 6, 0x5a4038)), cx, 11, cz, b); this.circLocal(b, cx, cz, 4.8);
+        this.place(grp, new THREE.Mesh(new THREE.TorusGeometry(4.4, 0.6, 8, 24), dark), cx, 16, cz, b, Math.PI / 2);
+        this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 14, 10), MATS.rep('rust', 1, 3)), cx + 6, 16, cz - 4, b, 0, 0, 0.5);
+        this.place(grp, B(1.4, 1.2, 0.3, new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.8, 0.2) })), cx, 1.2, cz + 4.4, b);
+        const tw = this.toWorld(b, cx, cz + 5.5); this.lights.push({ x: tw.x, y: b.y + 1.5, z: tw.z, color: 0xff6a20, power: 1.8, state: 'flicker', phase: 2, zone: 'out', range: 14, lit: 1 });
       } else {
         for (const [x, z] of [[-33, 7], [-44, 4]]) {
-          const tk = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 15, 24), MATS.rep('rust', 3, 2, PL === 'ruin' ? 0x3a3230 : undefined)); this.place(grp, tk, x, 7.5 - 1, z, b);
+          const tk = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 15, 24), MATS.rep('rust', 3, 2, PL === 'ruin' ? 0x3a3230 : PL === 'dock' ? 0x6a8a84 : undefined)); this.place(grp, tk, x, 7.5 - 1, z, b);
           if (PL !== 'ruin') { const cap = new THREE.Mesh(new THREE.SphereGeometry(4.5, 24, 8, 0, TAU, 0, Math.PI / 2), MATS.rep('rust', 3, 1)); cap.scale.y = 0.3; this.place(grp, cap, x, 14, z, b); }
           this.circLocal(b, x, z, 4.7);
         }
@@ -757,7 +1029,8 @@ const Exterior = (() => {
       this.lights.push({ x: lp.x, y: b.y + 6.2, z: lp.z, color: 0xffa050, power: 1.6, state: 'flicker', phase: 3, zone: 'out', range: 16, lit: 1 });
       // signs (flush with their walls)
       const signMat = (txt, o) => new THREE.MeshStandardMaterial({ map: TEX.sign(txt, o), roughness: 0.85 });
-      this.place(grp, this.plane(26, 3.6, signMat(this.biome.sign, { w: 1024, h: 140, size: 96, bg: PL === 'lab' ? '#e2e4de' : PL === 'ruin' ? '#141110' : '#1d1c19', fg: PL === 'lab' ? '#1e3a2e' : PL === 'ruin' ? '#6a1a12' : '#cfc6ae' })), 0, 19.8, -0.96, b);
+      const SC = { lab: ['#e2e4de', '#1e3a2e'], ruin: ['#141110', '#6a1a12'], depot: ['#dfe6ea', '#1a3a5a'], farm: ['#2e4a26', '#e8e0b0'], asylum: ['#1a1614', '#c8b88a'], dock: ['#1e3a40', '#e8e8d8'], refinery: ['#c8a028', '#1a1a1a'], foundry: ['#141010', '#e86a20'] }[PL] || ['#1d1c19', '#cfc6ae'];
+      this.place(grp, this.plane(26, 3.6, signMat(this.biome.sign, { w: 1024, h: 140, size: 96, bg: SC[0], fg: SC[1] })), 0, 19.8, -0.96, b);
       this.place(grp, this.plane(7.6, 1.1, signMat('PROCESSING PLANT  ·  SITE ' + (this.site.code || '7'), { w: 1024, h: 148, size: 62, bg: '#2a2a24', fg: '#d8cfb5' })), 0, 5.6, 1.76, b);
       this.place(grp, this.plane(2.0, 1.45, signMat('DANGER\nNO ENTRY\nAFTER DARK', { w: 192, h: 140, size: 26, bg: '#c9a326', fg: '#151515' })), -3.0, 2.2, 1.76, b);
       this.place(grp, this.plane(1.6, 1.2, signMat('HARD HAT\nAREA', { w: 192, h: 140, size: 34, bg: '#2a4a8a', fg: '#e8e8e8' })), 3.2, 2.4, 1.76, b);
@@ -768,10 +1041,11 @@ const Exterior = (() => {
         for (const s of [-1, 1]) this.place(grp, B(0.4, 8.4, 0.5, dark), x + s * 4.75, 4.2, -0.8, b);
       }
       const winDark = new THREE.MeshStandardMaterial({ map: TEX.get('dirtGlass'), roughness: 0.2, metalness: 0.5 });
-      const winLit = new THREE.MeshBasicMaterial({ color: 0x5a3010 });
+      // (a few still lit; at the foundry, half of them glowing with the furnaces)
+      const winLit = new THREE.MeshBasicMaterial({ color: PL === 'foundry' ? 0x9a3a08 : 0x5a3010 });
       for (const y of [12.5, 16]) for (let x = -25.5; x <= 25.5; x += 4.5) {
         if (Math.abs(x) < 4) continue;
-        this.place(grp, this.plane(2.4, 1.7, PL !== 'ruin' && rr.chance(0.08) ? winLit : winDark), x, y, -0.95, b);
+        this.place(grp, this.plane(2.4, 1.7, PL !== 'ruin' && rr.chance(PL === 'foundry' ? 0.5 : 0.08) ? winLit : winDark), x, y, -0.95, b);
       }
       const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 54, 12), MATS.rep('rust', 8, 1)); this.place(grp, pipe, 0, 9.4, -0.45, b, 0, 0, Math.PI / 2);
       for (const x of [-27, -9, 9, 27]) { const dp = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 9.4, 10), rust); this.place(grp, dp, x, 4.7, -0.45, b); }
@@ -864,6 +1138,75 @@ const Exterior = (() => {
           const m = new THREE.Mesh(mergeGeoList(parts), dark); m.castShadow = true; this.place(grp, m, x, 0, z, b);
           this.circLocal(b, x, z, 1.4);
         }
+      } else if (PL === 'depot') {
+        // the cold store: refrigeration units on the roof, icicles all along the eaves, snow drifted against the walls
+        for (const [x, z] of [[-18, -12], [-6, -12], [6, -30], [18, -30]]) {
+          this.place(grp, B(5, 1.8, 4, MATS.rep('metal', 2, 1, 0xb8c4cc)), x, 26.1, z, b);
+          for (const dx of [-1.2, 1.2]) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.25, 16), dark), x + dx, 27.1, z, b);
+        }
+        const ice = new THREE.MeshStandardMaterial({ color: 0xdcecff, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.85 }), parts = [];
+        for (let x = -27.5; x <= 27.5; x += rr.range(0.5, 1.3)) { const l = rr.range(0.4, 2.2); const g = new THREE.ConeGeometry(rr.range(0.08, 0.18), l, 5); g.rotateX(Math.PI); parts.push({ geo: g, matrix: mat(x, 24 - l / 2, -0.8) }); }
+        if (parts.length) this.place(grp, new THREE.Mesh(mergeGeoList(parts), ice), 0, 0, 0, b);
+        for (const x of [-25, -10.5, 10.5, 25, -40, -33]) { const d = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), this.snowMat); d.scale.set(rr.range(3, 5), rr.range(0.8, 1.6), rr.range(1.4, 2.2)); this.place(grp, d, x, 0, x < -28 ? 0 : -0.2, b); }
+      } else if (PL === 'farm') {
+        // glasshouses on the low wing's roof (glass and white ribs, half of it fogged), and the farm going to seed: vines
+        // climbing the walls
+        const gl = MATS.get('glass'), rib = MATS.rep('painted', 1, 1, 0xd8dcd0);
+        for (const x of [-46, -34]) {
+          const v = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 5.6, 28, 20, 1, true, -Math.PI / 2, Math.PI), gl); this.place(grp, v, x, 13.8, -16, b, -Math.PI / 2, 0, 0).renderOrder = 3;
+          for (let z = -29; z <= -3; z += 3.25) this.place(grp, new THREE.Mesh(new THREE.TorusGeometry(5.6, 0.1, 4, 20, Math.PI), rib), x, 13.8, z, b);
+        }
+        const vm = MATS.get('vine');
+        for (let i = 0; i < 16; i++) { const x = rr.range(-27, 27), h = rr.range(5, 15); if (Math.abs(x) < 6) continue; this.place(grp, this.plane(rr.range(2, 4), h, vm), x, 24.6 - h / 2, -0.9, b); }
+        for (let i = 0; i < 6; i++) { const h = rr.range(4, 10); this.place(grp, this.plane(rr.range(2, 3.5), h, vm), 28.05, 24 - h / 2, rr.range(-36, -4), b, 0, Math.PI / 2); }
+      } else if (PL === 'asylum') {
+        // pitched slate roofs on the old blocks, and the graveyard by the chapel: rows of headstones and crosses, leaning
+        const sl = MATS.rep('bunker', 8, 6, 0x3a3c44);
+        this.place(grp, this.gable(39.4, 10, 57.4, sl), 0, 25.2, -20, b, 0, Math.PI / 2);
+        this.place(grp, this.gable(25, 6, 31, sl), -40, 13.4, -16, b);
+        const stone = MATS.rep('bunker', 1, 1, 0x8a8a84);
+        for (let row = 0; row < 4; row++) for (let k = 0; k < 6; k++) {
+          const x = -27 + k * 2.4 + rr.range(-0.3, 0.3), z = 3 + row * 3 + rr.range(-0.3, 0.3), w = this.toWorld(b, x, z);
+          if (this.pathInfo(w.x, w.z).d < 3.2 || rr.chance(0.15)) continue;
+          const lean = rr.range(-0.18, 0.18), ry = rr.range(-0.15, 0.15);
+          if (rr.chance(0.3)) { this.place(grp, B(0.18, 1.4, 0.16, stone), x, 0.6, z, b, lean, ry); this.place(grp, B(0.8, 0.18, 0.16, stone), x, 1.0, z, b, lean, ry); }
+          else { this.place(grp, B(0.75, 0.95, 0.18, stone), x, 0.45, z, b, lean, ry); this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.375, 0.375, 0.18, 12, 1, false, 0, Math.PI), stone), x, 0.92, z, b, Math.PI / 2 + lean, ry, Math.PI / 2); }
+          this.obbLocal(b, x, z, 0.4, 0.15, ry);
+        }
+      } else if (PL === 'dock') {
+        // a gantry crane straddling the stacked containers, and a ship's hull run aground beyond the yard
+        const yl = MATS.rep('painted', 1, 4, 0xc8a020);
+        for (const [x, z] of [[20, 6], [34, 6], [20, 21], [34, 21]]) { this.place(grp, B(0.9, 18, 0.9, yl), x, 9, z, b); this.circLocal(b, x, z, 0.6); }
+        for (const z of [6, 21]) this.place(grp, B(15.6, 1.3, 1.1, yl), 27, 18.5, z, b);
+        for (const x of [20, 34]) this.place(grp, B(1.1, 1.3, 16.2, yl), x, 18.5, 13.5, b);
+        this.place(grp, B(3, 2.2, 3.4, yl), 25, 20.4, 13.5, b);
+        this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 10, 4), dark), 25, 14, 13.5, b);
+        this.place(grp, B(1, 0.8, 0.6, dark), 25, 8.8, 13.5, b);
+        const hp = this.toWorld(b, -52, 24);
+        if (Math.hypot(hp.x - this.fire.x, hp.z - this.fire.z) > 28) {
+          const hull = MATS.rep('rust', 6, 2, 0x6a5a50);
+          this.place(grp, B(30, 8, 9, hull), -52, 2.2, 24, b, 0.04, 0.6, 0.16);
+          const bow = new THREE.Mesh(new THREE.ConeGeometry(6.4, 10, 4), hull); bow.scale.set(0.7, 1, 1);
+          this.place(grp, bow, -52 + Math.cos(0.6) * 19.5, 2.6, 24 - Math.sin(0.6) * 19.5, b, 0.04, 0.6 + Math.PI / 4, 0.16 - Math.PI / 2);
+          this.place(grp, B(8, 5, 6, MATS.rep('rust', 2, 1, 0x8a8a84)), -56, 8, 26, b, 0.04, 0.6, 0.16);
+          this.obbLocal(b, -52, 24, 15, 4.5, 0.6);
+        }
+      } else if (PL === 'refinery') {
+        // a pipe rack out from the hall over to the gas spheres: frames, and a bundle of lines along the top
+        for (const x of [-20, -27, -37]) { this.place(grp, B(0.4, 13.6, 0.4, dark), x, 6.8, 0.6, b); this.place(grp, B(0.4, 13.6, 0.4, dark), x, 6.8, 2.6, b); this.place(grp, B(0.4, 0.4, 2.4, dark), x, 13.4, 1.6, b); this.obbLocal(b, x, 1.6, 0.3, 1.2); }
+        for (const [z, r0, c] of [[1.0, 0.35, 0xb8b0a0], [1.7, 0.45, 0xc8a028], [2.3, 0.3, 0x9a6a4a]]) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(r0, r0, 22, 10), MATS.rep('painted', 4, 1, c)), -30, 13.8 + r0, z, b, 0, 0, Math.PI / 2);
+      } else if (PL === 'foundry') {
+        // a channel of slag still glowing as it runs off from the furnace to the heap
+        const hot = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.0, 0.55, 0.12) });
+        const pts = [[-36, 10], [-39, 14], [-44, 16], [-49, 15]];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const [x0, z0] = pts[i], [x1, z1] = pts[i + 1], l = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(-(z1 - z0), x1 - x0);
+          const y = (x, z) => { const w = this.toWorld(b, x, z); return this.height(w.x, w.z) - b.y; };
+          this.place(grp, B(l, 0.1, 0.8, hot), (x0 + x1) / 2, y((x0 + x1) / 2, (z0 + z1) / 2) + 0.06, (z0 + z1) / 2, b, 0, ry);
+          this.place(grp, B(l, 0.4, 0.3, dark), (x0 + x1) / 2, y((x0 + x1) / 2, (z0 + z1) / 2) + 0.1, (z0 + z1) / 2 + 0.55, b, 0, ry);
+        }
+        const mw = this.toWorld(b, -43, 15); this.lights.push({ x: mw.x, y: b.y + 1.2, z: mw.z, color: 0xff5a18, power: 1.6, state: 'flicker', phase: 5, zone: 'out', range: 14, lit: 1 });
+        const heap = new THREE.Mesh(new THREE.ConeGeometry(7, 6, 12), MATS.rep('rock', 3, 2, 0x2a2624)); this.place(grp, heap, -52, 2.5, 17, b); this.circLocal(b, -52, 17, 6.5);
       } else if (PL === 'ruin') {
         // the front of the hall has caved in at the top; part of the roof is gone; rubble in the yard
         const wall = MATS.rep('bunker', 1, 1, 0x4a4542);
@@ -876,6 +1219,21 @@ const Exterior = (() => {
           this.obbLocal(b, x, z, w / 2, d / 2, ry);
         }
       }
+    }
+    // a pitched roof: a triangular prism w across, h high, l long (its ridge along z)
+    gable(w, h, l, m) {
+      const sh = new THREE.Shape(); sh.moveTo(-w / 2, 0); sh.lineTo(w / 2, 0); sh.lineTo(0, h); sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: l, bevelEnabled: false }); g.translate(0, 0, -l / 2);
+      return new THREE.Mesh(g, m);
+    }
+    // a flame burning at the top of a stack: a flickering tongue of fire, a glow round it, and its light on the ground
+    flame(grp, b, lx, ly, lz, s) {
+      const w = this.toWorld(b, lx, lz), y = b.y + ly;
+      const tongue = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xffa040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xff5a18, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      tongue.position.set(w.x, y + 2.2 * s, w.z); halo.position.set(w.x, y + 1.5 * s, w.z); halo.scale.set(16 * s, 16 * s, 1); grp.add(halo, tongue);
+      (this.flames || (this.flames = [])).push({ sp: tongue, s, ph: lx * 1.7 + lz });
+      this.lights.push({ x: w.x, y: y + 2, z: w.z, color: 0xff8a30, power: 2.2 * s, state: 'flicker', phase: lx, zone: 'out', range: 30 * s, lit: 1 });
     }
     // set dressing that belongs to the world rather than the plant: field fences, a giant carcass in the ash
     buildWorldExtras(grp) {
@@ -1169,7 +1527,7 @@ const Exterior = (() => {
     // at night; cloud and fog veil them, and the land hides them below the horizon
     buildSkyBodies() {
       const list = (this.site && this.site.sky) || [], D = 400, air = !this.biome.airless;
-      this.bodies = []; this.eclipsers = []; this.bodiesG = new THREE.Group(); this.worldG = new THREE.Group(); this.sky.add(this.bodiesG, this.worldG);
+      this.bodies = []; this.eclipsers = []; this.ringU = null; this.bodiesG = new THREE.Group(); this.worldG = new THREE.Group(); this.sky.add(this.bodiesG, this.worldG);
       // (where they start in the sky is this landing's; they drift round from there by the site's own clock, so every
       // crewmate sees the same sky, and the same eclipse at the same moment)
       this.skyRot0 = new RNG(this.seed + 77).range(0, TAU);
@@ -1181,7 +1539,10 @@ const Exterior = (() => {
       // (drawn at the very back of the depth range, so they're behind everything on the ground however big they are;
       // under a black airless sky they're solid, their night side blotting out the stars)
       const far = 'gl_Position.z = gl_Position.w * 0.99995;';
-      for (const b of list) {
+      let rf = null;
+      for (let b of list) {
+        // (seen from a ringed world's moon or rock, the other one is out in the rings' plane, where it really is)
+        if (b.place && rf) b = Object.assign({}, b, rf.place(b.place));
         // (a moon or rock's orbit brings it in close some days and takes it far out on others, round the sky as well)
         // (today's sky comes already worked out from where everything really is: see G.skyToday)
         const near = b.fixed || b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.fixed || b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
@@ -1195,13 +1556,17 @@ const Exterior = (() => {
         // (an airless moon or rock is harsh: its craters' slopes catch the light or fall into shadow, and the line
         // between its day and night is a knife edge; the world, with its air, is softer)
         const harsh = b.kind === 'planet' ? 0 : 1;
+        // (a ringed world: its rings, laid out round it as they really are from here; see ringFrame)
+        const RU = b.ringSys ? (rf = this.ringFrame(b, D)).U : null, RG = RU ? Rings.GLSL : '';
         const mat = new THREE.ShaderMaterial({
-          uniforms: { map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } },
+          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
           vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz; vW = wp.xyz;
               gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
-          fragmentShader: `uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis, uHarsh, uBump; varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
+          fragmentShader: `${RG} uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis, uHarsh, uBump; varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec3 n = normalize(vN); float l = dot(n, uSun);
+              // (the rings' shadow lying across it in bands)
+              ${RU ? 'l *= ringThrough(vW - cameraPosition, uSun);' : ''}
               vec3 tex = texture2D(map, vUv).rgb;
               // (relief read off the map's brightness: low dark floors, high bright rims)
               float h = dot(tex, vec3(0.3333)); vec3 dpx = dFdx(vW), dpy = dFdy(vW); float dhx = dFdx(h), dhy = dFdy(h);
@@ -1224,30 +1589,59 @@ const Exterior = (() => {
         if (b.kind !== 'planet') continue;
         // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
         const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
-          uniforms: { map: { value: TEX.get('clouds') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis },
-          vertexShader: `varying vec3 vN; varying vec2 vUv; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); ${far} }`,
-          fragmentShader: `uniform sampler2D map; uniform vec3 uSun; uniform float uVis; varying vec3 vN; varying vec2 vUv;
-            void main(){ float l = dot(normalize(vN), uSun), a = texture2D(map, vUv).a * 0.85; gl_FragColor = vec4(vec3(0.95) * smoothstep(-0.05, 0.3, l) * (0.3 + 0.8 * max(l, 0.0)) * uVis, a * smoothstep(-0.2, 0.15, l)); }`,
+          uniforms: Object.assign({ map: { value: TEX.get('clouds') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis }, RU || {}),
+          vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vW; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
+          fragmentShader: `${RG} uniform sampler2D map; uniform vec3 uSun; uniform float uVis; varying vec3 vN; varying vec2 vUv; varying vec3 vW;
+            void main(){ float l = dot(normalize(vN), uSun), a = texture2D(map, vUv).a * 0.85; float rs = ${RU ? 'ringThrough(vW - cameraPosition, uSun)' : '1.0'};
+              gl_FragColor = vec4(vec3(0.95) * smoothstep(-0.05, 0.3, l) * (0.3 + 0.8 * max(l, 0.0)) * (0.25 + 0.75 * rs) * uVis, a * smoothstep(-0.2, 0.15, l)); }`,
           transparent: true, depthWrite: false, fog: false,
         }));
         cl.position.copy(m.position); cl.scale.setScalar(r); cl.rotation.copy(m.rotation); cl.renderOrder = m.renderOrder + 1; cl.frustumCulled = false; G0.add(cl); this.bodies.push(cl);
         // (and a thin high layer above that, its own wisps, slowly drifting over the deck below)
-        const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); hi.material.uniforms.map = cl.material.uniforms.map; hi.material.uniforms.uSun = mat.uniforms.uSun; hi.material.uniforms.uVis = mat.uniforms.uVis;
+        const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); Object.assign(hi.material.uniforms, cl.material.uniforms);
         hi.position.copy(m.position); hi.scale.setScalar(r * 1.025); hi.rotation.set(m.rotation.x + 0.4, m.rotation.y + 2.1, m.rotation.z - 0.3); hi.renderOrder = m.renderOrder + 2; hi.frustumCulled = false;
         G0.add(hi); this.bodies.push(hi); (this.highClouds || (this.highClouds = [])).push(hi);
-        if (b.rings) {
-          const rg = new THREE.RingGeometry(1.35, 2.3, 160, 1), uv = rg.attributes.uv, p = rg.attributes.position;
-          for (let i = 0; i < uv.count; i++) uv.setXY(i, (Math.hypot(p.getX(i), p.getY(i)) - 1.35) / 0.95, 0.5);
-          const ring = new THREE.Mesh(rg, new THREE.ShaderMaterial({
-            uniforms: { map: { value: TEX.get('rings') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis, uCol: { value: new THREE.Color(b.tint).lerp(new THREE.Color(0xffffff), 0.4) } },
-            vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); ${far} }`,
-            fragmentShader: `uniform sampler2D map; uniform vec3 uCol; uniform float uVis; varying vec2 vUv; void main(){ vec4 t = texture2D(map, vUv); gl_FragColor = vec4(t.rgb * uCol * uVis, t.a * 0.85); }`,
-            transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+        if (RU) {
+          // the rings: drawn on a dome round the eye, each point of it following its line of sight out to the sheet,
+          // behind everything on the ground, over the world and anything else up there where they pass in front
+          const dome = new THREE.Mesh(new THREE.SphereGeometry(300, 48, 24), new THREE.ShaderMaterial({
+            uniforms: Object.assign({ uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis }, RU),
+            vertexShader: `varying vec3 vD; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vD = wp.xyz - cameraPosition; gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
+            fragmentShader: `${RG} uniform vec3 uSun; uniform float uVis; varying vec3 vD;
+              void main(){ float t; vec4 c = ringSee(vec3(0.0), normalize(vD), uSun, t); if (c.a < 0.003) discard; gl_FragColor = vec4(c.rgb * uVis, c.a); }`,
+            transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
           }));
-          ring.position.copy(m.position); ring.scale.setScalar(r); ring.lookAt(0, 0, 0); ring.rotateX(1.15); ring.rotateZ(0.5); ring.renderOrder = m.renderOrder + 2; ring.frustumCulled = false;
-          G0.add(ring); this.bodies.push(ring);
+          dome.renderOrder = 8; dome.frustumCulled = false; G0.add(dome); this.bodies.push(dome);
         }
       }
+    }
+    // The rings round the world in this sky (b: today's planet entry, from G.skyToday). The sky is the real layout
+    // shrunk to fit, the world's centre D out, so s (= D / how many of its radii off it is) is one of its radii. Where
+    // we stand on this moon or rock (this landing's) decides how the rings lie across the sky. A moon rides a little
+    // above or below their plane; a rock inside them sits right in it, in its lane, so we're just above it, by how far
+    // up its side we are. The other one goes where it really is, out in that plane (place).
+    ringFrame(b, D) {
+      const U = Rings.uniforms(), s = D / b.dist, rot = this.worldRot, me = b.me, Rs = me.size * s;
+      const wd = new THREE.Vector3(Math.cos(b.az) * Math.cos(b.el), Math.sin(b.el), Math.sin(b.az) * Math.cos(b.el));
+      const roll = new RNG(this.seed + 93).range(-0.9, 0.9);
+      const t1 = new THREE.Vector3().crossVectors(_Y, wd).normalize(), t2 = new THREE.Vector3().crossVectors(wd, t1);
+      const N0 = new THREE.Vector3().crossVectors(wd, t1.clone().multiplyScalar(Math.cos(roll)).addScaledVector(t2, Math.sin(roll))).normalize();
+      if (N0.y < 0) N0.negate();
+      const eps = me.ring ? Math.asin(clamp(Rs * N0.y / D, -1, 1)) : me.eps, C = wd.clone().multiplyScalar(D);
+      const N = N0.clone().multiplyScalar(Math.cos(eps)).addScaledVector(wd, -Math.sin(eps)).normalize();
+      // (in the rings' plane: e1 from the world out toward us, e2 a quarter of the way round from that)
+      const e1 = wd.clone().negate().addScaledVector(N, wd.dot(N)).normalize(), e2 = new THREE.Vector3().crossVectors(N, e1);
+      Rings.set(U, b.ringSys, b.tint, 0.6); U.uRingR.value.z = s;
+      U.uRingC.value.copy(C).applyAxisAngle(_Y, rot); U.uRingN.value.copy(N).applyAxisAngle(_Y, rot);
+      // (the ground underfoot hides the half of the sky below us, and throws its own shadow out across the rings)
+      U.uRingOcc.value[1].set(0, -Rs * 1.003, 0, Rs);
+      this.ringU = U;
+      return { U, place: (p) => {
+        const c = Math.cos(p.eps) * p.dist * s, pos = C.clone().addScaledVector(e1, Math.cos(p.dphi) * c).addScaledVector(e2, Math.sin(p.dphi) * c).addScaledVector(N, Math.sin(p.eps) * p.dist * s);
+        const L = pos.length(), d = pos.clone().divideScalar(L), rad = p.size * s, w = pos.applyAxisAngle(_Y, rot);
+        U.uRingOcc.value[0].set(w.x, w.y, w.z, rad);
+        return { az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), r: Math.max(0.006, Math.asin(Math.min(0.5, rad / L))) };
+      } };
     }
     // the sky's bodies: lit by the sun, veiled by cloud and weather, drifting slowly across the sky over the day
     updateSkyBodies(L, t) {
@@ -1283,6 +1677,7 @@ const Exterior = (() => {
     setBlast(x, z, s, r) { this.blastU.value.set(x, z, s, r); }
     update(t, cam, L) {
       for (const b of this.blinkers) { const on = ((t + b.phase) % b.period) < 0.35; b.m.material.color.copy(b.color).multiplyScalar(on ? 1 : 0.12); b.sp.material.opacity = on ? 0.9 : 0; }
+      if (this.flames) for (const f of this.flames) { const k = 0.8 + 0.22 * Math.sin(t * 13 + f.ph) * Math.sin(t * 7.3 + f.ph * 2) + 0.08 * Math.sin(t * 31 + f.ph); f.sp.scale.set(5 * f.s * k, 8 * f.s * (2 - k), 1); }
       const gusty = this.weather === 'storm' ? 1.8 : this.weather === 'rain' ? 1.3 : 1;
       this.windU.value = t * gusty;
       if (!cam) return;
@@ -1290,9 +1685,10 @@ const Exterior = (() => {
       const mu = this.moteMat.uniforms; mu.uTime.value = t * gusty; mu.uCam.value.copy(cam);
       if (L) {
         const mk = this.biome.motes, wet = this.weather === 'rain' || this.weather === 'storm';
-        mu.uCol.value.copy(L.hor).multiplyScalar(mk === 'dust' ? 1.5 : mk === 'ash' ? 0.9 : 1.25).lerp(L.sunColor, 0.2 * (1 - L.night));
+        mu.uCol.value.copy(L.hor).multiplyScalar(mk === 'dust' ? 1.5 : mk === 'ash' ? 0.9 : mk === 'snow' ? 1.9 : 1.25).lerp(L.sunColor, 0.2 * (1 - L.night));
+        if (mk === 'pollen') mu.uCol.value.lerp(_pollen, 0.5);
         mu.uGlow.value = mk === 'fireflies' ? L.night : 0;
-        mu.uOp.value = mk === 'none' ? 0 : mk === 'fireflies' ? (wet ? 0.2 : 0.35 + L.night * 0.65) : (wet ? 0.15 : mk === 'dust' ? 0.8 : mk === 'ash' ? 0.75 : 0.55) * (1 - L.night * (mk === 'ash' ? 0.3 : 0.6));
+        mu.uOp.value = mk === 'none' ? 0 : mk === 'fireflies' ? (wet ? 0.2 : 0.35 + L.night * 0.65) : mk === 'embers' ? 0.75 : (wet ? 0.15 : mk === 'dust' ? 0.8 : mk === 'ash' ? 0.75 : mk === 'snow' ? 0.9 : 0.55) * (1 - L.night * (mk === 'ash' || mk === 'snow' ? 0.3 : 0.6));
         const su = this.skyMat.uniforms;
         su.top.value.copy(L.top); su.hor.value.copy(L.hor); su.fogCol.value.copy(L.fog); su.scatter.value.copy(L.scatter);
         su.sunDir.value.copy(L.sunDir); su.sunCol.value.copy(L.sunColor).multiplyScalar(L.sunGlow);
@@ -1346,6 +1742,8 @@ const Exterior = (() => {
       // what's in the sky has its say: a body crossing the sun's face is an eclipse (from a moon, the world overhead
       // can swallow the sun whole for a while, and the place goes dark but for that world's glowing rim); and seen
       // from a moon at night, that world lights the ground, more the more of its day side faces this way
+      // (a ringed world's rings, when the sun is behind them from here: its light comes through thinned, or not at all)
+      if (this.ringU) { const tr = Rings.through(this.ringU, _ecl.set(0, 0, 0), L.sunDir); L.sun *= tr; L.sunGlow *= tr; L.scatter.multiplyScalar(tr); }
       if (this.eclipsers && this.eclipsers.length) {
         const ry = this.skyRot0 + mins * 0.0012, v = _ecl; this.skyMins = mins;
         for (const e of this.eclipsers) {

@@ -602,6 +602,26 @@ const Ship = (() => {
       this.sign('LAUNCH', 0.3, 0.09, 6.395, 0.62, 0, -Math.PI / 2, { w: 256, h: 76, size: 50, bg: '#1b1b18', fg: '#e0b040' });
       this.col(6.38, 6.92, -0.27, 0.27);
       this.interact.push({ kind: 'lever', x: this.leverPos.x, y: this.leverPos.y, z: this.leverPos.z, r: 0.42 });
+      // the jump drive's lever, out beside the port seat on a pedestal of its own: smaller than LAUNCH, a green knob,
+      // and a lamp that lights green once a course is plotted at the terminal (ROUTE). Pulling it makes the jump (or
+      // the hop across to a moon); the LAUNCH lever only ever lands and takes off
+      {
+        const JX = 6.5, JZ = -1.72, JY = 0.78;
+        this.box(0.34, 0.72, 0.34, MATS.get('painted'), JX, 0.36, JZ);
+        this.box(0.4, 0.05, 0.4, dm, JX, 0.735, JZ);
+        this.box(0.2, 0.02, 0.3, MATS.get('hazard'), JX, 0.765, JZ);
+        { const q = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.12, 16, 1, false, -Math.PI / 2, Math.PI), dm); q.rotation.x = -Math.PI / 2; q.position.set(JX, JY, JZ); q.castShadow = true; this.group.add(q); }
+        const jl = new THREE.Group(); jl.position.set(JX, JY, JZ); this.group.add(jl);
+        const green = new THREE.MeshStandardMaterial({ color: 0x1f9a6a, roughness: 0.35, emissive: 0x041a10 });
+        for (const [geo, m, y] of [[new THREE.BoxGeometry(0.035, 0.3, 0.03), MATS.get('steelBolt'), 0.15], [new THREE.SphereGeometry(0.048, 14, 10), green, 0.32]]) { const me = new THREE.Mesh(geo, m); me.position.y = y; me.castShadow = true; jl.add(me); }
+        jl.rotation.z = 0.45; this.jumpLever = jl; this.jumpT = 0;
+        this.jumpLamp = new THREE.MeshBasicMaterial({ color: 0x0c2a1c });
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.05), this.jumpLamp); lamp.position.set(JX + 0.12, 0.775, JZ + 0.13); this.group.add(lamp);
+        this.sign('JUMP', 0.24, 0.08, JX - 0.175, 0.55, JZ, -Math.PI / 2, { w: 256, h: 84, size: 54, bg: '#1b1b18', fg: '#40e0a0' });
+        this.col(JX - 0.2, JX + 0.2, JZ - 0.2, JZ + 0.2);
+        this.jumpPos = V(JX, 1.0, JZ);
+        this.interact.push({ kind: 'jump', x: JX, y: 1.0, z: JZ, r: 0.36 });
+      }
       // overhead panel
       this.box(1.4, 0.09, 1.5, dm, 5.8, CK.roof - 0.05, 0);
       const ob = new THREE.InstancedMesh(btnGeo, btnMat, 24);
@@ -1440,12 +1460,13 @@ const Ship = (() => {
       // the ship's cameras (their feeds are a page on the bay's main screen): a housing on a bracket, the lens, a red
       // light. They watch where the crew come and go: over the hatch looking down the ramp, on a tripod out on the
       // ground ahead of the nose looking back at the hatch, on the tail looking back, and one inside, up in a corner of
-      // the bay
+      // the bay. Away from the ground (in space, and flying) the tripod's packed away and the one on the spine over the
+      // cockpit takes its place on the screen, looking out ahead past the nose
       this.hullCams = [];
-      const hc = (name, p, look, inside, rig) => {
+      const hc = (name, p, look, inside, rig, space) => {
         const dir = look.clone().sub(p).normalize();
         // (it sees from just in front of its lens)
-        this.hullCams.push({ name, pos: p.clone().addScaledVector(dir, 0.16), look, inside: !!inside, ground: !!rig });
+        this.hullCams.push({ name, pos: p.clone().addScaledVector(dir, 0.16), look, inside: !!inside, ground: !!rig, space: !!space });
         const M = new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), dir), V(1, 1, 1));
         const at = rig ? (geo, m, x, y, z) => { const me = new THREE.Mesh(geo.applyMatrix4(M.clone().multiply(mat(x, y, z))), this.cm[m] || MATS.get(m)); me.castShadow = true; rig.add(me); }
           : (geo, m, x, y, z) => this.put(m, geo, M.clone().multiply(mat(x, y, z)));
@@ -1469,6 +1490,7 @@ const Ship = (() => {
         this.group.add(rig); this.groundCamRig = rig;
         hc('GROUND', head.clone().add(V(0, 0.1, 0)), V(-2.5, -0.3, 5.2), false, rig);
       }
+      hc('NOSE', V(3.6, skinTop(3.6, 0) + 0.12, 0), V(60, -9, -4), false, null, true);
       hc('BAY', V(3.25, 3.18, 3.55), V(-4.5, 0.3, -1.8), true);
       hc('TAIL', V(-16.9, skinTop(-16.9, 0) + 0.1, 0), V(-45, SHIP.ground, 0));
       // name plate and hull number, laid on the skin
@@ -1975,11 +1997,22 @@ const Ship = (() => {
       this.planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 96, 64), this.planetMat); this.tilt.add(this.planet);
       this.clouds = new THREE.Mesh(new THREE.SphereGeometry(this.R * 1.007, 96, 64), new THREE.MeshStandardMaterial({ map: TEX.get('clouds'), transparent: true, opacity: 0.45, depthWrite: false, roughness: 1, fog: false }));
       this.tilt.add(this.clouds);
+      // Rings (Nadir's, the Hollow's), round this world or round the world in the sky over its moon or rock: drawn on a
+      // dome round the eye, each point of it following its line of sight out to the sheet (see Rings), so they're right
+      // however near or far they reach, out past the end of the view or in round the ship. They sit at their true depth,
+      // so the world and anything else out there hides them where it's in front; their shadows fall on everything.
+      this.ringU = Rings.uniforms(); this.ringSunU = { value: V(1, 0, 0) };
+      this.ringSky = new THREE.Mesh(new THREE.SphereGeometry(200, 48, 24), new THREE.ShaderMaterial({
+        uniforms: Object.assign({ uSun: this.ringSunU }, this.ringU),
+        vertexShader: 'varying vec3 vD; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vD = wp.xyz - cameraPosition; gl_Position = projectionMatrix * viewMatrix * wp; }',
+        fragmentShader: Rings.GLSL + `uniform vec3 uSun; uniform mat4 projectionMatrix; varying vec3 vD;
+          void main(){ float t; vec3 d = normalize(vD); vec4 c = ringSee(cameraPosition, d, uSun, t); if (c.a < 0.003) discard;
+            vec4 cp = projectionMatrix * viewMatrix * vec4(cameraPosition + d * t, 1.0); gl_FragDepthEXT = clamp(cp.z / cp.w * 0.5 + 0.5, 0.0, 0.9999999);
+            gl_FragColor = c; }`,
+        extensions: { fragDepth: true }, transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
+      }));
+      this.ringSky.renderOrder = 4; this.ringSky.frustumCulled = false; this.ringSky.visible = false; sp.add(this.ringSky);
       this.planetDetail();
-      const rg = new THREE.RingGeometry(this.R * 1.35, this.R * 2.3, 180, 1), ruv = rg.attributes.uv, rpos = rg.attributes.position;
-      for (let i = 0; i < ruv.count; i++) ruv.setXY(i, (Math.hypot(rpos.getX(i), rpos.getY(i)) - this.R * 1.35) / (this.R * 0.95), 0.5);
-      this.ring = new THREE.Mesh(rg, new THREE.MeshLambertMaterial({ map: TEX.get('rings'), transparent: true, side: THREE.DoubleSide, depthWrite: false, fog: false }));
-      this.ring.rotation.x = -Math.PI / 2; this.tilt.add(this.ring);
       // the air: light scattered along each line of sight through a thin shell whose density falls off with height.
       // Edge-on it piles up into a bright, soft limb that thins away into space; over the face of the world it's a
       // faint haze, heavier toward the edges; the day side glows, the night side doesn't, and along the line between
@@ -2119,7 +2152,7 @@ const Ship = (() => {
           uniforms: { tBase: { value: tex(base) }, uK: { value: 0 }, uHz: { value: 0 } }, vertexShader: vs,
           fragmentShader: `uniform sampler2D tBase; uniform float uK, uHz; varying vec2 vUv;
             void main(){ float s = texture2D(tBase, vUv).r * (255.0 / 128.0); gl_FragColor = vec4(vec3(mix(1.0, s, uK * (1.0 - uHz))), 1.0); }`,
-          transparent: true, depthWrite: false, toneMapped: false, fog: false,
+          transparent: true, depthWrite: false, depthTest: false, toneMapped: false, fog: false,
           blending: THREE.CustomBlending, blendSrc: THREE.DstColorFactor, blendDst: THREE.ZeroFactor,
         });
         // ...and its lights add on top
@@ -2127,16 +2160,19 @@ const Ship = (() => {
           uniforms: { tLit: { value: tex(lit, true) }, uK: { value: 0 }, uLit: { value: 0 }, uGlow: { value: 0 } }, vertexShader: vs,
           fragmentShader: `uniform sampler2D tLit; uniform float uK, uLit, uGlow; varying vec2 vUv;
             void main(){ vec4 l = texture2D(tLit, vUv); gl_FragColor = vec4((l.rgb * uLit + vec3(1.0, 0.45, 0.13) * l.a * uGlow) * uK, 1.0); }`,
-          transparent: true, depthWrite: false, toneMapped: false, fog: false, blending: THREE.AdditiveBlending,
+          transparent: true, depthWrite: false, depthTest: false, toneMapped: false, fog: false, blending: THREE.AdditiveBlending,
         });
         const quad = new THREE.PlaneGeometry(2 * E, 2 * E).rotateX(-Math.PI / 2);
         const decal = new THREE.Mesh(quad, mat); decal.position.y = 0.01; g.add(decal);
         const lights = new THREE.Mesh(quad, lmat); lights.position.y = 0.01; lights.renderOrder = 1; g.add(lights);
         const bc = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xff2a14, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
-        bc.scale.set(0.5, 0.5, 1); bc.position.set(-0.1, 0.6, -0.45); bc.renderOrder = 1; g.add(bc);
+        bc.scale.set(0.32, 0.32, 1); bc.position.set(-0.1, 0.6, -0.45); bc.renderOrder = 1; g.add(bc);
         g.userData = { beacon: bc }; this.siteMat = mat; this.siteLights = lmat;
-        // (far larger than life, so you can pick it out before the air catches fire; drawn after the air, shading the hazed ground, and less the thicker the haze)
-        g.visible = false; g.renderOrder = 6; g.scale.setScalar(4); sp.add(g); this.siteMark = g;
+        // (larger than life, so you can pick it out before the air catches fire. It's part of the ground: drawn straight
+        // after it, so the air's glow, the haze and the cloud all lie over it as they lie over the ground round it. Lying
+        // flat on the ground it would fight it for depth, so it isn't depth-tested: dead ahead on the ground, nothing is
+        // ever between it and the eye but the air and cloud drawn over it)
+        g.visible = false; g.renderOrder = -1; g.scale.setScalar(3); sp.add(g); this.siteMark = g;
       }
       this.sunDir = V(1, 0.3, 0).normalize();
       this.setOrbit(1, {});
@@ -2180,8 +2216,9 @@ const Ship = (() => {
       const vert = (sh) => { sh.vertexShader = 'varying vec3 vPDir;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vPDir = position;'); };
       this.planetMat.onBeforeCompile = (sh) => {
         sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW;
+        Object.assign(sh.uniforms, this.ringU);
         vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
           .replace('#include <map_fragment>', `#include <map_fragment>
             {
               // land (bright in the texture) gets rough, mottled ground and real relief; the sea stays nearly flat
@@ -2221,6 +2258,8 @@ const Ship = (() => {
               // off the moon, the softer)
               for (int i = 0; i < 3; i++) { vec4 c = uPdCast[i]; if (c.w > 0.0) { vec3 rel = c.xyz - vWP; float tt = dot(rel, uPdSunW);
                 if (tt > 0.0) { float d = length(rel - uPdSunW * tt), pen = c.w * 0.04 + tt * 0.0093; outgoingLight *= mix(0.05, 1.0, smoothstep(c.w - pen, c.w + pen, d)); } } }
+              // (and the rings' shadow, in bands: as dark as the rings are thick)
+              outgoingLight *= mix(0.04, 1.0, ringThrough(vWP, uPdSunW));
               // (no air to soften it: a hard line between day and night, and the night side black)
               outgoingLight = mix(outgoingLight * smoothstep(-0.015, 0.08, dot(gn, directionalLights[0].direction)) + totalEmissiveRadiance, outgoingLight, uPdAir);
             }
@@ -2250,11 +2289,13 @@ const Ship = (() => {
         c.material.opacity = [0.6, 0.45, 0.35, 0.34][i];
         c.material.onBeforeCompile = (sh) => {
           sh.uniforms.uLayer = layer; sh.uniforms.uHole = hole; sh.uniforms.uHoleR = holeR; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW;
+          Object.assign(sh.uniforms, this.ringU);
           vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR; uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; varying vec3 vWP;\nvoid main() {')
-            // (the clouds lie in the moons' shadows too)
+          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR; uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; varying vec3 vWP;\nvoid main() {')
+            // (the clouds lie in the moons' shadows too, and the rings')
             .replace('#include <opaque_fragment>', `for (int i = 0; i < 3; i++) { vec4 c = uPdCast[i]; if (c.w > 0.0) { vec3 rel = c.xyz - vWP; float tt = dot(rel, uPdSunW);
                 if (tt > 0.0) { float d = length(rel - uPdSunW * tt), pen = c.w * 0.04 + tt * 0.0093; outgoingLight *= mix(0.05, 1.0, smoothstep(c.w - pen, c.w + pen, d)); } } }
+              outgoingLight *= mix(0.12, 1.0, ringThrough(vWP, uPdSunW));
               #include <opaque_fragment>`)
             .replace('#include <map_fragment>', `#include <map_fragment>
               {
@@ -2284,8 +2325,11 @@ const Ship = (() => {
     // what circles this world (or, orbiting a moon, the world it belongs to): spheres and lumps hung round it in the
     // sky, lit by the same sun so they wax and wane, placed just off its limb as the ship sees it from its orbit
     // (each: kind moon / rock / planet, size and orbit in this world's radii, ang round the limb, off past it)
-    setBodies(list) {
+    setBodies(list, rings) {
       const R = this.R, o = this.orb;
+      // (rings round the world we're circling: in its middle, the tilt's plane; see orbit() for the rest)
+      this.ringPlanet = this.ringOwn && rings ? this.planet : null; this.ringN0 = V(0, 1, 0);
+      if (this.ringPlanet) { Rings.set(this.ringU, rings, this.planetMat.color, 0.8); this.ringU.uRingR.value.z = R; }
       if (!this.bodiesG) { this.bodiesG = new THREE.Group(); this.pgroup.add(this.bodiesG); }
       for (const m of [...this.bodiesG.children]) { this.bodiesG.remove(m); if (!m.userData.shared) m.geometry.dispose(); }
       // (the ones that orbit, slowly; everything that can throw a shadow on the world we're circling, or be in its shadow)
@@ -2295,11 +2339,12 @@ const Ship = (() => {
       // behind it, and (a moon or rock) black past its terminator, the backdrop's soft fill light not wrapping round it
       const shade = (mat, harsh) => {
         mat.onBeforeCompile = (sh) => {
-          sh.uniforms.uOcc = this.occU; sh.uniforms.uSunW = this.sunWU;
+          sh.uniforms.uOcc = this.occU; sh.uniforms.uSunW = this.sunWU; Object.assign(sh.uniforms, this.ringU);
           sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-          sh.fragmentShader = 'uniform vec4 uOcc; uniform vec3 uSunW; varying vec3 vWP;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `{
+          sh.fragmentShader = Rings.GLSL + 'uniform vec4 uOcc; uniform vec3 uSunW; varying vec3 vWP;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `{
               vec3 rel = uOcc.xyz - vWP; float tt = dot(rel, uSunW);
               if (tt > 0.0) { float d = length(rel - uSunW * tt), pen = uOcc.w * 0.03 + tt * 0.0093; outgoingLight *= mix(0.02, 1.0, smoothstep(uOcc.w - pen, uOcc.w + pen, d)); }
+              outgoingLight *= mix(0.04, 1.0, ringThrough(vWP, uSunW));
               ${harsh ? '#if NUM_DIR_LIGHTS > 0\n outgoingLight *= smoothstep(-0.015, 0.08, dot(nonPerturbedNormal, directionalLights[0].direction));\n #endif' : ''}
             }
             #include <opaque_fragment>`);
@@ -2314,8 +2359,24 @@ const Ship = (() => {
         // (their orbits are their own: from one day to the next a moon or rock swings in close or out far, and round)
         const near = b.near ?? (b.kind === 'planet' ? 1 : 0.5 + rr.next() * 1.2), ang = b.near != null || b.kind === 'planet' ? b.ang : b.ang + rr.range(-0.6, 0.6);
         const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(ang)).addScaledVector(v, Math.sin(ang));
-        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(b.ar || 0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32) * near;
+        // (a ringed world is as big as it really is next to the moon or rock we're circling, only kept inside the view's far reach)
+        let rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765);
+        if (b.rings) { const d = 1 / Math.sin(b.ar); rad = Math.min(rad, 37000 / Math.sqrt(d * d - 1)); }
+        const L = b.kind === 'planet' ? rad / Math.sin(b.ar || 0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32) * near;
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
+        // a rock inside the rings is really in them, in its lane, as far out as it is today: wherever round it shows
+        // best from here, out through the windshield a little way off dead ahead (and not behind the world)
+        const ringRock = b.ring && this.ringPlanet === this.planet;
+        if (ringRock) {
+          const n = V(0, 1, 0).applyQuaternion(this.tilt.quaternion), e1 = V(1, 0, 0).applyQuaternion(this.tilt.quaternion), e2 = V().crossVectors(n, e1), dd = b.orbit * near * R;
+          let bs = 1e9;
+          for (let i = 0; i < 180; i++) {
+            const f = i / 180 * TAU, p = e1.clone().multiplyScalar(Math.cos(f) * dd).addScaledVector(e2, Math.sin(f) * dd), vv = p.clone().sub(cam), dist = vv.length(); vv.divideScalar(dist);
+            const tc = -cam.dot(vv), c2 = cam.lengthSq() - tc * tc, hid = c2 < R * R * 1.02 && tc - Math.sqrt(Math.max(0, R * R * 1.02 - c2)) < dist;
+            const sc = Math.abs(Math.acos(clamp(vv.x, -1, 1)) - 0.32) + Math.abs(vv.y) * 0.5 + (hid ? 10 : 0);
+            if (sc < bs) { bs = sc; pos.copy(p); }
+          }
+        }
         let geo;
         if (b.kind === 'rock') {
           geo = new THREE.IcosahedronGeometry(1, 4); const p = geo.attributes.position, nz = new Noise2D(rr.next() * 1000);
@@ -2329,7 +2390,9 @@ const Ship = (() => {
         this.bodiesG.add(m); this.casters.push(m);
         // (a moon or rock goes slowly round, a moon in about forty minutes, a rock in under twenty: its own way round,
         // tipped a little, mostly across the sky so it circles the world rather than hiding behind it)
-        if (b.kind !== 'planet') {
+        // (one in the rings goes round in them, the way they go round, slowly)
+        if (ringRock) this.bodyOrbits.push({ m, base: pos.clone(), axis: V(0, 1, 0).applyQuaternion(this.tilt.quaternion), speed: TAU / 3000 });
+        else if (b.kind !== 'planet') {
           const bn = pos.clone().normalize(), want = o.D.clone().negate().addScaledVector(v, 0.35);
           this.bodyOrbits.push({ m, base: pos.clone(), axis: want.addScaledVector(bn, -want.dot(bn)).normalize(), speed: (b.kind === 'moon' ? TAU / 2400 : TAU / 1100) * (rr.next() < 0.5 ? 1 : -1) });
         }
@@ -2343,8 +2406,17 @@ const Ship = (() => {
           }));
           rim.position.copy(pos); rim.scale.setScalar(rad); rim.frustumCulled = false; this.bodiesG.add(rim); this.bodyRims.push(rim.material.uniforms.uSun);
         }
-        if (b.rings) {
-          const ring = new THREE.Mesh(this.ring.geometry, this.ring.material); ring.position.copy(pos); ring.scale.setScalar(rad / R); ring.rotation.set(-Math.PI / 2 + 0.35, 0, 0.6); ring.userData.shared = true; this.bodiesG.add(ring);
+        // Its rings lie in the plane everything round it circles in. Circling a rock that's inside them, they're a floor of
+        // ice running away to the world, with a lane swept clear round the rock's orbit (and we're a little above it);
+        // circling its moon, a little above or below them, so they're seen opened out that far.
+        if (b.rings && rings) {
+          const c = pos.clone().negate().normalize(), cd = cam.clone().normalize(), X = cd.clone().addScaledVector(c, -cd.dot(c)), xl = Math.max(X.length(), 1e-3); X.divideScalar(xl);
+          const Y = V().crossVectors(c, X), eps = b.me.ring ? 0 : b.me.eps, want = rr.range(0.2, 0.45);
+          const psi = Math.acos(clamp((Math.sin(want) - Math.sin(eps) * cd.dot(c)) / (Math.cos(eps) * xl), -1, 1)) * (rr.next() < 0.5 ? 1 : -1);
+          this.ringN0 = c.clone().multiplyScalar(Math.sin(eps)).addScaledVector(X, Math.cos(eps) * Math.cos(psi)).addScaledVector(Y, Math.cos(eps) * Math.sin(psi)).normalize();
+          // (our own lane goes right round where we are, and is as wide as the rock we're circling keeps it)
+          const sys = Object.assign({}, rings, { gaps: rings.gaps.map((g) => (b.me.ring && Math.abs(g[0] - pos.length() / rad) < 0.5 ? [pos.length() / rad, 2.4 * R / rad] : g)) });
+          this.ringPlanet = m; Rings.set(this.ringU, sys, b.tint, 0.8);
         }
       }
     }
@@ -2361,11 +2433,15 @@ const Ship = (() => {
       this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
-      this.ring.visible = (!!look.rings || r.chance(0.2)) && !look.airless;   // (never round an airless moon or rock)
-      this.ring.rotation.z = r.range(0, TAU);
+      // (rings: only round the worlds that have them; never round an airless moon or rock)
+      this.ringOwn = !!look.rings && !look.airless; this.ringPlanet = null; this.hold = 0;
     }
-    orbit(dt, t) {
+    orbit(dt, tNow) {
       const o = this.orb, R = this.R;
+      // (diving in, the ship falls straight down onto the site with the ground turning along under it, so the site holds
+      // still beneath: the world's turning, and the sun's wheel round with it, wait while it falls)
+      if (this.approach > 0) this.hold = (this.hold || 0) + dt;
+      const t = tNow - (this.hold || 0);
       const a = (o.ra + o.rp) / 2, e = (o.ra - o.rp) / (o.ra + o.rp);
       const M = o.phase + t * TAU / o.period;
       let E = M; for (let i = 0; i < 5; i++) E = M + e * Math.sin(E);
@@ -2409,6 +2485,23 @@ const Ship = (() => {
         const C = this.pdU.cast.value;
         for (let i = 0; i < 3; i++) { const m = this.casters[i]; if (m) { m.getWorldPosition(_occ); C[i].set(_occ.x, _occ.y, _occ.z, m.scale.x); } else C[i].set(0, 0, 0, 0); }
       }
+      // the rings, where they are now: round the world they belong to, and hidden and shaded by everything else out here
+      // (the moon or rock we're circling among them)
+      {
+        const rp = this.ringPlanet, U = this.ringU;
+        this.ringSky.visible = !!rp && !this.inWarp;
+        U.uRingR.value.w = rp ? 1 : 0;
+        if (rp) {
+          this.pgroup.updateMatrixWorld(true);
+          rp.getWorldPosition(U.uRingC.value); U.uRingR.value.z = rp === this.planet ? R : rp.scale.x;
+          U.uRingN.value.copy(this.ringN0).transformDirection(rp === this.planet ? this.tilt.matrixWorld : this.bodiesG.matrixWorld);
+          const occ = U.uRingOcc.value; let n = 0;
+          if (rp !== this.planet) { this.planet.getWorldPosition(_occ); occ[n++].set(_occ.x, _occ.y, _occ.z, R); }
+          for (const m of this.casters || []) if (m !== rp && n < 3) { m.getWorldPosition(_occ); occ[n++].set(_occ.x, _occ.y, _occ.z, m.scale.x); }
+          while (n < 3) occ[n++].set(0, 0, 0, 0);
+          this.ringSunU.value.copy(this.sunDir);
+        }
+      }
       this.pdU.sunW.value.copy(this.sunDir);
       // the air shell is seen from outside, or (falling into it) from within
       this.atmo.updateWorldMatrix(true, false); this.atmo.getWorldPosition(this.atmo.material.uniforms.uC.value);
@@ -2424,18 +2517,22 @@ const Ship = (() => {
       }
       // the site, dead ahead on the surface while we dive (it fades in once there's any chance of making it out)
       {
-        const sm = this.siteMark, k = this.approach > 0 && !this.inWarp ? sstep(R * 0.3, R * 0.12, this.alt) : 0;
+        const sm = this.siteMark, k = this.approach > 0 && !this.inWarp ? sstep(R * 0.2, R * 0.06, this.alt) : 0;
         sm.visible = k > 0.002;
         for (const c of this.cloudLayers) c.userData.hole.value.w = 0;
         if (sm.visible) {
-          sm.position.copy(D).multiplyScalar(this.alt - 0.2); sm.quaternion.setFromUnitVectors(_up0, _dh.copy(D).negate());
+          // (a few degrees off dead ahead, so the windshield's middle pillar, right on the line of the dive, isn't over it)
+          const dir = _dh.copy(D).applyAxisAngle(_up0, 0.05), cosA = dir.dot(D), dc = this.alt + R;
+          sm.position.copy(dir).multiplyScalar(dc * cosA - Math.sqrt(Math.max(0, R * R - dc * dc * (1 - cosA * cosA))));
+          const up = _sl.copy(sm.position).addScaledVector(D, -dc).normalize(), night = sstep(0.15, -0.25, up.dot(this.sunDir));
+          sm.quaternion.setFromUnitVectors(_up0, up); sm.position.addScaledVector(up, 0.2);
           sm.updateMatrixWorld(); sm.getWorldPosition(_sw);
           for (const c of this.cloudLayers) { const h = c.userData.hole.value; c.updateMatrixWorld(); const l = c.worldToLocal(_sl.copy(_sw)).normalize(); h.set(l.x, l.y, l.z, sstep(0, 0.35, k)); }
-          sm.userData.beacon.material.opacity = k * ((t * 1.3) % 1 < 0.18 ? 1 : 0.12);
           // (the thickening air washes it out along with the ground round it; the cloud deck passes over both)
-          const night = sstep(0.15, -0.25, _dh.dot(this.sunDir)), U = this.siteMat.uniforms, L = this.siteLights.uniforms;
-          U.uK.value = k; U.uHz.value = this.pdU.haze.value * 0.55;
-          L.uK.value = k * (1 - this.pdU.haze.value * 0.4); L.uLit.value = 0.15 + 0.85 * night; L.uGlow.value = 0.38 * night;
+          const U = this.siteMat.uniforms, L = this.siteLights.uniforms, hz = this.pdU.haze.value;
+          sm.userData.beacon.material.opacity = k * (1 - hz * 0.8) * (0.25 + 0.75 * night) * ((tNow * 1.3) % 1 < 0.18 ? 1 : 0.1);
+          U.uK.value = k; U.uHz.value = hz * 0.15;
+          L.uK.value = k * (1 - hz * 0.6); L.uLit.value = 0.15 + 0.85 * night; L.uGlow.value = 0.3 * night;
         }
       }
       // eclipse when the sun slips behind the planet's disc
@@ -2446,6 +2543,8 @@ const Ship = (() => {
         m.getWorldPosition(_occ).sub(_camP); const dd = _occ.length(), am = Math.asin(Math.min(0.999, m.scale.x / dd));
         vis *= sstep(am - 0.004, am + 0.015, Math.acos(clamp(this.sunDir.dot(_occ.divideScalar(dd)), -1, 1)));
       }
+      // (and while it's behind the rings from here, as much of it as comes through them)
+      if (this.ringSky.visible) vis *= Rings.through(this.ringU, _camP, this.sunDir);
       this.sunCore.material.opacity = vis;
       return { dir: this.sunDir, vis, dist };
     }
@@ -2546,6 +2645,7 @@ const Ship = (() => {
       this.airLampMat.emissive.setHex(unsafe ? 0xff2a14 : 0x30ff60); this.airLampMat.emissiveIntensity = unsafe ? 0.45 + 0.35 * (Math.sin(time * 6) > 0 ? 1 : 0) : 0.5;
       this.leverT = damp(this.leverT, 0, 3, dt);
       this.lever.rotation.z = 0.45 - this.leverT * 0.9;
+      if (this.jumpLever) { this.jumpT = damp(this.jumpT, 0, 3, dt); this.jumpLever.rotation.z = 0.45 - this.jumpT * 0.9; }
       for (const b of this.blinkers) {
         const on = !b.blink || ((time + b.phase) % 1.6) < 0.12;
         b.m.material.color.copy(b.color).multiplyScalar(on ? 1 : 0.15); b.sp.material.opacity = on ? 0.85 : 0;
@@ -2572,6 +2672,9 @@ const Ship = (() => {
       this.thrustLight.intensity = this.lift * 900 * (0.85 + Math.random() * 0.3);
     }
     pullLever() { this.leverT = 1; }
+    pullJump() { this.jumpT = 1; }
+    // the jump lever's lamp: lit green while a course is plotted
+    setCourse(on) { if (this.jumpLamp) this.jumpLamp.color.set(on ? 0x46ffa8 : 0x0c2a1c); }
     setFlood(on) { this.flood.intensity = on ? 900 : 0; this.floodLens.material.color.set(on ? 0xfff6e0 : 0x222222); }
     setEngines(f) { for (const gl of this.engineGlows) gl.material.color.setRGB(0.2 + f * 0.8, 0.07 + f * 0.4, 0.03 + f * 0.1); }
   }

@@ -287,10 +287,11 @@ const CrewCam = (() => {
     const key = crew.map((p) => p.id + where(p) + p.alive).join() + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft) + Math.floor(t * 1.1 % 1 < 0.6);
     if (key !== last) { last = key; drawOverlay(crew, rects, t); }
   }
-  // the ship's own cameras on its hull: four feeds on the same old tube (nothing but static from orbit). You show up in
-  // them the way you do in the crew's feeds.
+  // the ship's own cameras on its hull: four feeds on the same old tube, live wherever the ship is (space and the world
+  // below from orbit, the sky on the way down, the site once it's landed). The tripod's feed only once it's set up on
+  // the ground; until then the nose camera's takes its place. You show up in them the way you do in the crew's feeds.
   function hullCams(me, t) {
-    const S = G.ship, cams = S.hullCams, rects = layout(cams.length), outside = !!G.ext && G.mode !== 'orbit' && G.mode !== 'landing';
+    const S = G.ship, down = S.groundCamUp, cams = S.hullCams.filter((c) => (down ? !c.space : !c.ground)), rects = layout(cams.length);
     S.monMesh.visible = false;
     const sa = selfAvatar();
     if (sa) {
@@ -299,8 +300,7 @@ const CrewCam = (() => {
       sa.root.visible = me.alive && me.zone === 'out'; sa.root.position.copy(mp); sa.root.quaternion.copy(q);
       sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch });
     }
-    // (outside ones see nothing from orbit; the one on the tripod only while it's set up)
-    const liveOf = (c) => c.inside || (outside && (!c.ground || S.groundCamUp));
+    const liveOf = (c) => c.inside || !c.ground || down;
     cams.forEach((c, i) => {
       const r = rects[i]; if (!liveOf(c)) return;
       cam.position.copy(c.pos); _t.copy(c.look); cam.up.set(0, 1, 0);
@@ -311,7 +311,7 @@ const CrewCam = (() => {
     cam.fov = 72; cam.up.set(0, 1, 0);
     if (sa) sa.root.visible = false;
     S.monMesh.visible = true;
-    const key = 'hull' + outside + S.groundCamUp + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
+    const key = 'hull' + down + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
     if (key === last) return;
     last = key;
     g.clearRect(0, 0, W, H); drawBar('◀  SHIP CAMS  ▶');

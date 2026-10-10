@@ -131,3 +131,17 @@ function mat(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
   _p4.set(x, y, z); _s4.set(sx, sy, sz);
   return new THREE.Matrix4().compose(_p4, _q4, _s4);
 }
+// A menu, pause screen or report taller than the screen it's on (a phone on its side, say) first splits into two
+// columns side by side, and if that's still too tall, shrinks until it fits: nobody has to scroll to reach START.
+// room: the height it has (px).
+function fitToScreen(el, room) {
+  if (!el || !el.isConnected || !el.getClientRects().length) return;
+  el.classList.remove('cols'); el.style.zoom = ''; el.style.maxHeight = ''; el.style.overflowY = '';
+  if (el.scrollHeight <= room) return;
+  if (innerWidth > 560 && el.children.length > 2) el.classList.add('cols');
+  const h = el.scrollHeight; if (h <= room) return;
+  const z = Math.max(0.6, room / h);
+  el.style.zoom = z.toFixed(3);
+  // (past the smallest it should go, what's left scrolls)
+  if (h * z > room + 1) { el.style.maxHeight = (room / z) + 'px'; el.style.overflowY = 'auto'; }
+}

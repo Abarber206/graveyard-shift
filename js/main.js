@@ -76,7 +76,21 @@ const Menu = (() => {
   let joining = false;
   const btn = (label, fn, opts = {}) => { const b = document.createElement('button'); b.className = 'btn' + (opts.small ? ' small' : ''); b.textContent = label; if (opts.disabled) b.disabled = true; b.onclick = () => { SFX.init(); SFX.play('beep', null, { f: 900, vol: 0.4 }); fn(); }; return b; };
   const html = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d; };
-  function set(...nodes) { const p = panel(); p.innerHTML = ''; nodes.flat().forEach((n) => n && p.appendChild(n)); }
+  function set(...nodes) { const p = panel(); p.innerHTML = ''; nodes.flat().forEach((n) => n && p.appendChild(n)); $('menu').classList.add('sub'); fitMenu(); }
+  // the menu panel fits the screen: the room it has is the screen less the title over it (which gives way on a short
+  // screen to anything past the main menu) and a margin
+  function fitMenu() {
+    const p = panel(), m = $('menu'), t = $('title');
+    if (!p || m.classList.contains('hidden')) return;
+    fitToScreen(p, 1e9);
+    const cs = getComputedStyle(m), titleH = t.offsetParent ? p.getBoundingClientRect().top - t.getBoundingClientRect().top : 0;
+    fitToScreen(p, innerHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - titleH - 14);
+  }
+  const fitPause = () => { const i = $('pause').querySelector('.inner'); if (i && !$('pause').classList.contains('hidden')) fitToScreen(i, innerHeight - 24); };
+  let fitQ = 0;
+  const refit = () => { cancelAnimationFrame(fitQ); fitQ = requestAnimationFrame(() => { fitMenu(); fitPause(); HUD.fitSummary(); }); };
+  window.addEventListener('resize', refit); window.addEventListener('orientationchange', () => setTimeout(refit, 250));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
   function nameField() {
     const d = html(`<div class="field"><label>YOUR NAME</label><input type="text" id="mname" maxlength="16" placeholder="CREWMATE"></div>`);
     const i = d.querySelector('input'); i.value = Settings.name || '';
@@ -160,6 +174,20 @@ const Menu = (() => {
     row.appendChild(copyBtn('COPY CODE', code));
     return [html(`<div class="mtext">LOBBY CODE</div><div class="code">${esc(code)}</div>`), row];
   }
+  // TEST CONNECTION: what this network lets through (the matchmaking server, a direct route, each relay), line by
+  // line as the answers come in, then a verdict. Run it on both phones when a friend can't get in.
+  function netTest() {
+    const box = html('<div class="mtext nettest" style="font-size:18px;line-height:20px;white-space:pre-line"></div>'), out = box.firstChild;
+    let running = false;
+    const b = btn('TEST CONNECTION', async () => {
+      if (running) return; running = true; out.textContent = '';
+      const line = (t) => { out.textContent = out.textContent.replace(/^Matchmaking server\.\.\.\n?/, '') + t + '\n'; fitMenu(); };
+      try { line(await Net.test(line)); } catch (e) { line('Test failed: ' + (e.message || e)); }
+      running = false;
+    }, { disabled: !Net.available });
+    const wrap = document.createElement('div'); wrap.append(b, box);
+    return wrap;
+  }
   function saveInfo(key) { const s = Store.get(key, null); return s && s.run ? `DAY ${s.run.day} · $${s.run.credits} · QUOTA $${s.run.sold}/$${s.run.quota}` : null; }
   function begin() {
     Menu.hide(); MenuScene.leave(); HUD.show(true);
@@ -242,6 +270,7 @@ const Menu = (() => {
         iOS && !standalone() && location.protocol === 'https:' ? html('<div class="mtext" style="margin-top:8px;font-size:18px">To install: tap Share, then <b>Add to Home Screen</b>.</div>') : null,
         !Net.available ? html('<div class="mtext" style="margin-top:10px;font-size:18px">Online play needs an internet connection (PeerJS failed to load).</div>') : null,
       );
+      $('menu').classList.remove('sub'); fitMenu();
     },
     sp() {
       const info = saveInfo('gs_save_sp');
@@ -271,6 +300,7 @@ const Menu = (() => {
         info ? btn('CONTINUE  —  ' + info, () => go(true)) : null,
         btn('NEW RUN', () => go(false)),
         status,
+        netTest(),
         btn('BACK', () => menu.main()));
     },
     join(prefill) {
@@ -292,9 +322,10 @@ const Menu = (() => {
           menu._joinStatus = status;
           setTimeout(() => { if (joining && G.mode === 'menu') { joining = false; status.firstChild.style.color = ''; status.firstChild.textContent = 'Host did not respond.'; Net.close(); } }, 12000);
         } catch (e) { joining = false; status.firstChild.style.color = ''; status.firstChild.textContent = e.message || String(e); }
+        fitMenu();
       };
       set(html('<div class="mtitle">JOIN ONLINE GAME</div>'),
-        nameField(), suitField(), d, btn(prefill ? 'JOIN CREW ' + prefill : 'JOIN', doJoin), status, btn('BACK', () => { joining = false; Net.close(); menu.main(); }));
+        nameField(), suitField(), d, btn(prefill ? 'JOIN CREW ' + prefill : 'JOIN', doJoin), status, netTest(), btn('BACK', () => { joining = false; Net.close(); menu.main(); }));
       setTimeout(() => (prefill ? !Settings.name && $('mname').focus() : ci.focus()), 50);
     },
     joined() {
@@ -314,7 +345,7 @@ const Menu = (() => {
       // single player genuinely stops: no simulation, no sound
       if (!G.online && SFX.ctx) { SFX.held = true; SFX.ctx.suspend(); }
       const inner = document.createElement('div'); inner.className = 'inner';
-      const fill = (nodes) => { inner.innerHTML = ''; nodes.flat().forEach((n) => n && inner.appendChild(n)); };
+      const fill = (nodes) => { inner.innerHTML = ''; nodes.flat().forEach((n) => n && inner.appendChild(n)); fitPause(); };
       const main = () => fill([
         html('<div class="mtitle">' + (G.online ? 'MENU' : 'PAUSED') + '</div>'),
         G.online ? inviteNodes() : null,
@@ -323,8 +354,8 @@ const Menu = (() => {
         btn('HOW TO PLAY', () => fill([html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', main)])),
         btn(G.isHost ? (G.online ? 'END SESSION' : 'QUIT') : 'LEAVE GAME', () => { if (G.isHost && G.mode === 'orbit') G.save(); G.quit(); }),
       ]);
-      main();
       p.innerHTML = ''; p.appendChild(inner);
+      main();
     },
   };
   return menu;

@@ -4,19 +4,36 @@ const SITE_LOOK = {
   // seen from orbit, each planet looks like the ground you land on
   ashgrove: { tint: 0x9a9070, atmo: 0x9fb8e8 },
   kessler: { tint: 0x6f8a62, atmo: 0x9adf8a },
-  nadir: { tint: 0xb07a4e, atmo: 0xffb070, rings: true },
-  hollow: { tint: 0x8a4a3e, atmo: 0xff6a4a, rings: true },
+  // (and some of them wear rings: in and out are where they start and end, in the world's radii)
+  nadir: { tint: 0xb07a4e, atmo: 0xffb070, rings: { in: 1.3, out: 3.1 } },
+  hollow: { tint: 0x8a4a3e, atmo: 0xff6a4a, rings: { in: 1.25, out: 2.9 } },
+  verdigris: { tint: 0x6f8a4a, atmo: 0xc8f070 },
+  rimefall: { tint: 0xc8d4dc, atmo: 0xb8e0ff, rings: { in: 1.35, out: 2.5 } },
+  agnes: { tint: 0x7a6a72, atmo: 0xc0a8d8 },
+  brinewell: { tint: 0x4a6a7a, atmo: 0x8ac8e8 },
+  saltreach: { tint: 0xd8ccb0, atmo: 0xffe8a8, rings: { in: 1.3, out: 2.4 } },
+  vesper: { tint: 0x3a2a24, atmo: 0xff8a3a },
 };
 const SITES = {
   // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once
   ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: [2], scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { mannequin: 2, crawler: 1.2, leech: 1 }, desc: 'Abandoned textile mill. Shallow. A good place to learn. Mind the dress forms.' },
+  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: [2], scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, mannequin: 0.6 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
   kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: [3], scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6 }, desc: 'Research annex. Something got out. Something stayed.' },
+  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: [2], scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, mannequin: 0.8 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
+  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: [3], scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
   nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: [2, 1], scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
+  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: [2, 1], scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
+  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: [2, 1], scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
   hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: [2, 1], scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
+  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: [2, 1], scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
 };
+// (inside, each world's dark has its own faint cast: the colour of the murk the fog fades into)
+Object.assign(SITES.verdigris, { murk: 0x020904 }); Object.assign(SITES.rimefall, { murk: 0x03060b }); Object.assign(SITES.agnes, { murk: 0x070507 });
+Object.assign(SITES.brinewell, { murk: 0x010607 }); Object.assign(SITES.saltreach, { murk: 0x080602 }); Object.assign(SITES.vesper, { murk: 0x0b0301 });
 // What circles each world: a moon, and a rock it captured (seen hanging round it from orbit, and in the sky from its
 // sites). size and orbit are in the world's radii; ang is where round its limb it shows from orbit, off how far past
-// it. Some days a facility beacon shows on one of them: a bonus site, that day only (see G.signal)
+// it. A ringed world's rock goes round inside its rings (ring), in a lane it keeps swept clear; its moon, outside them,
+// on an orbit tipped incl to them. Some days a facility beacon shows on one of them: a bonus site, that day only (see G.signal)
 const BODIES = {
   ashgrove: [
     { key: 'wick', kind: 'moon', size: 0.27, orbit: 6.0, ang: 0.6, off: 0.16, tint: 0xb4b0a6 },
@@ -27,12 +44,36 @@ const BODIES = {
     { key: 'swab', kind: 'rock', size: 0.05, orbit: 2.8, ang: 2.0, off: 0.05, tint: 0x7e8a78 },
   ],
   nadir: [
-    { key: 'grit', kind: 'moon', size: 0.2, orbit: 5.5, ang: 2.8, off: 0.14, tint: 0xc0a088 },
-    { key: 'mote', kind: 'rock', size: 0.07, orbit: 3.6, ang: 0.9, off: 0.1, tint: 0x9a8676 },
+    { key: 'grit', kind: 'moon', size: 0.2, orbit: 5.5, ang: 2.8, off: 0.14, tint: 0xc0a088, incl: 0.24 },
+    { key: 'mote', kind: 'rock', size: 0.07, orbit: 2.5, ang: 0.9, off: 0.1, tint: 0x9a8676, ring: true },
   ],
   hollow: [
-    { key: 'cinder', kind: 'moon', size: 0.25, orbit: 6.4, ang: -2.2, off: 0.18, tint: 0x80625a },
-    { key: 'clinker', kind: 'rock', size: 0.06, orbit: 3.0, ang: 1.3, off: 0.06, tint: 0x564c48 },
+    { key: 'cinder', kind: 'moon', size: 0.25, orbit: 6.4, ang: -2.2, off: 0.18, tint: 0x80625a, incl: 0.3 },
+    { key: 'clinker', kind: 'rock', size: 0.06, orbit: 2.3, ang: 1.3, off: 0.06, tint: 0x564c48, ring: true },
+  ],
+  verdigris: [
+    { key: 'sprig', kind: 'moon', size: 0.24, orbit: 5.6, ang: 1.4, off: 0.15, tint: 0xa8b098 },
+    { key: 'husk', kind: 'rock', size: 0.05, orbit: 3.0, ang: -1.1, off: 0.06, tint: 0x7a7a60 },
+  ],
+  rimefall: [
+    { key: 'sleet', kind: 'moon', size: 0.26, orbit: 5.8, ang: -0.8, off: 0.17, tint: 0xc8ccd4, incl: 0.2 },
+    { key: 'floe', kind: 'rock', size: 0.06, orbit: 2.0, ang: 2.2, off: 0.07, tint: 0xa8b0b8, ring: true },
+  ],
+  agnes: [
+    { key: 'vigil', kind: 'moon', size: 0.2, orbit: 6.2, ang: 2.4, off: 0.15, tint: 0xb0a8b0 },
+    { key: 'relic', kind: 'rock', size: 0.05, orbit: 3.4, ang: 0.4, off: 0.06, tint: 0x7a7070 },
+  ],
+  brinewell: [
+    { key: 'ballast', kind: 'moon', size: 0.28, orbit: 5.0, ang: -2.6, off: 0.18, tint: 0x9aa4a8 },
+    { key: 'barnacle', kind: 'rock', size: 0.06, orbit: 2.9, ang: 1.0, off: 0.07, tint: 0x6a7270 },
+  ],
+  saltreach: [
+    { key: 'cask', kind: 'moon', size: 0.22, orbit: 5.4, ang: 0.2, off: 0.15, tint: 0xd0c8b4, incl: 0.22 },
+    { key: 'grain', kind: 'rock', size: 0.05, orbit: 2.0, ang: -1.8, off: 0.06, tint: 0xb8ae98, ring: true },
+  ],
+  vesper: [
+    { key: 'flux', kind: 'moon', size: 0.23, orbit: 6.0, ang: -1.6, off: 0.16, tint: 0x6a5048 },
+    { key: 'dross', kind: 'rock', size: 0.07, orbit: 3.2, ang: 2.0, off: 0.08, tint: 0x3a3230 },
   ],
 };
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
@@ -46,6 +87,18 @@ Object.assign(SITES, {
   mote: { name: 'Mote', code: '7-R', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1.2, pale: 0.8 }, desc: 'An ore crusher, still running.' },
   cinder: { name: 'Cinder', code: '0-I', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [32, 40], mult: 2.6, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, mannequin: 1.5, crawler: 1.4, leech: 1 }, desc: 'The signal from below the Hollow is louder here.' },
   clinker: { name: 'Clinker', code: '0-R', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [26, 33], mult: 2.8, power: 9, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, crawler: 1.4, mannequin: 1 }, desc: 'Burnt out. Something tunnels through it.' },
+  sprig: { name: 'Sprig', code: '5-I', risk: 'LOW', cost: 0, bonus: 'verdigris', biome: 'moon', lowG: true, size: 26, stairs: [2], scrap: [13, 18], mult: 1.4, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.6, crawler: 1.2 }, desc: 'A seed vault, sealed against the end of the world. Something got in anyway.' },
+  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: [], scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'A compost works bored into the rock. Mind the smell.' },
+  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4, mannequin: 0.8 }, desc: 'An ice-core drilling station. The cores are missing.' },
+  floe: { name: 'Floe', code: '22-R', risk: 'HIGH', cost: 0, bonus: 'rimefall', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [18, 24], mult: 1.8, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, pale: 1 }, desc: "An ice hauler's camp out in the rings, cutting blocks from them." },
+  vigil: { name: 'Vigil', code: '40-I', risk: 'MEDIUM', cost: 0, bonus: 'agnes', biome: 'moon', lowG: true, size: 30, stairs: [3], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 2, pale: 1 }, desc: "The sanatorium's isolation ward. Built a long way off, on purpose." },
+  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, leech: 1.2 }, desc: 'An ossuary. They ran out of room on the moor.' },
+  ballast: { name: 'Ballast', code: '56-I', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, crawler: 1.4, pale: 0.8 }, desc: "A breaker's yard, where they cut up the ships too big to land." },
+  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1 }, desc: "A salvage tender's base, grown over with something." },
+  cask: { name: 'Cask', code: '19-I', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4 }, desc: 'Brine evaporators under glass. The glass is cracked.' },
+  grain: { name: 'Grain', code: '19-R', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [21, 27], mult: 2.3, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, pale: 1.2 }, desc: 'A salt mine in a rock out in the rings.' },
+  flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
+  dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: [2], scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
 });
 for (const w in BODIES) {
   const W = SITE_LOOK[w];
@@ -58,12 +111,25 @@ for (const w in BODIES) {
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
 // Where each moon and rock is today: how far out along its orbit (near: 1 its usual distance, under that closer in,
-// over it farther out) and how far round its world (phase). Decided by the day and the world, so the view from orbit,
-// the sky over the world's sites and the sky over its moon and rock all agree, and every crewmate sees the same.
+// over it farther out), how far round its world (phase), and how far above or below the plane of the world's rings
+// (eps, an angle seen from the world: a rock inside them is right in it). Decided by the day and the world, so the view
+// from orbit, the sky over the world's sites and the sky over its moon and rock all agree, and every crewmate sees the same.
 function orbitsToday(world, run) {
   const rr = new RNG(((run ? run.day * 7919 + run.cycle * 104729 : 1) + [...world].reduce((s, c) => s + c.charCodeAt(0) * 131, 0)) >>> 0), out = {};
-  for (const b of BODIES[world] || []) out[b.key] = { near: 0.6 + rr.next() * 0.9, phase: rr.range(0, TAU) };
+  for (const b of BODIES[world] || []) {
+    const n = 0.6 + rr.next() * 0.9, phase = rr.range(0, TAU);
+    // (a rock in the rings keeps to its lane, give or take; a moon is never quite edge-on to them, or they'd vanish)
+    const s = Math.sin(phase * 2 + 1.3), eps = b.incl ? Math.sign(s || 1) * Math.max(0.08, Math.abs(s) * b.incl) : 0;
+    out[b.key] = { near: b.ring ? 0.85 + (n - 0.6) / 0.9 * 0.35 : n, phase, eps };
+  }
   return out;
+}
+// a ringed world's rings today: where they start and end, and the lanes swept clear in them by whatever goes round
+// inside them (where it is today, how wide), all in the world's radii (null: no rings)
+function ringsToday(world, run) {
+  const R = SITE_LOOK[world] && SITE_LOOK[world].rings; if (!R) return null;
+  const O = orbitsToday(world, run);
+  return { in: R.in, out: R.out, gaps: (BODIES[world] || []).filter((b) => b.ring).map((b) => [b.orbit * O[b.key].near, b.size * 2]) };
 }
 // where it is today, in the world's radii from its centre, in the plane they all go round in
 const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin(o.phase) * b.orbit * o.near });
@@ -90,10 +156,16 @@ const SITE_LOOT = {
   kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2 },
   nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4 },
   hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3 },
+  verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2 },
+  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2 },
+  agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3 },
+  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1 },
+  saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3 },
+  vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2 },
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 6;
+const PROTO = 7;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -358,7 +430,7 @@ const G = {
   },
   applyRunVisuals() {
     const r = G.run; if (!r) return;
-    G.ship.drawMonitor(r);
+    G.ship.drawMonitor(r); G.ship.setCourse(!!r.course);
     HUD.termStats(r);
     Rover.setOwned(!!r.upgrades.rover);
     // the main screen stays on whatever somebody last left it on
@@ -368,7 +440,7 @@ const G = {
     const look = SITE_LOOK[r.route] || SITE_LOOK.ashgrove; G.ship.setPlanet(look.tint, look.atmo, look.airless);
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
-    if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route)); }
+    if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route), ringsToday(SITES[r.route].bonus || r.route, r)); }
   },
   // the sun just peeking out past the edge of what's eclipsing it: a flare where it is on screen (k 0..1)
   sunPeek(k, dir) {
@@ -386,6 +458,17 @@ const G = {
     const s = SITES[key], world = s.bonus || key, O = orbitsToday(world, G.run);
     if (!s.bonus) return s.sky.map((e, i) => { const o = O[BODIES[world][i].key]; return Object.assign({}, e, { r: e.r / o.near, az: e.az + 0.5 * Math.sin(o.phase), fixed: true }); });
     const me = BODIES[world].find((b) => b.key === key), pm = bodyAt(me, O[key]), others = BODIES[world].filter((b) => b !== me), W = s.sky[0];
+    // A ringed world is laid out as it really is (Exterior.buildSkyBodies works out the rest): the world as big as it
+    // looks from this far out, its rings round it in the plane everything here circles in, and the other one out in
+    // that plane, as far round from us as it really is today (dphi), as far off and as far out of the plane
+    if (W.rings) {
+      const d = me.orbit * O[key].near;
+      return s.sky.map((e, i) => {
+        if (e.kind === 'planet') return Object.assign({}, e, { r: Math.asin(1 / d), fixed: true, dist: d, me: { size: me.size, eps: O[key].eps, ring: !!me.ring }, ringSys: ringsToday(world, G.run) });
+        const b = others[i - 1], o = O[b.key];
+        return Object.assign({}, e, { fixed: true, withWorld: true, place: { dphi: o.phase - O[key].phase, dist: b.orbit * o.near, eps: o.eps, size: b.size } });
+      });
+    }
     const wd = new THREE.Vector3(Math.cos(W.az) * Math.cos(W.el), Math.sin(W.el), Math.sin(W.az) * Math.cos(W.el));
     const t1 = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), wd).normalize(), t2 = new THREE.Vector3().crossVectors(wd, t1);
     const road = t1.multiplyScalar(Math.cos(0.3)).addScaledVector(t2, Math.sin(0.3));
@@ -402,10 +485,12 @@ const G = {
   bodiesAround(route) {
     const s = SITES[route]; if (!s) return [];
     const O = orbitsToday(s.bonus || route, G.run);
-    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near }));
+    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near, ring: !!b.ring && !!SITE_LOOK[route].rings }));
     const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route), pm = bodyAt(me, O[route]), pa = me.ang + Math.PI * 0.8;
     // (the world: bigger the closer in we are today; the other one: where it really is from here, and how far)
-    return [{ kind: 'planet', size: Math.min(10, 1 / me.size), orbit: 0, ang: pa, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings, ar: clamp(0.5 / O[route].near, 0.32, 0.75) }]
+    // (a ringed world, as big as it really looks from this far out, round in its rings with us: see Ship.setBodies)
+    const ar = W.rings ? Math.asin(1 / (me.orbit * O[route].near)) : clamp(0.5 / O[route].near, 0.32, 0.75);
+    return [{ kind: 'planet', size: W.rings ? 1 / me.size : Math.min(10, 1 / me.size), orbit: 0, ang: pa, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings, ar, me: { size: me.size, eps: O[route].eps, ring: !!me.ring } }]
       .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
   },
   // Some days a facility beacon shows on one of the bodies circling the world the ship is at (or the one it belongs
@@ -505,7 +590,7 @@ const G = {
     if (!m || typeof m !== 'object') return;
     if (G.isHost && conn) {
       if (m.t === 'hello') {
-        if (m.v !== PROTO) { Net.sendTo(conn, { t: 'deny', reason: 'Version mismatch. Make sure everyone has the same game files.' }); return; }
+        if (m.v !== PROTO) { Net.sendTo(conn, { t: 'deny', reason: 'You and the host have different versions of the game. Both of you: close it and open it again (or reload the page), then try again.' }); return; }
         if (G.players.size >= 6 && !Bots.makeRoom()) { Net.sendTo(conn, { t: 'deny', reason: 'Lobby is full (6 crew max).' }); return; }
         const id = G.nextPid++;
         conn.pid = id;
@@ -820,6 +905,7 @@ const G = {
       if (G.fac) for (const l of G.fac.lamps) if (l.state !== 'emergency') G.fac.setLampVisual(l, e.on && l.state !== 'off' ? 1 : 0.04);
     },
     toast(e) { HUD.toast(e.text, 2.5); },
+    jumpLever() { G.ship.pullJump(); SFX.play('lever', G.ship.jumpPos.clone(), { vol: 1 }); },
     notice(e) { const me = G.me(); if (!e.zone || (me && me.zone === e.zone)) HUD.notice(e.title, e.sub || '', !!e.danger, e.dur || 4); if (e.alarm) SFX.play('alarm', null, { vol: 0.7 }); },
     swing(e) { const p = G.players.get(e.pid); if (p && p.id !== G.localId) { p.swingT = 0.45; SFX.play('swing', p.pos.clone().setY(p.pos.y + 1.4), { vol: 0.8 }); } },
     throwFx(e) { G.grenades.push({ from: new THREE.Vector3(...e.from), to: new THREE.Vector3(...e.to), t: 0, dur: e.dur, bomb: e.bomb ?? null, mesh: (() => { const m = ItemMeshes.build(e.type || 'stun'); R.scene.add(m); return m; })() }); },
@@ -919,6 +1005,33 @@ const G = {
     return m;
   },
   // ======================= host logic =======================
+  // is a course to k a short hop between a world and its moon or rock (rather than a jump to another world)?
+  isHop(k) { const cur = SITES[G.run.route]; return !!((SITES[k].bonus && SITES[k].bonus === G.run.route) || (cur.bonus && cur.bonus === k)); },
+  // why a course to k can't be flown right now (or null)
+  routeProblem(k) {
+    const run = G.run, hop = G.isHop(k);
+    // (a moon or rock only while it's showing a beacon, and only from the world it circles)
+    if (SITES[k].bonus && G.signal(run) !== k) return 'NO BEACON THERE TODAY. Try SITES.';
+    if (SITES[k].bonus && !hop) return 'ROUTE TO ' + SITES[SITES[k].bonus].name.toUpperCase() + ' FIRST.';
+    if (!hop && SITES[k].cost > run.credits) return `INSUFFICIENT CREDITS ($${SITES[k].cost} needed)`;
+    return null;
+  },
+  // the JUMP lever pulled: off on the plotted course, a jump to the new world, or a short hop across to its moon or
+  // back (everyone aboard rides it; the sky changes when the ship gets there). Returns why not, if it can't.
+  hostEngage() {
+    const run = G.run, k = run && run.course;
+    if (G.mode !== 'orbit') return 'Jump drive: only in orbit.';
+    if (!k) return 'No course plotted. ROUTE at the terminal.';
+    if (G.flight || G.seq || G.robot || G.jumping) return 'Jump drive busy.';
+    const why = G.routeProblem(k); if (why) { delete run.course; G.emit({ e: 'run', run }); return why.charAt(0) + why.slice(1).toLowerCase(); }
+    const hop = G.isHop(k);
+    if (!hop) run.credits -= SITES[k].cost;
+    run.route = k; delete run.course;
+    G.emit({ e: 'jumpLever' });
+    G.emit({ e: hop ? 'hop' : 'jump', route: k });
+    G.emit({ e: 'run', run }); G.save();
+    return null;
+  },
   hostRequest(pid, r) {
     const p = G.players.get(pid); if (!p) return;
     // clients report where they were when they acted (tolerates network lag)
@@ -992,6 +1105,12 @@ const G = {
         if ((G.mode !== 'site' && G.mode !== 'leaving') || (G.fp && G.fp.y > FLY.doorAlt)) { G.sendTo(pid, { t: 'ev', e: { e: 'toast', text: 'Hatch locked.' } }); return; }
         G.emit({ e: 'hatch', open: !G.ship.door.open });
         G.addNoise(new THREE.Vector3(-2.5, 1, 4.5), 22, 'out', pid);
+        break;
+      }
+      case 'engage': {
+        if (p.zone !== 'out' || !G.ship.jumpPos || Math.hypot(at.x - G.ship.jumpPos.x, at.z - G.ship.jumpPos.z) > 2.5) return;
+        const why = G.hostEngage();
+        if (why) { G.emitSound('err', G.ship.jumpPos, { vol: 0.6 }); G.sendTo(pid, { t: 'ev', e: { e: 'toast', text: why } }); }
         break;
       }
       case 'lever': {
@@ -1460,6 +1579,8 @@ const G = {
     run.daysLeft = Math.max(0, run.daysLeft - 1); run.day += 1;
     // (a beacon lasts the day: by the next the ship has hopped back to the world the moon or rock belongs to)
     if (SITES[run.route].bonus && G.signal(run) !== run.route) run.route = SITES[run.route].bonus;
+    // (and a course plotted to yesterday's beacon goes with it)
+    if (run.course && (run.course === run.route || (SITES[run.course].bonus && G.signal(run) !== run.course))) delete run.course;
     if (!allDead) run.collected = (run.collected || 0) + collected;
     const frac = r.total ? (collected - lost) / r.total : 0;
     let grade = allDead ? 'F' : frac >= 0.7 && !deaths.length ? 'S' : frac >= 0.5 ? 'A' : frac >= 0.3 ? 'B' : frac >= 0.15 ? 'C' : frac > 0 ? 'D' : 'F';
@@ -1498,7 +1619,7 @@ const G = {
         L('  STORE            - tools & ship upgrades', '', 'store');
         L('  BUY <ITEM> [N]   - purchase (delivered to ship)', '', 'store');
         L('  SITES            - list salvage sites', '', 'sites');
-        L('  ROUTE <SITE>     - set destination (in orbit)', '', 'sites');
+        L('  ROUTE <SITE>     - plot a course (then pull the JUMP lever)', '', 'sites');
         L('  SELL             - sell all scrap aboard (in orbit)', '', 'sell');
         L('  SCAN             - scrap aboard / remaining', '', 'scan');
         L('  QUOTA            - profit quota status', '', 'quota');
@@ -1559,35 +1680,33 @@ const G = {
       }
       case 'sites': case 'moons':
         L('SALVAGE SITES', 'hi');
-        for (const k in SITES) { const s = SITES[k]; if (s.bonus) continue; L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} ${s.cost ? 'ROUTE $' + s.cost : 'FREE'}${run.route === k ? '   << ROUTED' : ''}`, run.route === k ? 'hi' : '', 'route ' + k); L('     ' + s.desc, 'dim'); L('     SIGHTED: ' + Object.keys(s.mon).map((t) => MON_DEFS[t].name).join(', ') + '   ·   HOUNDS AFTER DARK', 'dim'); }
+        for (const k in SITES) { const s = SITES[k]; if (s.bonus) continue; L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} ${s.cost ? 'ROUTE $' + s.cost : 'FREE'}${run.route === k ? '   << HERE' : run.course === k ? '   << COURSE' : ''}`, run.route === k || run.course === k ? 'hi' : '', 'route ' + k); L('     ' + s.desc, 'dim'); L('     SIGHTED: ' + Object.keys(s.mon).map((t) => MON_DEFS[t].name).join(', ') + '   ·   HOUNDS AFTER DARK', 'dim'); }
         // (and today's beacon, if one of the bodies round here is showing one)
         { const sig = G.signal(run);
           if (sig) { const s = SITES[sig], home = SITES[s.bonus];
             L(''); L('BEACON  ·  TODAY ONLY', 'hi');
-            L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} BONUS${run.route === sig ? '   << ROUTED' : ''}`, run.route === sig ? 'hi' : '', 'route ' + sig);
+            L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} BONUS${run.route === sig ? '   << HERE' : run.course === sig ? '   << COURSE' : ''}`, run.route === sig || run.course === sig ? 'hi' : '', 'route ' + sig);
             L(`     ${s.biome === 'rock' ? 'A rock' : 'The moon'} off ${home.name}: a short hop from there. ${s.desc}`, 'dim');
             L('     SIGHTED: ' + Object.keys(s.mon).map((t) => MON_DEFS[t].name).join(', ') + '   ·   NO AIR, LIGHT GRAVITY', 'dim');
           } }
         break;
+      // ROUTE plots a course; nothing moves until someone pulls the JUMP lever in the cockpit (G.hostEngage)
       case 'route': {
         const q = norm(parts.slice(1).join(''));
+        if (q === 'cancel' || q === 'none' || q === 'clear') {
+          if (!run.course) { L('NO COURSE PLOTTED.', 'dim'); break; }
+          delete run.course; G.emit({ e: 'run', run }); G.save(); L('COURSE CLEARED.', 'hi'); break;
+        }
         const k = Object.keys(SITES).find((s) => s === q || norm(SITES[s].name).startsWith(q) || norm(SITES[s].name).includes(q));
         if (!k) { L('UNKNOWN SITE. Try SITES.', 'bad'); break; }
         if (!inOrbit) { L('ROUTING ONLY AVAILABLE IN ORBIT.', 'bad'); break; }
-        if (run.route === k) { L('ALREADY ROUTED TO ' + SITES[k].name.toUpperCase() + '.', 'dim'); break; }
-        // (a moon or rock only while it's showing a beacon, and only from the world it circles)
-        if (SITES[k].bonus && G.signal(run) !== k) { L('NO BEACON THERE TODAY. Try SITES.', 'bad'); break; }
-        const cur = SITES[run.route], hop = (SITES[k].bonus && SITES[k].bonus === run.route) || (cur.bonus && cur.bonus === k);
-        if (SITES[k].bonus && !hop) { L('ROUTE TO ' + SITES[SITES[k].bonus].name.toUpperCase() + ' FIRST.', 'bad'); break; }
-        if (!hop && SITES[k].cost > run.credits) { L(`INSUFFICIENT CREDITS ($${SITES[k].cost} needed)`, 'bad'); break; }
-        if (G.seq || G.robot) { L('NAVIGATION BUSY.', 'bad'); break; }
-        if (!hop) run.credits -= SITES[k].cost;
-        run.route = k;
-        // a jump to the new world, or a short hop across to its moon or back (everyone aboard rides it; the sky
-        // changes when the ship gets there)
-        G.emit({ e: hop ? 'hop' : 'jump', route: k });
+        if (run.route === k) { L('ALREADY IN ORBIT OVER ' + SITES[k].name.toUpperCase() + '.', 'dim'); break; }
+        const why = G.routeProblem(k); if (why) { L(why, 'bad'); break; }
+        run.course = k;
         G.emit({ e: 'run', run }); G.save();
-        L('ROUTED TO ' + SITES[k].name.toUpperCase() + '.', 'hi');
+        const hop = G.isHop(k);
+        L('COURSE PLOTTED: ' + SITES[k].name.toUpperCase() + (hop ? ' (A SHORT HOP)' : SITES[k].cost ? ` ($${SITES[k].cost} ON JUMP)` : '') + '.', 'hi');
+        L('PULL THE JUMP LEVER, BY THE LEFT SEAT IN THE COCKPIT. ROUTE CANCEL TO CLEAR IT.', 'dim');
         break;
       }
       case 'sell': {
@@ -2109,6 +2228,7 @@ const G = {
         const armed = G.now - G.leverConfirm < 4000;
         if (o.kind === 'lever' && (G.flight || G.robot || G.seq || G.mode === 'leaving' || G.mode === 'landing')) continue;
         if (o.kind === 'lever') label = G.mode === 'orbit' ? (G.run.daysLeft <= 0 ? (armed ? 'Submit anyway' : 'Submit quota') : 'Land at ' + SITES[G.run.route].name) : G.mode === 'site' ? (armed ? 'Leave them behind' : 'Depart') : '...';
+        if (o.kind === 'jump') { if (G.flight || G.robot || G.seq || G.jumping) continue; label = G.mode !== 'orbit' ? 'Jump drive (only in orbit)' : G.run.course ? 'Jump to ' + SITES[G.run.course].name : 'Jump drive: no course plotted'; }
         if (o.kind === 'hatch') label = G.ship.door.open ? 'Close hatch' : 'Open hatch';
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
         if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id); label = it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
@@ -2171,6 +2291,7 @@ const G = {
         break;
       }
       case 'hatch': G.request({ a: 'hatch' }); break;
+      case 'jump': G.request({ a: 'engage' }); break;
       case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
       case 'ladder': if (G.roofOpen()) Player.climb(true); else SFX.play('err', null, { vol: 0.5 }); break;
       case 'roofHatch': Player.climb(false); break;
@@ -2536,7 +2657,7 @@ const G = {
       R.fx.peek = 0;
       // each level down the air is thicker and what little light there is bounces off nothing
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
-      scene.background.set(0x000000); scene.fog.color.set(0x000000); scene.fog.density = 0.07 + 0.014 * dp;
+      scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
       R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
       SFX.setEnv('interior');
       R.fx.exposure = 1.25 - 0.06 * dp;

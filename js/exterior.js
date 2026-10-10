@@ -1168,7 +1168,9 @@ const Exterior = (() => {
       // under a black airless sky they're solid, their night side blotting out the stars)
       const far = 'gl_Position.z = gl_Position.w * 0.99995;';
       for (const b of list) {
-        const r = D * Math.sin(Math.min(0.78, b.r)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
+        // (a moon or rock's orbit brings it in close some days and takes it far out on others, round the sky as well)
+        const near = b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
+        const r = D * Math.sin(Math.min(0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
         if (b.kind === 'rock') {
           // (a lumpy, broken potato of a thing)
           const p = geo.attributes.position, nz = new Noise2D(7 + rr.next() * 100);
@@ -1198,7 +1200,7 @@ const Exterior = (() => {
               gl_FragColor = vec4(c * uVis, 1.0); }`,
           transparent: true, blending: air ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false, fog: false,
         });
-        const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az;
+        const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
         m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = air ? -9 : 2; m.frustumCulled = false;
         this.bodiesG.add(m); this.bodies.push(m);

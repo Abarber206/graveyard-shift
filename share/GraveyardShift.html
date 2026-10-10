@@ -5840,7 +5840,7 @@ const Exterior = (() => {
         for (const e of this.eclipsers) {
           v.copy(e.m.position).applyAxisAngle(_Y, e.kind === 'planet' ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
           const show = sstep(ang - 0.012, ang + 0.025, Math.acos(clamp(v.dot(L.sunDir), -1, 1)));
-          if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; }
+          if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; L.peek = Math.max(L.peek || 0, day * sstep(0, 0.08, show) * (1 - sstep(0.3, 1, show))); }
           if (e.kind === 'planet' && this.biome.airless) {
             const face = (1 - v.dot(L.sunDir)) / 2;
             L.hemi += (0.06 + 0.14 * face) * (0.4 + 0.6 * night); L.hemiSky = L.hemiSky.clone().lerp(new THREE.Color(e.atmo != null ? e.atmo : e.tint), 0.5 * face);
@@ -10539,7 +10539,7 @@ const Voice = (() => {
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1) };
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2() };
   let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
@@ -10658,7 +10658,7 @@ const R = (() => {
 
   const POST_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const POST_FS = `
-    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp; uniform vec2 uSunUV; uniform vec3 uHeatCol;
+    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp, uPeek; uniform vec2 uSunUV, uPeekUV; uniform vec3 uHeatCol;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -10705,6 +10705,14 @@ const R = (() => {
         float gl = 3.2 * exp(-d * 28.0) + 0.7 * exp(-d * 8.0) + 0.09 * exp(-d * 2.2);
         float streak = 0.2 * exp(-abs(dv.y) * 120.0) * exp(-abs(dv.x) * 3.0);
         col += vec3(1.0, 0.93, 0.82) * v * (gl + streak);
+      }
+      // the sun just peeking out past the edge of something in its way (the world, a moon): a burst of light, a hot
+      // bead at the limb with long rays thrown out across the view, strongest when only a sliver of it shows
+      if (uPeek > 0.0) {
+        vec2 dv = (uv - uPeekUV) * vec2(uRes.x / uRes.y, 1.0); float d = length(dv), a = atan(dv.y, dv.x);
+        float rays = pow(abs(cos(a * 3.0 + 0.4)), 50.0) + 0.7 * pow(abs(cos(a * 5.0 + 1.3)), 80.0) + 0.35 * pow(abs(cos(a * 11.0 + 0.2)), 40.0);
+        float burst = 7.0 * exp(-d * 70.0) + 1.6 * exp(-d * 16.0) + 0.3 * exp(-d * 3.5) + rays * exp(-d * 4.0) * 1.8;
+        col += vec3(1.0, 0.95, 0.86) * burst * uPeek;
       }
       col += texture2D(tBloom, uv).rgb * uBloom;
       if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.06 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
@@ -10821,7 +10829,7 @@ const R = (() => {
     bloomPre = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: rt.texture }, uTx: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_PRE, depthTest: false, depthWrite: false });
     bloomBlur = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_BLUR, depthTest: false, depthWrite: false });
     post = new THREE.ShaderMaterial({
-      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
+      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uPeek: { value: 0 }, uPeekUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
       vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     const tri = new THREE.BufferGeometry();
@@ -10918,6 +10926,7 @@ const R = (() => {
     updateScan(performance.now() / 1000);
     const u = post.uniforms;
     u.uTime.value = t; u.uFear.value = fx.fear; u.uDamage.value = fx.damage; u.uFade.value = fx.fade; u.uLeech.value = fx.leech;
+    u.uPeek.value = fx.peek; u.uPeekUV.value.copy(fx.peekUV);
     u.uFlash.value = fx.flash; u.uStatic.value = fx.static; u.uExposure.value = fx.exposure; u.uLowHp.value = fx.lowhp; u.uBright.value = Settings.bright; u.uHealth.value = fx.health; u.uWhite.value = fx.white; u.uHeat.value = fx.heat; u.uWarp.value = fx.warp;
     renderer.setRenderTarget(rt);
     renderer.clear();
@@ -12359,7 +12368,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color();
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
@@ -12622,6 +12631,11 @@ const G = {
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route)); }
+  },
+  // the sun just peeking out past the edge of what's eclipsing it: a flare where it is on screen (k 0..1)
+  sunPeek(k, dir) {
+    const cam = R.camera, p = _peekV.copy(cam.position).addScaledVector(dir, 100).project(cam);
+    R.fx.peek = p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 ? k : 0; R.fx.peekUV.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
   },
   // gravity, as a share of the usual: light out on the surface of a moon or rock (the ship and the facilities keep
   // a full one of their own)
@@ -14709,6 +14723,7 @@ const G = {
     if (inSpace) {
       G.orbitT = (G.orbitT || 60) + dt;
       const sd = G.ship.orbit(dt, G.orbitT);
+      G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
       // falling close over the surface, the backdrop's near plane comes in so the ground below is never clipped
       R.setBgNear(clamp(G.ship.alt * 0.35, 0.5, 20));
       // up here everyone is shut in the cabin, so its air is clear when the ship comes down into the cloud
@@ -14737,6 +14752,7 @@ const G = {
       R.fx.exposure = 1.0;
       if (G.ext) G.ext.group.visible = false;
     } else if (zone === 'in') {
+      R.fx.peek = 0;
       // each level down the air is thicker and what little light there is bounces off nothing
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set(0x000000); scene.fog.density = 0.07 + 0.014 * dp;
@@ -14747,6 +14763,7 @@ const G = {
     } else {
       G.ext.group.visible = true;
       const L = G.ext.lighting(G.round.time);
+      G.sunPeek(L.peek || 0, L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
       // height fog that pools in the hollows and glows toward the sun
       R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);

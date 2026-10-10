@@ -54,7 +54,7 @@ for (const w in BODIES) {
   // and in the sky over each site: from the world, its moon and rock (small, a few degrees across); from one of
   // them, the world itself, filling half the sky (bigger still from the rock, in closer), and the other one
   SITES[w].sky = BODIES[w].map((b) => ({ kind: b.kind, tint: b.tint, r: 1.08 * b.size / (b.orbit - 1), az: b.ang * 1.3 + 0.4, el: 0.32 + 0.18 * Math.sin(b.ang * 2) }));
-  for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: 2.3, el: 0.5 }]
+  for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: -1.2, el: 0.55 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
 // what is left in a room depends on what the room was for

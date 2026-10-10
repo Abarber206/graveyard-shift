@@ -4579,6 +4579,7 @@ const BIOMES = {
 };
 
 const Exterior = (() => {
+  const _ecl = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
   class Ext {
     constructor(seed, site, weather, key) {
       this.seed = seed; this.site = site; this.weather = weather;
@@ -5659,7 +5660,13 @@ const Exterior = (() => {
     // at night; cloud and fog veil them, and the land hides them below the horizon
     buildSkyBodies() {
       const list = (this.site && this.site.sky) || [], D = 400, air = !this.biome.airless;
-      this.bodies = []; this.bodiesG = new THREE.Group(); this.sky.add(this.bodiesG);
+      this.bodies = []; this.eclipsers = []; this.bodiesG = new THREE.Group(); this.worldG = new THREE.Group(); this.sky.add(this.bodiesG, this.worldG);
+      // (where they start in the sky is this landing's; they drift round from there by the site's own clock, so every
+      // crewmate sees the same sky, and the same eclipse at the same moment)
+      this.skyRot0 = new RNG(this.seed + 77).range(0, TAU);
+      // (seen from a moon, the world it circles holds its place for the landing: mostly off in the north, where the sun
+      // never goes; now and then right across the sun's road, and then it swallows the sun for a while)
+      { const rw = new RNG(this.seed + 91); this.worldRot = rw.next() < 0.3 ? rw.range(0, TAU) : rw.range(-0.8, 0.8); this.worldG.rotation.y = this.worldRot; }
       if (list.length) this.moon.visible = false;
       const rr = new RNG(this.seed + 31);
       // (drawn at the very back of the depth range, so they're behind everything on the ground however big they are;
@@ -5701,7 +5708,8 @@ const Exterior = (() => {
         const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
         m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = air ? -9 : 2; m.frustumCulled = false;
-        this.bodiesG.add(m); this.bodies.push(m);
+        const G0 = b.kind === 'planet' ? this.worldG : this.bodiesG;
+        G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo });
         if (b.kind !== 'planet') continue;
         // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
         const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
@@ -5711,11 +5719,11 @@ const Exterior = (() => {
             void main(){ float l = dot(normalize(vN), uSun), a = texture2D(map, vUv).a * 0.85; gl_FragColor = vec4(vec3(0.95) * smoothstep(-0.05, 0.3, l) * (0.3 + 0.8 * max(l, 0.0)) * uVis, a * smoothstep(-0.2, 0.15, l)); }`,
           transparent: true, depthWrite: false, fog: false,
         }));
-        cl.position.copy(m.position); cl.scale.setScalar(r); cl.rotation.copy(m.rotation); cl.renderOrder = m.renderOrder + 1; cl.frustumCulled = false; this.bodiesG.add(cl); this.bodies.push(cl);
+        cl.position.copy(m.position); cl.scale.setScalar(r); cl.rotation.copy(m.rotation); cl.renderOrder = m.renderOrder + 1; cl.frustumCulled = false; G0.add(cl); this.bodies.push(cl);
         // (and a thin high layer above that, its own wisps, slowly drifting over the deck below)
         const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); hi.material.uniforms.map = cl.material.uniforms.map; hi.material.uniforms.uSun = mat.uniforms.uSun; hi.material.uniforms.uVis = mat.uniforms.uVis;
         hi.position.copy(m.position); hi.scale.setScalar(r * 1.025); hi.rotation.set(m.rotation.x + 0.4, m.rotation.y + 2.1, m.rotation.z - 0.3); hi.renderOrder = m.renderOrder + 2; hi.frustumCulled = false;
-        this.bodiesG.add(hi); this.bodies.push(hi); (this.highClouds || (this.highClouds = [])).push(hi);
+        G0.add(hi); this.bodies.push(hi); (this.highClouds || (this.highClouds = [])).push(hi);
         if (b.rings) {
           const rg = new THREE.RingGeometry(1.35, 2.3, 160, 1), uv = rg.attributes.uv, p = rg.attributes.position;
           for (let i = 0; i < uv.count; i++) uv.setXY(i, (Math.hypot(p.getX(i), p.getY(i)) - 1.35) / 0.95, 0.5);
@@ -5726,7 +5734,7 @@ const Exterior = (() => {
             transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
           }));
           ring.position.copy(m.position); ring.scale.setScalar(r); ring.lookAt(0, 0, 0); ring.rotateX(1.15); ring.rotateZ(0.5); ring.renderOrder = m.renderOrder + 2; ring.frustumCulled = false;
-          this.bodiesG.add(ring); this.bodies.push(ring);
+          G0.add(ring); this.bodies.push(ring);
         }
       }
     }
@@ -5734,7 +5742,7 @@ const Exterior = (() => {
     updateSkyBodies(L, t) {
       if (!this.bodies.length) return;
       const vis = this.biome.airless ? 1 : (1 - L.cover * 0.8) * (this.weather === 'fog' ? 0.25 : 1);
-      this.bodiesG.rotation.y = t * 0.0006;
+      this.bodiesG.rotation.y = this.skyRot0 + (this.skyMins || 0) * 0.0012;
       for (const m of this.bodies) { const u = m.material.uniforms; u.uSun.value.copy(L.sunDir); u.uVis.value = vis * (1 + 0.7 * L.night); }
       if (this.highClouds) for (const c of this.highClouds) c.rotateY(0.00025);
     }
@@ -5823,6 +5831,21 @@ const Exterior = (() => {
         L.top = C(0x020203); L.hor = C(0x050506).lerp(C(0x0b0b0d), k); L.fog = C(0x030304); L.fogDen = 0.0035;
         L.hemi = 0.08 + 0.1 * k; L.sun = 5.0 * day; L.stars = 1; L.scatter = C(0x000000); L.sunGlow = 0.25 * k;
         L.cloudLit = L.hor.clone(); L.cloudDark = L.top.clone(); L.cover = 0; L.haze = 0; L.fogFalloff = 0.02;
+      }
+      // what's in the sky has its say: a body crossing the sun's face is an eclipse (from a moon, the world overhead
+      // can swallow the sun whole for a while, and the place goes dark but for that world's glowing rim); and seen
+      // from a moon at night, that world lights the ground, more the more of its day side faces this way
+      if (this.eclipsers && this.eclipsers.length) {
+        const ry = this.skyRot0 + mins * 0.0012, v = _ecl; this.skyMins = mins;
+        for (const e of this.eclipsers) {
+          v.copy(e.m.position).applyAxisAngle(_Y, e.kind === 'planet' ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
+          const show = sstep(ang - 0.012, ang + 0.025, Math.acos(clamp(v.dot(L.sunDir), -1, 1)));
+          if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; }
+          if (e.kind === 'planet' && this.biome.airless) {
+            const face = (1 - v.dot(L.sunDir)) / 2;
+            L.hemi += (0.06 + 0.14 * face) * (0.4 + 0.6 * night); L.hemiSky = L.hemiSky.clone().lerp(new THREE.Color(e.atmo != null ? e.atmo : e.tint), 0.5 * face);
+          }
+        }
       }
       return L;
     }
@@ -12297,7 +12320,7 @@ for (const w in BODIES) {
   // and in the sky over each site: from the world, its moon and rock (small, a few degrees across); from one of
   // them, the world itself, filling half the sky (bigger still from the rock, in closer), and the other one
   SITES[w].sky = BODIES[w].map((b) => ({ kind: b.kind, tint: b.tint, r: 1.08 * b.size / (b.orbit - 1), az: b.ang * 1.3 + 0.4, el: 0.32 + 0.18 * Math.sin(b.ang * 2) }));
-  for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: 2.3, el: 0.5 }]
+  for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: -1.2, el: 0.55 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
 // what is left in a room depends on what the room was for

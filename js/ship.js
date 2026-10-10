@@ -2147,7 +2147,7 @@ const Ship = (() => {
     // resolving as you fall: each finer octave fades in once it is a few pixels across (so nothing ever shimmers),
     // and lights the land as relief. Low over it, the air thickens into haze toward the horizon.
     planetDetail() {
-      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) } };
+      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 } };
       const NOISE = `varying vec3 vPDir; float pdHeight = 0.0;
         float pdh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
         float pdn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -2179,13 +2179,14 @@ const Ship = (() => {
         `;
       const vert = (sh) => { sh.vertexShader = 'varying vec3 vPDir;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vPDir = position;'); };
       this.planetMat.onBeforeCompile = (sh) => {
-        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj;
+        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air;
         vert(sh);
-        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uPdHaze, uPdBump, uPdCRot; uniform vec3 uPdTint, uPdSun; uniform sampler2D uPdCMap;\nvoid main() {')
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir; uniform vec3 uPdTint, uPdSun; uniform sampler2D uPdCMap;\nvoid main() {')
           .replace('#include <map_fragment>', `#include <map_fragment>
             {
               // land (bright in the texture) gets rough, mottled ground and real relief; the sea stays nearly flat
-              float land = smoothstep(0.07, 0.15, dot(sampledDiffuseColor.rgb, vec3(0.3333)));
+              // (an airless moon has no ranges, no sea and no cloud: just its craters, lightly mottled)
+              float land = smoothstep(0.07, 0.15, dot(sampledDiffuseColor.rgb, vec3(0.3333))) * uPdAir;
               vec3 pp = normalize(vPDir);
               float sh, sea = pdFbm(pp, 30.0, 2.6, 0.75, sh);
               float lh, tone, rid = pdRidge(pp, 34.0, 2.55, 0.78, lh, tone);
@@ -2200,7 +2201,7 @@ const Ship = (() => {
               cs = vec3(ca * cs.x + sa * cs.z, cs.y, -sa * cs.x + ca * cs.z);
               vec2 cuv = vec2(fract(atan(cs.z, -cs.x) / 6.28318), 1.0 - acos(clamp(cs.y, -1.0, 1.0)) / 3.14159);
               float cov = textureLod(uPdCMap, cuv, log2(max(1.0, length(fwidth(pp)) * 163.0))).a;
-              diffuseColor.rgb *= 1.0 - 0.6 * smoothstep(0.1, 0.7, cov);
+              diffuseColor.rgb *= 1.0 - 0.6 * smoothstep(0.1, 0.7, cov) * uPdAir;
             }`)
           .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
             {
@@ -2258,7 +2259,57 @@ const Ship = (() => {
         c.material.customProgramCacheKey = () => 'cloudDetail';
       });
     }
-    setPlanet(tint, atmo) { this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo); }
+    setPlanet(tint, atmo, airless) {
+      this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo);
+      // (an airless moon or rock: cratered grey dust, no cloud, no air to glow at the limb or to burn coming down)
+      this.airless = !!airless;
+      // (and on its night side a faint planetshine, the light of the world it circles, so its craters still show)
+      const map = TEX.get(airless ? 'moonmap' : 'planet'), pm = this.planetMat;
+      if (pm.map !== map) { pm.map = map; pm.emissiveMap = airless ? map : null; pm.needsUpdate = true; }
+      pm.emissive.set(airless ? tint : 0x000000); pm.emissiveIntensity = 0.07; this.pdU.air.value = airless ? 0 : 1;
+      for (const c of this.cloudLayers) c.visible = !airless;
+      this.atmo.visible = !airless;
+    }
+    // what circles this world (or, orbiting a moon, the world it belongs to): spheres and lumps hung round it in the
+    // sky, lit by the same sun so they wax and wane, placed just off its limb as the ship sees it from its orbit
+    // (each: kind moon / rock / planet, size and orbit in this world's radii, ang round the limb, off past it)
+    setBodies(list) {
+      const R = this.R, o = this.orb;
+      if (!this.bodiesG) { this.bodiesG = new THREE.Group(); this.pgroup.add(this.bodiesG); }
+      for (const m of [...this.bodiesG.children]) { this.bodiesG.remove(m); m.traverse((q) => { if (q.geometry) q.geometry.dispose(); }); }
+      this.bodyRims = [];
+      const a = (o.ra + o.rp) / 2, cam = new THREE.Vector3().copy(o.D).multiplyScalar(-a), lim = Math.asin(Math.min(0.99, R / a));
+      const u = new THREE.Vector3().crossVectors(o.D, new THREE.Vector3(0, 1, 0)).normalize(), v = new THREE.Vector3().crossVectors(u, o.D).normalize();
+      const rr = new RNG(list.length * 977 + Math.round(a));
+      for (const b of list) {
+        // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
+        const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
+        const rad = b.size * R, L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.1 : 0.2);
+        const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
+        let geo;
+        if (b.kind === 'rock') {
+          geo = new THREE.IcosahedronGeometry(1, 4); const p = geo.attributes.position, nz = new Noise2D(rr.next() * 1000);
+          for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 4) * 0.55; p.setXYZ(i, x * k * 1.3, y * k * 0.78, z * k); }
+          geo.computeVertexNormals();
+        } else geo = new THREE.SphereGeometry(1, 64, 32);
+        const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', emissive: b.tint, emissiveMap: map, emissiveIntensity: 0.05 }));
+        m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
+        this.bodiesG.add(m);
+        // a world with air (seen from one of its moons) wears a thin glowing limb on its sunlit side, and its rings
+        if (b.atmo != null) {
+          const rim = new THREE.Mesh(new THREE.SphereGeometry(1.03, 48, 24), new THREE.ShaderMaterial({
+            uniforms: { uSun: { value: new THREE.Vector3(1, 0, 0) }, uCol: { value: new THREE.Color(b.atmo) } },
+            vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - wp.xyz); gl_Position = projectionMatrix * viewMatrix * wp; }',
+            fragmentShader: 'uniform vec3 uSun, uCol; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.5); gl_FragColor = vec4(uCol * f * smoothstep(-0.3, 0.5, dot(vN, uSun)) * 1.4, 1.0); }',
+            transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+          }));
+          rim.position.copy(pos); rim.scale.setScalar(rad); rim.frustumCulled = false; this.bodiesG.add(rim); this.bodyRims.push(rim.material.uniforms.uSun);
+        }
+        if (b.rings) {
+          const ring = new THREE.Mesh(this.ring.geometry, this.ring.material); ring.position.copy(pos); ring.scale.setScalar(rad / R); ring.rotation.set(-Math.PI / 2 + 0.35, 0, 0.6); this.bodiesG.add(ring);
+        }
+      }
+    }
     // A new elliptical orbit: sometimes we swing in close, sometimes the whole world hangs far off like Saturn from a moon.
     // The ship holds its attitude so the planet stays framed in the windshield; our motion around it moves the sun.
     setOrbit(seed, look) {
@@ -2311,6 +2362,7 @@ const Ship = (() => {
       this.sunCore.position.copy(this.sunDir).multiplyScalar(15000);
       this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); this.stars.quaternion.premultiply(q);
       this.atmo.material.uniforms.sunDir.value.copy(this.sunDir);
+      if (this.bodyRims) for (const u of this.bodyRims) u.value.copy(this.sunDir);
       // the air shell is seen from outside, or (falling into it) from within
       this.atmo.updateWorldMatrix(true, false); this.atmo.getWorldPosition(this.atmo.material.uniforms.uC.value);
       this.atmo.material.side = this.alt < R * 0.055 ? THREE.BackSide : THREE.FrontSide;
@@ -2320,8 +2372,8 @@ const Ship = (() => {
         const a = this.airSky.material.uniforms, up = _dh.copy(D).negate();
         const k = sstep(R * 0.06, R * 0.012, this.alt) * sstep(-0.25, 0.35, up.dot(this.sunDir));
         a.uK.value = k; a.uUp.value.copy(up); a.uTint.value.copy(this.atmo.material.uniforms.tint.value);
-        this.airSky.visible = k > 0.002 && !this.inWarp;
-        this.pdU.haze.value = sstep(R * 0.45, R * 0.02, this.alt) * 0.8;
+        this.airSky.visible = k > 0.002 && !this.inWarp && !this.airless;
+        this.pdU.haze.value = this.airless ? 0 : sstep(R * 0.45, R * 0.02, this.alt) * 0.8;
       }
       // the site, dead ahead on the surface while we dive (it fades in once there's any chance of making it out)
       {

@@ -534,6 +534,35 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
+    // an airless body: grey dust, darker plains, and craters everywhere (bright rims, shadowed floors, rays off the
+    // fresh ones); neutral, tinted per moon through the material colour
+    moonmap() {
+      const W = 512, H = 256;
+      const [c, g] = C(W, H);
+      const nz = new Noise2D(41), rr = new RNG(4141);
+      // (mostly small ones, a few big old basins; each with a darker floor, a soft raised rim and faint ejecta round it)
+      const cr = []; for (let i = 0; i < 520; i++) { const r = Math.pow(rr.next(), 4) * 0.2 + 0.006; cr.push([rr.range(-1, 1), rr.range(-1, 1), rr.range(-1, 1), r, rr.next() < 0.05, Math.cos(r * 2.2), 0.6 + rr.next() * 0.6]); }
+      for (const k of cr) { const l = Math.hypot(k[0], k[1], k[2]) || 1; k[0] /= l; k[1] /= l; k[2] /= l; }
+      const id = g.createImageData(W, H), d = id.data;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const u = x / W * TAU, v = y / H * Math.PI;
+        const px = Math.cos(u) * Math.sin(v), py = Math.cos(v), pz = Math.sin(u) * Math.sin(v);
+        let val = 0.56 + nz.fbm(px * 4 + 3, py * 4 + pz * 2, 5) * 0.2 + nz.fbm(px * 14, py * 14 + pz * 7, 3) * 0.06;
+        val -= sstep(0.05, 0.25, nz.fbm(px * 1.6 - 5, py * 1.6 + pz, 3)) * 0.15;   // the dark plains
+        for (const [cx, cy, cz, r, ray, cosR, k] of cr) {
+          const dot = px * cx + py * cy + pz * cz; if (dot < cosR && !ray) continue;
+          const dd = Math.acos(clamp(dot, -1, 1)) / r;
+          if (dd < 0.85) val -= 0.07 * k * (1 - dd * dd * 0.7);
+          else if (dd < 1.25) val += 0.06 * k * (1 - Math.abs(dd - 1.0) / 0.25);
+          else if (dd < 2.2) val += 0.02 * k * (1 - (dd - 1.25) / 0.95);
+          if (ray && dd > 1 && dd < 5) val += 0.05 * Math.pow(Math.max(0, Math.sin(Math.atan2(py - cy, px - cx) * 9 + cz * 7)), 8) * (1 - dd / 5);
+        }
+        const i = (y * W + x) * 4, k = clamp(val, 0.05, 1) * 255;
+        d[i] = k; d[i + 1] = k * 0.98; d[i + 2] = k * 0.95; d[i + 3] = 255;
+      }
+      g.putImageData(id, 0, 0);
+      return finish(c, true, false);
+    },
     clouds() {
       const W = 1024, H = 512;
       const [c, g] = C(W, H);

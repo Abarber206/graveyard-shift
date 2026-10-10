@@ -27,6 +27,12 @@ Keep that file current when gameplay changes.
   - Any change to how they consume their RNG changes the layout. That's fine, because all peers run the same build.
   - Sites are staged over several frames (`G.stageSite` / `stepSite`) behind the landing shutters, and their shaders
     compile in the background (`R.precompile`).
+- **Worlds, moons and bonus sites** (`game.js`).
+  - `SITE_LOOK`, `SITES` and `BODIES` describe the worlds and what circles them.
+  - A bonus site has `bonus` (its world), `biome` (`'moon'` / `'rock'`, the airless `BIOMES` in `exterior.js`) and `lowG`.
+  - `G.signal(run)` picks the day's beacon; a hop (`'hop'` event / seq) moves between a world and its moon.
+  - `site.sky` lists the bodies drawn in the sky over a site (`Exterior.buildSkyBodies`); `Ship.setBodies` hangs them
+    round the world in orbit.
 - **Coordinates.**
   - The ship's simulation stays at the origin. In flight, what's aboard is drawn through `G.shipM`/`G.shipQ` (the "carry").
   - The deck is at y = 0; landed, the ship stands on its legs over the pad at `SHIP.ground` (the whole site is built
@@ -59,6 +65,7 @@ The browser won't grant pointer lock to automated clicks, so drive the game from
 - **Start a run:** click `SINGLE PLAYER`, then `NEW RUN`. Keep the game unpaused with
   `setInterval(() => HUD.paused && Menu.pause(false), 200)` (and set `Input.locked = true` so the HUD isn't blocking).
 - **Rover:** `G.hostTerminal(0, 'buy rover')`; drive by holding keys in `Input.keys` while stepping frames.
+- **Moons:** to force a beacon, `G.signal = () => 'wick'`, then `G.hostTerminal(0, 'route wick')` (a 3.6 s hop).
 - **Move the player:** `Player.spawn(x, y, z, yaw)` (yaw: facing is `(-sin yaw, -cos yaw)`), then set `G.me().pitch`.
   Inside the facility, set `G.me().zone = 'in'` first.
 - **Flights:** `G.hostLand()` lands at `G.run.route` (about 13 s until you're on site); `G.hostDepart('lever')` takes off.

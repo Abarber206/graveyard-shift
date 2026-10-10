@@ -60,13 +60,38 @@ const BIOMES = {
     motes: 'ash', plant: 'ruin', sign: 'S I T E   0',
     vehicles: { colors: [0x2a2624], van: 0.3, burnt: true },
   },
+  // a moon: grey dust and craters under a black sky, stars out by day, the world it circles hanging huge overhead;
+  // no air, no weather, nothing growing, and the gravity's light out here (see SITES[...].lowG)
+  moon: {
+    relief: 'craters', water: null, terrainTex: 'terrainAsh', airless: true,
+    ground: { a: [0.64, 0.64, 0.62], b: [0.52, 0.52, 0.51], damp: [0.4, 0.4, 0.4], moss: [0.58, 0.58, 0.57], rock: [0.5, 0.5, 0.5], trail: [0.47, 0.46, 0.44], yard: [0.54, 0.54, 0.53] },
+    trees: { n: 0, snag: 0, swamp: 0, bark: null, charred: 0 },
+    rocks: { n: 300, big: 0.3, tint: 0x8c8c8a, spires: 0 },
+    deadwood: { logs: 0, stumps: 0, charred: false },
+    grass: { kind: 'none', dens: -1, h: 0.5 },
+    sky: { top: [1, 1, 1], hor: [1, 1, 1], sun: [1.15, 1.12, 1.08], hemi: [0.8, 0.84, 0.95], dim: 1, fogAdd: 0 },
+    motes: 'none', plant: 'lab', sign: 'MERCY SURVEY OUTPOST',
+    vehicles: { colors: [0xd8d8d0, 0x8a8a8a], van: 0.7, burnt: false },
+  },
+  // a captured asteroid: dark broken rock, jagged spurs and crater pits, a mining claim bored into it
+  rock: {
+    relief: 'craters', water: null, terrainTex: 'terrainAsh', airless: true,
+    ground: { a: [0.5, 0.46, 0.42], b: [0.4, 0.37, 0.34], damp: [0.32, 0.3, 0.28], moss: [0.46, 0.42, 0.38], rock: [0.42, 0.39, 0.36], trail: [0.38, 0.35, 0.32], yard: [0.44, 0.42, 0.4] },
+    trees: { n: 0, snag: 0, swamp: 0, bark: null, charred: 0 },
+    rocks: { n: 420, big: 0.35, tint: 0x5a524a, spires: 22 },
+    deadwood: { logs: 0, stumps: 0, charred: false },
+    grass: { kind: 'none', dens: -1, h: 0.5 },
+    sky: { top: [1, 1, 1], hor: [1, 1, 1], sun: [1.1, 1.06, 1.0], hemi: [0.85, 0.82, 0.8], dim: 1, fogAdd: 0 },
+    motes: 'none', plant: 'pump', sign: 'MERCY MINERAL CLAIM',
+    vehicles: { colors: [0xb88a2a, 0x6a6a6a], van: 0.3, burnt: false },
+  },
 };
 
 const Exterior = (() => {
   class Ext {
     constructor(seed, site, weather, key) {
       this.seed = seed; this.site = site; this.weather = weather;
-      this.key = BIOMES[key] ? key : 'ashgrove'; this.biome = BIOMES[this.key];
+      const bk = (site && site.biome) || key; this.key = BIOMES[bk] ? bk : 'ashgrove'; this.biome = BIOMES[this.key];
       this.rng = new RNG(seed ^ 0x5bd1e995); this.noise = new Noise2D(seed + 7);
       this.impacts = [];
       const r = this.rng;
@@ -1126,6 +1151,76 @@ const Exterior = (() => {
       this.stars = new THREE.Points(sg, this.starMat); grp.add(this.stars);
       this.moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xdde6ff, transparent: true, opacity: 0, fog: false, depthWrite: false }));
       this.moon.scale.set(60, 60, 1); this.moon.position.set(-200, 260, -260); grp.add(this.moon);
+      this.buildSkyBodies();
+    }
+    // what hangs in the sky over this place (site.sky): the world's moons and the odd captured rock, or seen from a
+    // moon, the world itself, huge. Real spheres just inside the sky dome, lit by the sun from where it really is (so
+    // they wax and wane), and added onto the sky: their dark side is just sky, they're pale ghosts by day and bright
+    // at night; cloud and fog veil them, and the land hides them below the horizon
+    buildSkyBodies() {
+      const list = (this.site && this.site.sky) || [], D = 400, air = !this.biome.airless;
+      this.bodies = []; this.bodiesG = new THREE.Group(); this.sky.add(this.bodiesG);
+      if (list.length) this.moon.visible = false;
+      const rr = new RNG(this.seed + 31);
+      // (drawn at the very back of the depth range, so they're behind everything on the ground however big they are;
+      // under a black airless sky they're solid, their night side blotting out the stars)
+      const far = 'gl_Position.z = gl_Position.w * 0.99995;';
+      for (const b of list) {
+        const r = D * Math.sin(Math.min(0.78, b.r)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
+        if (b.kind === 'rock') {
+          // (a lumpy, broken potato of a thing)
+          const p = geo.attributes.position, nz = new Noise2D(7 + rr.next() * 100);
+          for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 3) * 0.55; p.setXYZ(i, x * k * 1.25, y * k * 0.8, z * k); }
+          geo.computeVertexNormals();
+        }
+        const mat = new THREE.ShaderMaterial({
+          uniforms: { map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 } },
+          vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV;
+            void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz;
+              gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
+          fragmentShader: `uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis; varying vec3 vN; varying vec2 vUv; varying vec3 vV;
+            void main(){ vec3 n = normalize(vN); float l = dot(n, uSun);
+              vec3 c = texture2D(map, vUv).rgb * uCol * smoothstep(-0.06, 0.2, l) * (0.3 + 0.95 * max(l, 0.0));
+              // (a world with air wears a glowing limb on its sunlit side, and the faintest glow round the dark)
+              float rim = pow(1.0 - abs(dot(n, normalize(vV))), 2.6);
+              c += uAtmo * rim * (smoothstep(-0.3, 0.45, l) * 1.1 + 0.06);
+              gl_FragColor = vec4(c * uVis, 1.0); }`,
+          transparent: true, blending: air ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false, fog: false,
+        });
+        const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az;
+        m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
+        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = air ? -9 : 2; m.frustumCulled = false;
+        this.bodiesG.add(m); this.bodies.push(m);
+        if (b.kind !== 'planet') continue;
+        // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
+        const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
+          uniforms: { map: { value: TEX.get('clouds') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis },
+          vertexShader: `varying vec3 vN; varying vec2 vUv; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); ${far} }`,
+          fragmentShader: `uniform sampler2D map; uniform vec3 uSun; uniform float uVis; varying vec3 vN; varying vec2 vUv;
+            void main(){ float l = dot(normalize(vN), uSun), a = texture2D(map, vUv).a * 0.85; gl_FragColor = vec4(vec3(0.95) * smoothstep(-0.05, 0.3, l) * (0.3 + 0.8 * max(l, 0.0)) * uVis, a * smoothstep(-0.2, 0.15, l)); }`,
+          transparent: true, depthWrite: false, fog: false,
+        }));
+        cl.position.copy(m.position); cl.scale.setScalar(r); cl.rotation.copy(m.rotation); cl.renderOrder = m.renderOrder + 1; cl.frustumCulled = false; this.bodiesG.add(cl); this.bodies.push(cl);
+        if (b.rings) {
+          const rg = new THREE.RingGeometry(1.35, 2.3, 160, 1), uv = rg.attributes.uv, p = rg.attributes.position;
+          for (let i = 0; i < uv.count; i++) uv.setXY(i, (Math.hypot(p.getX(i), p.getY(i)) - 1.35) / 0.95, 0.5);
+          const ring = new THREE.Mesh(rg, new THREE.ShaderMaterial({
+            uniforms: { map: { value: TEX.get('rings') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis, uCol: { value: new THREE.Color(b.tint).lerp(new THREE.Color(0xffffff), 0.4) } },
+            vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); ${far} }`,
+            fragmentShader: `uniform sampler2D map; uniform vec3 uCol; uniform float uVis; varying vec2 vUv; void main(){ vec4 t = texture2D(map, vUv); gl_FragColor = vec4(t.rgb * uCol * uVis, t.a * 0.85); }`,
+            transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+          }));
+          ring.position.copy(m.position); ring.scale.setScalar(r); ring.lookAt(0, 0, 0); ring.rotateX(1.15); ring.rotateZ(0.5); ring.renderOrder = m.renderOrder + 2; ring.frustumCulled = false;
+          this.bodiesG.add(ring); this.bodies.push(ring);
+        }
+      }
+    }
+    // the sky's bodies: lit by the sun, veiled by cloud and weather, drifting slowly across the sky over the day
+    updateSkyBodies(L, t) {
+      if (!this.bodies.length) return;
+      const vis = this.biome.airless ? 1 : (1 - L.cover * 0.8) * (this.weather === 'fog' ? 0.25 : 1);
+      this.bodiesG.rotation.y = t * 0.0006;
+      for (const m of this.bodies) { const u = m.material.uniforms; u.uSun.value.copy(L.sunDir); u.uVis.value = vis * (1 + 0.7 * L.night); }
     }
     buildRain(grp) {
       // each drop is a short line; both of its vertices share the drop's head position (position) and differ
@@ -1162,12 +1257,13 @@ const Exterior = (() => {
         const mk = this.biome.motes, wet = this.weather === 'rain' || this.weather === 'storm';
         mu.uCol.value.copy(L.hor).multiplyScalar(mk === 'dust' ? 1.5 : mk === 'ash' ? 0.9 : 1.25).lerp(L.sunColor, 0.2 * (1 - L.night));
         mu.uGlow.value = mk === 'fireflies' ? L.night : 0;
-        mu.uOp.value = mk === 'fireflies' ? (wet ? 0.2 : 0.35 + L.night * 0.65) : (wet ? 0.15 : mk === 'dust' ? 0.8 : mk === 'ash' ? 0.75 : 0.55) * (1 - L.night * (mk === 'ash' ? 0.3 : 0.6));
+        mu.uOp.value = mk === 'none' ? 0 : mk === 'fireflies' ? (wet ? 0.2 : 0.35 + L.night * 0.65) : (wet ? 0.15 : mk === 'dust' ? 0.8 : mk === 'ash' ? 0.75 : 0.55) * (1 - L.night * (mk === 'ash' ? 0.3 : 0.6));
         const su = this.skyMat.uniforms;
         su.top.value.copy(L.top); su.hor.value.copy(L.hor); su.fogCol.value.copy(L.fog); su.scatter.value.copy(L.scatter);
         su.sunDir.value.copy(L.sunDir); su.sunCol.value.copy(L.sunColor).multiplyScalar(L.sunGlow);
         su.cloudLit.value.copy(L.cloudLit); su.cloudDark.value.copy(L.cloudDark);
         su.uTime.value = t * gusty; su.cover.value = L.cover; su.haze.value = L.haze; su.night.value = L.night;
+        this.updateSkyBodies(L, t);
       }
     }
     // time of day: mins 480..1440
@@ -1186,7 +1282,7 @@ const Exterior = (() => {
       tint(top, SK.top).multiplyScalar(SK.dim); tint(hor, SK.hor).multiplyScalar(SK.dim);
       const fogDen = (wx === 'fog' ? 0.05 : wx === 'storm' ? 0.03 : wx === 'rain' ? 0.024 : 0.012) + night * 0.012 + SK.fogAdd;
       const sunColor = tint(C(0xfff2dd).lerp(C(0xff8a4a), dusk), SK.sun);
-      return {
+      const L = {
         top, hor, fog: hor.clone().multiplyScalar(0.9), fogDen,
         hemi: (lerp(lerp(1.5, 1.0, overcast), 0.05, 1 - day * (1 - dusk * 0.4)) + dusk * 0.2) * SK.dim,
         hemiSky: tint(C(0xb8c4d0).lerp(C(0xd08a60), dusk).lerp(C(0x3a4a66), night), SK.hemi),
@@ -1204,6 +1300,15 @@ const Exterior = (() => {
         haze: wx === 'fog' ? 1 : wx === 'clear' ? 0.2 : 0.65,
         fogFalloff: wx === 'fog' ? 0.075 : 0.045,
       };
+      // no air: a black sky by day as well as by night with the stars always out, a hard white sun and deep shadows,
+      // nothing to scatter it (no fog to speak of, no cloud, no haze)
+      if (this.biome.airless) {
+        const k = 1 - night;
+        L.top = C(0x020203); L.hor = C(0x050506).lerp(C(0x0b0b0d), k); L.fog = C(0x030304); L.fogDen = 0.0035;
+        L.hemi = 0.18 + 0.22 * k; L.sun = 2.8 * day; L.stars = 1; L.scatter = C(0x000000); L.sunGlow = 0.25 * k;
+        L.cloudLit = L.hor.clone(); L.cloudDark = L.top.clone(); L.cover = 0; L.haze = 0; L.fogFalloff = 0.02;
+      }
+      return L;
     }
   }
   return Ext;

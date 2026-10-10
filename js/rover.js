@@ -217,7 +217,7 @@ const Rover = (() => {
     const moved = Math.hypot(S.x - ox, S.z - oz);
     if (Math.abs(v) > 0.3 && moved < Math.abs(v) * dt * 0.3) v *= 0.6;   // ran into something
     const gy = groundAt(S.x, S.z, S.y + 0.3, S.zone);
-    if (S.y > gy + 0.02) { vy -= 18 * dt; S.y = Math.max(gy, S.y + vy * dt); } else { S.y = gy; vy = 0; }
+    if (S.y > gy + 0.02) { vy -= 18 * G.gravity(S.zone, S.x, S.y, S.z) * dt; S.y = Math.max(gy, S.y + vy * dt); } else { S.y = gy; vy = 0; }
     spin += (v * dt) / 0.11;
     // through a facility door, in or out
     portals();

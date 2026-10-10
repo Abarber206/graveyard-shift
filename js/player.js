@@ -334,7 +334,7 @@ const Player = (() => {
       const acc = onGround ? 11 : 2.2;
       vel.x = damp(vel.x, want.x, acc, dt); vel.z = damp(vel.z, want.z, acc, dt);
       kick.multiplyScalar(Math.exp(-dt * 5));
-      vel.y -= 22 * dt;
+      vel.y -= 22 * G.gravity(me.zone, me.pos.x, me.pos.y, me.pos.z) * dt;
       if (!ui && seat == null && Input.hit('Space') && onGround && stamina > 0.08 && !leeched) { vel.y = 6.0; stamina -= 0.08; crouch = false; onGround = false; }
       const ox = me.pos.x, oz = me.pos.z;
       me.pos.x += (vel.x + kick.x) * dt; me.pos.z += (vel.z + kick.z) * dt; me.pos.y += vel.y * dt;

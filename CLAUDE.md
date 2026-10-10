@@ -54,9 +54,10 @@ Keep that file current when gameplay changes.
   (after `hostTick`). They act only through `G.hostRequest` (pick, drop, door, box, hatch, idoor, struggle) and their
   position goes out in snapshots like anyone's. Outside they follow the ship's walkway (`SHIPWAY`) and the trail
   (`G.ext.path`), going round the hull where it stands over the trail; inside they path with `fac.findPath`.
-- **Networking** (`net.js`): PeerJS for matchmaking. ICE uses STUN plus two free relays: Open Relay (credentials
-  signed in the client from its published static-auth secret, HMAC-SHA1) and PeerJS's own. `Net.test()` checks each from
-  the device (TEST CONNECTION). A host that drops off the server (phones in the background) is re-listed under the same
+- **Networking** (`net.js`): PeerJS for matchmaking. ICE uses STUN, plus whatever relay (TURN) is configured in
+  `RELAYS` (static servers) or `RELAY_URL` (a link that hands out short-lived credentials as JSON). The free public relays
+  it used (Open Relay's and PeerJS's) are gone, and no free relay works without an account, so it's empty until the
+  user sets one up. `Net.test()` checks the server, a direct route and the relay from the device (TEST CONNECTION). A host that drops off the server (phones in the background) is re-listed under the same
   code by `keepListed`. Menus, the pause screen and the report fit the window via `fitToScreen` (two columns, then zoom).
 - **Seeing vs passing.** `fac.los(ax, az, bx, bz, sight)`: with `sight`, a shut door's window (`door.pane`) lets the
   line through. Use it for anything about seeing or light (creature senses, `canSee`, the scanner, lamp culling via

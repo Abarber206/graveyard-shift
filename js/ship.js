@@ -2007,6 +2007,11 @@ const Ship = (() => {
         vertexShader: 'varying vec3 vD; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vD = wp.xyz - cameraPosition; gl_Position = projectionMatrix * viewMatrix * wp; }',
         fragmentShader: Rings.GLSL + `uniform vec3 uSun; uniform mat4 projectionMatrix; varying vec3 vD;
           void main(){ float t; vec3 d = normalize(vD); vec4 c = ringSee(cameraPosition, d, uSun, t); if (c.a < 0.003) discard;
+            // (the far side, seen past the world's edge, lies behind its air: it sinks into the glow at the limb rather
+            // than cutting across it; the thicker the air the line of sight grazes through, the less of it shows)
+            vec3 oc = cameraPosition - uRingC; float tca = -dot(oc, d), h = sqrt(max(dot(oc, oc) - tca * tca, 0.0)) - uRingR.z;
+            if (t > tca) c.a *= exp(-2.4 * exp(-max(h, 0.0) / (uRingR.z * 0.013)));
+            if (c.a < 0.003) discard;
             vec4 cp = projectionMatrix * viewMatrix * vec4(cameraPosition + d * t, 1.0); gl_FragDepthEXT = clamp(cp.z / cp.w * 0.5 + 0.5, 0.0, 0.9999999);
             gl_FragColor = c; }`,
         extensions: { fragDepth: true }, transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,

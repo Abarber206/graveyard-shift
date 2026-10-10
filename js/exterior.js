@@ -1479,14 +1479,14 @@ const Exterior = (() => {
             c += sunCol * disc * 3.0;
             // a thin high layer of wisps, streaked out and drifting its own way (the deck below passes in front of it)
             if (h > 0.0) {
-              vec2 q2 = d.xz / (h + 0.35) * 0.55 + vec2(-uTime * 0.0035, uTime * 0.0012) + seed * 1.7;
+              vec2 q2 = d.xz / (h + 0.35) * 0.55 + vec2(-uTime * 0.0012, uTime * 0.0004) + seed * 1.7;
               float w2 = fbm(q2 * vec2(1.0, 3.2) + 11.0);
               float c2 = smoothstep(1.0 - cover * 0.75, 1.15 - cover * 0.75, w2) * smoothstep(0.02, 0.25, h) * 0.55;
               c = mix(c, mix(cloudLit, vec3(1.0), 0.15) * 1.05 + sunCol * pow(sd, 6.0) * 0.3, c2);
             }
             // drifting cloud deck, lit from the sun's side, darker underneath
             if (h > -0.02) {
-              vec2 q = d.xz / (max(h, 0.0) + 0.1) * 1.4 + vec2(uTime * 0.006, uTime * 0.0022) + seed;
+              vec2 q = d.xz / (max(h, 0.0) + 0.1) * 1.4 + vec2(uTime * 0.002, uTime * 0.0008) + seed;
               float n = fbm(q), n2 = fbm(q * 2.3 + 3.0);
               float cl = smoothstep(1.0 - cover, 1.0 - cover + 0.32, n) * smoothstep(-0.02, 0.2, h);
               float lit = clamp(0.5 + (n - n2) * 1.6 + pow(sd, 3.0) * 0.6, 0.0, 1.0);
@@ -1589,16 +1589,19 @@ const Exterior = (() => {
         if (b.kind !== 'planet') continue;
         // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
         const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
-          uniforms: Object.assign({ map: { value: TEX.get('clouds') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis }, RU || {}),
+          uniforms: Object.assign({ map: { value: TEX.get('clouds') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis, uK: { value: 1.012 } }, RU || {}),
           vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vW; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
-          fragmentShader: `${RG} uniform sampler2D map; uniform vec3 uSun; uniform float uVis; varying vec3 vN; varying vec2 vUv; varying vec3 vW;
-            void main(){ float l = dot(normalize(vN), uSun), a = texture2D(map, vUv).a * 0.85; float rs = ${RU ? 'ringThrough(vW - cameraPosition, uSun)' : '1.0'};
+          // (thinning out toward the limb, seen edge-on, and gone by the world's own edge, so they never stand up off it
+          // in ragged streaks; uK is how far above the ground the layer floats)
+          fragmentShader: `${RG} uniform sampler2D map; uniform vec3 uSun; uniform float uVis, uK; varying vec3 vN; varying vec2 vUv; varying vec3 vW;
+            void main(){ vec3 n = normalize(vN); float e = sqrt(1.0 - 1.0 / (uK * uK)), l = dot(n, uSun), a = texture2D(map, vUv).a * 0.85 * smoothstep(e, e + 0.25, dot(n, normalize(cameraPosition - vW)));
+              float rs = ${RU ? 'ringThrough(vW - cameraPosition, uSun)' : '1.0'};
               gl_FragColor = vec4(vec3(0.95) * smoothstep(-0.05, 0.3, l) * (0.3 + 0.8 * max(l, 0.0)) * (0.25 + 0.75 * rs) * uVis, a * smoothstep(-0.2, 0.15, l)); }`,
           transparent: true, depthWrite: false, fog: false,
         }));
         cl.position.copy(m.position); cl.scale.setScalar(r); cl.rotation.copy(m.rotation); cl.renderOrder = m.renderOrder + 1; cl.frustumCulled = false; G0.add(cl); this.bodies.push(cl);
         // (and a thin high layer above that, its own wisps, slowly drifting over the deck below)
-        const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); Object.assign(hi.material.uniforms, cl.material.uniforms);
+        const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); Object.assign(hi.material.uniforms, cl.material.uniforms, { uK: { value: 1.025 } });
         hi.position.copy(m.position); hi.scale.setScalar(r * 1.025); hi.rotation.set(m.rotation.x + 0.4, m.rotation.y + 2.1, m.rotation.z - 0.3); hi.renderOrder = m.renderOrder + 2; hi.frustumCulled = false;
         G0.add(hi); this.bodies.push(hi); (this.highClouds || (this.highClouds = [])).push(hi);
         if (RU) {

@@ -8218,7 +8218,7 @@ const Ship = (() => {
       this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
-      this.ring.visible = !!look.rings || r.chance(0.2);
+      this.ring.visible = (!!look.rings || r.chance(0.2)) && !look.airless;   // (never round an airless moon or rock)
       this.ring.rotation.z = r.range(0, TAU);
     }
     orbit(dt, t) {

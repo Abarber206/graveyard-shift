@@ -658,7 +658,9 @@ const SFX = (() => {
     // gusts wander between calm and strong; storms gust harder
     amb.gustT -= dt;
     if (amb.gustT <= 0) { amb.gustT = rnd(1.8, 6); amb.gustTarget = clamp(Math.pow(Math.random(), 1.5) * (info.storm ? 1.35 : 1) + (info.storm ? 0.25 : 0), 0, 1.4); }
-    amb.gust = damp(amb.gust, amb.gustTarget, 0.7, dt);
+    // (the ship's own wind, lifting off or firing its mains nearby, comes in as a sudden hard gust: SFX.blastWind)
+    const bw = Math.min(1.8, (SFX.blastWind || 0) * 1.5);
+    amb.gust = damp(amb.gust, Math.max(amb.gustTarget, bw), bw > amb.gust ? 5 : 0.7, dt);
     amb.paramT -= dt;
     if (amb.paramT <= 0) {
       amb.paramT = 0.12;

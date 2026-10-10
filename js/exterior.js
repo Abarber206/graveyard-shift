@@ -289,16 +289,27 @@ const Exterior = (() => {
       }
       // ---- dead forest: branching trees and snags that creak in the wind ----
       this.windU = { value: 0 };
+      // the ship's own wind: the downwash of its lift jets, and the blast when its mains fire, shoving everything that
+      // grows away from where it comes from (xy: that spot, z: how hard, w: how far it reaches)
+      this.blastU = { value: new THREE.Vector4(0, 0, 0, 20) };
+      // (a push in metres, away from the blast and shivering with it, given in the instance's own frame)
+      const BLAST = this.blastGL = `uniform vec4 uBlast;
+        vec3 blastPush(vec3 at, float k) {
+          vec2 d = at.xz - uBlast.xy; float r = length(d) + 0.001;
+          float s = uBlast.z * exp(-r / uBlast.w) * (0.8 + 0.2 * sin(uWind * 9.0 + r * 0.7)) * k;
+          return inverse(mat3(instanceMatrix)) * vec3(d.x / r * s, -0.25 * s, d.y / r * s);
+        }\n`;
       const swayMat = (base) => {
         const m = base.clone();
         m.onBeforeCompile = (sh) => {
-          sh.uniforms.uWind = this.windU;
-          sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+          sh.uniforms.uWind = this.windU; sh.uniforms.uBlast = this.blastU;
+          sh.vertexShader = 'uniform float uWind;\n#ifdef USE_INSTANCING\n' + BLAST + '#endif\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
             #ifdef USE_INSTANCING
               vec3 tip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
               float bend = pow(max(position.y, 0.0) / 10.0, 2.0);
               float gust = sin(uWind * 0.9 + tip.x * 0.05 + tip.z * 0.04) * 0.6 + sin(uWind * 2.3 + tip.z * 0.2) * 0.25;
               transformed.x += gust * 0.28 * bend; transformed.z += gust * 0.16 * bend;
+              transformed += blastPush(tip, 1.4 * bend);
             #endif`);
         };
         m.customProgramCacheKey = () => 'sway';
@@ -535,12 +546,13 @@ const Exterior = (() => {
       for (let i = 0; i < tn.count; i++) tn.setXYZ(i, 0, 1, 0);
       const gm = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
       gm.onBeforeCompile = (sh) => {
-        sh.uniforms.uWind = this.windU;
-        sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        sh.uniforms.uWind = this.windU; sh.uniforms.uBlast = this.blastU;
+        sh.vertexShader = 'uniform float uWind;\n#ifdef USE_INSTANCING\n' + this.blastGL + '#endif\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec3 ip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
             float sw = sin(uWind * 1.9 + ip.x * 0.31 + ip.z * 0.23) * 0.65 + sin(uWind * 4.3 + ip.x * 1.7) * 0.2;
             float k = uv.y * uv.y; transformed.x += sw * 0.12 * k; transformed.z += sw * 0.06 * k;
+            transformed += blastPush(ip, 0.38 * k);
           #endif`);
         // both faces of a card take the upward normal (a flipped back face would render black)
         sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', 'float faceDirection = 1.0; vec3 normal = normalize( vNormal ); vec3 nonPerturbedNormal = normal;');
@@ -1137,6 +1149,8 @@ const Exterior = (() => {
       });
       this.rain = new THREE.LineSegments(g, this.rainMat); this.rain.frustumCulled = false; this.rain.visible = false; grp.add(this.rain);
     }
+    // the ship's wind on whatever grows round it: from (x, z), shoving s metres at the source, fading over about r
+    setBlast(x, z, s, r) { this.blastU.value.set(x, z, s, r); }
     update(t, cam, L) {
       for (const b of this.blinkers) { const on = ((t + b.phase) % b.period) < 0.35; b.m.material.color.copy(b.color).multiplyScalar(on ? 1 : 0.12); b.sp.material.opacity = on ? 0.9 : 0; }
       const gusty = this.weather === 'storm' ? 1.8 : this.weather === 'rain' ? 1.3 : 1;

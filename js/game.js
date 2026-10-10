@@ -70,7 +70,7 @@ const G = {
   init() {
     G.ship = new Ship();
     G.ship.clockMinutes = () => (G.round ? G.round.time : null);
-    R.scene.add(G.ship.group); R.scene.add(G.ship.wash); R.scene.add(G.ship.smoke); R.setBackdrop(G.ship.space, G.ship.sunCore);
+    R.scene.add(G.ship.group); R.scene.add(G.ship.wash); R.scene.add(G.ship.smoke); R.scene.add(G.ship.scorch); R.setBackdrop(G.ship.space, G.ship.sunCore);
     CrewCam.init(G.ship);
     Rover.init(G.ship);
     SFX.setOcclusion((p) => {
@@ -1636,6 +1636,10 @@ const G = {
       if (G.shipMoved) { S.group.position.set(0, 0, 0); S.group.rotation.set(0, 0, 0); S.group.updateMatrixWorld(true); G.shipM.identity(); G.shipQ.identity(); S.placeLights(G.shipM); G.shipMoved = false; }
       S.airborne = false; G.fp = null;
       if (S.lift || S.main) S.setThrust(0, 0);
+      // (whatever smoke is still hanging about drifts off and thins out; the wind it made dies down)
+      if (G.ext && dt > 0 && (S.smoke.visible || S.scorchT > 0)) S.stepSmoke(dt, S.smokeMat.uniforms.uCol.value, (x, z) => G.ext.height(x, z), G.ext.height(0, 0));
+      if (G.ext && G.ext.blastU.value.z) G.ext.setBlast(0, 0, 0, 20);
+      SFX.blastWind = 0;
       return;
     }
     f.t += dt;
@@ -1655,6 +1659,16 @@ const G = {
     if (f.kind === 'takeoff' && !f.boom && f.t >= FLY.liftAt + FLY.burst - 0.1) {
       f.boom = true; const tail = aboard ? null : new THREE.Vector3(-18, 2.5, 0).applyMatrix4(G.shipM);
       SFX.play('explosion', tail, { vol: aboard ? 0.7 : 1.3, ref: 40 }); SFX.play('engine', tail, { dur: 4.5, vol: 1.5, ref: 60 });
+      // where the flame hits: straight down the exhaust from the main nozzle (or under the tail, if it's pointing too
+      // flat to reach the ground): it blows a cloud of smoke and a ring of dust out across it and burns it black
+      if (G.ext) {
+        const h = (x, z) => G.ext.height(x, z), at = new THREE.Vector3(-18.1, 2.55, 0).applyMatrix4(G.shipM), dir = new THREE.Vector3(-1, 0, 0).transformDirection(G.shipM), q = at.clone();
+        let hit = false; for (let s = 0; s < 60 && !hit; s += 0.5) { q.copy(at).addScaledVector(dir, s); hit = q.y <= h(q.x, q.z); }
+        if (!hit) q.copy(at);
+        q.y = h(q.x, q.z); S.burstAt(q.x, q.y, q.z, h); f.boomAt = { x: q.x, z: q.z, t: f.t };
+        // (its firelight joins the lamps the renderer picks from, until the site is gone)
+        for (const L of S.fireLights) if (!G.lightSources.includes(L)) G.lightSources.push(L);
+      }
     }
     // climbing into the cloud deck, the blast shutters come down for the burn out of the air
     if (f.kind === 'takeoff' && f.t > (f.dur || FLY.toDur) - 1.3) S.setShutters(true);
@@ -1667,7 +1681,13 @@ const G = {
       const base = B.water != null ? [0.66, 0.7, 0.66] : B.ground.trail;
       const col = new THREE.Color(base[0] * day, base[1] * day, base[2] * day), glow = new THREE.Color(0.7, 0.3, 0.08).multiplyScalar(p.lift * (1 - sstep(2, 18, alt)));
       S.updateWash(dt, strength, p.x, gy, p.z, (x, z) => G.ext.height(x, z), col, glow);
-      S.updateSmoke(dt, p.burst, _smokeCol.setRGB(0.34 * day, 0.33 * day, 0.32 * day));
+      S.updateSmoke(dt, p, _smokeCol.setRGB(0.34 * day, 0.33 * day, 0.32 * day), (x, z) => G.ext.height(x, z));
+      // and its wind: the downwash flattening the grass and bending the trees under it while it's low, then the blast
+      // when the mains fire, rolling out from where the flame hit (heard as a roaring gust by anyone near enough)
+      const w = f.boomAt ? Math.exp(-(f.t - f.boomAt.t) * 1.2) : 0, cam = R.camera.position;
+      if (w * 2.4 > strength) G.ext.setBlast(f.boomAt.x, f.boomAt.z, 2.4 * w, 14 + 30 * (1 - w));
+      else G.ext.setBlast(p.x, p.z, strength * 1.2, 12);
+      SFX.blastWind = Math.max(strength * Math.exp(-Math.hypot(cam.x - p.x, cam.z - p.z) / 40), f.boomAt ? w * 1.2 * Math.exp(-Math.hypot(cam.x - f.boomAt.x, cam.z - f.boomAt.z) / 70) : 0);
     }
     if (f.kind === 'land' && f.t > FLY.landDur + 3.2) { G.flight = null; G.updateFlight(0); }
   },
@@ -2189,8 +2209,10 @@ const G = {
         // itself shrinks geometrically, in the ship's orbit code, so the world swells at a steady rate)
         // first the nose swings round until the world lies under it; then it dips, the ship pushing over to dive
         // straight down into it with the engines roaring, and the view opens out as the world swells to fill it
-        S.turn = sstep(0, 1.2, t); S.dip = sstep(1.0, 2.6, t);
-        if (!s.roar && t > 0.9) { s.roar = true; SFX.play('engine', null, { dur: 5.5, vol: 1.3 }); }
+        // (both slow and soft at either end, the way thrusters would swing a ship this size, and run into each other)
+        const ease = (a, b) => { const u = clamp((t - a) / (b - a), 0, 1); return u * u * u * (u * (u * 6 - 15) + 10); };
+        S.turn = ease(0, 2.4); S.dip = ease(1.6, 4.0);
+        if (!s.roar && t > 1.6) { s.roar = true; SFX.play('engine', null, { dur: 5.5, vol: 1.3 }); }
         G.fovAdd = 10 * sstep(0.3, 0.9, S.approach);
         const w = clamp((t - 0.6) / (E.white - 0.6), 0, 1);
         S.approach = w * w * (3 - 2 * w);
@@ -2206,7 +2228,7 @@ const G = {
         S.plasma.visible = G.entryHeat > 0.001; pm.uK.value = G.entryHeat; pm.uT.value = t;
         S.stars.material.uniforms.uFade.value = 1 - 0.9 * sstep(0.09, 0.03, hr);
         S.setThrust(0, sstep(0, 0.5, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)));
-        Player.addShake(0.08 + 0.14 * sstep(0, 0.6, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.1 * sstep(1.0, 1.6, t) * (1 - sstep(2.2, 3.0, t)) + 0.55 * G.entryHeat);
+        Player.addShake(0.05 + 0.08 * sstep(0, 1.2, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.04 * sstep(1.6, 2.6, t) * (1 - sstep(3.2, 4.2, t)) + 0.55 * G.entryHeat);
         if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);

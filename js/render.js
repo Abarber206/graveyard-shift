@@ -314,6 +314,8 @@ const R = (() => {
     switch (src.state) {
       case 'off': return 0;
       case 'emergency': return 0.55 + 0.45 * Math.sin(t * 2.2 + src.phase);
+      // (fire: always moving, never quite steady)
+      case 'fire': return 0.72 + 0.2 * Math.sin(t * 13.1 + src.phase) * Math.sin(t * 7.3 + src.phase * 2.1) + Math.random() * 0.1;
       case 'flicker': {
         const n = Math.sin(t * 11.3 + src.phase) * Math.sin(t * 4.1 + src.phase * 1.7) + Math.sin(t * 0.37 + src.phase) * 0.9;
         return n > -0.15 ? (Math.random() < 0.04 ? 0.15 : 1) : (Math.random() < 0.3 ? 0.6 : 0.03);
@@ -333,7 +335,7 @@ const R = (() => {
         if (s.zone !== zone || s.state === 'off') continue;
         if (s.fac && !power && s.state !== 'emergency') continue;
         let d = (s.x - cam.x) ** 2 + (s.y - cam.y) ** 2 + (s.z - cam.z) ** 2;
-        if (d > 40 * 40) continue;
+        if (d > (s.far || 40) ** 2) continue;
         // a lamp you have no line of sight to (behind a wall or a closed door) must not light your side
         if (losFn && d > 6 && !losFn(s)) continue;
         cands.push([d, s]);

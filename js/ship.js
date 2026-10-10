@@ -14,7 +14,7 @@ const Ship = (() => {
   const H = 3.4, V = (x, y, z) => new THREE.Vector3(x, y, z);
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
-  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _smJ = new THREE.Vector3(), _smD = new THREE.Vector3(), _pq = new THREE.Quaternion();
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
   const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
@@ -1451,8 +1451,9 @@ const Ship = (() => {
       this.plumes = [];
       const plume = (m, x, y, z, rz, len) => { const p = new THREE.Mesh(plumeGeo, m); p.position.set(x, y, z); p.rotation.z = rz; p.userData.len = len; p.frustumCulled = false; p.renderOrder = 5; this.group.add(p); this.plumes.push(p); return p; };
       // four lift jets in the belly, each in a cowled ring with a glowing throat
+      this.liftJets = [];
       for (const [x, z] of [[-5.2, -2.3], [-5.2, 2.3], [1.6, -2.3], [1.6, 2.3]]) {
-        const y = skinBot(x, z);
+        const y = skinBot(x, z); this.liftJets.push([x, y - 0.4, z]);
         this.pc('darkmetal', 0.42, 0.48, 0.16, x, y - 0.08, z, 0, 0, 0, 20, true);
         this.pt('darkmetal', 0.44, 0.05, x, y - 0.16, z, Math.PI / 2, 0, 0, 20);
         for (let i = 0; i < 6; i++) this.pb('darkmetal', 0.04, 0.05, 0.62, x, y - 0.1, z, 0, (i / 6) * Math.PI, 0);
@@ -1482,26 +1483,76 @@ const Ship = (() => {
       this.wash = new THREE.Points(g, this.washMat); this.wash.frustumCulled = false; this.wash.visible = false;
       this.washP = []; for (let i = 0; i < N; i++) this.washP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1 });
       this.washAcc = 0;
-      // the smoke the main engines pour out when they open up: world-space, left hanging in the air along the way it
-      // went (fresh puffs still glowing from the flame), slowly swelling and thinning out
+      // smoke: what the lift jets churn up round the ship as it spools up and hovers, the trail the mains pour out when
+      // they open up, the cloud the burst blows across the ground, and what curls up off the scorch it leaves behind.
+      // World-space puffs, each its own shade of grey and paler on top, fresh ones still glowing from the flame; they
+      // swell, roll along the ground rather than through it, drift off downwind and thin out
       {
-        const SN = 360, sp = new Float32Array(SN * 3), sa = new Float32Array(SN), ss = new Float32Array(SN), sg = new THREE.BufferGeometry();
-        sg.setAttribute('position', new THREE.BufferAttribute(sp, 3)); sg.setAttribute('aAge', new THREE.BufferAttribute(sa, 1)); sg.setAttribute('aSize', new THREE.BufferAttribute(ss, 1));
+        const SN = 900, sg = new THREE.BufferGeometry();
+        sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SN * 3), 3));
+        for (const k of ['aAge', 'aSize', 'aHot', 'aShade']) sg.setAttribute(k, new THREE.BufferAttribute(new Float32Array(SN), 1));
         this.smokeMat = new THREE.ShaderMaterial({
           uniforms: { uCol: { value: new THREE.Color(0.34, 0.33, 0.32) }, uFire: { value: new THREE.Color(1.6, 0.62, 0.18) } },
-          vertexShader: `attribute float aAge; attribute float aSize; varying float vA; varying float vD;
-            void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = aAge; vD = -mv.z;
-              gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * 520.0 / max(0.5, -mv.z), 0.0, 900.0); }`,
-          fragmentShader: `uniform vec3 uCol, uFire; varying float vA; varying float vD;
-            void main(){ float r = length(gl_PointCoord - 0.5); if (vA <= 0.0 || vA >= 1.0) discard;
-              float a = smoothstep(0.5, 0.1, r) * smoothstep(0.0, 0.04, vA) * pow(1.0 - vA, 1.5) * 0.5 * exp(-vD / 700.0);
-              gl_FragColor = vec4(mix(uFire, uCol, smoothstep(0.015, 0.09, vA)), a); }`,
+          vertexShader: `attribute float aAge, aSize, aHot, aShade; varying float vA, vD, vH, vS;
+            void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = aAge; vD = -mv.z; vH = aHot; vS = aShade;
+              gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * 520.0 / max(0.5, -mv.z), 0.0, 1200.0); }`,
+          fragmentShader: `uniform vec3 uCol, uFire; varying float vA, vD, vH, vS;
+            void main(){ vec2 q = gl_PointCoord - 0.5; float r = length(q); if (vA <= 0.0 || vA >= 1.0) discard;
+              float a = smoothstep(0.5, 0.12, r) * smoothstep(0.0, 0.05, vA) * pow(1.0 - vA, 1.4) * 0.62 * exp(-vD / 900.0);
+              vec3 cool = uCol * vS * (1.08 - q.y * 0.35);
+              gl_FragColor = vec4(mix(mix(cool, uFire, vH), cool, smoothstep(0.015, 0.1, vA)), a); }`,
           transparent: true, depthWrite: false,
         });
         this.smoke = new THREE.Points(sg, this.smokeMat); this.smoke.frustumCulled = false; this.smoke.visible = false;
-        this.smokeP = []; for (let i = 0; i < SN; i++) this.smokeP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1 });
-        this.smokeAcc = 0; this.smokeFrom = null;
+        this.smokeP = []; for (let i = 0; i < SN; i++) this.smokeP.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 1, s0: 1, grow: 4, hot: 0, shade: 1 });
+        this.smokeI = 0; this.smokeAcc = 0; this.liftAcc = 0; this.scorchAcc = 0; this.smokeFrom = null;
       }
+      // the scorch the burst leaves: a big black patch blown into the ground where the flame hit, ragged and streaked
+      // outward, with embers smouldering in its middle for a while (pixel art, like everything else down there)
+      {
+        const N = 48, base = document.createElement('canvas'), emb = document.createElement('canvas'); base.width = base.height = emb.width = emb.height = N;
+        const bx = base.getContext('2d'), ex = emb.getContext('2d'), bi = bx.createImageData(N, N), ei = ex.createImageData(N, N);
+        let sd = 91; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+        const rays = []; for (let i = 0; i < 9; i++) rays.push([rnd() * TAU, 0.2 + rnd() * 0.3, 0.08 + rnd() * 0.12]);
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+          const x = ((i + 0.5) / N) * 2 - 1, y = ((j + 0.5) / N) * 2 - 1, d = Math.hypot(x, y), a = Math.atan2(y, x), o = (j * N + i) * 4;
+          let edge = 0.55 + 0.07 * Math.sin(a * 3 + 1) + 0.05 * Math.sin(a * 7 + 2) + (rnd() - 0.5) * 0.06;
+          for (const [ra, len, w] of rays) { const da = Math.abs(Math.atan2(Math.sin(a - ra), Math.cos(a - ra))); if (da < w) edge += len * (1 - da / w); }
+          if (d >= edge) continue;
+          const core = d < edge * 0.55, c = core ? 5 : 12 + Math.floor(rnd() * 12);
+          bi.data[o] = c; bi.data[o + 1] = c * 0.86; bi.data[o + 2] = c * 0.72;
+          bi.data[o + 3] = d > edge * 0.82 && rnd() < 0.45 ? 0 : core ? 245 : Math.round(140 + 100 * (1 - d / edge));   // (a ragged pixel edge)
+          if (d < edge * 0.5 && rnd() < 0.1) { ei.data[o] = 255; ei.data[o + 1] = 80 + rnd() * 90; ei.data[o + 2] = 20; ei.data[o + 3] = 255; }
+        }
+        bx.putImageData(bi, 0, 0); ex.putImageData(ei, 0, 0);
+        const tx = (c) => { const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace; return t; };
+        const geo = new THREE.PlaneGeometry(1, 1, 16, 16).rotateX(-Math.PI / 2);
+        this.scorchMat = new THREE.MeshBasicMaterial({ map: tx(base), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+        this.emberMat = new THREE.MeshBasicMaterial({ map: tx(emb), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5, fog: false });
+        this.scorch = new THREE.Group(); this.scorch.visible = false;
+        this.scorch.add(new THREE.Mesh(geo, this.scorchMat)); const em = new THREE.Mesh(geo, this.emberMat); em.renderOrder = 1; this.scorch.add(em);
+        this.scorch.children.forEach((m) => { m.frustumCulled = false; });
+        this.scorchT = 0; this.scorchC = new THREE.Vector3();
+      }
+      // burning bits the burst flings out: charred chunks that come down round the scorch and burn on for a while, each
+      // with a little pixel flame and its own thread of smoke (they go in the scene with the scorch)
+      {
+        const F = ['...r....', '...rr...', '..rorr..', '..roor..', '.rooor..', '.rooyor.', '.royyor.', 'rooyyoor', 'royyyyor', 'royywyor', '.ryywyr.', '..rrrr..'];
+        const C = { r: '#c0300c', o: '#ff7a1a', y: '#ffd040', w: '#fff4c0' }, c = document.createElement('canvas'); c.width = 8; c.height = 12;
+        const x = c.getContext('2d'); F.forEach((row, j) => [...row].forEach((ch, i) => { if (C[ch]) { x.fillStyle = C[ch]; x.fillRect(i, j, 1, 1); } }));
+        const ft = new THREE.CanvasTexture(c); ft.magFilter = ft.minFilter = THREE.NearestFilter; ft.generateMipmaps = false; ft.colorSpace = THREE.SRGBColorSpace;
+        const char = new THREE.MeshStandardMaterial({ color: 0x17130f, roughness: 1, emissive: 0x3a0e02, emissiveIntensity: 0.6 }), box = new THREE.BoxGeometry(1, 0.6, 0.8);
+        this.bits = [];
+        for (let i = 0; i < 14; i++) {
+          const g = new THREE.Group(), ch = new THREE.Mesh(box, char), fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: ft, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+          ch.castShadow = true; fl.center.set(0.5, 0.05); g.add(ch); g.add(fl); g.visible = false; this.scorch.add(g);
+          this.bits.push({ g, ch, fl, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 1, life: 0, size: 0.5, landed: true, acc: 0 });
+        }
+      }
+      // the fire's light: the flame out of the mains while they burn close by, the scorch glowing as it smoulders, and
+      // the two biggest burning bits (sources for the renderer's lamp pool, seen from further off than lamps)
+      const fire = (color, range) => ({ x: 0, y: 0, z: 0, color, power: 0, state: 'fire', zone: 'out', range, lit: 1, phase: Math.random() * 9, far: 110 });
+      this.fireLights = [fire(0xffa04a, 34), fire(0xff6a20, 18), fire(0xff7a2a, 10), fire(0xff7a2a, 10)];
     }
     // ---------- the Company's delivery drone (in orbit it brings purchases in through the airlock) ----------
     buildRobot() {
@@ -1611,37 +1662,142 @@ const Ship = (() => {
       this.wash.visible = live > 0;
       this.washMat.uniforms.uCol.value.copy(color); this.washMat.uniforms.uGlow.value.copy(glow);
     }
-    // the burst's smoke: puffs out of the main nozzles while `rate` (0..1) is up, strung along the path the tail swept this
-    // frame so a fast ship leaves an unbroken trail, blown back out of the nozzles and slowing to drift and spread
-    updateSmoke(dt, rate, color) {
-      const P = this.smokeP, geo = this.smoke.geometry, pos = geo.attributes.position, age = geo.attributes.aAge, sz = geo.attributes.aSize;
-      const M = this.group.matrixWorld, nz = _smN.set(HULL.x0 - ENGINES.main[1] * 0.87 - 0.6, ENGINES.main[0], 0).applyMatrix4(M), back = _smB.set(-1, 0, 0).transformDirection(M);
-      const from = this.smokeFrom || nz;
-      this.smokeAcc = rate > 0.01 ? Math.min(this.smokeAcc + dt * 70 * rate, 30) : 0;
+    // one puff of smoke (into the oldest slot)
+    puff(x, y, z, vx, vy, vz, life, s0, grow, hot) {
+      const p = this.smokeP[this.smokeI]; this.smokeI = (this.smokeI + 1) % this.smokeP.length;
+      p.x = x; p.y = y; p.z = z; p.vx = vx; p.vy = vy; p.vz = vz; p.t = 0; p.life = life; p.s0 = s0; p.grow = grow; p.hot = hot; p.shade = 0.72 + Math.random() * 0.45;
+    }
+    // the ship's smoke, every frame it flies (P: its flight pose): the lift jets churn it up off the ground under the
+    // belly while it's low; the mains idle out a thin wisp, and once they open up, a thick trail strung along the path
+    // the tail swept this frame (so a fast ship leaves it unbroken); and the scorch it left smoulders
+    updateSmoke(dt, P, color, groundAt) {
+      const M = this.group.matrixWorld, R = Math.random, sx = this.group.position.x, sz = this.group.position.z, gy = groundAt(sx, sz);
+      const nz = _smN.set(HULL.x0 - ENGINES.main[1] * 0.87 - 0.6, ENGINES.main[0], 0).applyMatrix4(M), back = _smB.set(-1, 0, 0).transformDirection(M), from = this.smokeFrom || nz;
+      this.smokeAcc = Math.min(this.smokeAcc + dt * (130 * P.burst + 8 * clamp(P.main - 0.25, 0, 1)), 40);
+      while (this.smokeAcc >= 1) {
+        this.smokeAcc -= 1;
+        const u = R(), sp = 10 + R() * 12, big = P.burst > 0.5;
+        this.puff(lerp(from.x, nz.x, u) + (R() - 0.5) * 0.8, lerp(from.y, nz.y, u) + (R() - 0.5) * 0.8, lerp(from.z, nz.z, u) + (R() - 0.5) * 0.8,
+          back.x * sp + (R() - 0.5) * 3, back.y * sp + (R() - 0.5) * 3, back.z * sp + (R() - 0.5) * 3, big ? 4.5 + R() * 3.5 : 2 + R(), big ? 1.8 + R() * 1.8 : 0.6 + R() * 0.5, big ? 5 : 3, big ? 1 : 0.4);
+      }
+      this.smokeFrom = (this.smokeFrom || new THREE.Vector3()).copy(nz);
+      // (blown down out of the belly, it hits the ground and rolls out from under the ship)
+      const low = 1 - sstep(5, 24, this.group.position.y - gy);
+      this.liftAcc = Math.min(this.liftAcc + dt * 36 * P.lift * low, 20);
+      while (this.liftAcc >= 1) {
+        this.liftAcc -= 1;
+        const j = this.liftJets[(R() * 4) | 0], at = _smJ.set(j[0], j[1], j[2]).applyMatrix4(M), dn = _smD.set(0, -1, 0).transformDirection(M), sp = 7 + R() * 7;
+        this.puff(at.x, at.y, at.z, dn.x * sp + (R() - 0.5) * 3, dn.y * sp, dn.z * sp + (R() - 0.5) * 3, 3 + R() * 3, 1.2 + R() * 1.2, 4, 0.2 * R());
+      }
+      // the scorch: a few wisps curling up off it while it's still hot
+      if (this.scorchT > 0.2) {
+        this.scorchAcc += dt * 9 * this.scorchT;
+        while (this.scorchAcc >= 1) {
+          this.scorchAcc -= 1;
+          const a = R() * TAU, r = Math.sqrt(R()) * 5, x = this.scorchC.x + Math.cos(a) * r, z = this.scorchC.z + Math.sin(a) * r;
+          this.puff(x, groundAt(x, z) + 0.4, z, (R() - 0.5) * 0.6, 1 + R() * 1.4, (R() - 0.5) * 0.6, 4 + R() * 3, 0.7 + R() * 0.6, 4, 0.15 * R());
+        }
+      }
+      this.stepSmoke(dt, color, groundAt, gy);
+    }
+    // move and draw the puffs: they slow to the wind (and a gentle rise), roll along the ground instead of through it,
+    // and are hidden while inside the hull (like the dust)
+    stepSmoke(dt, color, groundAt, gy) {
+      const P = this.smokeP, A = this.smoke.geometry.attributes, inv = _washInv.copy(this.group.matrixWorld).invert(), lp = _washP;
+      const sx = this.group.position.x, sz = this.group.position.z, drag = Math.exp(-dt * 1.3), k = 1 - drag;
       let live = 0;
       for (let i = 0; i < P.length; i++) {
         const p = P[i];
-        if (p.t >= 1 && this.smokeAcc >= 1) {
-          this.smokeAcc -= 1;
-          const u = Math.random(), sp = 9 + Math.random() * 9, j = 0.5;
-          p.x = from.x + (nz.x - from.x) * u + (Math.random() - 0.5) * j; p.y = from.y + (nz.y - from.y) * u + (Math.random() - 0.5) * j; p.z = from.z + (nz.z - from.z) * u + (Math.random() - 0.5) * j;
-          p.vx = back.x * sp + (Math.random() - 0.5) * 2; p.vy = back.y * sp + (Math.random() - 0.5) * 2; p.vz = back.z * sp + (Math.random() - 0.5) * 2;
-          p.t = 0; p.life = 3.5 + Math.random() * 2.5; p.s0 = 1.2 + Math.random() * 1.2;
-        }
         if (p.t < 1) {
           p.t += dt / p.life;
-          const drag = Math.exp(-dt * 1.3); p.vx *= drag; p.vy = p.vy * drag + dt * 0.5; p.vz *= drag;
+          p.vx = p.vx * drag + 1.6 * k; p.vy = p.vy * drag + 0.7 * k; p.vz = p.vz * drag + 0.7 * k;
           p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+          if (p.y < gy + 30) {
+            const size = p.s0 * (1 + p.t * p.grow), gh = groundAt(p.x, p.z) + size * 0.22;
+            if (p.y < gh) {
+              p.y = gh;
+              if (p.vy < 0) { let dx = p.x - sx, dz = p.z - sz; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d; const s = -p.vy * 0.8; p.vx += dx * s; p.vz += dz * s; p.vy = 0.3; }
+            }
+          }
           live++;
         }
-        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, Math.min(p.t, 1)); sz.setX(i, p.s0 * (1 + p.t * 5));
+        lp.set(p.x, p.y, p.z).applyMatrix4(inv);
+        const inHull = this.onFootprint(lp.x, lp.z) && lp.y > -1.6 && lp.y < 5.6;
+        A.position.setXYZ(i, p.x, p.y, p.z); A.aAge.setX(i, inHull ? 0 : Math.min(p.t, 1)); A.aSize.setX(i, p.s0 * (1 + Math.min(p.t, 1) * p.grow)); A.aHot.setX(i, p.hot); A.aShade.setX(i, p.shade);
       }
-      this.smokeFrom = (this.smokeFrom || new THREE.Vector3()).copy(nz);
-      pos.needsUpdate = true; age.needsUpdate = true; sz.needsUpdate = true;
+      for (const k2 of ['position', 'aAge', 'aSize', 'aHot', 'aShade']) A[k2].needsUpdate = true;
       this.smoke.visible = live > 0;
       this.smokeMat.uniforms.uCol.value.copy(color);
+      // the embers in the scorch dim and flicker out over half a minute
+      if (this.scorchT > 0) { this.scorchT = Math.max(0, this.scorchT - dt / 30); this.emberMat.opacity = Math.pow(this.scorchT, 1.3) * (0.75 + Math.random() * 0.25); }
+      this.stepFire(dt, groundAt);
     }
-    clearSmoke() { for (const p of this.smokeP) p.t = 1; this.smoke.visible = false; this.smokeFrom = null; this.smokeAcc = 0; }
+    // the burning bits (thrown, tumbling, landing, burning down), and where the fire's light is
+    stepFire(dt, groundAt) {
+      const R = Math.random, [flame, glow, b0, b1] = this.fireLights;
+      // (the flame out of the mains, a few metres down the exhaust, as bright as they're burning)
+      const at = _smJ.set(HULL.x0 - ENGINES.main[1] * 0.87 - 4, ENGINES.main[0], 0).applyMatrix4(this.group.matrixWorld);
+      flame.x = at.x; flame.y = at.y; flame.z = at.z; flame.power = clamp((this.main - 0.5) * 6, 0, 8);
+      glow.x = this.scorchC.x; glow.y = this.scorchC.y + 1.5; glow.z = this.scorchC.z; glow.power = 3.2 * this.scorchT * this.scorchT;
+      let big = [null, null];
+      for (const b of this.bits) {
+        if (b.t >= b.life) { b.g.visible = false; continue; }
+        b.t += dt;
+        if (!b.landed) {
+          b.vy -= 18 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
+          b.ch.rotation.x += dt * b.vx * 0.6; b.ch.rotation.z += dt * b.vz * 0.6;
+          const gh = groundAt(b.x, b.z) + b.size * 0.25;
+          if (b.y <= gh) { b.y = gh; if (b.vy < -5) { b.vy *= -0.25; b.vx *= 0.45; b.vz *= 0.45; } else b.landed = true; }
+        }
+        // burning down: a flame that dances, shrinks and goes out, and a thread of smoke while it lasts
+        const k = 1 - sstep(b.life * 0.55, b.life, b.t);
+        b.g.position.set(b.x, b.y, b.z); b.g.visible = true;
+        b.fl.material.opacity = k * (0.7 + 0.3 * R());
+        b.fl.scale.set(b.size * (1.0 + 0.25 * R()) * k + 0.01, b.size * (1.5 + 0.6 * R()) * k + 0.01, 1);
+        b.acc += dt * 2.2 * k;
+        while (b.acc >= 1) { b.acc -= 1; this.puff(b.x, b.y + b.size, b.z, (R() - 0.5) * 0.4, 1.2 + R(), (R() - 0.5) * 0.4, 3 + R() * 2, 0.4 + b.size * 0.6, 4, 0.3); }
+        const lit = k * b.size;
+        if (!big[0] || lit > big[0].lit) { big[1] = big[0]; big[0] = { b, lit }; } else if (!big[1] || lit > big[1].lit) big[1] = { b, lit };
+      }
+      [b0, b1].forEach((L, i) => { const e = big[i]; L.power = e ? 2.4 * e.lit : 0; if (e) { L.x = e.b.x; L.y = e.b.y + 0.8; L.z = e.b.z; } });
+    }
+    // the burst, where the flame hits the ground: a cloud of smoke blown out across it, a ring of dust racing out
+    // ahead of that, and the scorch burned into it
+    burstAt(x, y, z, groundAt) {
+      const R = Math.random;
+      for (let i = 0; i < 90; i++) {
+        const a = R() * TAU, sp = 5 + R() * 14, r = R() * 3;
+        this.puff(x + Math.cos(a) * r, y + 0.5 + R() * 2, z + Math.sin(a) * r, Math.cos(a) * sp, 0.5 + R() * 4, Math.sin(a) * sp, 5 + R() * 5, 2.2 + R() * 2.2, 3, 0.7 * R());
+      }
+      let n = 0;
+      for (const p of this.washP) {
+        if (p.t < 1 || n++ > 150) continue;
+        const a = R() * TAU, sp = 14 + R() * 16;
+        p.x = x + Math.cos(a) * 2; p.z = z + Math.sin(a) * 2; p.y = y + 0.3; p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 0.5 + R() * 2; p.t = 0; p.life = 1.5 + R() * 1.6; p.s0 = 1 + R() * 1.4;
+      }
+      this.wash.visible = true;
+      // (the patch itself, laid over the ground's own lumps, turned however it happens to land)
+      const geo = this.scorch.children[0].geometry, pos = geo.attributes.position, uv = geo.attributes.uv, S = 17, a = (x * 12.9898 + z * 78.233) % TAU, ca = Math.cos(a), sa = Math.sin(a);
+      for (let i = 0; i < pos.count; i++) {
+        const lx = uv.getX(i) - 0.5, lz = 0.5 - uv.getY(i), wx = x + (lx * ca - lz * sa) * S, wz = z + (lx * sa + lz * ca) * S;
+        pos.setXYZ(i, wx, groundAt(wx, wz) + 0.06, wz);
+      }
+      pos.needsUpdate = true; geo.computeBoundingSphere();
+      this.scorch.visible = true; this.scorchT = 1; this.scorchC.set(x, y, z); this.scorchAcc = 0;
+      // and burning bits of whatever was there, flung out every way to come down round it
+      for (const b of this.bits) {
+        const a = R() * TAU, sp = 5 + R() * 11;
+        Object.assign(b, { x: x + Math.cos(a) * 1.5, y: y + 1, z: z + Math.sin(a) * 1.5, vx: Math.cos(a) * sp, vy: 5 + R() * 6, vz: Math.sin(a) * sp, t: 0, life: 14 + R() * 16, size: 0.3 + R() * R() * 0.6, landed: false, acc: 0 });
+        b.ch.scale.setScalar(b.size); b.ch.rotation.set(R() * 3, R() * 3, R() * 3);
+      }
+    }
+    clearSmoke() {
+      for (const p of this.smokeP) p.t = 1;
+      this.smoke.visible = false; this.smokeFrom = null; this.smokeAcc = this.liftAcc = this.scorchAcc = 0;
+      this.scorch.visible = false; this.scorchT = 0;
+      for (const b of this.bits) { b.t = b.life = 0; b.g.visible = false; }
+      for (const L of this.fireLights) L.power = 0;
+    }
     // on the ground with gear down and the ramp out, or stowed for flight (no animation)
     setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp; }
     // the ground camera's tripod is out only while the ship is down with its ramp out

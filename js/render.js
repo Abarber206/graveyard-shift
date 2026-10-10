@@ -2,7 +2,7 @@
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1) };
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2() };
   let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
@@ -121,7 +121,7 @@ const R = (() => {
 
   const POST_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const POST_FS = `
-    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp; uniform vec2 uSunUV; uniform vec3 uHeatCol;
+    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp, uPeek; uniform vec2 uSunUV, uPeekUV; uniform vec3 uHeatCol;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -168,6 +168,18 @@ const R = (() => {
         float gl = 3.2 * exp(-d * 28.0) + 0.7 * exp(-d * 8.0) + 0.09 * exp(-d * 2.2);
         float streak = 0.2 * exp(-abs(dv.y) * 120.0) * exp(-abs(dv.x) * 3.0);
         col += vec3(1.0, 0.93, 0.82) * v * (gl + streak);
+      }
+      // the sun just peeking out past the edge of something in its way (the world, a moon): a lens flare, a soft glow
+      // where it is and a few faint ghosts strung across the view through the middle, strongest when only a sliver shows
+      if (uPeek > 0.0) {
+        vec2 asp = vec2(uRes.x / uRes.y, 1.0), ax = vec2(0.5) - uPeekUV;
+        vec3 f = vec3(1.0, 0.9, 0.75) * 0.45 * exp(-length((uv - uPeekUV) * asp) * 14.0);
+        for (int i = 0; i < 5; i++) {
+          float k = float(i), r = 0.02 + 0.018 * mod(k * 1.7, 3.0), gd = length((uv - (uPeekUV + ax * (0.55 + k * 0.4))) * asp);
+          vec3 tint = mix(vec3(1.0, 0.75, 0.5), vec3(0.55, 0.75, 1.0), mod(k, 2.0));
+          f += tint * (0.07 * smoothstep(r, r * 0.55, gd) + 0.04 * exp(-abs(gd - r * 1.5) * 110.0)) * (1.0 - k * 0.12);
+        }
+        col += f * uPeek;
       }
       col += texture2D(tBloom, uv).rgb * uBloom;
       if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.06 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
@@ -284,7 +296,7 @@ const R = (() => {
     bloomPre = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: rt.texture }, uTx: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_PRE, depthTest: false, depthWrite: false });
     bloomBlur = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_BLUR, depthTest: false, depthWrite: false });
     post = new THREE.ShaderMaterial({
-      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
+      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uPeek: { value: 0 }, uPeekUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
       vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     const tri = new THREE.BufferGeometry();
@@ -381,6 +393,7 @@ const R = (() => {
     updateScan(performance.now() / 1000);
     const u = post.uniforms;
     u.uTime.value = t; u.uFear.value = fx.fear; u.uDamage.value = fx.damage; u.uFade.value = fx.fade; u.uLeech.value = fx.leech;
+    u.uPeek.value = fx.peek; u.uPeekUV.value.copy(fx.peekUV);
     u.uFlash.value = fx.flash; u.uStatic.value = fx.static; u.uExposure.value = fx.exposure; u.uLowHp.value = fx.lowhp; u.uBright.value = Settings.bright; u.uHealth.value = fx.health; u.uWhite.value = fx.white; u.uHeat.value = fx.heat; u.uWarp.value = fx.warp;
     renderer.setRenderTarget(rt);
     renderer.clear();

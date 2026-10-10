@@ -1349,7 +1349,7 @@ const Exterior = (() => {
         for (const e of this.eclipsers) {
           v.copy(e.m.position).applyAxisAngle(_Y, e.kind === 'planet' ? this.worldRot : ry); const d = v.length(), ang = Math.asin(Math.min(0.999, e.m.scale.x / d)); v.divideScalar(d);
           const show = sstep(ang - 0.012, ang + 0.025, Math.acos(clamp(v.dot(L.sunDir), -1, 1)));
-          if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; }
+          if (show < 1) { L.sun *= show; L.sunGlow *= show; L.scatter.multiplyScalar(show); L.hemi *= 1 - 0.55 * (1 - show) * day; L.peek = Math.max(L.peek || 0, day * sstep(0, 0.08, show) * (1 - sstep(0.3, 1, show))); }
           if (e.kind === 'planet' && this.biome.airless) {
             const face = (1 - v.dot(L.sunDir)) / 2;
             L.hemi += (0.06 + 0.14 * face) * (0.4 + 0.6 * night); L.hemiSky = L.hemiSky.clone().lerp(new THREE.Color(e.atmo != null ? e.atmo : e.tint), 0.5 * face);

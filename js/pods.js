@@ -22,8 +22,9 @@ const Pods = (() => {
     const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#d9d3c4'); gr.addColorStop(0.55, '#c7c0b0'); gr.addColorStop(0.85, '#4a4038'); gr.addColorStop(1, '#141210');
     g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
     g.fillStyle = '#c25a1c'; g.fillRect(0, 54, 256, 16);
-    g.fillStyle = '#1e1b17'; g.font = 'bold 20px "Share Tech Mono", monospace'; g.textAlign = 'center';
-    g.fillText('MERCY SALVAGE  ·  SUPPLY', 128, 104); g.fillText('MERCY SALVAGE  ·  SUPPLY', 0, 104); g.fillText('MERCY SALVAGE  ·  SUPPLY', 256, 104);
+    // (the lettering down each flank, clear of the hatch on the front)
+    g.fillStyle = '#1e1b17'; g.textAlign = 'center';
+    for (const x of [64, 192]) { g.font = 'bold 15px "Share Tech Mono", monospace'; g.fillText('MERCY SALVAGE', x, 100); g.font = 'bold 12px "Share Tech Mono", monospace'; g.fillText('SUPPLY', x, 116); }
     for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(20,16,12,${Math.random() * 0.25})`; g.fillRect(Math.random() * 256, 120 + Math.random() * 136, 2 + Math.random() * 5, 1 + Math.random() * 3); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping;
     mats = {
@@ -33,7 +34,12 @@ const Pods = (() => {
       dark: MATS.get('darkmetal'), hazard: MATS.get('hazard'),
       hot: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.9, 0.3), transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }),
       handle: new THREE.MeshStandardMaterial({ color: 0x8a1a12, roughness: 0.5 }),
+      // the hold inside, and the blown hatch (seen from both sides as it tumbles)
+      hold: new THREE.MeshStandardMaterial({ color: 0x6e685d, roughness: 0.8, metalness: 0.4, side: THREE.DoubleSide }),
+      strap: new THREE.MeshStandardMaterial({ color: 0x8a6a22, roughness: 0.9, side: THREE.DoubleSide }),
     };
+    mats.lid = mats.shell.clone(); mats.lid.side = THREE.DoubleSide;
+    mats.hazardD = mats.hazard.clone(); mats.hazardD.side = THREE.DoubleSide;
     // the glint: a hot point with four long hairline rays and four short diagonal ones
     {
       const [gc, gg] = TEX.canvas(256, 256), C = 128;
@@ -56,7 +62,31 @@ const Pods = (() => {
     const M = materials(), g = new THREE.Group();
     const mk = (geo, m, x, y, z, rx = 0, ry = 0, rz = 0, p = g) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.set(rx, ry, rz); me.castShadow = true; me.receiveShadow = true; p.add(me); return me; };
     const L = POD.LEN, R = POD.R;
-    mk(new THREE.CylinderGeometry(R * 0.86, R, L * 0.62, 24, 1, true), M.shell, 0, 0.08, 0);
+    // the body tapers toward the tail; it's built in pieces round the hatch's opening (angles round from +z, where the
+    // hatch is), every piece's paint lined up with the rest (own: keep the piece's own 0..1 mapping instead)
+    const by0 = 0.08 - L * 0.31, bh = L * 0.62, rAt = (y) => R - R * 0.14 * (y - by0) / bh;
+    const band = (ya, yb, a0, a1, segs, dr = 0, own = false) => {
+      const geo = new THREE.CylinderGeometry(rAt(yb) + dr, rAt(ya) + dr, yb - ya, segs, 1, true, a0, a1 - a0), p = geo.attributes.position, uv = geo.attributes.uv;
+      if (!own) for (let i = 0; i < uv.count; i++) uv.setXY(i, (a0 + uv.getX(i) * (a1 - a0)) / TAU, (p.getY(i) + (ya + yb) / 2 - by0) / bh);
+      return geo.translate(0, (ya + yb) / 2, 0);
+    };
+    // the opening: about 37 cm across and half a metre high
+    const A = 0.36, hy0 = -0.17, hy1 = 0.33;
+    mk(band(by0, by0 + bh, A, TAU - A, 22), M.shell, 0, 0, 0);
+    mk(band(hy1, by0 + bh, -A, A, 4), M.shell, 0, 0, 0);
+    mk(band(by0, hy0, -A, A, 4), M.shell, 0, 0, 0);
+    // the hold behind it: a dark metal lining just inside the hull, a floor and a roof, and the hull's own thickness
+    // round the edges of the opening
+    mk(band(hy0 - 0.01, hy1 + 0.01, A, TAU - A, 18, -0.03), M.hold, 0, 0, 0);
+    for (const [y, up] of [[hy0, true], [hy1, false]]) mk(new THREE.CircleGeometry(rAt(y) - 0.004, 20).rotateX(up ? -Math.PI / 2 : Math.PI / 2).translate(0, y, 0), M.hold, 0, 0, 0);
+    for (const s of [-1, 1]) {
+      const a = s * A, r = rAt((hy0 + hy1) / 2) - 0.015;
+      mk(new THREE.PlaneGeometry(0.035, hy1 - hy0).rotateY(a + Math.PI / 2).translate(Math.sin(a) * r, (hy0 + hy1) / 2, Math.cos(a) * r), M.hold, 0, 0, 0);
+    }
+    // (inside: ribs up the back wall and the empty cargo strap that held the order, so it reads as a hollow)
+    const hm = (hy0 + hy1) / 2, inside = (geo, a, y, inr) => geo.rotateY(a).translate(Math.sin(a) * (rAt(y) - inr), y, Math.cos(a) * (rAt(y) - inr));
+    for (const a of [Math.PI - 0.55, Math.PI, Math.PI + 0.55]) mk(inside(new THREE.BoxGeometry(0.035, hy1 - hy0, 0.03), a, hm, 0.045), M.dark, 0, 0, 0);
+    mk(band(hm - 0.03, hm + 0.03, Math.PI - 0.95, Math.PI + 0.95, 8, -0.062, true), M.strap, 0, 0, 0);
     mk(new THREE.SphereGeometry(R, 24, 12, 0, TAU, Math.PI / 2, Math.PI / 2), M.shield, 0, -L * 0.23, 0, 0, 0, 0).scale.set(1, 0.7, 1);
     mk(new THREE.CylinderGeometry(R * 0.86, R * 0.5, 0.35, 24), M.fin, 0, L * 0.39 + 0.17, 0);
     mk(new THREE.CylinderGeometry(R * 0.28, R * 0.36, 0.22, 16, 1, true), M.dark, 0, L * 0.39 + 0.42, 0);
@@ -65,14 +95,19 @@ const Pods = (() => {
       const geo = new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: false }); geo.translate(0, 0, -0.02);
       const f = mk(geo, M.fin, Math.cos(a) * R * 0.8, L * 0.18, Math.sin(a) * R * 0.8); f.rotation.y = -a;
     }
-    // the side hatch: a framed plate with a red pull handle and hazard edging (it blows off when the pod is opened)
+    // the side hatch: a curved plate lying flush on the hull just over the opening, with a red pull handle, hazard
+    // edging and a bolt at each corner (it blows off when the pod is opened; built round its own middle, so it tumbles
+    // about that)
     const lid = new THREE.Group(); lid.position.set(0, 0.08, R * 0.93); g.add(lid);
-    mk(new THREE.BoxGeometry(0.62, 0.84, 0.06), M.shell, 0, 0, 0, 0, 0, 0, lid);
-    mk(new THREE.BoxGeometry(0.66, 0.05, 0.07), M.hazard, 0, 0.42, 0.005, 0, 0, 0, lid); mk(new THREE.BoxGeometry(0.66, 0.05, 0.07), M.hazard, 0, -0.42, 0.005, 0, 0, 0, lid);
-    mk(new THREE.BoxGeometry(0.06, 0.3, 0.05), M.handle, 0.2, 0, 0.05, 0, 0, 0, lid);
-    for (const [x, y] of [[-0.27, 0.36], [0.27, 0.36], [-0.27, -0.36], [0.27, -0.36]]) mk(new THREE.CylinderGeometry(0.022, 0.022, 0.03, 8), M.dark, x, y, 0.035, Math.PI / 2, 0, 0, lid);
-    // the dark hold behind the hatch (seen once it is gone)
-    mk(new THREE.PlaneGeometry(0.56, 0.78), new THREE.MeshBasicMaterial({ color: 0x050505 }), 0, 0.08, R * 0.9);
+    const LA = A + 0.05, ly0 = hy0 - 0.04, ly1 = hy1 + 0.04, onLid = (geo) => geo.translate(0, -0.08, -R * 0.93);
+    const onHull = (geo, a, y, out) => onLid(geo.rotateY(a).translate(Math.sin(a) * (rAt(y) + out), y, Math.cos(a) * (rAt(y) + out)));
+    mk(onLid(band(ly0, ly1, -LA, LA, 6, 0.008)), M.lid, 0, 0, 0, 0, 0, 0, lid);
+    mk(onLid(band(ly1 - 0.035, ly1, -LA, LA, 6, 0.014, true)), M.hazardD, 0, 0, 0, 0, 0, 0, lid);
+    mk(onLid(band(ly0, ly0 + 0.035, -LA, LA, 6, 0.014, true)), M.hazardD, 0, 0, 0, 0, 0, 0, lid);
+    // (its seam: a dark line down each side, so it reads as a hatch and not just more hull)
+    for (const s of [-1, 1]) mk(onLid(band(ly0, ly1, s > 0 ? LA - 0.014 : -LA, s > 0 ? LA : -LA + 0.014, 1, 0.012, true)), M.dark, 0, 0, 0, 0, 0, 0, lid);
+    mk(onHull(new THREE.BoxGeometry(0.045, 0.22, 0.04), 0.2, 0.08, 0.03), M.handle, 0, 0, 0, 0, 0, 0, lid);
+    for (const [a, y] of [[-1, ly1 - 0.065], [1, ly1 - 0.065], [-1, ly0 + 0.065], [1, ly0 + 0.065]]) mk(onHull(new THREE.CylinderGeometry(0.018, 0.018, 0.02, 8).rotateX(Math.PI / 2), a * (LA - 0.06), y, 0.014), M.dark, 0, 0, 0, 0, 0, 0, lid);
     // heat: a glowing cap over the shield while it falls, fading after impact
     const glow = mk(new THREE.SphereGeometry(R * 1.04, 20, 10, 0, TAU, Math.PI / 2, Math.PI / 2), M.hot.clone(), 0, -L * 0.23, 0); glow.scale.set(1, 0.72, 1); glow.castShadow = false;
     g.userData = { lid, glow };

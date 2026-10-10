@@ -1860,32 +1860,43 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
-    // an airless body: grey dust, darker plains, and craters everywhere (bright rims, shadowed floors, rays off the
-    // fresh ones); neutral, tinted per moon through the material colour
+    // an airless body: grey dust with a fine grain, darker plains, and craters on craters: mostly small, a few big old
+    // basins, each a dark bowl with a raised bright rim (a central peak in the big ones) and an ejecta skirt, a few
+    // fresh ones throwing bright rays. Its brightness doubles as its height (low floors, high rims), so TEX.normal
+    // reads real relief off it. Neutral, tinted per moon through the material colour
     moonmap() {
-      const W = 512, H = 256;
+      const W = 1024, H = 512;
       const [c, g] = C(W, H);
-      const nz = new Noise2D(41), rr = new RNG(4141);
-      // (mostly small ones, a few big old basins; each with a darker floor, a soft raised rim and faint ejecta round it)
-      const cr = []; for (let i = 0; i < 520; i++) { const r = Math.pow(rr.next(), 4) * 0.2 + 0.006; cr.push([rr.range(-1, 1), rr.range(-1, 1), rr.range(-1, 1), r, rr.next() < 0.05, Math.cos(r * 2.2), 0.6 + rr.next() * 0.6]); }
-      for (const k of cr) { const l = Math.hypot(k[0], k[1], k[2]) || 1; k[0] /= l; k[1] /= l; k[2] /= l; }
-      const id = g.createImageData(W, H), d = id.data;
+      const nz = new Noise2D(41), rr = new RNG(4141), val = new Float32Array(W * H), P = new Float32Array(W * H * 3);
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const u = x / W * TAU, v = y / H * Math.PI;
+        const u = x / W * TAU, v = y / H * Math.PI, i = y * W + x;
         const px = Math.cos(u) * Math.sin(v), py = Math.cos(v), pz = Math.sin(u) * Math.sin(v);
-        let val = 0.56 + nz.fbm(px * 4 + 3, py * 4 + pz * 2, 5) * 0.2 + nz.fbm(px * 14, py * 14 + pz * 7, 3) * 0.06;
-        val -= sstep(0.05, 0.25, nz.fbm(px * 1.6 - 5, py * 1.6 + pz, 3)) * 0.15;   // the dark plains
-        for (const [cx, cy, cz, r, ray, cosR, k] of cr) {
-          const dot = px * cx + py * cy + pz * cz; if (dot < cosR && !ray) continue;
-          const dd = Math.acos(clamp(dot, -1, 1)) / r;
-          if (dd < 0.85) val -= 0.07 * k * (1 - dd * dd * 0.7);
-          else if (dd < 1.25) val += 0.06 * k * (1 - Math.abs(dd - 1.0) / 0.25);
-          else if (dd < 2.2) val += 0.02 * k * (1 - (dd - 1.25) / 0.95);
-          if (ray && dd > 1 && dd < 5) val += 0.05 * Math.pow(Math.max(0, Math.sin(Math.atan2(py - cy, px - cx) * 9 + cz * 7)), 8) * (1 - dd / 5);
-        }
-        const i = (y * W + x) * 4, k = clamp(val, 0.05, 1) * 255;
-        d[i] = k; d[i + 1] = k * 0.98; d[i + 2] = k * 0.95; d[i + 3] = 255;
+        P[i * 3] = px; P[i * 3 + 1] = py; P[i * 3 + 2] = pz;
+        val[i] = 0.56 + nz.fbm(px * 4 + 3, py * 4 + pz * 2, 5) * 0.2 + nz.fbm(px * 22, py * 22 + pz * 11, 3) * 0.07
+          - sstep(0.05, 0.25, nz.fbm(px * 1.6 - 5, py * 1.6 + pz, 3)) * 0.15;
       }
+      for (let n = 0; n < 1800; n++) {
+        const r = Math.pow(rr.next(), 4.5) * 0.22 + 0.004, k = 0.6 + rr.next() * 0.6, ray = rr.next() < 0.04, peak = r > 0.04;
+        let cx = rr.range(-1, 1), cy = rr.range(-1, 1), cz = rr.range(-1, 1); const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
+        // (only the pixels it can reach: its rows, and the span of each row it covers)
+        const reach = r * (ray ? 5 : 2.2), cosR = Math.cos(reach), v0 = Math.acos(cy), u0 = Math.atan2(cz, cx);
+        const y0 = Math.max(0, Math.floor((v0 - reach) / Math.PI * H)), y1 = Math.min(H - 1, Math.ceil((v0 + reach) / Math.PI * H));
+        for (let y = y0; y <= y1; y++) {
+          const sv = Math.sin((y + 0.5) / H * Math.PI), du = sv > 0.03 ? reach / sv : Math.PI;
+          const xa = du >= Math.PI ? 0 : Math.floor((u0 - du) / TAU * W), xb = du >= Math.PI ? W - 1 : Math.ceil((u0 + du) / TAU * W);
+          for (let xx = xa; xx <= xb; xx++) {
+            const x = ((xx % W) + W) % W, i = y * W + x, dot = P[i * 3] * cx + P[i * 3 + 1] * cy + P[i * 3 + 2] * cz;
+            if (dot < cosR) continue;
+            const dd = Math.acos(Math.min(1, dot)) / r;
+            if (dd < 0.85) { val[i] -= 0.08 * k * (1 - dd * dd * 0.75); if (peak && dd < 0.2) val[i] += 0.07 * k * (1 - dd / 0.2); }
+            else if (dd < 1.2) val[i] += 0.075 * k * (1 - Math.abs(dd - 1.0) / 0.2);
+            else if (dd < 2.2) val[i] += 0.022 * k * (1 - (dd - 1.2) / 1.0);
+            if (ray && dd > 1 && dd < 5) val[i] += 0.05 * Math.pow(Math.max(0, Math.sin(Math.atan2(P[i * 3 + 1] - cy, P[i * 3] - cx) * 9 + cz * 7)), 8) * (1 - dd / 5);
+          }
+        }
+      }
+      const id = g.createImageData(W, H), d = id.data;
+      for (let i = 0; i < W * H; i++) { const k = clamp(val[i], 0.05, 1) * 255; d[i * 4] = k; d[i * 4 + 1] = k * 0.98; d[i * 4 + 2] = k * 0.95; d[i * 4 + 3] = 255; }
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
@@ -4578,6 +4589,8 @@ const Exterior = (() => {
       // the Hollow is pocked with craters (they shape the height field, so they come first)
       this.craters = [];
       if (this.biome.relief === 'craters') for (let i = 0; i < 10; i++) { const a = r.range(0, TAU), d = r.range(40, 150); this.craters.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, r: r.range(8, 22), depth: r.range(2, 5.5) }); }
+      // (no weather to wear them down: an airless moon or rock is pocked with smaller ones on top of those)
+      if (this.biome.airless) for (let i = 0; i < 30; i++) { const a = r.range(0, TAU), d = r.range(34, 170), big = r.chance(0.15); this.craters.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, r: r.range(2.5, 8) * (big ? 1.8 : 1), depth: r.range(0.6, 1.8) * (big ? 1.6 : 1) }); }
       // the whole site sits a little below the ship's deck: it stands on its legs over the landing pad (SHIP.ground)
       const sink = SHIP.ground + 0.3;
       this.base0 = this.baseH(0, 0) - sink;
@@ -5653,14 +5666,23 @@ const Exterior = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 3) * 0.55; p.setXYZ(i, x * k * 1.25, y * k * 0.8, z * k); }
           geo.computeVertexNormals();
         }
+        // (an airless moon or rock is harsh: its craters' slopes catch the light or fall into shadow, and the line
+        // between its day and night is a knife edge; the world, with its air, is softer)
+        const harsh = b.kind === 'planet' ? 0 : 1;
         const mat = new THREE.ShaderMaterial({
-          uniforms: { map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 } },
-          vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV;
-            void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz;
+          uniforms: { map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } },
+          vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
+            void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz; vW = wp.xyz;
               gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
-          fragmentShader: `uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis; varying vec3 vN; varying vec2 vUv; varying vec3 vV;
+          fragmentShader: `uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis, uHarsh, uBump; varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec3 n = normalize(vN); float l = dot(n, uSun);
-              vec3 c = texture2D(map, vUv).rgb * uCol * smoothstep(-0.06, 0.2, l) * (0.3 + 0.95 * max(l, 0.0));
+              vec3 tex = texture2D(map, vUv).rgb;
+              // (relief read off the map's brightness: low dark floors, high bright rims)
+              float h = dot(tex, vec3(0.3333)); vec3 dpx = dFdx(vW), dpy = dFdy(vW); float dhx = dFdx(h), dhy = dFdy(h);
+              vec3 r1 = cross(dpy, n), r2 = cross(n, dpx); float det = dot(dpx, r1);
+              vec3 bn = normalize(abs(det) * n - sign(det) * (dhx * r1 + dhy * r2) * uBump);
+              float term = mix(smoothstep(-0.06, 0.2, l), smoothstep(-0.01, 0.04, l), uHarsh);
+              vec3 c = tex * uCol * term * (mix(0.3, 0.06, uHarsh) + 0.95 * max(mix(l, dot(bn, uSun), uHarsh), 0.0));
               // (a world with air wears a glowing limb on its sunlit side, and the faintest glow round the dark)
               float rim = pow(1.0 - abs(dot(n, normalize(vV))), 2.6);
               c += uAtmo * rim * (smoothstep(-0.3, 0.45, l) * 1.1 + 0.06);
@@ -5785,7 +5807,7 @@ const Exterior = (() => {
       if (this.biome.airless) {
         const k = 1 - night;
         L.top = C(0x020203); L.hor = C(0x050506).lerp(C(0x0b0b0d), k); L.fog = C(0x030304); L.fogDen = 0.0035;
-        L.hemi = 0.18 + 0.22 * k; L.sun = 2.8 * day; L.stars = 1; L.scatter = C(0x000000); L.sunGlow = 0.25 * k;
+        L.hemi = 0.08 + 0.1 * k; L.sun = 5.0 * day; L.stars = 1; L.scatter = C(0x000000); L.sunGlow = 0.25 * k;
         L.cloudLit = L.hor.clone(); L.cloudDark = L.top.clone(); L.cover = 0; L.haze = 0; L.fogFalloff = 0.02;
       }
       return L;
@@ -8015,6 +8037,8 @@ const Ship = (() => {
               vec3 gn = normalize(vNormal); float mu = clamp(dot(gn, normalize(vViewPosition)), 0.0, 1.0);
               float lit = smoothstep(-0.2, 0.45, dot(gn, directionalLights[0].direction));
               outgoingLight = mix(outgoingLight, uPdTint * (0.05 + 0.55 * lit), pow(1.0 - mu, 2.5) * uPdHaze);
+              // (no air to soften it: a hard line between day and night, the night side black but for the planetshine)
+              outgoingLight = mix(outgoingLight * smoothstep(-0.015, 0.08, dot(gn, directionalLights[0].direction)) + totalEmissiveRadiance, outgoingLight, uPdAir);
             }
             #endif
             #include <opaque_fragment>`);
@@ -8063,8 +8087,8 @@ const Ship = (() => {
       this.airless = !!airless;
       // (and on its night side a faint planetshine, the light of the world it circles, so its craters still show)
       const map = TEX.get(airless ? 'moonmap' : 'planet'), pm = this.planetMat;
-      if (pm.map !== map) { pm.map = map; pm.emissiveMap = airless ? map : null; pm.needsUpdate = true; }
-      pm.emissive.set(airless ? tint : 0x000000); pm.emissiveIntensity = 0.07; this.pdU.air.value = airless ? 0 : 1;
+      if (pm.map !== map) { pm.map = map; pm.emissiveMap = airless ? map : null; pm.normalMap = airless ? TEX.normal('moonmap', 3) : null; pm.normalScale.set(2.4, 2.4); pm.needsUpdate = true; }
+      pm.emissive.set(airless ? tint : 0x000000); pm.emissiveIntensity = 0.035; this.pdU.air.value = airless ? 0 : 1;
       for (const c of this.cloudLayers) c.visible = !airless;
       this.atmo.visible = !airless;
     }
@@ -8082,7 +8106,7 @@ const Ship = (() => {
       for (const b of list) {
         // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
         const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
-        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.85), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32);
+        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32);
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
         let geo;
         if (b.kind === 'rock') {
@@ -8090,7 +8114,8 @@ const Ship = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 4) * 0.55; p.setXYZ(i, x * k * 1.3, y * k * 0.78, z * k); }
           geo.computeVertexNormals();
         } else geo = new THREE.SphereGeometry(1, 64, 32);
-        const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', emissive: b.tint, emissiveMap: map, emissiveIntensity: 0.05 }));
+        const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', emissive: b.tint, emissiveMap: map, emissiveIntensity: 0.025, normalMap: nm, normalScale: new THREE.Vector2(2.2, 2.2) }));
         m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
         this.bodiesG.add(m);
         // a world with air (seen from one of its moons) wears a thin glowing limb on its sunlit side, and its rings
@@ -12208,7 +12233,7 @@ for (const w in BODIES) {
   for (const b of BODIES[w]) SITE_LOOK[b.key] = { tint: b.tint, atmo: 0x000000, airless: true };
   // and in the sky over each site: from the world, its moon and rock (small, a few degrees across); from one of
   // them, the world itself, filling half the sky (bigger still from the rock, in closer), and the other one
-  SITES[w].sky = BODIES[w].map((b) => ({ kind: b.kind, tint: b.tint, r: 1.2 * b.size / (b.orbit - 1), az: b.ang * 1.3 + 0.4, el: 0.32 + 0.18 * Math.sin(b.ang * 2) }));
+  SITES[w].sky = BODIES[w].map((b) => ({ kind: b.kind, tint: b.tint, r: 1.08 * b.size / (b.orbit - 1), az: b.ang * 1.3 + 0.4, el: 0.32 + 0.18 * Math.sin(b.ang * 2) }));
   for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: 2.3, el: 0.5 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }

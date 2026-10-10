@@ -2217,6 +2217,8 @@ const Ship = (() => {
               vec3 gn = normalize(vNormal); float mu = clamp(dot(gn, normalize(vViewPosition)), 0.0, 1.0);
               float lit = smoothstep(-0.2, 0.45, dot(gn, directionalLights[0].direction));
               outgoingLight = mix(outgoingLight, uPdTint * (0.05 + 0.55 * lit), pow(1.0 - mu, 2.5) * uPdHaze);
+              // (no air to soften it: a hard line between day and night, the night side black but for the planetshine)
+              outgoingLight = mix(outgoingLight * smoothstep(-0.015, 0.08, dot(gn, directionalLights[0].direction)) + totalEmissiveRadiance, outgoingLight, uPdAir);
             }
             #endif
             #include <opaque_fragment>`);
@@ -2265,8 +2267,8 @@ const Ship = (() => {
       this.airless = !!airless;
       // (and on its night side a faint planetshine, the light of the world it circles, so its craters still show)
       const map = TEX.get(airless ? 'moonmap' : 'planet'), pm = this.planetMat;
-      if (pm.map !== map) { pm.map = map; pm.emissiveMap = airless ? map : null; pm.needsUpdate = true; }
-      pm.emissive.set(airless ? tint : 0x000000); pm.emissiveIntensity = 0.07; this.pdU.air.value = airless ? 0 : 1;
+      if (pm.map !== map) { pm.map = map; pm.emissiveMap = airless ? map : null; pm.normalMap = airless ? TEX.normal('moonmap', 3) : null; pm.normalScale.set(2.4, 2.4); pm.needsUpdate = true; }
+      pm.emissive.set(airless ? tint : 0x000000); pm.emissiveIntensity = 0.035; this.pdU.air.value = airless ? 0 : 1;
       for (const c of this.cloudLayers) c.visible = !airless;
       this.atmo.visible = !airless;
     }
@@ -2284,7 +2286,7 @@ const Ship = (() => {
       for (const b of list) {
         // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
         const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
-        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.85), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32);
+        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.765), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32);
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
         let geo;
         if (b.kind === 'rock') {
@@ -2292,7 +2294,8 @@ const Ship = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 4) * 0.55; p.setXYZ(i, x * k * 1.3, y * k * 0.78, z * k); }
           geo.computeVertexNormals();
         } else geo = new THREE.SphereGeometry(1, 64, 32);
-        const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', emissive: b.tint, emissiveMap: map, emissiveIntensity: 0.05 }));
+        const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', emissive: b.tint, emissiveMap: map, emissiveIntensity: 0.025, normalMap: nm, normalScale: new THREE.Vector2(2.2, 2.2) }));
         m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
         this.bodiesG.add(m);
         // a world with air (seen from one of its moons) wears a thin glowing limb on its sunlit side, and its rings

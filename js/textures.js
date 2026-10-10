@@ -534,32 +534,43 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
-    // an airless body: grey dust, darker plains, and craters everywhere (bright rims, shadowed floors, rays off the
-    // fresh ones); neutral, tinted per moon through the material colour
+    // an airless body: grey dust with a fine grain, darker plains, and craters on craters: mostly small, a few big old
+    // basins, each a dark bowl with a raised bright rim (a central peak in the big ones) and an ejecta skirt, a few
+    // fresh ones throwing bright rays. Its brightness doubles as its height (low floors, high rims), so TEX.normal
+    // reads real relief off it. Neutral, tinted per moon through the material colour
     moonmap() {
-      const W = 512, H = 256;
+      const W = 1024, H = 512;
       const [c, g] = C(W, H);
-      const nz = new Noise2D(41), rr = new RNG(4141);
-      // (mostly small ones, a few big old basins; each with a darker floor, a soft raised rim and faint ejecta round it)
-      const cr = []; for (let i = 0; i < 520; i++) { const r = Math.pow(rr.next(), 4) * 0.2 + 0.006; cr.push([rr.range(-1, 1), rr.range(-1, 1), rr.range(-1, 1), r, rr.next() < 0.05, Math.cos(r * 2.2), 0.6 + rr.next() * 0.6]); }
-      for (const k of cr) { const l = Math.hypot(k[0], k[1], k[2]) || 1; k[0] /= l; k[1] /= l; k[2] /= l; }
-      const id = g.createImageData(W, H), d = id.data;
+      const nz = new Noise2D(41), rr = new RNG(4141), val = new Float32Array(W * H), P = new Float32Array(W * H * 3);
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const u = x / W * TAU, v = y / H * Math.PI;
+        const u = x / W * TAU, v = y / H * Math.PI, i = y * W + x;
         const px = Math.cos(u) * Math.sin(v), py = Math.cos(v), pz = Math.sin(u) * Math.sin(v);
-        let val = 0.56 + nz.fbm(px * 4 + 3, py * 4 + pz * 2, 5) * 0.2 + nz.fbm(px * 14, py * 14 + pz * 7, 3) * 0.06;
-        val -= sstep(0.05, 0.25, nz.fbm(px * 1.6 - 5, py * 1.6 + pz, 3)) * 0.15;   // the dark plains
-        for (const [cx, cy, cz, r, ray, cosR, k] of cr) {
-          const dot = px * cx + py * cy + pz * cz; if (dot < cosR && !ray) continue;
-          const dd = Math.acos(clamp(dot, -1, 1)) / r;
-          if (dd < 0.85) val -= 0.07 * k * (1 - dd * dd * 0.7);
-          else if (dd < 1.25) val += 0.06 * k * (1 - Math.abs(dd - 1.0) / 0.25);
-          else if (dd < 2.2) val += 0.02 * k * (1 - (dd - 1.25) / 0.95);
-          if (ray && dd > 1 && dd < 5) val += 0.05 * Math.pow(Math.max(0, Math.sin(Math.atan2(py - cy, px - cx) * 9 + cz * 7)), 8) * (1 - dd / 5);
-        }
-        const i = (y * W + x) * 4, k = clamp(val, 0.05, 1) * 255;
-        d[i] = k; d[i + 1] = k * 0.98; d[i + 2] = k * 0.95; d[i + 3] = 255;
+        P[i * 3] = px; P[i * 3 + 1] = py; P[i * 3 + 2] = pz;
+        val[i] = 0.56 + nz.fbm(px * 4 + 3, py * 4 + pz * 2, 5) * 0.2 + nz.fbm(px * 22, py * 22 + pz * 11, 3) * 0.07
+          - sstep(0.05, 0.25, nz.fbm(px * 1.6 - 5, py * 1.6 + pz, 3)) * 0.15;
       }
+      for (let n = 0; n < 1800; n++) {
+        const r = Math.pow(rr.next(), 4.5) * 0.22 + 0.004, k = 0.6 + rr.next() * 0.6, ray = rr.next() < 0.04, peak = r > 0.04;
+        let cx = rr.range(-1, 1), cy = rr.range(-1, 1), cz = rr.range(-1, 1); const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
+        // (only the pixels it can reach: its rows, and the span of each row it covers)
+        const reach = r * (ray ? 5 : 2.2), cosR = Math.cos(reach), v0 = Math.acos(cy), u0 = Math.atan2(cz, cx);
+        const y0 = Math.max(0, Math.floor((v0 - reach) / Math.PI * H)), y1 = Math.min(H - 1, Math.ceil((v0 + reach) / Math.PI * H));
+        for (let y = y0; y <= y1; y++) {
+          const sv = Math.sin((y + 0.5) / H * Math.PI), du = sv > 0.03 ? reach / sv : Math.PI;
+          const xa = du >= Math.PI ? 0 : Math.floor((u0 - du) / TAU * W), xb = du >= Math.PI ? W - 1 : Math.ceil((u0 + du) / TAU * W);
+          for (let xx = xa; xx <= xb; xx++) {
+            const x = ((xx % W) + W) % W, i = y * W + x, dot = P[i * 3] * cx + P[i * 3 + 1] * cy + P[i * 3 + 2] * cz;
+            if (dot < cosR) continue;
+            const dd = Math.acos(Math.min(1, dot)) / r;
+            if (dd < 0.85) { val[i] -= 0.08 * k * (1 - dd * dd * 0.75); if (peak && dd < 0.2) val[i] += 0.07 * k * (1 - dd / 0.2); }
+            else if (dd < 1.2) val[i] += 0.075 * k * (1 - Math.abs(dd - 1.0) / 0.2);
+            else if (dd < 2.2) val[i] += 0.022 * k * (1 - (dd - 1.2) / 1.0);
+            if (ray && dd > 1 && dd < 5) val[i] += 0.05 * Math.pow(Math.max(0, Math.sin(Math.atan2(P[i * 3 + 1] - cy, P[i * 3] - cx) * 9 + cz * 7)), 8) * (1 - dd / 5);
+          }
+        }
+      }
+      const id = g.createImageData(W, H), d = id.data;
+      for (let i = 0; i < W * H; i++) { const k = clamp(val[i], 0.05, 1) * 255; d[i * 4] = k; d[i * 4 + 1] = k * 0.98; d[i * 4 + 2] = k * 0.95; d[i * 4 + 3] = 255; }
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },

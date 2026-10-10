@@ -98,6 +98,8 @@ const Exterior = (() => {
       // the Hollow is pocked with craters (they shape the height field, so they come first)
       this.craters = [];
       if (this.biome.relief === 'craters') for (let i = 0; i < 10; i++) { const a = r.range(0, TAU), d = r.range(40, 150); this.craters.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, r: r.range(8, 22), depth: r.range(2, 5.5) }); }
+      // (no weather to wear them down: an airless moon or rock is pocked with smaller ones on top of those)
+      if (this.biome.airless) for (let i = 0; i < 30; i++) { const a = r.range(0, TAU), d = r.range(34, 170), big = r.chance(0.15); this.craters.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, r: r.range(2.5, 8) * (big ? 1.8 : 1), depth: r.range(0.6, 1.8) * (big ? 1.6 : 1) }); }
       // the whole site sits a little below the ship's deck: it stands on its legs over the landing pad (SHIP.ground)
       const sink = SHIP.ground + 0.3;
       this.base0 = this.baseH(0, 0) - sink;
@@ -1173,14 +1175,23 @@ const Exterior = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 3) * 0.55; p.setXYZ(i, x * k * 1.25, y * k * 0.8, z * k); }
           geo.computeVertexNormals();
         }
+        // (an airless moon or rock is harsh: its craters' slopes catch the light or fall into shadow, and the line
+        // between its day and night is a knife edge; the world, with its air, is softer)
+        const harsh = b.kind === 'planet' ? 0 : 1;
         const mat = new THREE.ShaderMaterial({
-          uniforms: { map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 } },
-          vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV;
-            void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz;
+          uniforms: { map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } },
+          vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
+            void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz; vW = wp.xyz;
               gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
-          fragmentShader: `uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis; varying vec3 vN; varying vec2 vUv; varying vec3 vV;
+          fragmentShader: `uniform sampler2D map; uniform vec3 uSun, uCol, uAtmo; uniform float uVis, uHarsh, uBump; varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec3 n = normalize(vN); float l = dot(n, uSun);
-              vec3 c = texture2D(map, vUv).rgb * uCol * smoothstep(-0.06, 0.2, l) * (0.3 + 0.95 * max(l, 0.0));
+              vec3 tex = texture2D(map, vUv).rgb;
+              // (relief read off the map's brightness: low dark floors, high bright rims)
+              float h = dot(tex, vec3(0.3333)); vec3 dpx = dFdx(vW), dpy = dFdy(vW); float dhx = dFdx(h), dhy = dFdy(h);
+              vec3 r1 = cross(dpy, n), r2 = cross(n, dpx); float det = dot(dpx, r1);
+              vec3 bn = normalize(abs(det) * n - sign(det) * (dhx * r1 + dhy * r2) * uBump);
+              float term = mix(smoothstep(-0.06, 0.2, l), smoothstep(-0.01, 0.04, l), uHarsh);
+              vec3 c = tex * uCol * term * (mix(0.3, 0.06, uHarsh) + 0.95 * max(mix(l, dot(bn, uSun), uHarsh), 0.0));
               // (a world with air wears a glowing limb on its sunlit side, and the faintest glow round the dark)
               float rim = pow(1.0 - abs(dot(n, normalize(vV))), 2.6);
               c += uAtmo * rim * (smoothstep(-0.3, 0.45, l) * 1.1 + 0.06);
@@ -1305,7 +1316,7 @@ const Exterior = (() => {
       if (this.biome.airless) {
         const k = 1 - night;
         L.top = C(0x020203); L.hor = C(0x050506).lerp(C(0x0b0b0d), k); L.fog = C(0x030304); L.fogDen = 0.0035;
-        L.hemi = 0.18 + 0.22 * k; L.sun = 2.8 * day; L.stars = 1; L.scatter = C(0x000000); L.sunGlow = 0.25 * k;
+        L.hemi = 0.08 + 0.1 * k; L.sun = 5.0 * day; L.stars = 1; L.scatter = C(0x000000); L.sunGlow = 0.25 * k;
         L.cloudLit = L.hor.clone(); L.cloudDark = L.top.clone(); L.cover = 0; L.haze = 0; L.fogFalloff = 0.02;
       }
       return L;

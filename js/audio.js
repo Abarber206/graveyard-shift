@@ -781,6 +781,8 @@ const SFX = (() => {
       try {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
       } catch (e) { console.warn('No WebAudio', e); return; }
+      // (to the speakers or headphones picked in VOICE & MIC, where the browser can choose)
+      if (Settings.outId && ctx.setSinkId) ctx.setSinkId(Settings.outId).catch(() => {});
       comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.25;
       master = ctx.createGain(); master.gain.value = Settings.volume;
       muffle = ctx.createBiquadFilter(); muffle.type = 'lowpass'; muffle.frequency.value = 20000; muffle.Q.value = 0.5;

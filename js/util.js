@@ -88,7 +88,10 @@ const RES_LEVELS = [
 const TOUCH_DEVICE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
 const Settings = {
   sens: 1, volume: 0.8, fov: 72, res: 2, bright: 1, name: '', suit: 0, voice: false, ptt: false, invertY: false, shadows: true, touch: 0,
-  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'touch'],
+  // voice & mic: which microphone and speakers ('' the default), mic volume, the open-mic threshold (dB), the browser's
+  // noise cleanup, and how loud everyone else's voices are
+  micId: '', outId: '', micVol: 1, micGate: -30, micClean: true, voiceVol: 1,
+  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'touch', 'micId', 'outId', 'micVol', 'micGate', 'micClean', 'voiceVol'],
   load() {
     const o = Store.get('gs_settings', null);
     // first time on a phone: a lighter picture to start with (it can be turned up in the settings)

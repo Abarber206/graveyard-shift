@@ -195,20 +195,24 @@ const Menu = (() => {
     Menu.hide(); MenuScene.leave(); HUD.show(true);
     Input.lock(); SFX.init();
   }
-  function settingsNodes(back) {
+  // settings rows: a slider for a number in Settings, a button that cycles a setting
+  const rowSlider = (rows, label, key, min, max, step, fmt, apply) => {
+    const d = html(`<div class="setrow"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><span class="sv"></span></div>`);
+    const r = d.querySelector('input'), v = d.querySelector('.sv');
+    r.value = Settings[key]; v.textContent = fmt(Settings[key]);
+    r.addEventListener('input', () => { Settings[key] = parseFloat(r.value); v.textContent = fmt(Settings[key]); Settings.save(); apply && apply(); });
+    rows.push(d);
+  };
+  const rowToggle = (rows, label, get, setv) => {
+    const d = html(`<div class="setrow"><span>${label}</span><button></button></div>`);
+    const b = d.querySelector('button'); const upd = () => (b.textContent = get());
+    b.onclick = async () => { await setv(); Settings.save(); upd(); }; upd(); rows.push(d);
+    return upd;
+  };
+  // go(nodes) puts a page up (the main menu's panel, or the pause screen's)
+  function settingsNodes(back, go) {
     const rows = [];
-    const slider = (label, key, min, max, step, fmt, apply) => {
-      const d = html(`<div class="setrow"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><span class="sv"></span></div>`);
-      const r = d.querySelector('input'), v = d.querySelector('.sv');
-      r.value = Settings[key]; v.textContent = fmt(Settings[key]);
-      r.addEventListener('input', () => { Settings[key] = parseFloat(r.value); v.textContent = fmt(Settings[key]); Settings.save(); apply && apply(); });
-      rows.push(d);
-    };
-    const toggle = (label, get, setv) => {
-      const d = html(`<div class="setrow"><span>${label}</span><button></button></div>`);
-      const b = d.querySelector('button'); const upd = () => (b.textContent = get());
-      b.onclick = () => { setv(); Settings.save(); upd(); }; upd(); rows.push(d);
-    };
+    const slider = (...a) => rowSlider(rows, ...a), toggle = (...a) => rowToggle(rows, ...a);
     slider(Touch.on ? 'LOOK SENSITIVITY' : 'MOUSE SENSITIVITY', 'sens', 0.2, 3, 0.05, (v) => v.toFixed(2));
     slider('VOLUME', 'volume', 0, 1, 0.01, (v) => Math.round(v * 100) + '%', () => SFX.setVolume(Settings.volume));
     slider('FIELD OF VIEW', 'fov', 55, 100, 1, (v) => v + '°', () => R.resize());
@@ -217,9 +221,69 @@ const Menu = (() => {
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
     toggle('TOUCH CONTROLS', () => ['AUTO', 'ON', 'OFF'][Settings.touch] + (Touch.on ? ' (ON)' : ' (OFF)'), () => { Settings.touch = (Settings.touch + 1) % 3; Touch.apply(); });
-    toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (Settings.voice && G.online) Voice.enable(); });
-    toggle('VOICE MODE', () => (Settings.ptt ? 'HOLD V' : 'OPEN MIC'), () => { Settings.ptt = !Settings.ptt; Voice.setPTT(false); });
+    toggle('VOICE & MIC', () => (Settings.voice ? 'ON · SET UP' : 'OFF · SET UP'), () => { const me = () => go(settingsNodes(back, go)); go(voiceNodes(me)); });
     return [html('<div class="mtitle">SETTINGS</div>'), ...rows, html('<div style="height:10px"></div>'), btn('BACK', back)];
+  }
+  // VOICE & MIC: which microphone and which speakers, how loud you go out and when, how loud everyone else comes in, and
+  // a mic test: your voice on a meter against the open-mic threshold (bright while it would be heard), and the chance
+  // to hear yourself as the others will
+  function voiceNodes(back) {
+    const rows = [], slider = (...a) => rowSlider(rows, ...a), toggle = (...a) => rowToggle(rows, ...a);
+    SFX.init();
+    // (single player stops its sound while paused: wake it for the test, and put it back after)
+    const held = SFX.held; if (held && SFX.ctx) SFX.ctx.resume();
+    let hear = false;
+    const note = html('<div class="mtext vnote" style="font-size:18px;margin:2px 0 6px">Press TEST MIC and talk: the bar lights up while the others would hear you.</div>');
+    const say = (t) => { note.firstChild.textContent = t; };
+    const leave = () => { Voice.monitor(false); if (!(G.online && Settings.voice)) Voice.disable(); if (held && SFX.held && SFX.ctx) SFX.ctx.suspend(); back(); };
+    // (just the device's own name: "Microphone (HyperX Cloud II)" is HYPERX CLOUD II)
+    const shortName = (d, i, what) => {
+      let s = d.label ? d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').replace(/^(?:headset |external |internal )?(?:microphone|mic|speakers?|headphones|earphones?)\s*\((.*)\)$/i, '$1') : what + ' ' + (i + 1);
+      s = s.toUpperCase(); return s.length > 20 ? s.slice(0, 19) + '…' : s;
+    };
+    // a device picker: each press moves on to the next one there is, round to DEFAULT
+    const picker = (label, kind, key, what, apply) => {
+      const d = html(`<div class="setrow"><span>${label}</span><button></button></div>`), b = d.querySelector('button');
+      const upd = async () => { const list = await Voice.devices(kind), i = list.findIndex((x) => x.deviceId === Settings[key]); b.textContent = i < 0 ? 'DEFAULT' : shortName(list[i], i, what); };
+      b.onclick = async () => {
+        const list = await Voice.devices(kind), i = list.findIndex((x) => x.deviceId === Settings[key]);
+        if (!list.length) { say('Press TEST MIC first: the browser only lists your devices once the mic is allowed.'); return; }
+        Settings[key] = i + 1 < list.length ? list[i + 1].deviceId : ''; Settings.save(); await apply(); upd();
+      };
+      upd(); rows.push(d); return upd;
+    };
+    toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (Settings.voice && G.online) Voice.enable(); });
+    const micPick = picker('MICROPHONE', 'audioinput', 'micId', 'MIC', () => Voice.restart());
+    if (Voice.canPickOutput) picker('SPEAKERS / HEADPHONES', 'audiooutput', 'outId', 'OUTPUT', () => Voice.setOutput(Settings.outId));
+    toggle('VOICE MODE', () => (Settings.ptt ? (Touch.on ? 'HOLD TALK' : 'HOLD V') : 'OPEN MIC'), () => { Settings.ptt = !Settings.ptt; Voice.setPTT(false); });
+    slider('MIC VOLUME', 'micVol', 0, 2, 0.05, (v) => Math.round(v * 100) + '%', () => Voice.setMicVol(Settings.micVol));
+    slider('OPEN MIC THRESHOLD', 'micGate', -60, -10, 1, (v) => v + ' dB');
+    toggle('NOISE SUPPRESSION', () => (Settings.micClean ? 'ON' : 'OFF'), () => { Settings.micClean = !Settings.micClean; return Voice.restart(); });
+    slider('VOICES VOLUME', 'voiceVol', 0, 2, 0.05, (v) => Math.round(v * 100) + '%');
+    // the test: a meter of your voice, the threshold marked on it
+    const meter = html(`<div class="setrow"><span>MIC TEST</span><div style="position:relative;width:200px;height:16px;border:1px solid var(--amber-dim);flex:none"><div class="vfill" style="position:absolute;left:0;top:0;bottom:0;width:0"></div><div class="vmark" style="position:absolute;top:-4px;bottom:-4px;width:2px;background:#e8dccb"></div></div></div>`);
+    const fill = meter.querySelector('.vfill'), mark = meter.querySelector('.vmark'), pos = (db) => clamp((db + 60) / 60, 0, 1) * 100 + '%';
+    rows.push(meter);
+    const testBtn = btn('TEST MIC', async () => {
+      say('Asking for the microphone...');
+      const ok = await Voice.enable();
+      say(ok ? 'Talk: the bar lights up while the others would hear you.' : 'No microphone: allow it for this site in the browser (the icon by the address), then try again.');
+      if (ok) micPick();
+    }, { small: true });
+    const hearBtn = btn('HEAR MYSELF: OFF', () => { hear = !hear; Voice.monitor(hear); hearBtn.textContent = 'HEAR MYSELF: ' + (hear ? 'ON' : 'OFF'); if (hear) say('Use headphones, or you\'ll hear yourself echo.'); }, { small: true });
+    let last = performance.now();
+    const loop = (now) => {
+      if (!document.contains(meter)) { Voice.monitor(false); return; }
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      if (!G.online) Voice.tick(dt);
+      const on = Voice.enabled;
+      fill.style.width = on ? pos(Voice.db) : '0';
+      fill.style.background = Voice.talking ? 'var(--amber-hi)' : 'var(--amber-dim)';
+      mark.style.left = pos(Settings.micGate); mark.style.display = Settings.ptt ? 'none' : '';
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    return [html('<div class="mtitle">VOICE & MIC</div>'), ...rows, note, testBtn, hearBtn, html('<div style="height:6px"></div>'), btn('BACK', leave)];
   }
   const HOWTO = `<div class="mtitle">HOW TO PLAY</div>
     <div class="mtext">You are contract salvage crew for <b>Mercy Salvage Co.</b> Each quota period you have <b>3 days</b> to sell enough scrap to meet the <b>profit quota</b>. Miss it and you are terminated.</div>
@@ -266,7 +330,7 @@ const Menu = (() => {
         btn('SINGLE PLAYER', menu.sp),
         btn('HOST ONLINE GAME', menu.host, { disabled: !Net.available }),
         btn('JOIN ONLINE GAME', menu.join, { disabled: !Net.available }),
-        btn('SETTINGS', () => set(settingsNodes(() => menu.main()))),
+        btn('SETTINGS', () => set(settingsNodes(() => menu.main(), set))),
         btn('HOW TO PLAY', () => set(html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', () => menu.main()))),
         installEvt && !standalone() ? btn('INSTALL APP', () => { const e = installEvt; installEvt = null; e.prompt(); e.userChoice.finally(() => menu.main()); }) : null,
         iOS && !standalone() && location.protocol === 'https:' ? html('<div class="mtext" style="margin-top:8px;font-size:18px">To install: tap Share, then <b>Add to Home Screen</b>.</div>') : null,
@@ -352,7 +416,7 @@ const Menu = (() => {
         html('<div class="mtitle">' + (G.online ? 'MENU' : 'PAUSED') + '</div>'),
         G.online ? inviteNodes() : null,
         btn('RESUME', () => Input.lock()),
-        btn('SETTINGS', () => fill(settingsNodes(main))),
+        btn('SETTINGS', () => fill(settingsNodes(main, fill))),
         btn('HOW TO PLAY', () => fill([html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', main)])),
         btn(G.isHost ? (G.online ? 'END SESSION' : 'QUIT') : 'LEAVE GAME', () => { if (G.isHost && G.mode === 'orbit') G.save(); G.quit(); }),
       ]);

@@ -500,7 +500,10 @@ const RES_LEVELS = [
 const TOUCH_DEVICE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
 const Settings = {
   sens: 1, volume: 0.8, fov: 72, res: 2, bright: 1, name: '', suit: 0, voice: false, ptt: false, invertY: false, shadows: true, touch: 0,
-  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'touch'],
+  // voice & mic: which microphone and speakers ('' the default), mic volume, the open-mic threshold (dB), the browser's
+  // noise cleanup, and how loud everyone else's voices are
+  micId: '', outId: '', micVol: 1, micGate: -30, micClean: true, voiceVol: 1,
+  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'touch', 'micId', 'outId', 'micVol', 'micGate', 'micClean', 'voiceVol'],
   load() {
     const o = Store.get('gs_settings', null);
     // first time on a phone: a lighter picture to start with (it can be turned up in the settings)
@@ -1343,6 +1346,8 @@ const SFX = (() => {
       try {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
       } catch (e) { console.warn('No WebAudio', e); return; }
+      // (to the speakers or headphones picked in VOICE & MIC, where the browser can choose)
+      if (Settings.outId && ctx.setSinkId) ctx.setSinkId(Settings.outId).catch(() => {});
       comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.25;
       master = ctx.createGain(); master.gain.value = Settings.volume;
       muffle = ctx.createBiquadFilter(); muffle.type = 'lowpass'; muffle.frequency.value = 20000; muffle.Q.value = 0.5;
@@ -11363,14 +11368,22 @@ const Net = (() => {
 'use strict';
 // Proximity voice chat: WebRTC audio calls between every pair of players, spatialised with WebAudio.
 // Walkie-talkies carry voice across the whole map with a radio filter.
+// Your own voice goes out through a little chain: the microphone you picked, its volume, then a gate that's open while
+// you talk (open mic: while you're louder than the threshold; push-to-talk: while V is held). The calls carry what comes
+// out of the gate, so changing microphone, or turning the mic on halfway through a game, needs no new calls.
 const Voice = (() => {
-  let stream = null, silent = null, analyser = null, buf = null, level = 0, enabled = false, pttDown = false;
+  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0;
   const peers = new Map(); // peerId -> entry
-  function outStream() {
-    if (stream) return stream;
-    if (!silent && SFX.ctx) silent = SFX.ctx.createMediaStreamDestination().stream;
-    return silent;
+  const dbOf = (x) => 20 * Math.log10(Math.max(x, 1e-5));
+  function makeChain() {
+    if (chain || !SFX.ctx) return chain;
+    const ctx = SFX.ctx, c = { gain: ctx.createGain(), gate: ctx.createGain(), an: ctx.createAnalyser(), dest: ctx.createMediaStreamDestination(), mon: ctx.createGain() };
+    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.mon.gain.value = 0;
+    // (the mic test can play you back to yourself: straight to the speakers, past the game's own effects)
+    c.gain.connect(c.an); c.gain.connect(c.gate); c.gate.connect(c.dest); c.gate.connect(c.mon); c.mon.connect(ctx.destination);
+    return (chain = c);
   }
+  function outStream() { const c = makeChain(); return c ? c.dest.stream : null; }
   function setup(call) {
     const e = peers.get(call.peer) || { peerId: call.peer };
     e.call = call; peers.set(call.peer, e);
@@ -11399,22 +11412,53 @@ const Voice = (() => {
     peers.delete(peerId);
   }
   return {
+    // how loud you are coming in (after the mic volume), as a level and in dB
     get level() { return level; },
+    get db() { return dbOf(level); },
     get enabled() { return enabled; },
-    get talking() { return enabled && (Settings.ptt ? pttDown : level > 0.035); },
-    setPTT(d) { pttDown = d; if (stream) stream.getAudioTracks().forEach((t) => (t.enabled = !Settings.ptt || d)); },
+    get talking() { return enabled && open; },
+    setPTT(d) { pttDown = d; },
     async enable() {
-      if (stream) return true;
+      if (raw) return true;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+      SFX.init(); const c = makeChain(); if (!c) return false;
+      // (the browser's own cleanup: echo cancelling, noise suppression and level evening, all on or all off)
+      const clean = Settings.micClean !== false, want = { echoCancellation: clean, noiseSuppression: clean, autoGainControl: clean };
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        try { raw = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, want, Settings.micId ? { deviceId: { exact: Settings.micId } } : {}) }); }
+        catch (e) { if (!Settings.micId || e.name === 'NotAllowedError') throw e; raw = await navigator.mediaDevices.getUserMedia({ audio: want }); }   // (the one picked has gone: the default)
+        src = SFX.ctx.createMediaStreamSource(raw); src.connect(c.gain);
         enabled = true;
-        const ctx = SFX.ctx; analyser = ctx.createAnalyser(); analyser.fftSize = 512; buf = new Float32Array(analyser.fftSize);
-        ctx.createMediaStreamSource(stream).connect(analyser);
-        if (Settings.ptt) stream.getAudioTracks().forEach((t) => (t.enabled = false));
         return true;
-      } catch (e) { console.warn('mic unavailable', e); enabled = false; return false; }
+      } catch (e) { console.warn('mic unavailable', e); raw = null; enabled = false; return false; }
     },
-    disable() { if (stream) stream.getTracks().forEach((t) => t.stop()); stream = null; enabled = false; level = 0; },
+    disable() {
+      if (src) src.disconnect(); if (raw) raw.getTracks().forEach((t) => t.stop());
+      raw = src = null; enabled = false; level = 0; open = false; if (chain) chain.gate.gain.value = 0;
+    },
+    // a different microphone, or the cleanup turned on or off: open it again (the calls carry on)
+    async restart() { if (!raw) return false; this.disable(); return this.enable(); },
+    setMicVol(v) { if (chain) chain.gain.gain.setTargetAtTime(v, SFX.ctx.currentTime, 0.03); },
+    monitor(on) { if (chain) chain.mon.gain.setTargetAtTime(on ? 1 : 0, SFX.ctx.currentTime, 0.03); },
+    // the microphones (audioinput) or speakers (audiooutput) there are; their names show once the mic is allowed
+    async devices(kind) {
+      // (until the mic's been allowed the browser lists them without ids, and they can't be picked)
+      try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === kind && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'); } catch (e) { return []; }
+    },
+    // (only some browsers can send the game's sound to a particular output)
+    get canPickOutput() { return !!(SFX.ctx && SFX.ctx.setSinkId); },
+    setOutput(id) { if (SFX.ctx && SFX.ctx.setSinkId) SFX.ctx.setSinkId(id || '').catch(() => {}); },
+    // each frame (in a game, and on the mic test): how loud you are, and whether the gate is open (open mic: the moment
+    // you're over the threshold, held a moment after so the ends of words aren't clipped)
+    tick(dt) {
+      if (!chain || !enabled) { open = false; return; }
+      chain.an.getFloatTimeDomainData(chain.buf);
+      let s = 0; for (let i = 0; i < chain.buf.length; i++) s += chain.buf[i] * chain.buf[i];
+      level = damp(level, Math.sqrt(s / chain.buf.length), 12, dt);
+      if (Settings.ptt) open = pttDown;
+      else if (dbOf(level) > Settings.micGate) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
+      chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
+    },
     onCall(call) { call.answer(outStream()); setup(call); },
     // call every peer we know that has a "larger" id (the others call us)
     connect(peerIds) {
@@ -11427,13 +11471,9 @@ const Voice = (() => {
     },
     // per-frame: position each voice, apply proximity / radio / death rules
     update(game) {
-      if (analyser) {
-        analyser.getFloatTimeDomainData(buf);
-        let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
-        level = damp(level, Math.sqrt(s / buf.length), 12, 1 / 60);
-      }
+      this.tick(1 / 60);
       const me = game.localPlayer(); if (!me) return;
-      const iHaveWalkie = game.hasItem(me.id, 'walkie');
+      const iHaveWalkie = game.hasItem(me.id, 'walkie'), vv = Settings.voiceVol;
       for (const e of peers.values()) {
         if (!e.src) continue;
         const p = game.playerByPeer(e.peerId);
@@ -11448,9 +11488,9 @@ const Voice = (() => {
           }
         }
         const t = SFX.ctx.currentTime;
-        e.prox.gain.setTargetAtTime(prox * 1.4, t, 0.05);
-        e.radio.gain.setTargetAtTime(radio * 1.1, t, 0.05);
-        e.flat.gain.setTargetAtTime(flat, t, 0.05);
+        e.prox.gain.setTargetAtTime(prox * 1.4 * vv, t, 0.05);
+        e.radio.gain.setTargetAtTime(radio * 1.1 * vv, t, 0.05);
+        e.flat.gain.setTargetAtTime(flat * vv, t, 0.05);
       }
     },
     reset() { for (const id of [...peers.keys()]) drop(id); },
@@ -16886,20 +16926,24 @@ const Menu = (() => {
     Menu.hide(); MenuScene.leave(); HUD.show(true);
     Input.lock(); SFX.init();
   }
-  function settingsNodes(back) {
+  // settings rows: a slider for a number in Settings, a button that cycles a setting
+  const rowSlider = (rows, label, key, min, max, step, fmt, apply) => {
+    const d = html(`<div class="setrow"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><span class="sv"></span></div>`);
+    const r = d.querySelector('input'), v = d.querySelector('.sv');
+    r.value = Settings[key]; v.textContent = fmt(Settings[key]);
+    r.addEventListener('input', () => { Settings[key] = parseFloat(r.value); v.textContent = fmt(Settings[key]); Settings.save(); apply && apply(); });
+    rows.push(d);
+  };
+  const rowToggle = (rows, label, get, setv) => {
+    const d = html(`<div class="setrow"><span>${label}</span><button></button></div>`);
+    const b = d.querySelector('button'); const upd = () => (b.textContent = get());
+    b.onclick = async () => { await setv(); Settings.save(); upd(); }; upd(); rows.push(d);
+    return upd;
+  };
+  // go(nodes) puts a page up (the main menu's panel, or the pause screen's)
+  function settingsNodes(back, go) {
     const rows = [];
-    const slider = (label, key, min, max, step, fmt, apply) => {
-      const d = html(`<div class="setrow"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><span class="sv"></span></div>`);
-      const r = d.querySelector('input'), v = d.querySelector('.sv');
-      r.value = Settings[key]; v.textContent = fmt(Settings[key]);
-      r.addEventListener('input', () => { Settings[key] = parseFloat(r.value); v.textContent = fmt(Settings[key]); Settings.save(); apply && apply(); });
-      rows.push(d);
-    };
-    const toggle = (label, get, setv) => {
-      const d = html(`<div class="setrow"><span>${label}</span><button></button></div>`);
-      const b = d.querySelector('button'); const upd = () => (b.textContent = get());
-      b.onclick = () => { setv(); Settings.save(); upd(); }; upd(); rows.push(d);
-    };
+    const slider = (...a) => rowSlider(rows, ...a), toggle = (...a) => rowToggle(rows, ...a);
     slider(Touch.on ? 'LOOK SENSITIVITY' : 'MOUSE SENSITIVITY', 'sens', 0.2, 3, 0.05, (v) => v.toFixed(2));
     slider('VOLUME', 'volume', 0, 1, 0.01, (v) => Math.round(v * 100) + '%', () => SFX.setVolume(Settings.volume));
     slider('FIELD OF VIEW', 'fov', 55, 100, 1, (v) => v + '°', () => R.resize());
@@ -16908,9 +16952,69 @@ const Menu = (() => {
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
     toggle('TOUCH CONTROLS', () => ['AUTO', 'ON', 'OFF'][Settings.touch] + (Touch.on ? ' (ON)' : ' (OFF)'), () => { Settings.touch = (Settings.touch + 1) % 3; Touch.apply(); });
-    toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (Settings.voice && G.online) Voice.enable(); });
-    toggle('VOICE MODE', () => (Settings.ptt ? 'HOLD V' : 'OPEN MIC'), () => { Settings.ptt = !Settings.ptt; Voice.setPTT(false); });
+    toggle('VOICE & MIC', () => (Settings.voice ? 'ON · SET UP' : 'OFF · SET UP'), () => { const me = () => go(settingsNodes(back, go)); go(voiceNodes(me)); });
     return [html('<div class="mtitle">SETTINGS</div>'), ...rows, html('<div style="height:10px"></div>'), btn('BACK', back)];
+  }
+  // VOICE & MIC: which microphone and which speakers, how loud you go out and when, how loud everyone else comes in, and
+  // a mic test: your voice on a meter against the open-mic threshold (bright while it would be heard), and the chance
+  // to hear yourself as the others will
+  function voiceNodes(back) {
+    const rows = [], slider = (...a) => rowSlider(rows, ...a), toggle = (...a) => rowToggle(rows, ...a);
+    SFX.init();
+    // (single player stops its sound while paused: wake it for the test, and put it back after)
+    const held = SFX.held; if (held && SFX.ctx) SFX.ctx.resume();
+    let hear = false;
+    const note = html('<div class="mtext vnote" style="font-size:18px;margin:2px 0 6px">Press TEST MIC and talk: the bar lights up while the others would hear you.</div>');
+    const say = (t) => { note.firstChild.textContent = t; };
+    const leave = () => { Voice.monitor(false); if (!(G.online && Settings.voice)) Voice.disable(); if (held && SFX.held && SFX.ctx) SFX.ctx.suspend(); back(); };
+    // (just the device's own name: "Microphone (HyperX Cloud II)" is HYPERX CLOUD II)
+    const shortName = (d, i, what) => {
+      let s = d.label ? d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').replace(/^(?:headset |external |internal )?(?:microphone|mic|speakers?|headphones|earphones?)\s*\((.*)\)$/i, '$1') : what + ' ' + (i + 1);
+      s = s.toUpperCase(); return s.length > 20 ? s.slice(0, 19) + '…' : s;
+    };
+    // a device picker: each press moves on to the next one there is, round to DEFAULT
+    const picker = (label, kind, key, what, apply) => {
+      const d = html(`<div class="setrow"><span>${label}</span><button></button></div>`), b = d.querySelector('button');
+      const upd = async () => { const list = await Voice.devices(kind), i = list.findIndex((x) => x.deviceId === Settings[key]); b.textContent = i < 0 ? 'DEFAULT' : shortName(list[i], i, what); };
+      b.onclick = async () => {
+        const list = await Voice.devices(kind), i = list.findIndex((x) => x.deviceId === Settings[key]);
+        if (!list.length) { say('Press TEST MIC first: the browser only lists your devices once the mic is allowed.'); return; }
+        Settings[key] = i + 1 < list.length ? list[i + 1].deviceId : ''; Settings.save(); await apply(); upd();
+      };
+      upd(); rows.push(d); return upd;
+    };
+    toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (Settings.voice && G.online) Voice.enable(); });
+    const micPick = picker('MICROPHONE', 'audioinput', 'micId', 'MIC', () => Voice.restart());
+    if (Voice.canPickOutput) picker('SPEAKERS / HEADPHONES', 'audiooutput', 'outId', 'OUTPUT', () => Voice.setOutput(Settings.outId));
+    toggle('VOICE MODE', () => (Settings.ptt ? (Touch.on ? 'HOLD TALK' : 'HOLD V') : 'OPEN MIC'), () => { Settings.ptt = !Settings.ptt; Voice.setPTT(false); });
+    slider('MIC VOLUME', 'micVol', 0, 2, 0.05, (v) => Math.round(v * 100) + '%', () => Voice.setMicVol(Settings.micVol));
+    slider('OPEN MIC THRESHOLD', 'micGate', -60, -10, 1, (v) => v + ' dB');
+    toggle('NOISE SUPPRESSION', () => (Settings.micClean ? 'ON' : 'OFF'), () => { Settings.micClean = !Settings.micClean; return Voice.restart(); });
+    slider('VOICES VOLUME', 'voiceVol', 0, 2, 0.05, (v) => Math.round(v * 100) + '%');
+    // the test: a meter of your voice, the threshold marked on it
+    const meter = html(`<div class="setrow"><span>MIC TEST</span><div style="position:relative;width:200px;height:16px;border:1px solid var(--amber-dim);flex:none"><div class="vfill" style="position:absolute;left:0;top:0;bottom:0;width:0"></div><div class="vmark" style="position:absolute;top:-4px;bottom:-4px;width:2px;background:#e8dccb"></div></div></div>`);
+    const fill = meter.querySelector('.vfill'), mark = meter.querySelector('.vmark'), pos = (db) => clamp((db + 60) / 60, 0, 1) * 100 + '%';
+    rows.push(meter);
+    const testBtn = btn('TEST MIC', async () => {
+      say('Asking for the microphone...');
+      const ok = await Voice.enable();
+      say(ok ? 'Talk: the bar lights up while the others would hear you.' : 'No microphone: allow it for this site in the browser (the icon by the address), then try again.');
+      if (ok) micPick();
+    }, { small: true });
+    const hearBtn = btn('HEAR MYSELF: OFF', () => { hear = !hear; Voice.monitor(hear); hearBtn.textContent = 'HEAR MYSELF: ' + (hear ? 'ON' : 'OFF'); if (hear) say('Use headphones, or you\'ll hear yourself echo.'); }, { small: true });
+    let last = performance.now();
+    const loop = (now) => {
+      if (!document.contains(meter)) { Voice.monitor(false); return; }
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      if (!G.online) Voice.tick(dt);
+      const on = Voice.enabled;
+      fill.style.width = on ? pos(Voice.db) : '0';
+      fill.style.background = Voice.talking ? 'var(--amber-hi)' : 'var(--amber-dim)';
+      mark.style.left = pos(Settings.micGate); mark.style.display = Settings.ptt ? 'none' : '';
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    return [html('<div class="mtitle">VOICE & MIC</div>'), ...rows, note, testBtn, hearBtn, html('<div style="height:6px"></div>'), btn('BACK', leave)];
   }
   const HOWTO = `<div class="mtitle">HOW TO PLAY</div>
     <div class="mtext">You are contract salvage crew for <b>Mercy Salvage Co.</b> Each quota period you have <b>3 days</b> to sell enough scrap to meet the <b>profit quota</b>. Miss it and you are terminated.</div>
@@ -16957,7 +17061,7 @@ const Menu = (() => {
         btn('SINGLE PLAYER', menu.sp),
         btn('HOST ONLINE GAME', menu.host, { disabled: !Net.available }),
         btn('JOIN ONLINE GAME', menu.join, { disabled: !Net.available }),
-        btn('SETTINGS', () => set(settingsNodes(() => menu.main()))),
+        btn('SETTINGS', () => set(settingsNodes(() => menu.main(), set))),
         btn('HOW TO PLAY', () => set(html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', () => menu.main()))),
         installEvt && !standalone() ? btn('INSTALL APP', () => { const e = installEvt; installEvt = null; e.prompt(); e.userChoice.finally(() => menu.main()); }) : null,
         iOS && !standalone() && location.protocol === 'https:' ? html('<div class="mtext" style="margin-top:8px;font-size:18px">To install: tap Share, then <b>Add to Home Screen</b>.</div>') : null,
@@ -17043,7 +17147,7 @@ const Menu = (() => {
         html('<div class="mtitle">' + (G.online ? 'MENU' : 'PAUSED') + '</div>'),
         G.online ? inviteNodes() : null,
         btn('RESUME', () => Input.lock()),
-        btn('SETTINGS', () => fill(settingsNodes(main))),
+        btn('SETTINGS', () => fill(settingsNodes(main, fill))),
         btn('HOW TO PLAY', () => fill([html(Touch.on ? HOWTO_TOUCH : HOWTO), btn('BACK', main)])),
         btn(G.isHost ? (G.online ? 'END SESSION' : 'QUIT') : 'LEAVE GAME', () => { if (G.isHost && G.mode === 'orbit') G.save(); G.quit(); }),
       ]);

@@ -82,9 +82,12 @@ const Touch = (() => {
     for (const b of BTNS) { const d = button(b, 'act'); const [r, bt, s] = b.at.map((v) => Math.round(v * SC)); Object.assign(d.style, { right: `calc(${r}px + env(safe-area-inset-right))`, bottom: bt + 'px', width: s + 'px', height: s + 'px', fontSize: Math.round(s * (b.box ? 0.42 : 0.24)) + 'px' }); root.appendChild(d); }
     const bar = el('ttop'); for (const b of TOP) bar.appendChild(button(b, 'small')); root.appendChild(bar);
     const talk = button({ k: 'talk', label: 'TALK' }, 'act talk'); root.appendChild(talk);
-    // the left of the screen moves you, the rest looks around
+    // the left of the screen moves you, the rest looks around; but the hotbar lies under this layer, so a tap on one of
+    // its slots is caught here first and holds what's in it (it doesn't start the stick or turn your head)
     pad.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      const si = slotAt(e.clientX, e.clientY);
+      if (si >= 0) { Input.pressed.add('Digit' + (si + 1)); if (navigator.vibrate) navigator.vibrate(8); return; }
       if (e.clientX < innerWidth * 0.42 && stick.id == null) {
         stick.id = e.pointerId; stick.x0 = e.clientX; stick.y0 = e.clientY;
         base.style.left = e.clientX + 'px'; base.style.top = e.clientY + 'px'; base.classList.add('live');
@@ -99,8 +102,17 @@ const Touch = (() => {
     });
     const end = (e) => { if (e.pointerId === stick.id) { stick.id = null; parkStick(); } if (e.pointerId === look.id) look.id = null; };
     pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
-    // the hotbar: tap a slot to hold what's in it
-    $('slots').addEventListener('pointerdown', (e) => { if (!T.on) return; const s = e.target.closest('.slot'); if (!s) return; e.preventDefault(); const i = [...$('slots').children].indexOf(s); if (i >= 0) Input.pressed.add('Digit' + (i + 1)); });
+  }
+  // which hotbar slot (if any) is under a finger: a little slack round each box, since thumbs are wide; none while the
+  // HUD is hidden or faded out for a cutscene
+  function slotAt(x, y) {
+    if ($('hud').classList.contains('cine')) return -1;
+    const kids = $('slots').children, m = 3;
+    for (let i = 0; i < kids.length; i++) {
+      const r = kids[i].getBoundingClientRect();
+      if (r.width && x >= r.left - m && x <= r.right + m && y >= r.top - m && y <= r.bottom + m) return i;
+    }
+    return -1;
   }
   // shown only while you're actually playing; the dead get just the button that switches who they watch
   T.update = () => {

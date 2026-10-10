@@ -2283,8 +2283,8 @@ const Ship = (() => {
       const rr = new RNG(list.length * 977 + Math.round(a));
       for (const b of list) {
         // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
-        const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
-        const rad = b.size * R, L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.1 : 0.2);
+        const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
+        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.85), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32);
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
         let geo;
         if (b.kind === 'rock') {

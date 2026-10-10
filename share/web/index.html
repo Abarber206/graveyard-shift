@@ -8081,8 +8081,8 @@ const Ship = (() => {
       const rr = new RNG(list.length * 977 + Math.round(a));
       for (const b of list) {
         // (the world a moon belongs to rises up from behind it, a vast arc filling the sky past its limb)
-        const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
-        const rad = b.size * R, L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.1 : 0.2);
+        const al = b.kind === 'planet' ? lim * 0.8 + b.off : lim + b.off * 1.8, w = u.clone().multiplyScalar(Math.cos(b.ang)).addScaledVector(v, Math.sin(b.ang));
+        const rad = b.size * R * (b.kind === 'planet' ? 1 : 0.85), L = b.kind === 'planet' ? rad / Math.sin(0.5) : a + b.orbit * R * (b.kind === 'moon' ? 0.22 : 0.32);
         const pos = cam.clone().addScaledVector(o.D.clone().multiplyScalar(Math.cos(al)).addScaledVector(w, Math.sin(al)), L);
         let geo;
         if (b.kind === 'rock') {
@@ -12208,7 +12208,7 @@ for (const w in BODIES) {
   for (const b of BODIES[w]) SITE_LOOK[b.key] = { tint: b.tint, atmo: 0x000000, airless: true };
   // and in the sky over each site: from the world, its moon and rock (small, a few degrees across); from one of
   // them, the world itself, filling half the sky (bigger still from the rock, in closer), and the other one
-  SITES[w].sky = BODIES[w].map((b) => ({ kind: b.kind, tint: b.tint, r: 1.7 * b.size / (b.orbit - 1), az: b.ang * 1.3 + 0.4, el: 0.32 + 0.18 * Math.sin(b.ang * 2) }));
+  SITES[w].sky = BODIES[w].map((b) => ({ kind: b.kind, tint: b.tint, r: 1.2 * b.size / (b.orbit - 1), az: b.ang * 1.3 + 0.4, el: 0.32 + 0.18 * Math.sin(b.ang * 2) }));
   for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, r: b.kind === 'rock' ? 0.74 : 0.6, az: 2.3, el: 0.5 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }

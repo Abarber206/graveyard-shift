@@ -93,7 +93,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3();
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
@@ -356,11 +356,6 @@ const G = {
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route)); }
-  },
-  // the sun just peeking out past the edge of what's eclipsing it: a flare where it is on screen (k 0..1)
-  sunPeek(k, dir) {
-    const cam = R.camera, p = _peekV.copy(cam.position).addScaledVector(dir, 100).project(cam);
-    R.fx.peek = p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 ? k : 0; R.fx.peekUV.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
   },
   // gravity, as a share of the usual: light out on the surface of a moon or rock (the ship and the facilities keep
   // a full one of their own)
@@ -2448,7 +2443,6 @@ const G = {
     if (inSpace) {
       G.orbitT = (G.orbitT || 60) + dt;
       const sd = G.ship.orbit(dt, G.orbitT);
-      G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
       // falling close over the surface, the backdrop's near plane comes in so the ground below is never clipped
       R.setBgNear(clamp(G.ship.alt * 0.35, 0.5, 20));
       // up here everyone is shut in the cabin, so its air is clear when the ship comes down into the cloud
@@ -2477,7 +2471,6 @@ const G = {
       R.fx.exposure = 1.0;
       if (G.ext) G.ext.group.visible = false;
     } else if (zone === 'in') {
-      R.fx.peek = 0;
       // each level down the air is thicker and what little light there is bounces off nothing
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set(0x000000); scene.fog.density = 0.07 + 0.014 * dp;
@@ -2488,7 +2481,6 @@ const G = {
     } else {
       G.ext.group.visible = true;
       const L = G.ext.lighting(G.round.time);
-      G.sunPeek(L.peek || 0, L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
       // height fog that pools in the hollows and glows toward the sun
       R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);

@@ -5669,6 +5669,9 @@ const Exterior = (() => {
 const SHIP = { doorX0: -3.15, doorX1: -1.85, doorH: 2.15, h: 3.4, ground: -1.2 };
 // the airlock chamber inside the outer hatch (x span, and the z of its inner wall; the outer wall is the hull at z 4)
 const AIRLOCK = { x0: -3.62, x1: -1.38, z0: 2.55, ix0: -3.05, ix1: -1.95, ih: 2.15 };
+// the roof deck: a railed platform up on the crown over the bay (its floor at y, inside x0..x1, z0..z1), reached by a
+// ladder in the airlock and a hatch (hx, hz) up through its ceiling and the hull
+const ROOF = { x0: -4.4, x1: -0.6, z0: -0.6, z1: 3.9, y: 5.15, hx: -1.85, hz: 3.0, rail: 1.05 };
 // a delivery in orbit, second by second: the inner door shuts and the drone shows far off, a blinking light that takes
 // its time coming in (long enough for the crew to gather at the portholes); the lock vents and the hatch opens, the
 // drone comes in, sets the order down, backs out and leaves; the hatch shuts and the lock repressurises
@@ -5901,7 +5904,53 @@ const Ship = (() => {
       this.buildShutters();
       this.buildRobot();
       this.buildExterior();
+      this.buildRoofDeck();
       this.flushBuckets();
+    }
+    // ---------- the roof deck: a grating platform on stilts over the crown, a safety rail round it, and the hatch up
+    // into it from a ladder in the airlock (somewhere to ride the takeoff and landing out in the wind) ----------
+    buildRoofDeck() {
+      const R = ROOF, D = 'darkmetal', Y = 'yellow', cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2, w = R.x1 - R.x0, d = R.z1 - R.z0;
+      this.cm.deckGrate = MATS.rep('grate', w, d);
+      this.pb('deckGrate', w, 0.05, d, cx, R.y - 0.025, cz);
+      // its frame, and stilts down onto the hull (longer toward the shoulder, where the crown falls away)
+      for (const z of [R.z0, R.z1]) this.pb(D, w, 0.12, 0.08, cx, R.y - 0.11, z);
+      for (const x of [R.x0, R.x1]) this.pb(D, 0.08, 0.12, d, x, R.y - 0.11, cz);
+      for (let i = 0; i < 4; i++) this.pb(D, 0.06, 0.08, d, R.x0 + (i + 0.5) * w / 4, R.y - 0.09, cz);
+      for (const x of [R.x0 + 0.15, cx, R.x1 - 0.15]) for (const z of [R.z0 + 0.15, cz, R.z1 - 0.15]) {
+        const top = skinTop(x, z), h = R.y - 0.17 - top + 0.1; if (h <= 0.05) continue;
+        this.pc(D, 0.045, 0.06, h, x, top - 0.1 + h / 2, z, 0, 0, 0, 8);
+        this.pc(D, 0.12, 0.12, 0.03, x, top + 0.01, z, 0, 0, 0, 10);
+      }
+      // the rail: posts, a top and a mid rail in safety yellow, a kick plate along the bottom
+      const edge = (ax, az, bx, bz) => {
+        const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(len / 0.95)), ry = -Math.atan2(bz - az, bx - ax);
+        for (let i = 0; i <= n; i++) { const t = i / n; this.pc(Y, 0.025, 0.025, R.rail, ax + (bx - ax) * t, R.y + R.rail / 2, az + (bz - az) * t, 0, 0, 0, 6); }
+        for (const [h, r] of [[R.rail, 0.028], [R.rail * 0.52, 0.02]]) this.pc(Y, r, r, len, (ax + bx) / 2, R.y + h, (az + bz) / 2, 0, ry, Math.PI / 2, 6);
+        this.pb(D, len, 0.1, 0.02, (ax + bx) / 2, R.y + 0.05, (az + bz) / 2, 0, ry, 0);
+      };
+      edge(R.x0, R.z0, R.x1, R.z0); edge(R.x1, R.z0, R.x1, R.z1); edge(R.x1, R.z1, R.x0, R.z1); edge(R.x0, R.z1, R.x0, R.z0);
+      // the hatch: a raised round coaming over the trunk up through the hull, its lid swung open, a grab hoop
+      const top = skinTop(R.hx, R.hz), th = R.y - top;
+      this.pc(D, 0.46, 0.46, th + 0.05, R.hx, top + th / 2 - 0.02, R.hz, 0, 0, 0, 20, true);
+      this.pc(D, 0.46, 0.46, 0.32, R.hx, R.y + 0.16, R.hz, 0, 0, 0, 20, true);
+      this.pt('hazard', 0.47, 0.035, R.hx, R.y + 0.32, R.hz, Math.PI / 2, 0, 0, 24);
+      this.pc(D, 0.5, 0.5, 0.06, R.hx, R.y + 0.36 + 0.45, R.hz + 0.56, Math.PI / 2 + 0.2, 0, 0, 20);
+      this.pc('steelBolt', 0.06, 0.06, 0.12, R.hx, R.y + 0.34, R.hz + 0.47, 0, 0, Math.PI / 2, 8);
+      this.pt(Y, 0.22, 0.02, R.hx + 0.42, R.y + 0.32 + 0.2, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
+      // and below, in the airlock: a steel ladder up the chamber's front wall to a hatch in its ceiling
+      const lx = AIRLOCK.x1 - 0.2, H = SHIP.h;
+      for (const s of [-1, 1]) {
+        this.pc('steelBolt', 0.022, 0.022, H, lx, H / 2, R.hz + s * 0.22, 0, 0, 0, 6);
+        for (const y of [0.4, 1.6, 2.8]) this.pb(D, 0.14, 0.04, 0.04, lx + 0.08, y, R.hz + s * 0.22);
+      }
+      for (let y = 0.3; y < H - 0.1; y += 0.3) this.pc('steelBolt', 0.016, 0.016, 0.44, lx, y, R.hz, Math.PI / 2, 0, 0, 6);
+      this.pb(D, 0.86, 0.06, 0.86, R.hx, H - 0.03, R.hz);
+      this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.43); this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.43);
+      this.pt(D, 0.3, 0.03, R.hx, H - 0.08, R.hz, Math.PI / 2, 0, 0, 16);
+      this.col(lx - 0.05, AIRLOCK.x1, R.hz - 0.28, R.hz + 0.28);
+      this.interact.push({ kind: 'ladder', x: lx - 0.15, y: 1.5, z: R.hz, r: 0.5 });
+      this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.55 });
     }
     // ---------- the airlock: a slim outer hatch in the hull, a small chamber, an inner door into the bay ----------
     buildAirlock() {
@@ -7518,10 +7567,10 @@ const Ship = (() => {
               p.x -= aEnd * uLen * (0.6 + aSeed * 0.8);
               vE = aEnd; vA = uK * smoothstep(3000.0, 900.0, abs(p.x)) * (0.35 + aSeed * 0.65);
               gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); gl_Position.z = gl_Position.w * 0.9998; }`,
-          // (each streak's tail runs through the spectrum, so the tunnel has a faint rainbow sheen)
+          // (each streak's tail takes on the faintest tint of the spectrum)
           fragmentShader: `varying float vA; varying float vE; varying float vS;
             void main(){ vec3 rb = 0.5 + 0.5 * cos(6.2832 * (vS * 1.7 + vE * 0.35 + vec3(0.0, 0.33, 0.67)));
-              vec3 c = mix(vec3(1.4, 1.5, 1.8), mix(vec3(0.35, 0.55, 1.4), rb * 1.3, 0.55), vE); gl_FragColor = vec4(c * vA * (1.0 - vE * 0.85), 1.0); }`,
+              vec3 c = mix(vec3(1.4, 1.5, 1.8), mix(vec3(0.35, 0.55, 1.4), rb * 1.3, 0.18), vE); gl_FragColor = vec4(c * vA * (1.0 - vE * 0.85), 1.0); }`,
           depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
         }));
         this.warp.frustumCulled = false; this.warp.visible = false; this.warp.renderOrder = -90; sp.add(this.warp);
@@ -7560,18 +7609,20 @@ const Ship = (() => {
         depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
       this.portal.rotation.y = -Math.PI / 2; this.portal.visible = false; this.portal.frustumCulled = false; this.portal.renderOrder = 20; sp.add(this.portal);
-      // ...and inside it, a tunnel: rainbow rings rushing back past the ship along with the starlight
+      // ...and inside it, a tunnel: streaks of light rushing back past the ship along with the starlight
       this.tunnel = new THREE.Mesh(new THREE.CylinderGeometry(160, 160, 6000, 40, 1, true), new THREE.ShaderMaterial({
         uniforms: { uT: { value: 0 }, uK: { value: 0 } },
         vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w * 0.9997; }',
+        // (long streaks of light running the length of it, blue-white with only a hint of colour, flowing back past)
         fragmentShader: `uniform float uT, uK; varying vec3 vP;
+          float h1(float x){ return fract(sin(x * 127.1) * 43758.5453); }
+          float n1(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(h1(i), h1(i + 1.0), f); }
           void main(){
             float x = vP.y, a = atan(vP.z, vP.x);
-            float ring = pow(0.5 + 0.5 * cos(x * 0.012 + uT * 22.0), 18.0);
-            float spiral = pow(0.5 + 0.5 * sin(a * 6.0 + x * 0.004 + uT * 4.0), 6.0) * 0.35;
-            vec3 rb = mix(0.5 + 0.5 * cos(6.2832 * (x * 0.00025 + a * 0.16 + uT * 0.3 + vec3(0.0, 0.33, 0.67))), vec3(0.55, 0.7, 1.0), 0.35);
+            float streak = pow(n1(a * 9.0 + 3.0), 6.0) * (0.6 + 0.4 * n1(x * 0.002 + uT * 9.0 + a * 4.0)) + pow(n1(a * 23.0 + 7.0), 10.0) * 0.6;
+            vec3 rb = mix(0.5 + 0.5 * cos(6.2832 * (a * 0.16 + uT * 0.2 + vec3(0.0, 0.33, 0.67))), vec3(0.6, 0.75, 1.05), 0.85);
             float fade = smoothstep(3000.0, 600.0, abs(x));
-            gl_FragColor = vec4(rb * (ring * 1.3 + spiral) * fade * uK, 1.0);
+            gl_FragColor = vec4(rb * streak * 0.8 * fade * uK, 1.0);
           }`,
         side: THREE.BackSide, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
@@ -10325,21 +10376,21 @@ const R = (() => {
       if (uLeech > 0.0) uv += vec2(sin(uv.y * 9.0 + uTime * 3.0), cos(uv.x * 7.0 + uTime * 2.3)) * 0.012 * uLeech;
       // re-entry: the air outside burning shimmers the view
       if (uHeat > 0.0) uv += (vec2(vnoise(uv * 14.0 + uTime * 6.0), vnoise(uv * 13.0 - uTime * 5.0)) - 0.5) * 0.006 * uHeat;
-      // the jump: space bends round the ship; the view swirls and stretches out from the middle
+      // the jump: space bends round the ship; the view is drawn out from the middle, more and more the deeper in
       if (uWarp > 0.0) {
-        float rr = length(c0), ang = uWarp * (0.22 * (1.0 - rr) * sin(uTime * 1.3) + 0.05 * sin(uTime * 4.0 + rr * 9.0));
-        uv = 0.5 + mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * (uv - 0.5) * (1.0 - uWarp * (0.16 * rr + 0.03 * sin(uTime * 5.0)));
+        float rr = length(c0), ang = uWarp * (0.05 * (1.0 - rr) * sin(uTime * 1.3) + 0.015 * sin(uTime * 4.0 + rr * 9.0));
+        uv = 0.5 + mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * (uv - 0.5) * (1.0 - uWarp * (0.22 * rr + 0.02 * sin(uTime * 5.0)));
       }
       vec2 c = uv - 0.5;
-      float ca = uFear * 0.006 + uDamage * 0.012 + uWarp * 0.05;
+      float ca = uFear * 0.006 + uDamage * 0.012 + uWarp * 0.018;
       vec3 col;
       col.r = texture2D(tDiffuse, uv + c * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - c * ca).b;
-      // ...smeared outward in streaks, its colours splitting into a rainbow at the edges
+      // ...smeared outward in long streaks, with just a hint of colour at the edges
       if (uWarp > 0.0) {
         vec3 acc = vec3(0.0);
-        for (int i = 0; i < 8; i++) { vec2 u2 = 0.5 + (uv - 0.5) * (1.0 - float(i) * 0.011 * uWarp);
+        for (int i = 0; i < 8; i++) { vec2 u2 = 0.5 + (uv - 0.5) * (1.0 - float(i) * 0.024 * uWarp);
           acc += vec3(texture2D(tDiffuse, u2 + c * ca).r, texture2D(tDiffuse, u2).g, texture2D(tDiffuse, u2 - c * ca).b); }
         col = mix(col, acc / 8.0, min(1.0, uWarp * 1.4));
       }
@@ -10359,7 +10410,7 @@ const R = (() => {
         col += vec3(1.0, 0.93, 0.82) * v * (gl + streak);
       }
       col += texture2D(tBloom, uv).rgb * uBloom;
-      if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.35 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
+      if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.06 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
       // ...and its glow floods in around the edges of everything, flickering
       if (uHeat > 0.0) { float rr = length(c0); col += uHeatCol * uHeat * (0.55 + 0.45 * vnoise(uv * 5.0 + uTime * 3.0)) * smoothstep(0.35, 0.85, rr) * 0.6; }
       col = aces(col * uExposure);
@@ -11027,6 +11078,30 @@ const Player = (() => {
   let target = null;
   // a ship seat (index into G.ship.seats) while sitting in it, and how far into the sitting-down move the view is
   let seat = null, sitT = 0;
+  // on the way up the airlock ladder to the roof deck, or back down: up the rungs looking up at the hatch, a blink
+  // through the trunk, and out (the deck's ROOF; standing on it, me.roof)
+  let climb = null;
+  const LADDER = { x: AIRLOCK.x1 - 0.58, z: ROOF.hz };
+  function stepClimb(me, dt, cam) {
+    const c = climb, F = ROOF; c.t += dt;
+    const a = clamp(c.t / 0.5, 0, 1), b = clamp((c.t - 0.5) / 0.55, 0, 1);
+    if (c.up) {
+      if (c.t < 0.5) { me.pos.set(lerp(c.x0, LADDER.x, Math.min(1, a * 2)), 1.4 * a, lerp(c.z0, LADDER.z, Math.min(1, a * 2))); me.pitch = damp(me.pitch, 0.95, 5, dt); }
+      else { if (!c.swap) { c.swap = true; R.fx.fade = 1; me.roof = true; me.pitch = 0.5; } me.pos.set(F.hx, F.y - 1.2 * (1 - b), F.hz); me.pitch = damp(me.pitch, 0, 4, dt); }
+    } else {
+      if (c.t < 0.5) { me.pos.set(lerp(c.x0, F.hx, Math.min(1, a * 2)), F.y - 1.2 * a, lerp(c.z0, F.hz, Math.min(1, a * 2))); me.pitch = damp(me.pitch, -0.9, 5, dt); }
+      else { if (!c.swap) { c.swap = true; R.fx.fade = 1; me.roof = false; me.pitch = -0.5; } me.pos.set(LADDER.x, 1.4 * (1 - b), LADDER.z); me.pitch = damp(me.pitch, 0, 4, dt); }
+    }
+    // (a rung underfoot every so often)
+    c.rung -= dt; if (c.rung <= 0) { c.rung = 0.24; SFX.play('step', null, { surf: 'metal', vol: 0.45, pitch: 1.15 }); }
+    if (c.t >= 1.05) {
+      // off the top onto the deck, clear of the hatch; or off the bottom rung into the lock
+      if (c.up) me.pos.set(F.hx + 0.05, F.y, F.hz - 0.85); else me.pos.set(LADDER.x - 0.1, 0, LADDER.z);
+      climb = null; vel.set(0, 0, 0); onGround = true;
+    }
+    cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+    me.moving = true; me.air = false;
+  }
   function standUp(me) {
     const S = G.ship.seats[seat]; seat = null; me.seat = null;
     if (S) { me.pos.set(S.exit.x, 0, S.exit.z); vel.set(0, 0, 0); }
@@ -11125,6 +11200,7 @@ const Player = (() => {
   function eyeH() { return lerp(1.62, 1.05, crouchT); }
   function surface(me) {
     if (me.zone === 'in') return 'concrete';
+    if (me.roof) return 'metal';
     if (G.ship.onFootprint(me.pos.x, me.pos.z) && me.pos.y < 1) return 'metal';
     return G.mode === 'orbit' ? 'metal' : 'dirt';
   }
@@ -11166,7 +11242,7 @@ const Player = (() => {
     setSuit(c) { if (vm.sleeveMat) vm.sleeveMat.color.set(suitHex(c)); },
     spawn(x, y, z, yaw) {
       const me = G.me(); if (!me) return;
-      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null;
+      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null; me.roof = false; climb = null;
       stamina = 1; exhausted = false; deathCam = null;
     },
     knock(kx, kz) { kick.x += kx; kick.z += kz; shake = Math.max(shake, 0.6); },
@@ -11189,6 +11265,9 @@ const Player = (() => {
     clearPerks() { for (const k in perks) delete perks[k]; tickPerks(0); },
     addShake(s) { shake = Math.max(shake, s); },
     startDeath(cause, from) { deathCam = { t: 0, cause, from }; },
+    // up the airlock ladder onto the roof deck, or back down
+    climb(up) { const me = G.me(); if (!me || climb) return; if (seat != null) standUp(me); climb = { t: 0, up, x0: me.pos.x, z0: me.pos.z, swap: false, rung: 0.1 }; },
+    get climbing() { return !!climb; },
     swing() { swingT = 0.45; },
     resetVM() { setVM(null); },
     update(dt) {
@@ -11246,6 +11325,7 @@ const Player = (() => {
       }
       // ---------- at the rover's console: the view is the rover's (Rover.update has it); you stand still ----------
       if (Rover.driving) { vm.root.visible = false; me.moving = me.sprint = me.air = false; target = null; HUD.prompt(null, me); return; }
+      if (climb) { vm.root.visible = false; target = null; HUD.prompt(null, me); stepClimb(me, dt, cam); return; }
       me.zoneView = me.zone;
       // ---------- look ----------
       if (!ui) {
@@ -11297,6 +11377,13 @@ const Player = (() => {
         if (d < r && d > 1e-3) { me.pos.x = m.rpos.x + (dx / d) * r; me.pos.z = m.rpos.z + (dz / d) * r; }
       }
       Rover.push(me.pos, 0.3, me.zone);
+      // up on the roof deck the rail keeps you on it, and the hatch coaming is in the way
+      if (me.roof) {
+        const F = ROOF;
+        me.pos.x = clamp(me.pos.x, F.x0 + 0.3, F.x1 - 0.3); me.pos.z = clamp(me.pos.z, F.z0 + 0.3, F.z1 - 0.3);
+        const dx = me.pos.x - F.hx, dz = me.pos.z - F.hz, dd = Math.hypot(dx, dz), rr = 0.78;
+        if (dd < rr && dd > 1e-4) { me.pos.x = F.hx + (dx / dd) * rr; me.pos.z = F.hz + (dz / dd) * rr; }
+      }
       if (me.zone === 'in' && G.fac) {
         const f = G.fac;
         f.collide(me.pos, 0.32); f.collide(me.pos, 0.32);
@@ -11308,9 +11395,9 @@ const Player = (() => {
       }
       // with the ship in the air, it is only solid for those riding in it; anyone left below walks where it stood
       const shipHere = !G.ship.airborne || G.playerAboard(me);
-      if (me.zone !== 'in' && seat == null) { if (G.ext && G.mode !== 'orbit' && !(G.ship.airborne && shipHere)) G.ext.collide(me.pos, 0.32); if (shipHere) G.ship.collide(me.pos, 0.32); }
+      if (me.zone !== 'in' && seat == null && !me.roof) { if (G.ext && G.mode !== 'orbit' && !(G.ship.airborne && shipHere)) G.ext.collide(me.pos, 0.32); if (shipHere) G.ship.collide(me.pos, 0.32); }
       if (seat != null) { const S = G.ship.seats[seat]; me.pos.x = S.x; me.pos.z = S.z; vel.set(0, vel.y, 0); kick.set(0, 0, 0); }
-      const ground = me.zone === 'in' && G.fac ? G.fac.floorY(me.pos.x, me.pos.z, me.pos.y) : G.groundAt(me.pos.x, me.pos.z, !shipHere);
+      const ground = me.roof ? ROOF.y : me.zone === 'in' && G.fac ? G.fac.floorY(me.pos.x, me.pos.z, me.pos.y) : G.groundAt(me.pos.x, me.pos.z, !shipHere);
       // walking down stairs or a slope keeps your feet on it instead of stepping off into the air every frame
       if (onGround && vel.y <= 0 && me.pos.y > ground && me.pos.y - ground < (me.zone === 'in' ? 0.45 : 0.3)) me.pos.y = ground;
       if (me.pos.y <= ground) {
@@ -11934,7 +12021,7 @@ const FLY = {
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
-const JUMP = { punch: 2.2, drop: 5.6, end: 9.0 };
+const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
 
 const G = {
@@ -12116,7 +12203,7 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    const y = me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : G.groundAt(x, z);
+    const y = me.roof ? ROOF.y : me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : G.groundAt(x, z);
     G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
   },
   // ======================= world =======================
@@ -13502,7 +13589,15 @@ const G = {
     return P;
   },
   // is this point inside the ship's hull (in ship coordinates)?
-  posAboard(v) { return G.ship.onFootprint(v.x, v.z) && v.y > -1.2 && v.y < 5.5; },
+  // the roof hatch opens on the ground, and in the air while the ship is low with its shutters up; it's called shut a
+  // few seconds before the shutters come down for the burn out of the air (and never opens in space)
+  roofOpen() {
+    const f = G.flight;
+    if (G.mode !== 'site' && G.mode !== 'leaving') return false;
+    if (G.ship.shut.t > 0.15) return false;
+    return !(f && f.kind === 'takeoff' && f.t > (f.dur || FLY.toDur) - 2.8);
+  },
+  posAboard(v) { return G.ship.onFootprint(v.x, v.z) && v.y > -1.2 && v.y < 7.5; },   // (up to the roof deck and a jump off it)
   // is this player riding along? (fixed at liftoff: nobody joins or leaves a ship in the air)
   playerAboard(p) {
     if (!p || !G.flight) return false;
@@ -13552,8 +13647,10 @@ const G = {
         for (const L of S.fireLights) if (!G.lightSources.includes(L)) G.lightSources.push(L);
       }
     }
-    // climbing into the cloud deck, the blast shutters come down for the burn out of the air
+    // climbing into the cloud deck, the blast shutters come down for the burn out of the air; before they do, a klaxon
+    // on the roof hatch calls anyone riding up there back down inside
     if (f.kind === 'takeoff' && f.t > (f.dur || FLY.toDur) - 1.3) S.setShutters(true);
+    if (f.kind === 'takeoff' && me && me.roof && !Player.climbing && !G.roofOpen()) { SFX.play('alarm', null, { vol: 0.5 }); Player.climb(false); }
     if (me && me.alive && aboard && dt > 0) Player.addShake(p.shake);
     // the dust (spray, ash) the jets tear off the ground under the ship
     if (G.ext && dt > 0) {
@@ -13571,6 +13668,12 @@ const G = {
       else G.ext.setBlast(p.x, p.z, strength * 1.2, 12);
       SFX.blastWind = Math.max(strength * Math.exp(-Math.hypot(cam.x - p.x, cam.z - p.z) / 40), f.boomAt ? w * 1.2 * Math.exp(-Math.hypot(cam.x - f.boomAt.x, cam.z - f.boomAt.z) / 70) : 0);
     }
+    // riding up on the roof deck: the wind of the ship's own speed, roaring past and shoving you about
+    if (me && me.roof && dt > 0) {
+      const sp = f.lastP ? Math.hypot(p.x - f.lastP.x, p.y - f.lastP.y, p.z - f.lastP.z) / dt : 0;
+      SFX.blastWind = Math.max(SFX.blastWind || 0, clamp(sp / 35, 0, 1.3)); Player.addShake(Math.min(0.45, sp / 140));
+    }
+    if (dt > 0) f.lastP = { x: p.x, y: p.y, z: p.z };
     if (f.kind === 'land' && f.t > FLY.landDur + 3.2) { G.flight = null; G.updateFlight(0); }
   },
   // carry the local view along when riding the ship (called after the player has been simulated)
@@ -13830,6 +13933,8 @@ const G = {
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
         if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id); label = it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
+        if (o.kind === 'ladder') { if (me.roof) continue; label = G.roofOpen() ? 'Climb to the roof' : 'Roof hatch (sealed)'; }
+        if (o.kind === 'roofHatch') { if (!me.roof) continue; label = 'Climb down'; }
         out.push({ kind: o.kind, ref: o, x: o.x, y: o.y, z: o.z, r: o.r, label });
       }
       if (G.ext) Pods.interactables(me, out);
@@ -13887,6 +13992,8 @@ const G = {
       }
       case 'hatch': G.request({ a: 'hatch' }); break;
       case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
+      case 'ladder': if (G.roofOpen()) Player.climb(true); else SFX.play('err', null, { vol: 0.5 }); break;
+      case 'roofHatch': Player.climb(false); break;
       case 'roverPick': G.request({ a: 'roverPick' }); break;
       case 'basketPut': G.request({ a: 'basketPut', item: t.ref }); break;
       case 'basketTake': { const slot = me.slots[me.sel] == null ? me.sel : me.slots.indexOf(null); if (slot >= 0) G.request({ a: 'basketTake', item: t.ref, slot }); break; }
@@ -14145,20 +14252,22 @@ const G = {
         R.fx.warp = 0.35 * u * u;
       } else if (t < J.drop) {
         if (!s.punched) { s.punched = true; R.fx.flash = Math.max(R.fx.flash, 1.6); SFX.play('warp_in', null, { vol: 1 }); S.inWarp = true; S.warp.visible = true; S.portal.visible = false; S.tunnel.visible = true; }
-        const u = (t - J.punch) / (J.drop - J.punch);
-        G.fovAdd = lerp(22, 12, u); Player.addShake(0.3);
-        S.warp.material.uniforms.uK.value = Math.min(1, (t - J.punch) * 3) * (1 - sstep(0.85, 1, u) * 0.5);
-        S.warp.material.uniforms.uLen.value = lerp(320, 180, u);
+        // (and the further in, the more everything is drawn out: the view widening, the streaks lengthening, space
+        // pulled out from the middle, until the ship drops out at the other end)
+        const u = (t - J.punch) / (J.drop - J.punch), deep = Math.pow(u, 1.3);
+        G.fovAdd = lerp(12, 30, deep); Player.addShake(0.22 + 0.12 * deep);
+        S.warp.material.uniforms.uK.value = Math.min(1, (t - J.punch) * 3);
+        S.warp.material.uniforms.uLen.value = lerp(220, 620, deep);
         S.stars.material.uniforms.uFade.value = Math.max(0, 1 - (t - J.punch) * 3);
-        tu.uK.value = Math.min(1, (t - J.punch) * 2) * (1 - sstep(0.8, 1, u) * 0.6);
-        R.fx.warp = Math.min(0.55, 0.3 + (t - J.punch) * 1.2) * (0.85 + 0.15 * Math.sin(t * 3.1)) * (1 - sstep(0.85, 1, u) * 0.4);
+        tu.uK.value = Math.min(1, (t - J.punch) * 2) * (0.7 + 0.3 * deep);
+        R.fx.warp = lerp(0.22, 0.85, deep) * (0.94 + 0.06 * Math.sin(t * 3.1));
       } else {
         if (!s.dropped) {
           s.dropped = true; R.fx.flash = Math.max(R.fx.flash, 1.3); SFX.play('warp_out', null, { vol: 1 });
           S.inWarp = false; G.jumping = false; G.applyRunVisuals(); S.arrive = 0; S.tunnel.visible = false; S.portal.visible = true;
         }
         const u = (t - J.drop) / (J.end - J.drop);
-        G.fovAdd = lerp(12, 0, sstep(0, 0.5, u)); Player.addShake(0.25 * (1 - u));
+        G.fovAdd = lerp(30, 0, sstep(0, 0.4, u)); Player.addShake(0.25 * (1 - u));
         S.warp.material.uniforms.uK.value = Math.max(0, 1 - (t - J.drop) * 3.5);
         S.warp.material.uniforms.uLen.value = 60;
         S.stars.material.uniforms.uFade.value = Math.min(1, (t - J.drop) * 1.5);
@@ -14168,7 +14277,7 @@ const G = {
         const b = (t - J.drop) / 0.55;
         S.portal.visible = b < 1; pu.uK.value = Math.pow(Math.max(0, 1 - b), 2) * 1.2; S.portal.scale.setScalar(lerp(2600, 1500, Math.min(1, b))); S.portal.position.set(90, 1.6, 0);
         S.turn = 1 - sstep(J.drop + 1.4, J.end, t);
-        R.fx.warp = 0.6 * Math.max(0, 1 - (t - J.drop) / 1.4);
+        R.fx.warp = 0.85 * Math.pow(Math.max(0, 1 - (t - J.drop) / 0.9), 2);
         if (t > J.end) { S.arrive = 1; S.turn = 0; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
       }
       S.warp.material.uniforms.uT.value = t; pu.uT.value = t; tu.uT.value = t;

@@ -136,21 +136,21 @@ const R = (() => {
       if (uLeech > 0.0) uv += vec2(sin(uv.y * 9.0 + uTime * 3.0), cos(uv.x * 7.0 + uTime * 2.3)) * 0.012 * uLeech;
       // re-entry: the air outside burning shimmers the view
       if (uHeat > 0.0) uv += (vec2(vnoise(uv * 14.0 + uTime * 6.0), vnoise(uv * 13.0 - uTime * 5.0)) - 0.5) * 0.006 * uHeat;
-      // the jump: space bends round the ship; the view swirls and stretches out from the middle
+      // the jump: space bends round the ship; the view is drawn out from the middle, more and more the deeper in
       if (uWarp > 0.0) {
-        float rr = length(c0), ang = uWarp * (0.22 * (1.0 - rr) * sin(uTime * 1.3) + 0.05 * sin(uTime * 4.0 + rr * 9.0));
-        uv = 0.5 + mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * (uv - 0.5) * (1.0 - uWarp * (0.16 * rr + 0.03 * sin(uTime * 5.0)));
+        float rr = length(c0), ang = uWarp * (0.05 * (1.0 - rr) * sin(uTime * 1.3) + 0.015 * sin(uTime * 4.0 + rr * 9.0));
+        uv = 0.5 + mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * (uv - 0.5) * (1.0 - uWarp * (0.22 * rr + 0.02 * sin(uTime * 5.0)));
       }
       vec2 c = uv - 0.5;
-      float ca = uFear * 0.006 + uDamage * 0.012 + uWarp * 0.05;
+      float ca = uFear * 0.006 + uDamage * 0.012 + uWarp * 0.018;
       vec3 col;
       col.r = texture2D(tDiffuse, uv + c * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - c * ca).b;
-      // ...smeared outward in streaks, its colours splitting into a rainbow at the edges
+      // ...smeared outward in long streaks, with just a hint of colour at the edges
       if (uWarp > 0.0) {
         vec3 acc = vec3(0.0);
-        for (int i = 0; i < 8; i++) { vec2 u2 = 0.5 + (uv - 0.5) * (1.0 - float(i) * 0.011 * uWarp);
+        for (int i = 0; i < 8; i++) { vec2 u2 = 0.5 + (uv - 0.5) * (1.0 - float(i) * 0.024 * uWarp);
           acc += vec3(texture2D(tDiffuse, u2 + c * ca).r, texture2D(tDiffuse, u2).g, texture2D(tDiffuse, u2 - c * ca).b); }
         col = mix(col, acc / 8.0, min(1.0, uWarp * 1.4));
       }
@@ -170,7 +170,7 @@ const R = (() => {
         col += vec3(1.0, 0.93, 0.82) * v * (gl + streak);
       }
       col += texture2D(tBloom, uv).rgb * uBloom;
-      if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.35 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
+      if (uWarp > 0.0) { float rr = length(c0); col += uWarp * 0.06 * smoothstep(0.25, 0.8, rr) * (0.5 + 0.5 * cos(6.2832 * (rr * 1.6 + atan(c0.y, c0.x) * 0.16 - uTime * 0.45 + vec3(0.0, 0.33, 0.67)))); }
       // ...and its glow floods in around the edges of everything, flickering
       if (uHeat > 0.0) { float rr = length(c0); col += uHeatCol * uHeat * (0.55 + 0.45 * vnoise(uv * 5.0 + uTime * 3.0)) * smoothstep(0.35, 0.85, rr) * 0.6; }
       col = aces(col * uExposure);

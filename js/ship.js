@@ -5,6 +5,9 @@
 const SHIP = { doorX0: -3.15, doorX1: -1.85, doorH: 2.15, h: 3.4, ground: -1.2 };
 // the airlock chamber inside the outer hatch (x span, and the z of its inner wall; the outer wall is the hull at z 4)
 const AIRLOCK = { x0: -3.62, x1: -1.38, z0: 2.55, ix0: -3.05, ix1: -1.95, ih: 2.15 };
+// the roof deck: a railed platform up on the crown over the bay (its floor at y, inside x0..x1, z0..z1), reached by a
+// ladder in the airlock and a hatch (hx, hz) up through its ceiling and the hull
+const ROOF = { x0: -4.4, x1: -0.6, z0: -0.6, z1: 3.9, y: 5.15, hx: -1.85, hz: 3.0, rail: 1.05 };
 // a delivery in orbit, second by second: the inner door shuts and the drone shows far off, a blinking light that takes
 // its time coming in (long enough for the crew to gather at the portholes); the lock vents and the hatch opens, the
 // drone comes in, sets the order down, backs out and leaves; the hatch shuts and the lock repressurises
@@ -237,7 +240,53 @@ const Ship = (() => {
       this.buildShutters();
       this.buildRobot();
       this.buildExterior();
+      this.buildRoofDeck();
       this.flushBuckets();
+    }
+    // ---------- the roof deck: a grating platform on stilts over the crown, a safety rail round it, and the hatch up
+    // into it from a ladder in the airlock (somewhere to ride the takeoff and landing out in the wind) ----------
+    buildRoofDeck() {
+      const R = ROOF, D = 'darkmetal', Y = 'yellow', cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2, w = R.x1 - R.x0, d = R.z1 - R.z0;
+      this.cm.deckGrate = MATS.rep('grate', w, d);
+      this.pb('deckGrate', w, 0.05, d, cx, R.y - 0.025, cz);
+      // its frame, and stilts down onto the hull (longer toward the shoulder, where the crown falls away)
+      for (const z of [R.z0, R.z1]) this.pb(D, w, 0.12, 0.08, cx, R.y - 0.11, z);
+      for (const x of [R.x0, R.x1]) this.pb(D, 0.08, 0.12, d, x, R.y - 0.11, cz);
+      for (let i = 0; i < 4; i++) this.pb(D, 0.06, 0.08, d, R.x0 + (i + 0.5) * w / 4, R.y - 0.09, cz);
+      for (const x of [R.x0 + 0.15, cx, R.x1 - 0.15]) for (const z of [R.z0 + 0.15, cz, R.z1 - 0.15]) {
+        const top = skinTop(x, z), h = R.y - 0.17 - top + 0.1; if (h <= 0.05) continue;
+        this.pc(D, 0.045, 0.06, h, x, top - 0.1 + h / 2, z, 0, 0, 0, 8);
+        this.pc(D, 0.12, 0.12, 0.03, x, top + 0.01, z, 0, 0, 0, 10);
+      }
+      // the rail: posts, a top and a mid rail in safety yellow, a kick plate along the bottom
+      const edge = (ax, az, bx, bz) => {
+        const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(len / 0.95)), ry = -Math.atan2(bz - az, bx - ax);
+        for (let i = 0; i <= n; i++) { const t = i / n; this.pc(Y, 0.025, 0.025, R.rail, ax + (bx - ax) * t, R.y + R.rail / 2, az + (bz - az) * t, 0, 0, 0, 6); }
+        for (const [h, r] of [[R.rail, 0.028], [R.rail * 0.52, 0.02]]) this.pc(Y, r, r, len, (ax + bx) / 2, R.y + h, (az + bz) / 2, 0, ry, Math.PI / 2, 6);
+        this.pb(D, len, 0.1, 0.02, (ax + bx) / 2, R.y + 0.05, (az + bz) / 2, 0, ry, 0);
+      };
+      edge(R.x0, R.z0, R.x1, R.z0); edge(R.x1, R.z0, R.x1, R.z1); edge(R.x1, R.z1, R.x0, R.z1); edge(R.x0, R.z1, R.x0, R.z0);
+      // the hatch: a raised round coaming over the trunk up through the hull, its lid swung open, a grab hoop
+      const top = skinTop(R.hx, R.hz), th = R.y - top;
+      this.pc(D, 0.46, 0.46, th + 0.05, R.hx, top + th / 2 - 0.02, R.hz, 0, 0, 0, 20, true);
+      this.pc(D, 0.46, 0.46, 0.32, R.hx, R.y + 0.16, R.hz, 0, 0, 0, 20, true);
+      this.pt('hazard', 0.47, 0.035, R.hx, R.y + 0.32, R.hz, Math.PI / 2, 0, 0, 24);
+      this.pc(D, 0.5, 0.5, 0.06, R.hx, R.y + 0.36 + 0.45, R.hz + 0.56, Math.PI / 2 + 0.2, 0, 0, 20);
+      this.pc('steelBolt', 0.06, 0.06, 0.12, R.hx, R.y + 0.34, R.hz + 0.47, 0, 0, Math.PI / 2, 8);
+      this.pt(Y, 0.22, 0.02, R.hx + 0.42, R.y + 0.32 + 0.2, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
+      // and below, in the airlock: a steel ladder up the chamber's front wall to a hatch in its ceiling
+      const lx = AIRLOCK.x1 - 0.2, H = SHIP.h;
+      for (const s of [-1, 1]) {
+        this.pc('steelBolt', 0.022, 0.022, H, lx, H / 2, R.hz + s * 0.22, 0, 0, 0, 6);
+        for (const y of [0.4, 1.6, 2.8]) this.pb(D, 0.14, 0.04, 0.04, lx + 0.08, y, R.hz + s * 0.22);
+      }
+      for (let y = 0.3; y < H - 0.1; y += 0.3) this.pc('steelBolt', 0.016, 0.016, 0.44, lx, y, R.hz, Math.PI / 2, 0, 0, 6);
+      this.pb(D, 0.86, 0.06, 0.86, R.hx, H - 0.03, R.hz);
+      this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.43); this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.43);
+      this.pt(D, 0.3, 0.03, R.hx, H - 0.08, R.hz, Math.PI / 2, 0, 0, 16);
+      this.col(lx - 0.05, AIRLOCK.x1, R.hz - 0.28, R.hz + 0.28);
+      this.interact.push({ kind: 'ladder', x: lx - 0.15, y: 1.5, z: R.hz, r: 0.5 });
+      this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.55 });
     }
     // ---------- the airlock: a slim outer hatch in the hull, a small chamber, an inner door into the bay ----------
     buildAirlock() {
@@ -1854,10 +1903,10 @@ const Ship = (() => {
               p.x -= aEnd * uLen * (0.6 + aSeed * 0.8);
               vE = aEnd; vA = uK * smoothstep(3000.0, 900.0, abs(p.x)) * (0.35 + aSeed * 0.65);
               gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); gl_Position.z = gl_Position.w * 0.9998; }`,
-          // (each streak's tail runs through the spectrum, so the tunnel has a faint rainbow sheen)
+          // (each streak's tail takes on the faintest tint of the spectrum)
           fragmentShader: `varying float vA; varying float vE; varying float vS;
             void main(){ vec3 rb = 0.5 + 0.5 * cos(6.2832 * (vS * 1.7 + vE * 0.35 + vec3(0.0, 0.33, 0.67)));
-              vec3 c = mix(vec3(1.4, 1.5, 1.8), mix(vec3(0.35, 0.55, 1.4), rb * 1.3, 0.55), vE); gl_FragColor = vec4(c * vA * (1.0 - vE * 0.85), 1.0); }`,
+              vec3 c = mix(vec3(1.4, 1.5, 1.8), mix(vec3(0.35, 0.55, 1.4), rb * 1.3, 0.18), vE); gl_FragColor = vec4(c * vA * (1.0 - vE * 0.85), 1.0); }`,
           depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
         }));
         this.warp.frustumCulled = false; this.warp.visible = false; this.warp.renderOrder = -90; sp.add(this.warp);
@@ -1896,18 +1945,20 @@ const Ship = (() => {
         depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
       this.portal.rotation.y = -Math.PI / 2; this.portal.visible = false; this.portal.frustumCulled = false; this.portal.renderOrder = 20; sp.add(this.portal);
-      // ...and inside it, a tunnel: rainbow rings rushing back past the ship along with the starlight
+      // ...and inside it, a tunnel: streaks of light rushing back past the ship along with the starlight
       this.tunnel = new THREE.Mesh(new THREE.CylinderGeometry(160, 160, 6000, 40, 1, true), new THREE.ShaderMaterial({
         uniforms: { uT: { value: 0 }, uK: { value: 0 } },
         vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w * 0.9997; }',
+        // (long streaks of light running the length of it, blue-white with only a hint of colour, flowing back past)
         fragmentShader: `uniform float uT, uK; varying vec3 vP;
+          float h1(float x){ return fract(sin(x * 127.1) * 43758.5453); }
+          float n1(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(h1(i), h1(i + 1.0), f); }
           void main(){
             float x = vP.y, a = atan(vP.z, vP.x);
-            float ring = pow(0.5 + 0.5 * cos(x * 0.012 + uT * 22.0), 18.0);
-            float spiral = pow(0.5 + 0.5 * sin(a * 6.0 + x * 0.004 + uT * 4.0), 6.0) * 0.35;
-            vec3 rb = mix(0.5 + 0.5 * cos(6.2832 * (x * 0.00025 + a * 0.16 + uT * 0.3 + vec3(0.0, 0.33, 0.67))), vec3(0.55, 0.7, 1.0), 0.35);
+            float streak = pow(n1(a * 9.0 + 3.0), 6.0) * (0.6 + 0.4 * n1(x * 0.002 + uT * 9.0 + a * 4.0)) + pow(n1(a * 23.0 + 7.0), 10.0) * 0.6;
+            vec3 rb = mix(0.5 + 0.5 * cos(6.2832 * (a * 0.16 + uT * 0.2 + vec3(0.0, 0.33, 0.67))), vec3(0.6, 0.75, 1.05), 0.85);
             float fade = smoothstep(3000.0, 600.0, abs(x));
-            gl_FragColor = vec4(rb * (ring * 1.3 + spiral) * fade * uK, 1.0);
+            gl_FragColor = vec4(rb * streak * 0.8 * fade * uK, 1.0);
           }`,
         side: THREE.BackSide, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));

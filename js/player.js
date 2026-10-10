@@ -46,6 +46,30 @@ const Player = (() => {
   let target = null;
   // a ship seat (index into G.ship.seats) while sitting in it, and how far into the sitting-down move the view is
   let seat = null, sitT = 0;
+  // on the way up the airlock ladder to the roof deck, or back down: up the rungs looking up at the hatch, a blink
+  // through the trunk, and out (the deck's ROOF; standing on it, me.roof)
+  let climb = null;
+  const LADDER = { x: AIRLOCK.x1 - 0.58, z: ROOF.hz };
+  function stepClimb(me, dt, cam) {
+    const c = climb, F = ROOF; c.t += dt;
+    const a = clamp(c.t / 0.5, 0, 1), b = clamp((c.t - 0.5) / 0.55, 0, 1);
+    if (c.up) {
+      if (c.t < 0.5) { me.pos.set(lerp(c.x0, LADDER.x, Math.min(1, a * 2)), 1.4 * a, lerp(c.z0, LADDER.z, Math.min(1, a * 2))); me.pitch = damp(me.pitch, 0.95, 5, dt); }
+      else { if (!c.swap) { c.swap = true; R.fx.fade = 1; me.roof = true; me.pitch = 0.5; } me.pos.set(F.hx, F.y - 1.2 * (1 - b), F.hz); me.pitch = damp(me.pitch, 0, 4, dt); }
+    } else {
+      if (c.t < 0.5) { me.pos.set(lerp(c.x0, F.hx, Math.min(1, a * 2)), F.y - 1.2 * a, lerp(c.z0, F.hz, Math.min(1, a * 2))); me.pitch = damp(me.pitch, -0.9, 5, dt); }
+      else { if (!c.swap) { c.swap = true; R.fx.fade = 1; me.roof = false; me.pitch = -0.5; } me.pos.set(LADDER.x, 1.4 * (1 - b), LADDER.z); me.pitch = damp(me.pitch, 0, 4, dt); }
+    }
+    // (a rung underfoot every so often)
+    c.rung -= dt; if (c.rung <= 0) { c.rung = 0.24; SFX.play('step', null, { surf: 'metal', vol: 0.45, pitch: 1.15 }); }
+    if (c.t >= 1.05) {
+      // off the top onto the deck, clear of the hatch; or off the bottom rung into the lock
+      if (c.up) me.pos.set(F.hx + 0.05, F.y, F.hz - 0.85); else me.pos.set(LADDER.x - 0.1, 0, LADDER.z);
+      climb = null; vel.set(0, 0, 0); onGround = true;
+    }
+    cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+    me.moving = true; me.air = false;
+  }
   function standUp(me) {
     const S = G.ship.seats[seat]; seat = null; me.seat = null;
     if (S) { me.pos.set(S.exit.x, 0, S.exit.z); vel.set(0, 0, 0); }
@@ -144,6 +168,7 @@ const Player = (() => {
   function eyeH() { return lerp(1.62, 1.05, crouchT); }
   function surface(me) {
     if (me.zone === 'in') return 'concrete';
+    if (me.roof) return 'metal';
     if (G.ship.onFootprint(me.pos.x, me.pos.z) && me.pos.y < 1) return 'metal';
     return G.mode === 'orbit' ? 'metal' : 'dirt';
   }
@@ -185,7 +210,7 @@ const Player = (() => {
     setSuit(c) { if (vm.sleeveMat) vm.sleeveMat.color.set(suitHex(c)); },
     spawn(x, y, z, yaw) {
       const me = G.me(); if (!me) return;
-      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null;
+      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null; me.roof = false; climb = null;
       stamina = 1; exhausted = false; deathCam = null;
     },
     knock(kx, kz) { kick.x += kx; kick.z += kz; shake = Math.max(shake, 0.6); },
@@ -208,6 +233,9 @@ const Player = (() => {
     clearPerks() { for (const k in perks) delete perks[k]; tickPerks(0); },
     addShake(s) { shake = Math.max(shake, s); },
     startDeath(cause, from) { deathCam = { t: 0, cause, from }; },
+    // up the airlock ladder onto the roof deck, or back down
+    climb(up) { const me = G.me(); if (!me || climb) return; if (seat != null) standUp(me); climb = { t: 0, up, x0: me.pos.x, z0: me.pos.z, swap: false, rung: 0.1 }; },
+    get climbing() { return !!climb; },
     swing() { swingT = 0.45; },
     resetVM() { setVM(null); },
     update(dt) {
@@ -265,6 +293,7 @@ const Player = (() => {
       }
       // ---------- at the rover's console: the view is the rover's (Rover.update has it); you stand still ----------
       if (Rover.driving) { vm.root.visible = false; me.moving = me.sprint = me.air = false; target = null; HUD.prompt(null, me); return; }
+      if (climb) { vm.root.visible = false; target = null; HUD.prompt(null, me); stepClimb(me, dt, cam); return; }
       me.zoneView = me.zone;
       // ---------- look ----------
       if (!ui) {
@@ -316,6 +345,13 @@ const Player = (() => {
         if (d < r && d > 1e-3) { me.pos.x = m.rpos.x + (dx / d) * r; me.pos.z = m.rpos.z + (dz / d) * r; }
       }
       Rover.push(me.pos, 0.3, me.zone);
+      // up on the roof deck the rail keeps you on it, and the hatch coaming is in the way
+      if (me.roof) {
+        const F = ROOF;
+        me.pos.x = clamp(me.pos.x, F.x0 + 0.3, F.x1 - 0.3); me.pos.z = clamp(me.pos.z, F.z0 + 0.3, F.z1 - 0.3);
+        const dx = me.pos.x - F.hx, dz = me.pos.z - F.hz, dd = Math.hypot(dx, dz), rr = 0.78;
+        if (dd < rr && dd > 1e-4) { me.pos.x = F.hx + (dx / dd) * rr; me.pos.z = F.hz + (dz / dd) * rr; }
+      }
       if (me.zone === 'in' && G.fac) {
         const f = G.fac;
         f.collide(me.pos, 0.32); f.collide(me.pos, 0.32);
@@ -327,9 +363,9 @@ const Player = (() => {
       }
       // with the ship in the air, it is only solid for those riding in it; anyone left below walks where it stood
       const shipHere = !G.ship.airborne || G.playerAboard(me);
-      if (me.zone !== 'in' && seat == null) { if (G.ext && G.mode !== 'orbit' && !(G.ship.airborne && shipHere)) G.ext.collide(me.pos, 0.32); if (shipHere) G.ship.collide(me.pos, 0.32); }
+      if (me.zone !== 'in' && seat == null && !me.roof) { if (G.ext && G.mode !== 'orbit' && !(G.ship.airborne && shipHere)) G.ext.collide(me.pos, 0.32); if (shipHere) G.ship.collide(me.pos, 0.32); }
       if (seat != null) { const S = G.ship.seats[seat]; me.pos.x = S.x; me.pos.z = S.z; vel.set(0, vel.y, 0); kick.set(0, 0, 0); }
-      const ground = me.zone === 'in' && G.fac ? G.fac.floorY(me.pos.x, me.pos.z, me.pos.y) : G.groundAt(me.pos.x, me.pos.z, !shipHere);
+      const ground = me.roof ? ROOF.y : me.zone === 'in' && G.fac ? G.fac.floorY(me.pos.x, me.pos.z, me.pos.y) : G.groundAt(me.pos.x, me.pos.z, !shipHere);
       // walking down stairs or a slope keeps your feet on it instead of stepping off into the air every frame
       if (onGround && vel.y <= 0 && me.pos.y > ground && me.pos.y - ground < (me.zone === 'in' ? 0.45 : 0.3)) me.pos.y = ground;
       if (me.pos.y <= ground) {

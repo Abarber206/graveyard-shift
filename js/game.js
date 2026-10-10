@@ -52,7 +52,7 @@ const FLY = {
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
-const JUMP = { punch: 2.2, drop: 5.6, end: 9.0 };
+const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
 
 const G = {
@@ -234,7 +234,7 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    const y = me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : G.groundAt(x, z);
+    const y = me.roof ? ROOF.y : me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : G.groundAt(x, z);
     G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
   },
   // ======================= world =======================
@@ -1620,7 +1620,15 @@ const G = {
     return P;
   },
   // is this point inside the ship's hull (in ship coordinates)?
-  posAboard(v) { return G.ship.onFootprint(v.x, v.z) && v.y > -1.2 && v.y < 5.5; },
+  // the roof hatch opens on the ground, and in the air while the ship is low with its shutters up; it's called shut a
+  // few seconds before the shutters come down for the burn out of the air (and never opens in space)
+  roofOpen() {
+    const f = G.flight;
+    if (G.mode !== 'site' && G.mode !== 'leaving') return false;
+    if (G.ship.shut.t > 0.15) return false;
+    return !(f && f.kind === 'takeoff' && f.t > (f.dur || FLY.toDur) - 2.8);
+  },
+  posAboard(v) { return G.ship.onFootprint(v.x, v.z) && v.y > -1.2 && v.y < 7.5; },   // (up to the roof deck and a jump off it)
   // is this player riding along? (fixed at liftoff: nobody joins or leaves a ship in the air)
   playerAboard(p) {
     if (!p || !G.flight) return false;
@@ -1670,8 +1678,10 @@ const G = {
         for (const L of S.fireLights) if (!G.lightSources.includes(L)) G.lightSources.push(L);
       }
     }
-    // climbing into the cloud deck, the blast shutters come down for the burn out of the air
+    // climbing into the cloud deck, the blast shutters come down for the burn out of the air; before they do, a klaxon
+    // on the roof hatch calls anyone riding up there back down inside
     if (f.kind === 'takeoff' && f.t > (f.dur || FLY.toDur) - 1.3) S.setShutters(true);
+    if (f.kind === 'takeoff' && me && me.roof && !Player.climbing && !G.roofOpen()) { SFX.play('alarm', null, { vol: 0.5 }); Player.climb(false); }
     if (me && me.alive && aboard && dt > 0) Player.addShake(p.shake);
     // the dust (spray, ash) the jets tear off the ground under the ship
     if (G.ext && dt > 0) {
@@ -1689,6 +1699,12 @@ const G = {
       else G.ext.setBlast(p.x, p.z, strength * 1.2, 12);
       SFX.blastWind = Math.max(strength * Math.exp(-Math.hypot(cam.x - p.x, cam.z - p.z) / 40), f.boomAt ? w * 1.2 * Math.exp(-Math.hypot(cam.x - f.boomAt.x, cam.z - f.boomAt.z) / 70) : 0);
     }
+    // riding up on the roof deck: the wind of the ship's own speed, roaring past and shoving you about
+    if (me && me.roof && dt > 0) {
+      const sp = f.lastP ? Math.hypot(p.x - f.lastP.x, p.y - f.lastP.y, p.z - f.lastP.z) / dt : 0;
+      SFX.blastWind = Math.max(SFX.blastWind || 0, clamp(sp / 35, 0, 1.3)); Player.addShake(Math.min(0.45, sp / 140));
+    }
+    if (dt > 0) f.lastP = { x: p.x, y: p.y, z: p.z };
     if (f.kind === 'land' && f.t > FLY.landDur + 3.2) { G.flight = null; G.updateFlight(0); }
   },
   // carry the local view along when riding the ship (called after the player has been simulated)
@@ -1948,6 +1964,8 @@ const G = {
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
         if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id); label = it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
+        if (o.kind === 'ladder') { if (me.roof) continue; label = G.roofOpen() ? 'Climb to the roof' : 'Roof hatch (sealed)'; }
+        if (o.kind === 'roofHatch') { if (!me.roof) continue; label = 'Climb down'; }
         out.push({ kind: o.kind, ref: o, x: o.x, y: o.y, z: o.z, r: o.r, label });
       }
       if (G.ext) Pods.interactables(me, out);
@@ -2005,6 +2023,8 @@ const G = {
       }
       case 'hatch': G.request({ a: 'hatch' }); break;
       case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
+      case 'ladder': if (G.roofOpen()) Player.climb(true); else SFX.play('err', null, { vol: 0.5 }); break;
+      case 'roofHatch': Player.climb(false); break;
       case 'roverPick': G.request({ a: 'roverPick' }); break;
       case 'basketPut': G.request({ a: 'basketPut', item: t.ref }); break;
       case 'basketTake': { const slot = me.slots[me.sel] == null ? me.sel : me.slots.indexOf(null); if (slot >= 0) G.request({ a: 'basketTake', item: t.ref, slot }); break; }
@@ -2263,20 +2283,22 @@ const G = {
         R.fx.warp = 0.35 * u * u;
       } else if (t < J.drop) {
         if (!s.punched) { s.punched = true; R.fx.flash = Math.max(R.fx.flash, 1.6); SFX.play('warp_in', null, { vol: 1 }); S.inWarp = true; S.warp.visible = true; S.portal.visible = false; S.tunnel.visible = true; }
-        const u = (t - J.punch) / (J.drop - J.punch);
-        G.fovAdd = lerp(22, 12, u); Player.addShake(0.3);
-        S.warp.material.uniforms.uK.value = Math.min(1, (t - J.punch) * 3) * (1 - sstep(0.85, 1, u) * 0.5);
-        S.warp.material.uniforms.uLen.value = lerp(320, 180, u);
+        // (and the further in, the more everything is drawn out: the view widening, the streaks lengthening, space
+        // pulled out from the middle, until the ship drops out at the other end)
+        const u = (t - J.punch) / (J.drop - J.punch), deep = Math.pow(u, 1.3);
+        G.fovAdd = lerp(12, 30, deep); Player.addShake(0.22 + 0.12 * deep);
+        S.warp.material.uniforms.uK.value = Math.min(1, (t - J.punch) * 3);
+        S.warp.material.uniforms.uLen.value = lerp(220, 620, deep);
         S.stars.material.uniforms.uFade.value = Math.max(0, 1 - (t - J.punch) * 3);
-        tu.uK.value = Math.min(1, (t - J.punch) * 2) * (1 - sstep(0.8, 1, u) * 0.6);
-        R.fx.warp = Math.min(0.55, 0.3 + (t - J.punch) * 1.2) * (0.85 + 0.15 * Math.sin(t * 3.1)) * (1 - sstep(0.85, 1, u) * 0.4);
+        tu.uK.value = Math.min(1, (t - J.punch) * 2) * (0.7 + 0.3 * deep);
+        R.fx.warp = lerp(0.22, 0.85, deep) * (0.94 + 0.06 * Math.sin(t * 3.1));
       } else {
         if (!s.dropped) {
           s.dropped = true; R.fx.flash = Math.max(R.fx.flash, 1.3); SFX.play('warp_out', null, { vol: 1 });
           S.inWarp = false; G.jumping = false; G.applyRunVisuals(); S.arrive = 0; S.tunnel.visible = false; S.portal.visible = true;
         }
         const u = (t - J.drop) / (J.end - J.drop);
-        G.fovAdd = lerp(12, 0, sstep(0, 0.5, u)); Player.addShake(0.25 * (1 - u));
+        G.fovAdd = lerp(30, 0, sstep(0, 0.4, u)); Player.addShake(0.25 * (1 - u));
         S.warp.material.uniforms.uK.value = Math.max(0, 1 - (t - J.drop) * 3.5);
         S.warp.material.uniforms.uLen.value = 60;
         S.stars.material.uniforms.uFade.value = Math.min(1, (t - J.drop) * 1.5);
@@ -2286,7 +2308,7 @@ const G = {
         const b = (t - J.drop) / 0.55;
         S.portal.visible = b < 1; pu.uK.value = Math.pow(Math.max(0, 1 - b), 2) * 1.2; S.portal.scale.setScalar(lerp(2600, 1500, Math.min(1, b))); S.portal.position.set(90, 1.6, 0);
         S.turn = 1 - sstep(J.drop + 1.4, J.end, t);
-        R.fx.warp = 0.6 * Math.max(0, 1 - (t - J.drop) / 1.4);
+        R.fx.warp = 0.85 * Math.pow(Math.max(0, 1 - (t - J.drop) / 0.9), 2);
         if (t > J.end) { S.arrive = 1; S.turn = 0; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
       }
       S.warp.material.uniforms.uT.value = t; pu.uT.value = t; tu.uT.value = t;

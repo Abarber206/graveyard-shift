@@ -21,9 +21,10 @@ const ITEMS = {
   goldbar: { name: 'Gold Bar', kind: 'scrap', value: [95, 190], weight: 16 },
   axle: { name: 'Large Axle', kind: 'scrap', value: [36, 72], weight: 15, twoHanded: true },
   painting: { name: 'Old Painting', kind: 'scrap', value: [55, 115], weight: 6, twoHanded: true },
-  candelabra: { name: 'Candelabra', kind: 'scrap', value: [40, 85], weight: 4 },
+  // (things that give light: right-click, or use with nothing in front of you, to light them; see ItemMeshes.glow)
+  candelabra: { name: 'Candelabra', kind: 'scrap', value: [40, 85], weight: 4, lamp: { color: 0xffa040, power: 0.7, range: 8, fire: true } },
   doll: { name: 'Doll Head', kind: 'scrap', value: [10, 32], weight: 1 },
-  lamp: { name: 'Fancy Lamp', kind: 'scrap', value: [50, 105], weight: 9, twoHanded: true },
+  lamp: { name: 'Fancy Lamp', kind: 'scrap', value: [50, 105], weight: 9, twoHanded: true, lamp: { color: 0xffd6a0, power: 1.15, range: 11, y: 0.75 } },
   engine: { name: 'Engine Block', kind: 'scrap', value: [60, 125], weight: 28, twoHanded: true },
   register: { name: 'Cash Register', kind: 'scrap', value: [80, 150], weight: 20, twoHanded: true, noise: 'sell', noiseR: 20 },
   watch: { name: 'Pocket Watch', kind: 'scrap', value: [30, 70], weight: 1 },
@@ -48,12 +49,23 @@ const ITEMS = {
   battery: { name: 'Car Battery', kind: 'scrap', value: [16, 40], weight: 12 },
   circuit: { name: 'Circuit Board', kind: 'scrap', value: [16, 44], weight: 0.5 },
   bottle: { name: 'Old Wine Bottle', kind: 'scrap', value: [12, 34], weight: 1.4 },
+  lantern: { name: 'Storm Lantern', kind: 'scrap', value: [18, 44], weight: 2, battery: 420, lamp: { color: 0xffb468, power: 0.9, range: 9, y: 0.1, unsteady: true } },
   core: { name: 'Reactor Core', kind: 'scrap', value: [190, 270], weight: 26, twoHanded: true, core: true },
   // gift boxes: worth a little as they are; open one (left click) and it might be cash, something better, a tool,
   // a snack... or, once in a while, something nobody should ever have wrapped
   gift: { name: 'Gift Box', kind: 'scrap', value: [24, 50], weight: 1.5, gift: true },
   cash: { name: 'Wad of Cash', kind: 'scrap', value: [90, 210], weight: 0.3 },
   bomb: { name: 'Lit Charge', kind: 'tool', weight: 1.2, throwable: true, bomb: true, desc: 'Sputtering. Get rid of it.' },
+};
+// what each thing is made of, for the sound it makes landing (see SFX drop): metal rings, tin clinks, glass and
+// porcelain chime, wood and bone knock, plastic tocks, soft things just thump
+const ITEM_MAT = {
+  gear: 'metal', axle: 'metal', engine: 'metal', bolt: 'metal', goldbar: 'metal', core: 'metal', toolbox: 'metal', extinguisher: 'metal', typewriter: 'metal', register: 'metal', shovel: 'metal',
+  bell: 'tin', candelabra: 'tin', watch: 'tin', horn: 'tin', kettle: 'tin', trophy: 'tin', lantern: 'tin', toy: 'tin', flashlight: 'tin', proflash: 'tin', stun: 'tin', cola: 'tin', nightshift: 'tin', mystery: 'tin', camera: 'tin', lamp: 'tin',
+  flask: 'glass', jar: 'glass', bottle: 'glass', vase: 'porcelain', mask: 'porcelain', doll: 'porcelain',
+  painting: 'wood', radio: 'wood', globe: 'wood', skull: 'bone',
+  phone: 'plastic', walkie: 'plastic', tracker: 'plastic', battery: 'plastic', meter: 'plastic', circuit: 'plastic',
+  teddy: 'soft', gift: 'soft', cash: 'soft', ration: 'soft', bomb: 'soft',
 };
 // flashlight beam intensity per unit of light power (yours and your crewmates')
 const FLASH_K = 75;
@@ -303,7 +315,17 @@ const ItemMeshes = (() => {
     candelabra(g) {
       add(g, cyl(0.07, 0.09, 0.03, 12), m.brass(), 0, 0.015, 0); add(g, cyl(0.012, 0.015, 0.3, 8), m.brass(), 0, 0.17, 0);
       add(g, box(0.28, 0.015, 0.015), m.brass(), 0, 0.28, 0);
-      for (const x of [-0.13, 0, 0.13]) { add(g, cyl(0.02, 0.015, 0.03, 8), m.brass(), x, 0.3, 0); add(g, cyl(0.012, 0.012, 0.09, 8), m.candle(), x, 0.36, 0); }
+      // (its candles, and their flames when they're lit: a bright core in a softer outer flame, the wick showing)
+      const fl = new THREE.MeshStandardMaterial({ color: 0x3a2008, emissive: 0xffa040, emissiveIntensity: 0, roughness: 1, transparent: true, opacity: 0.85, depthWrite: false });
+      const core = new THREE.MeshStandardMaterial({ color: 0x3a2a10, emissive: 0xfff0c0, emissiveIntensity: 0, roughness: 1 }), glow = [];
+      for (const x of [-0.13, 0, 0.13]) {
+        add(g, cyl(0.02, 0.015, 0.03, 8), m.brass(), x, 0.3, 0); add(g, cyl(0.012, 0.012, 0.09, 8), m.candle(), x, 0.36, 0);
+        add(g, cyl(0.0012, 0.0012, 0.012, 4), m.black(), x, 0.41, 0);
+        const f = add(g, new THREE.SphereGeometry(0.009, 8, 6), fl, x, 0.424, 0); f.scale.set(1, 2.3, 1); f.castShadow = false;
+        const c = add(g, new THREE.SphereGeometry(0.004, 6, 5), core, x, 0.418, 0); c.scale.set(1, 1.8, 1); c.castShadow = false;
+        glow.push({ m: fl, k: 2.2, mesh: f }, { m: core, k: 3, mesh: c });
+      }
+      g.userData.glow = glow;
     },
     // a porcelain doll's head: glass eye, rosebud mouth, blushed cheeks, ringlets of brown hair... and one eye
     // socket empty, a crack running down from it
@@ -330,7 +352,26 @@ const ItemMeshes = (() => {
     },
     lamp(g) {
       add(g, cyl(0.12, 0.14, 0.05, 14), m.brass(), 0, 0.025, 0); add(g, cyl(0.015, 0.015, 0.7, 8), m.brass(), 0, 0.4, 0);
-      add(g, cyl(0.12, 0.22, 0.24, 14, 1), M('shade', { color: 0x8a6a4a, roughness: 0.9, side: THREE.DoubleSide }), 0, 0.78, 0);
+      // (its shade glows through, warm, when the bulb inside is lit)
+      const shade = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.9, side: THREE.DoubleSide, emissive: 0xffb060, emissiveIntensity: 0 });
+      const bulb = new THREE.MeshStandardMaterial({ color: 0x4a4030, emissive: 0xfff0d0, emissiveIntensity: 0, roughness: 0.3 });
+      add(g, cyl(0.12, 0.22, 0.24, 14, 1), shade, 0, 0.78, 0); add(g, sph(0.035, 10), bulb, 0, 0.74, 0);
+      g.userData.glow = [{ m: shade, k: 0.45 }, { m: bulb, k: 3 }];
+    },
+    // a storm lantern: a tin base and a hood, a glass globe in a wire guard, the bulb inside (switch it on and it glows,
+    // warm and a little unsteady), a wire bail to carry it by
+    lantern(g) {
+      const tin = M('lanternTin', { color: 0x4a5a3a, roughness: 0.5, metalness: 0.5 }, Object.assign({}, PAINT, { bare: 0x8a8e90 }));
+      const glass = M('lanternGlass', { color: 0xd8e4dc, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.3, depthWrite: false });
+      add(g, cyl(0.07, 0.075, 0.05, 18), tin, 0, 0.025, 0);
+      add(g, cyl(0.05, 0.05, 0.11, 18), glass, 0, 0.105, 0).castShadow = false;
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; add(g, cyl(0.0025, 0.0025, 0.11, 4), m.dsteel(), Math.cos(a) * 0.056, 0.105, Math.sin(a) * 0.056); }
+      for (const y of [0.075, 0.135]) add(g, new THREE.TorusGeometry(0.056, 0.0025, 4, 18), m.dsteel(), 0, y, 0, Math.PI / 2);
+      add(g, cyl(0.03, 0.07, 0.04, 18), tin, 0, 0.18, 0); add(g, cyl(0.012, 0.03, 0.03, 12), tin, 0, 0.215, 0);
+      add(g, new THREE.TorusGeometry(0.07, 0.003, 4, 16, Math.PI), m.dsteel(), 0, 0.2, 0);
+      const bulb = new THREE.MeshStandardMaterial({ color: 0x4a3a20, emissive: 0xffb060, emissiveIntensity: 0, roughness: 0.4 });
+      add(g, sph(0.02, 10), bulb, 0, 0.1, 0).castShadow = false; add(g, cyl(0.006, 0.006, 0.03, 6), m.dsteel(), 0, 0.068, 0);
+      g.userData.glow = [{ m: bulb, k: 3.2 }];
     },
     // an old four-cylinder: iron block on its oil pan, the head with a chipped red rocker cover, plugs and leads,
     // a rusted exhaust manifold down one side, pulleys and a belt on the front, the flywheel at the back
@@ -706,6 +747,8 @@ const ItemMeshes = (() => {
     },
   };
   return {
+    // light a lamp's glow in a model of it (the piece itself, the one in your hand, the one in a crewmate's): k 0 for out
+    glow(g, k) { g.traverse((o) => { const L = o.userData && o.userData.glow; if (L) for (const e of L) { e.m.emissiveIntensity = e.k * k; if (e.mesh) e.mesh.visible = k > 0.01; } }); },
     // (seed: the item's id, for things that differ piece to piece, like which painting it is)
     build(type, seed = 0) {
       const g = new THREE.Group();
@@ -863,6 +906,8 @@ const HOLD = {
   globe: { p: [0.2, -0.44, -0.6], r: [0, 0, 0] },
   vase: { p: [0.22, -0.46, -0.6], r: [0, 0, 0] },
   extinguisher: { p: [0.24, -0.5, -0.55], r: [0, 0, 0] },
+  lantern: { p: [0.2, -0.33, -0.5], r: [0.15, 0, 0] },
+  candelabra: { p: [0.22, -0.5, -0.6], r: [0, 0, 0] },
   // snacks are held in a fist closed round the lower part (grip: where the fist sits, from the item's origin; gr: how
   // the forearm comes in, from below and to the right so it never hides what's in the hand)
   cola: { p: [0.17, -0.2, -0.5], r: [0.12, 0.6, 0], grip: [0.01, 0.03, 0.008], gr: [1.0, 0.5, 0], fist: true },

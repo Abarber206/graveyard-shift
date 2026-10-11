@@ -101,9 +101,32 @@ const SFX = (() => {
     soft(d, t, o) { const p = (o.pitch || 1) * rnd(0.9, 1.1); nz(d, t, 0.1, 0.25, 'lowpass', 600 * p, 200, 0.7, 0.02); },
     click(d, t) { nz(d, t, 0.012, 0.45, 'highpass', 3200); nz(d, t + 0.004, 0.02, 0.25, 'bandpass', 2400, null, 6, 0.001); osc(d, 'sine', 1900, 1200, t, 0.02, 0.04, 0.001); },
     pickup(d, t) { nz(d, t, 0.12, 0.25, 'bandpass', 2200, 900, 1.5, 0.01); osc(d, 'sine', 160, 90, t + 0.02, 0.1, 0.25); },
+    // something dropped: it sounds like what it's made of (o.mat) and how heavy it is (o.w, kg). The floor taking its
+    // weight, then the ring or knock or clink of the thing itself, and (if it's hard and not too heavy) a bounce or two
     drop(d, t, o) {
-      osc(d, 'sine', 150 * (o.pitch || 1), 45, t, 0.16, 0.6); nz(d, t, 0.1, 0.35, 'lowpass', 1800, 300, 0.7);
-      if (o.metal) { osc(d, 'triangle', 520, 500, t, 0.5, 0.08); osc(d, 'sine', 1310, 1300, t, 0.35, 0.05); }
+      const w = o.w || 1, m = o.mat || (w > 4 ? 'metal' : 'wood'), hv = clamp(w / 12, 0, 1), p = rnd(0.92, 1.08);
+      const hit = (tt, k) => {
+        osc(d, 'sine', (110 - hv * 50) * p, 40, tt, 0.12 + hv * 0.12, (0.25 + hv * 0.5) * k, 0.002);
+        nz(d, tt, 0.06 + hv * 0.05, (0.2 + hv * 0.25) * k, 'lowpass', 1600 - hv * 900, 250, 0.7, 0.001);
+        if (m === 'metal' || m === 'tin') {
+          // struck metal: a bar's inharmonic modes ringing on (small, thin things higher and shorter)
+          const f0 = (m === 'tin' ? 900 : 260 + (1 - hv) * 420) * p, dur = m === 'tin' ? 0.35 : 0.6 + hv * 0.9;
+          [1, 2.76, 5.4, 8.93].forEach((r, i) => osc(d, 'sine', f0 * r, f0 * r * 0.997, tt, dur * (1 - i * 0.18), (0.11 / (i + 1)) * k, 0.001));
+          nz(d, tt, 0.03, 0.3 * k, 'highpass', 3500, null, 0.7, 0.0005);
+        } else if (m === 'glass' || m === 'porcelain') {
+          const f0 = (m === 'glass' ? 2400 : 1700) * p * (1.2 - hv * 0.4);
+          [1, 1.62, 2.41, 3.53].forEach((r, i) => osc(d, 'sine', f0 * r, f0 * r, tt, 0.18 - i * 0.03, (0.07 / (i + 1)) * k, 0.0005));
+          nz(d, tt, 0.02, 0.25 * k, 'highpass', 5000, null, 0.8, 0.0005);
+        } else if (m === 'wood' || m === 'bone') {
+          nz(d, tt, 0.05, 0.45 * k, 'bandpass', (m === 'bone' ? 1800 : 900) * p, null, 3, 0.001);
+          osc(d, 'sine', (m === 'bone' ? 700 : 240 + (1 - hv) * 160) * p, 0, tt, 0.08, 0.2 * k, 0.001);
+        } else if (m === 'plastic') {
+          nz(d, tt, 0.04, 0.4 * k, 'bandpass', 1500 * p, null, 2.5, 0.001);
+          osc(d, 'triangle', (520 + (1 - hv) * 300) * p, 0, tt, 0.05, 0.12 * k, 0.001);
+        } else nz(d, tt, 0.09, 0.3 * k, 'lowpass', 700, 200, 0.6, 0.004);
+      };
+      hit(t, 1);
+      if (m !== 'soft' && hv < 0.7) { const b1 = 0.09 + rnd(0, 0.06) * (1 - hv); hit(t + b1, 0.35); if (hv < 0.3) hit(t + b1 * 1.7, 0.14); }
     },
     door_open(d, t) {
       nz(d, t, 0.03, 0.35, 'highpass', 2500);
@@ -193,7 +216,12 @@ const SFX = (() => {
       osc(d, 'sine', 64, 30, t + 0.82, 1.3, 0.3, 0.01);
       nz(d, t + 0.82, 0.9, 0.3, 'lowpass', 260, 90, 0.7, 0.02, brownBuf);
     },
-    heartbeat(d, t) { osc(d, 'sine', 62, 38, t, 0.14, 0.9, 0.005); osc(d, 'sine', 56, 36, t + 0.22, 0.16, 0.65, 0.005); },
+    // lub-dub: two dull thumps through your own chest, the second softer, felt as much as heard
+    heartbeat(d, t, o) {
+      const g = o.gap || 0.22;
+      osc(d, 'sine', 64, 36, t, 0.16, 0.95, 0.004); nz(d, t, 0.09, 0.4, 'lowpass', 190, 60, 0.7, 0.004, brownBuf);
+      osc(d, 'sine', 58, 34, t + g, 0.17, 0.62, 0.004); nz(d, t + g, 0.09, 0.25, 'lowpass', 170, 60, 0.7, 0.004, brownBuf);
+    },
     crawler_screech(d, t) {
       const w = shaper(d, 30);
       const bp = filt(w, 'bandpass', 1200, 2);
@@ -472,6 +500,11 @@ const SFX = (() => {
     },
     run_far(d, t) { for (let i = 0; i < 8; i++) S.step(d, t + i * 0.27, { surf: 'concrete', pitch: 0.9 }); },
     bell(d, t) { [1, 2.4, 3.9, 5.2].forEach((r, i) => osc(d, 'sine', 620 * r, null, t, 2.6 - i * 0.4, 0.25 / (i + 1))); },
+    // a match struck: the scrape along the box, the flare catching, then the soft roar of it settling to a flame
+    match(d, t) {
+      nz(d, t, 0.09, 0.5, 'bandpass', 2600, 4200, 1.2, 0.004); for (let i = 0; i < 5; i++) nz(d, t + 0.02 + i * 0.016, 0.012, 0.35, 'highpass', 3000, null, 0.7, 0.001);
+      nz(d, t + 0.1, 0.35, 0.4, 'bandpass', 1400, 700, 0.6, 0.01); nz(d, t + 0.12, 0.9, 0.12, 'lowpass', 900, 400, 0.5, 0.1, brownBuf);
+    },
     // a valve radio warming up and hunting the dial: hiss swelling, whistles sliding past as it crosses stations, a
     // snatch of a dance band from somewhere far off, then the static again
     radio_tune(d, t) {
@@ -757,6 +790,49 @@ const SFX = (() => {
     amb.timers[key] = t;
   }
   const around = (c, r0, r1, y0 = 0, y1 = 0) => { const a = Math.random() * TAU, d = rnd(r0, r1); return new THREE.Vector3(c.x + Math.cos(a) * d, c.y + rnd(y0, y1), c.z + Math.sin(a) * d); };
+  // ---------- the chase ----------
+  // When something's running you down the music comes in, the way it does in those films: high strings wailing in a
+  // tight, sour cluster, sliding about and shivering in a bowed tremolo, the bows scraping; a low, dark drone a
+  // semitone apart under them; and now and then a voice-like wail rising up out of it and falling away. It swells as
+  // the thing closes on you and dies away slowly once it's lost you.
+  const chase = { g: null, level: 0, voices: [], nextSlide: 0, nextWail: 0 };
+  function chaseBuild() {
+    const out = ctx.createGain(); out.gain.value = 0; out.connect(sfxBus); chase.g = out;
+    const trem = ctx.createGain(); trem.gain.value = 0.6; trem.connect(out);
+    { const l = ctx.createOscillator(); l.frequency.value = 12.5; const lg = ctx.createGain(); lg.gain.value = 0.35; l.connect(lg); lg.connect(trem.gain); l.start(); }
+    const bp = filt(trem, 'bandpass', 1800, 0.8);
+    chase.voices = [1180, 1250, 1325, 1405, 1490].map((f) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+      const v = ctx.createOscillator(); v.frequency.value = rnd(5, 7); const vg = ctx.createGain(); vg.gain.value = f * 0.012; v.connect(vg); vg.connect(o.frequency); v.start();
+      const g = ctx.createGain(); g.gain.value = 0.05; o.connect(g); g.connect(bp); o.start(); return { o, f };
+    });
+    { const sc = ctx.createBufferSource(); sc.buffer = noiseBuf; sc.loop = true; const sf = ctx.createBiquadFilter(); sf.type = 'bandpass'; sf.frequency.value = 3200; sf.Q.value = 5; const sg = ctx.createGain(); sg.gain.value = 0.06; sc.connect(sf); sf.connect(sg); sg.connect(trem); sc.start(); chase.scrape = { f: sf, g: sg }; }
+    { const lp = filt(out, 'lowpass', 380, 0.7); [65.4, 69.3].forEach((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.06; o.connect(g); g.connect(lp); o.start(); }); }
+    { const f1 = filt(out, 'bandpass', 750, 6), f2 = filt(out, 'bandpass', 1150, 7), o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 600;
+      const g = ctx.createGain(); g.gain.value = 0; o.connect(g); g.connect(f1); g.connect(f2);
+      const v = ctx.createOscillator(); v.frequency.value = 5.5; const vg = ctx.createGain(); vg.gain.value = 14; v.connect(vg); vg.connect(o.frequency); v.start(); o.start(); chase.wail = { o, g }; }
+  }
+  // level: 0 (nothing after you) to 1 (it's right there); now: cut it at once (leaving the game)
+  function chaseTick(dt, level, now) {
+    if (!ready || ctx.state !== 'running') return;
+    if (!chase.g) { if (level <= 0) return; chaseBuild(); }
+    const t = ctx.currentTime;
+    chase.level = now ? 0 : damp(chase.level, level, level > chase.level ? 1.4 : 0.3, dt);
+    chase.g.gain.setTargetAtTime(Math.pow(chase.level, 1.3) * 0.55, t, now ? 0.01 : 0.1);
+    if (chase.level < 0.01) return;
+    chase.nextSlide -= dt;
+    if (chase.nextSlide <= 0) {
+      chase.nextSlide = rnd(0.8, 2.2);
+      for (const v of chase.voices) v.o.frequency.setTargetAtTime(v.f * (1 + chase.level * 0.25) * rnd(0.94, 1.08), t, rnd(0.3, 0.9));
+      chase.scrape.f.frequency.setTargetAtTime(rnd(2200, 5200), t, 0.2); chase.scrape.g.gain.setTargetAtTime(rnd(0.02, 0.1), t, 0.1);
+    }
+    chase.nextWail -= dt;
+    if (chase.nextWail <= 0) {
+      chase.nextWail = rnd(3, 7); const w = chase.wail;
+      w.o.frequency.setValueAtTime(rnd(420, 560), t); w.o.frequency.linearRampToValueAtTime(rnd(820, 1050), t + 1.6); w.o.frequency.linearRampToValueAtTime(rnd(500, 650), t + 2.8);
+      w.g.gain.setValueAtTime(0.0001, t); w.g.gain.linearRampToValueAtTime(0.09, t + 0.6); w.g.gain.linearRampToValueAtTime(0.0001, t + 2.9);
+    }
+  }
   function ambience(dt, info) {
     if (!ready || SFX.held || ctx.state !== 'running') return;
     const e = curEnv, cam = info.cam, t = ctx.currentTime, play = (n, p, o) => SFX.play(n, p, o);
@@ -863,6 +939,7 @@ const SFX = (() => {
     },
     setEnv(e) { if (curEnv !== e) { curEnv = e; applyEnv(); } },
     ambience,
+    chase: chaseTick,
     setWeather(rain, wind) { rainAmt = rain; windAmt = wind; applyEnv(); },
     // level 0..1 of the ship's engines as heard here (inside: through the hull), gale 0..1 through an open hatch
     setThrust(level, inside, gale) {

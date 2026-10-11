@@ -70,6 +70,13 @@ const Player = (() => {
     cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
     me.moving = true; me.air = false;
   }
+  // light (or put out) the lamp in your hand: everyone sees it, and it stays lit if you set it down
+  function toggleLamp(it) {
+    const d = ITEMS[it.type];
+    if (!it.on && d.battery && it.battery <= 0) { HUD.toast('Battery dead'); return; }
+    SFX.play(it.on ? 'click' : d.lamp.fire ? 'match' : 'click', null, { vol: 0.8 });
+    it.on = !it.on; G.request({ a: 'lamp', item: it.id, on: it.on });
+  }
   function standUp(me) {
     const S = G.ship.seats[seat]; seat = null; me.seat = null;
     if (S) { me.pos.set(S.exit.x, 0, S.exit.z); vel.set(0, 0, 0); }
@@ -216,6 +223,7 @@ const Player = (() => {
     knock(kx, kz) { kick.x += kx; kick.z += kz; shake = Math.max(shake, 0.6); },
     get fx() { return fx; },
     get seat() { return seat; },
+    get vmItem() { return vm.item; },
     sit(i) {
       const me = G.me(), S = G.ship.seats[i]; if (!me || !S) return;
       seat = i; me.seat = i; sitT = 0; crouch = false;
@@ -434,7 +442,7 @@ const Player = (() => {
       for (const id of me.slots) {
         const it = id != null && G.items.get(id); if (!it) continue;
         const d = ITEMS[it.type];
-        if (d.battery && it.on) { it.battery = Math.max(0, it.battery - dt / (d.battery * cells)); if (it.battery <= 0) { it.on = false; SFX.play('click'); HUD.toast(d.name + ': battery dead'); } }
+        if (d.battery && it.on) { it.battery = Math.max(0, it.battery - dt / (d.battery * cells)); if (it.battery <= 0) { it.on = false; SFX.play('click'); HUD.toast(d.name + ': battery dead'); if (d.lamp) G.request({ a: 'lamp', item: it.id, on: false }); } }
       }
       // ---------- use item ----------
       swingT = Math.max(0, swingT - dt); swingCd -= dt; useCd -= dt; scanCd -= dt; eatT = Math.max(0, eatT - dt); unwrapT = Math.max(0, unwrapT - dt);
@@ -443,6 +451,7 @@ const Player = (() => {
         const d = ITEMS[cur.type];
         if (Input.lmbP) {
           if (d.light || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
+          else if (d.lamp) toggleLamp(cur);
           else if (cur.type === 'shovel' && swingCd <= 0) {
             swingCd = 0.85; swingT = 0.45; SFX.play('swing');
             const e = cam.getWorldPosition(new THREE.Vector3()), dir = cam.getWorldDirection(new THREE.Vector3());
@@ -474,11 +483,14 @@ const Player = (() => {
       if (keyed && !me.radio) { keyed = false; SFX.play('radio_key', null, { vol: 0.6 }); }
       // leech struggle
       if (leeched && !ui && Input.hit('KeyE')) { G.request({ a: 'struggle' }); shake = Math.max(shake, 0.25); }
-      // scan
-      if (!ui && Input.rmbP && scanCd <= 0) { scanCd = 1.3; G.scan(); }
+      // scan (holding something that gives light, the right button lights it instead)
+      if (!ui && Input.rmbP && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
+      else if (!ui && Input.rmbP && scanCd <= 0) { scanCd = 1.3; G.scan(); }
       // ---------- interaction ----------
+      // (use with a lamp in hand and nothing in front of you lights it; facing a door or anything else, it's used)
       target = ui ? null : findTarget(me);
       if (!ui && !leeched && Input.hit('KeyE') && target) G.interact(target);
+      else if (!ui && !leeched && Input.hit('KeyE') && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
       HUD.prompt(target, me);
       // flashlight light
       const lights = me.slots.map((id) => id != null && G.items.get(id)).filter((it) => it && ITEMS[it.type].light && it.on);
@@ -493,7 +505,9 @@ const Player = (() => {
         R.flash.distance = L.range; R.flash.angle = L.angle;
         R.flash.position.set(inHand ? 0.22 : 0.05, inHand ? -0.18 : -0.42, 0.05);
       } else R.flash.intensity = 0;
-      R.vmPoint.intensity = fl ? 1.5 : 0;
+      // (the hand lit by the flashlight's spill, or warm from the lamp it's holding)
+      const lampLit = cur && ITEMS[cur.type].lamp && cur.on;
+      R.vmPoint.intensity = fl ? 1.5 : lampLit ? 2.2 : 0; R.vmPoint.color.setHex(lampLit && !fl ? ITEMS[cur.type].lamp.color : 0xfff2dc);
       updateVM(dt, me, moveAmt);
       if (vm.lens && cur && ITEMS[cur.type].light) {
         const lit = cur.on ? clamp(R.flash.intensity / FLASH_K, 0, 1.5) : 0;

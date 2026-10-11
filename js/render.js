@@ -267,6 +267,9 @@ const R = (() => {
     precision highp sampler3D;
     uniform sampler2D tDepth, tH, tShadow; uniform sampler3D tN; uniform mat4 uProjInv, uViewInv, uShadowM, uShipInv;
     uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame; uniform int uSteps;
+    // the flashlights (yours first, then up to three of the crew's): where (xyz) and how bright (w), which way and the
+    // cosine of the cone's edge, colour and reach; yours throws shadows when its shadow map's on
+    uniform vec4 uSpotP[4], uSpotD[4], uSpotC[4]; uniform sampler2D tFlashSh; uniform mat4 uFlashM; uniform float uFlashSh, uSpotK;
     varying vec2 vUv;
     float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uOrg.xz - uHB.xy) / uHB.z).r) + uOrg.y; }
     float noise3(vec3 q) { return texture(tN, q).r; }
@@ -296,6 +299,27 @@ const R = (() => {
       if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
       return step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tShadow, sc.xy)));
     }
+    // a flashlight's light scattered toward you from p: inside its cone, falling off with distance, mostly carried on
+    // forward (so someone else's beam crossing in front of you shows best, your own going away from you less), and
+    // none where something stands between it and p
+    vec3 spots(vec3 p, vec3 rd) {
+      vec3 s = vec3(0.0);
+      for (int k = 0; k < 4; k++) {
+        if (uSpotP[k].w <= 0.0) continue;
+        vec3 l = p - uSpotP[k].xyz; float dl = length(l); vec3 ld = l / max(dl, 1e-3);
+        float cone = smoothstep(uSpotD[k].w, uSpotD[k].w + 0.05, dot(ld, uSpotD[k].xyz));
+        if (cone <= 0.0 || dl > uSpotC[k].w) continue;
+        float att = pow(max(1.0 - pow(dl / uSpotC[k].w, 4.0), 0.0), 2.0) / max(pow(dl, 1.5), 2.0) * smoothstep(0.4, 1.6, dl);
+        float c = dot(ld, -rd), hg = 0.75 / pow(1.25 - c, 1.5) / 12.566, ph = 0.6 * 0.0796 + 0.4 * hg;
+        float sh = 1.0;
+        if (k == 0 && uFlashSh > 0.5) {
+          vec4 sc = uFlashM * vec4(p, 1.0); sc.xyz /= sc.w;
+          if (sc.x > 0.0 && sc.x < 1.0 && sc.y > 0.0 && sc.y < 1.0 && sc.z < 1.0) sh = step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tFlashSh, sc.xy)));
+        }
+        s += uSpotC[k].rgb * uSpotP[k].w * cone * att * ph * sh;
+      }
+      return s * uSpotK;
+    }
     void main() {
       float d = texture2D(tDepth, vUv).r;
       vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); v /= v.w;
@@ -314,14 +338,14 @@ const R = (() => {
         if (den < 1e-6) continue;
         // light scattered toward you here: the sky's grey light all round, and the sun's (where it reaches), brightest
         // looking toward it; thicker mist a shade darker inside
-        vec3 Ls = uFogCol * (1.08 - 0.16 * n) + uScat * (0.1 + glow * 1.4) * sunLit(p);
+        vec3 Ls = uFogCol * (1.08 - 0.16 * n) + uScat * (0.1 + glow * 1.4) * sunLit(p) + spots(p, rd) * (0.6 + 0.8 * n);
         float a = exp(-den * dt);
         acc += T * (1.0 - a) * Ls; T *= a;
         if (T < 0.01) break;
       }
       gl_FragColor = vec4(acc, T);
     }`;
-  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 };
+  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 }, _vp = new THREE.Vector3(), _vt = new THREE.Vector3();
   let bloomA, bloomB, bloomPre, bloomBlur, quadScene, quad, shadowSize = 15;
   function init(canvas) {
     installFog();
@@ -375,7 +399,8 @@ const R = (() => {
       vol.mat = new THREE.ShaderMaterial({
         uniforms: { tDepth: U(rt.depthTexture), tH: U(blank), tShadow: U(null), tN: U(nt), uProjInv: U(new THREE.Matrix4()), uViewInv: U(new THREE.Matrix4()), uShadowM: U(new THREE.Matrix4()), uShipInv: U(new THREE.Matrix4()),
           uCam: U(new THREE.Vector3()), uSunDir: U(new THREE.Vector3(0, 1, 0)), uFogCol: U(new THREE.Color()), uScat: U(new THREE.Color()), uOrg: U(new THREE.Vector3()), uHB: U(new THREE.Vector4(-490, -490, 980, 0)),
-          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0), uSteps: U(30) },
+          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0), uSteps: U(30),
+          uSpotP: U([0, 1, 2, 3].map(() => new THREE.Vector4())), uSpotD: U([0, 1, 2, 3].map(() => new THREE.Vector4())), uSpotC: U([0, 1, 2, 3].map(() => new THREE.Vector4())), tFlashSh: U(null), uFlashM: U(new THREE.Matrix4()), uFlashSh: U(0), uSpotK: U(0.08) },
         vertexShader: POST_VS, fragmentShader: VOL_FS, depthTest: false, depthWrite: false,
       });
       vol.scene = new THREE.Scene(); const vq = new THREE.Mesh(new THREE.BufferGeometry().copy(new THREE.PlaneGeometry(2, 2)), vol.mat); vq.frustumCulled = false; vol.scene.add(vq);
@@ -506,7 +531,7 @@ const R = (() => {
   }
   function setBeam(i, s, on) {
     const b = beams[i]; if (!b) return;
-    b.visible = on;
+    b.visible = on && !vol.on;
     if (!on) return;
     b.position.copy(s.position); b.lookAt(s.target.position);
     b.material.uniforms.uA.value = 0.07;
@@ -553,6 +578,13 @@ const R = (() => {
         vu.uProjInv.value.copy(camera.projectionMatrixInverse); vu.uViewInv.value.copy(camera.matrixWorld); camera.getWorldPosition(vu.uCam.value);
         const sm = sun.shadow && sun.shadow.map; vu.tShadow.value = sm ? sm.texture : null; vu.uShadowOn.value = sm && sun.castShadow && sun.intensity > 0.01 ? 1 : 0; if (sm) vu.uShadowM.value.copy(sun.shadow.matrix);
         vu.uTime.value = t; vu.uFrame.value = (vol.frame = (vol.frame + 1) % 64);
+        [flash, ...remote].forEach((sl, k) => {
+          const P = vu.uSpotP.value[k], D = vu.uSpotD.value[k], C = vu.uSpotC.value[k];
+          if (!(sl.intensity > 0.01)) { P.w = 0; return; }
+          sl.getWorldPosition(_vp); sl.target.getWorldPosition(_vt); _vt.sub(_vp).normalize();
+          P.set(_vp.x, _vp.y, _vp.z, sl.intensity); D.set(_vt.x, _vt.y, _vt.z, Math.cos(sl.angle)); C.set(sl.color.r, sl.color.g, sl.color.b, sl.distance || 24);
+        });
+        const fm = flash.shadow && flash.shadow.map; vu.tFlashSh.value = fm ? fm.texture : null; vu.uFlashSh.value = fm && flash.castShadow && flash.intensity > 0.01 ? 1 : 0; if (fm) vu.uFlashM.value.copy(flash.shadow.matrix);
         renderer.setRenderTarget(vol.rt); renderer.render(vol.scene, postCam); renderer.setRenderTarget(rt);
       }
       u.uVolOn.value = vol.on ? 1 : 0;
@@ -628,6 +660,13 @@ const R = (() => {
     init, resize, render, renderView, updateLights, lightsAt, rig, flickerOf, snapshot, setGlow, setBeam, updateDust, fx,
     // the volumetric air (see VOL_FS): on or off, and its uniforms to fill in
     get vol() { return vol; },
+    // ...or set up for the facility's still air: dust hanging evenly (density per metre), going to col in the dark, no
+    // sun, no mist, no cloud; only lamps and flashlights to light it
+    volIndoor(col, den) {
+      const vu = vol.mat.uniforms;
+      vu.uDen.value.set(den, 0, 0, 1); vu.uCloud.value.x = 0; vu.uFogCol.value.copy(col); vu.uScat.value.setRGB(0, 0, 0); vu.uFar.value = 80;
+      vu.uOrg.value.set(0, -1000, 0); vu.uShipInv.value.identity().makeTranslation(0, 1e5, 0);
+    },
     setBackdrop(group, sun) { backdrop = group; sunObj = sun; bgScene.add(group); },
     // the backdrop's near plane: pulled in when the planet's surface comes close (falling toward it), out again after
     setBgNear(n) { bgNear = n; },

@@ -25,7 +25,7 @@ const MenuScene = (() => {
       if (!fac) build();
       if (!active) { R.scene.add(fac.group); R.scene.add(pale); active = true; }
       G.ship.group.visible = false; G.ship.space.visible = false;
-      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null); R.vol.on = false;
+      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null); R.vol.on = false; SFX.chase(0, 0, true);
       for (let i = -1; i < 2; i++) R.setGlow(i, null);
       R.remote.forEach((s, i) => { s.intensity = 0; R.setBeam(i, s, false); });
       R.fx.health = 1; R.fx.leech = 0; R.fx.damage = 0; R.fx.sun = 0;

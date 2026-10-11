@@ -675,9 +675,32 @@ const SFX = (() => {
     soft(d, t, o) { const p = (o.pitch || 1) * rnd(0.9, 1.1); nz(d, t, 0.1, 0.25, 'lowpass', 600 * p, 200, 0.7, 0.02); },
     click(d, t) { nz(d, t, 0.012, 0.45, 'highpass', 3200); nz(d, t + 0.004, 0.02, 0.25, 'bandpass', 2400, null, 6, 0.001); osc(d, 'sine', 1900, 1200, t, 0.02, 0.04, 0.001); },
     pickup(d, t) { nz(d, t, 0.12, 0.25, 'bandpass', 2200, 900, 1.5, 0.01); osc(d, 'sine', 160, 90, t + 0.02, 0.1, 0.25); },
+    // something dropped: it sounds like what it's made of (o.mat) and how heavy it is (o.w, kg). The floor taking its
+    // weight, then the ring or knock or clink of the thing itself, and (if it's hard and not too heavy) a bounce or two
     drop(d, t, o) {
-      osc(d, 'sine', 150 * (o.pitch || 1), 45, t, 0.16, 0.6); nz(d, t, 0.1, 0.35, 'lowpass', 1800, 300, 0.7);
-      if (o.metal) { osc(d, 'triangle', 520, 500, t, 0.5, 0.08); osc(d, 'sine', 1310, 1300, t, 0.35, 0.05); }
+      const w = o.w || 1, m = o.mat || (w > 4 ? 'metal' : 'wood'), hv = clamp(w / 12, 0, 1), p = rnd(0.92, 1.08);
+      const hit = (tt, k) => {
+        osc(d, 'sine', (110 - hv * 50) * p, 40, tt, 0.12 + hv * 0.12, (0.25 + hv * 0.5) * k, 0.002);
+        nz(d, tt, 0.06 + hv * 0.05, (0.2 + hv * 0.25) * k, 'lowpass', 1600 - hv * 900, 250, 0.7, 0.001);
+        if (m === 'metal' || m === 'tin') {
+          // struck metal: a bar's inharmonic modes ringing on (small, thin things higher and shorter)
+          const f0 = (m === 'tin' ? 900 : 260 + (1 - hv) * 420) * p, dur = m === 'tin' ? 0.35 : 0.6 + hv * 0.9;
+          [1, 2.76, 5.4, 8.93].forEach((r, i) => osc(d, 'sine', f0 * r, f0 * r * 0.997, tt, dur * (1 - i * 0.18), (0.11 / (i + 1)) * k, 0.001));
+          nz(d, tt, 0.03, 0.3 * k, 'highpass', 3500, null, 0.7, 0.0005);
+        } else if (m === 'glass' || m === 'porcelain') {
+          const f0 = (m === 'glass' ? 2400 : 1700) * p * (1.2 - hv * 0.4);
+          [1, 1.62, 2.41, 3.53].forEach((r, i) => osc(d, 'sine', f0 * r, f0 * r, tt, 0.18 - i * 0.03, (0.07 / (i + 1)) * k, 0.0005));
+          nz(d, tt, 0.02, 0.25 * k, 'highpass', 5000, null, 0.8, 0.0005);
+        } else if (m === 'wood' || m === 'bone') {
+          nz(d, tt, 0.05, 0.45 * k, 'bandpass', (m === 'bone' ? 1800 : 900) * p, null, 3, 0.001);
+          osc(d, 'sine', (m === 'bone' ? 700 : 240 + (1 - hv) * 160) * p, 0, tt, 0.08, 0.2 * k, 0.001);
+        } else if (m === 'plastic') {
+          nz(d, tt, 0.04, 0.4 * k, 'bandpass', 1500 * p, null, 2.5, 0.001);
+          osc(d, 'triangle', (520 + (1 - hv) * 300) * p, 0, tt, 0.05, 0.12 * k, 0.001);
+        } else nz(d, tt, 0.09, 0.3 * k, 'lowpass', 700, 200, 0.6, 0.004);
+      };
+      hit(t, 1);
+      if (m !== 'soft' && hv < 0.7) { const b1 = 0.09 + rnd(0, 0.06) * (1 - hv); hit(t + b1, 0.35); if (hv < 0.3) hit(t + b1 * 1.7, 0.14); }
     },
     door_open(d, t) {
       nz(d, t, 0.03, 0.35, 'highpass', 2500);
@@ -767,7 +790,12 @@ const SFX = (() => {
       osc(d, 'sine', 64, 30, t + 0.82, 1.3, 0.3, 0.01);
       nz(d, t + 0.82, 0.9, 0.3, 'lowpass', 260, 90, 0.7, 0.02, brownBuf);
     },
-    heartbeat(d, t) { osc(d, 'sine', 62, 38, t, 0.14, 0.9, 0.005); osc(d, 'sine', 56, 36, t + 0.22, 0.16, 0.65, 0.005); },
+    // lub-dub: two dull thumps through your own chest, the second softer, felt as much as heard
+    heartbeat(d, t, o) {
+      const g = o.gap || 0.22;
+      osc(d, 'sine', 64, 36, t, 0.16, 0.95, 0.004); nz(d, t, 0.09, 0.4, 'lowpass', 190, 60, 0.7, 0.004, brownBuf);
+      osc(d, 'sine', 58, 34, t + g, 0.17, 0.62, 0.004); nz(d, t + g, 0.09, 0.25, 'lowpass', 170, 60, 0.7, 0.004, brownBuf);
+    },
     crawler_screech(d, t) {
       const w = shaper(d, 30);
       const bp = filt(w, 'bandpass', 1200, 2);
@@ -1046,6 +1074,11 @@ const SFX = (() => {
     },
     run_far(d, t) { for (let i = 0; i < 8; i++) S.step(d, t + i * 0.27, { surf: 'concrete', pitch: 0.9 }); },
     bell(d, t) { [1, 2.4, 3.9, 5.2].forEach((r, i) => osc(d, 'sine', 620 * r, null, t, 2.6 - i * 0.4, 0.25 / (i + 1))); },
+    // a match struck: the scrape along the box, the flare catching, then the soft roar of it settling to a flame
+    match(d, t) {
+      nz(d, t, 0.09, 0.5, 'bandpass', 2600, 4200, 1.2, 0.004); for (let i = 0; i < 5; i++) nz(d, t + 0.02 + i * 0.016, 0.012, 0.35, 'highpass', 3000, null, 0.7, 0.001);
+      nz(d, t + 0.1, 0.35, 0.4, 'bandpass', 1400, 700, 0.6, 0.01); nz(d, t + 0.12, 0.9, 0.12, 'lowpass', 900, 400, 0.5, 0.1, brownBuf);
+    },
     // a valve radio warming up and hunting the dial: hiss swelling, whistles sliding past as it crosses stations, a
     // snatch of a dance band from somewhere far off, then the static again
     radio_tune(d, t) {
@@ -1331,6 +1364,49 @@ const SFX = (() => {
     amb.timers[key] = t;
   }
   const around = (c, r0, r1, y0 = 0, y1 = 0) => { const a = Math.random() * TAU, d = rnd(r0, r1); return new THREE.Vector3(c.x + Math.cos(a) * d, c.y + rnd(y0, y1), c.z + Math.sin(a) * d); };
+  // ---------- the chase ----------
+  // When something's running you down the music comes in, the way it does in those films: high strings wailing in a
+  // tight, sour cluster, sliding about and shivering in a bowed tremolo, the bows scraping; a low, dark drone a
+  // semitone apart under them; and now and then a voice-like wail rising up out of it and falling away. It swells as
+  // the thing closes on you and dies away slowly once it's lost you.
+  const chase = { g: null, level: 0, voices: [], nextSlide: 0, nextWail: 0 };
+  function chaseBuild() {
+    const out = ctx.createGain(); out.gain.value = 0; out.connect(sfxBus); chase.g = out;
+    const trem = ctx.createGain(); trem.gain.value = 0.6; trem.connect(out);
+    { const l = ctx.createOscillator(); l.frequency.value = 12.5; const lg = ctx.createGain(); lg.gain.value = 0.35; l.connect(lg); lg.connect(trem.gain); l.start(); }
+    const bp = filt(trem, 'bandpass', 1800, 0.8);
+    chase.voices = [1180, 1250, 1325, 1405, 1490].map((f) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+      const v = ctx.createOscillator(); v.frequency.value = rnd(5, 7); const vg = ctx.createGain(); vg.gain.value = f * 0.012; v.connect(vg); vg.connect(o.frequency); v.start();
+      const g = ctx.createGain(); g.gain.value = 0.05; o.connect(g); g.connect(bp); o.start(); return { o, f };
+    });
+    { const sc = ctx.createBufferSource(); sc.buffer = noiseBuf; sc.loop = true; const sf = ctx.createBiquadFilter(); sf.type = 'bandpass'; sf.frequency.value = 3200; sf.Q.value = 5; const sg = ctx.createGain(); sg.gain.value = 0.06; sc.connect(sf); sf.connect(sg); sg.connect(trem); sc.start(); chase.scrape = { f: sf, g: sg }; }
+    { const lp = filt(out, 'lowpass', 380, 0.7); [65.4, 69.3].forEach((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.06; o.connect(g); g.connect(lp); o.start(); }); }
+    { const f1 = filt(out, 'bandpass', 750, 6), f2 = filt(out, 'bandpass', 1150, 7), o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 600;
+      const g = ctx.createGain(); g.gain.value = 0; o.connect(g); g.connect(f1); g.connect(f2);
+      const v = ctx.createOscillator(); v.frequency.value = 5.5; const vg = ctx.createGain(); vg.gain.value = 14; v.connect(vg); vg.connect(o.frequency); v.start(); o.start(); chase.wail = { o, g }; }
+  }
+  // level: 0 (nothing after you) to 1 (it's right there); now: cut it at once (leaving the game)
+  function chaseTick(dt, level, now) {
+    if (!ready || ctx.state !== 'running') return;
+    if (!chase.g) { if (level <= 0) return; chaseBuild(); }
+    const t = ctx.currentTime;
+    chase.level = now ? 0 : damp(chase.level, level, level > chase.level ? 1.4 : 0.3, dt);
+    chase.g.gain.setTargetAtTime(Math.pow(chase.level, 1.3) * 0.55, t, now ? 0.01 : 0.1);
+    if (chase.level < 0.01) return;
+    chase.nextSlide -= dt;
+    if (chase.nextSlide <= 0) {
+      chase.nextSlide = rnd(0.8, 2.2);
+      for (const v of chase.voices) v.o.frequency.setTargetAtTime(v.f * (1 + chase.level * 0.25) * rnd(0.94, 1.08), t, rnd(0.3, 0.9));
+      chase.scrape.f.frequency.setTargetAtTime(rnd(2200, 5200), t, 0.2); chase.scrape.g.gain.setTargetAtTime(rnd(0.02, 0.1), t, 0.1);
+    }
+    chase.nextWail -= dt;
+    if (chase.nextWail <= 0) {
+      chase.nextWail = rnd(3, 7); const w = chase.wail;
+      w.o.frequency.setValueAtTime(rnd(420, 560), t); w.o.frequency.linearRampToValueAtTime(rnd(820, 1050), t + 1.6); w.o.frequency.linearRampToValueAtTime(rnd(500, 650), t + 2.8);
+      w.g.gain.setValueAtTime(0.0001, t); w.g.gain.linearRampToValueAtTime(0.09, t + 0.6); w.g.gain.linearRampToValueAtTime(0.0001, t + 2.9);
+    }
+  }
   function ambience(dt, info) {
     if (!ready || SFX.held || ctx.state !== 'running') return;
     const e = curEnv, cam = info.cam, t = ctx.currentTime, play = (n, p, o) => SFX.play(n, p, o);
@@ -1437,6 +1513,7 @@ const SFX = (() => {
     },
     setEnv(e) { if (curEnv !== e) { curEnv = e; applyEnv(); } },
     ambience,
+    chase: chaseTick,
     setWeather(rain, wind) { rainAmt = rain; windAmt = wind; applyEnv(); },
     // level 0..1 of the ship's engines as heard here (inside: through the hull), gale 0..1 through an open hatch
     setThrust(level, inside, gale) {
@@ -2529,9 +2606,10 @@ const ITEMS = {
   goldbar: { name: 'Gold Bar', kind: 'scrap', value: [95, 190], weight: 16 },
   axle: { name: 'Large Axle', kind: 'scrap', value: [36, 72], weight: 15, twoHanded: true },
   painting: { name: 'Old Painting', kind: 'scrap', value: [55, 115], weight: 6, twoHanded: true },
-  candelabra: { name: 'Candelabra', kind: 'scrap', value: [40, 85], weight: 4 },
+  // (things that give light: right-click, or use with nothing in front of you, to light them; see ItemMeshes.glow)
+  candelabra: { name: 'Candelabra', kind: 'scrap', value: [40, 85], weight: 4, lamp: { color: 0xffa040, power: 0.7, range: 8, fire: true } },
   doll: { name: 'Doll Head', kind: 'scrap', value: [10, 32], weight: 1 },
-  lamp: { name: 'Fancy Lamp', kind: 'scrap', value: [50, 105], weight: 9, twoHanded: true },
+  lamp: { name: 'Fancy Lamp', kind: 'scrap', value: [50, 105], weight: 9, twoHanded: true, lamp: { color: 0xffd6a0, power: 1.15, range: 11, y: 0.75 } },
   engine: { name: 'Engine Block', kind: 'scrap', value: [60, 125], weight: 28, twoHanded: true },
   register: { name: 'Cash Register', kind: 'scrap', value: [80, 150], weight: 20, twoHanded: true, noise: 'sell', noiseR: 20 },
   watch: { name: 'Pocket Watch', kind: 'scrap', value: [30, 70], weight: 1 },
@@ -2556,12 +2634,23 @@ const ITEMS = {
   battery: { name: 'Car Battery', kind: 'scrap', value: [16, 40], weight: 12 },
   circuit: { name: 'Circuit Board', kind: 'scrap', value: [16, 44], weight: 0.5 },
   bottle: { name: 'Old Wine Bottle', kind: 'scrap', value: [12, 34], weight: 1.4 },
+  lantern: { name: 'Storm Lantern', kind: 'scrap', value: [18, 44], weight: 2, battery: 420, lamp: { color: 0xffb468, power: 0.9, range: 9, y: 0.1, unsteady: true } },
   core: { name: 'Reactor Core', kind: 'scrap', value: [190, 270], weight: 26, twoHanded: true, core: true },
   // gift boxes: worth a little as they are; open one (left click) and it might be cash, something better, a tool,
   // a snack... or, once in a while, something nobody should ever have wrapped
   gift: { name: 'Gift Box', kind: 'scrap', value: [24, 50], weight: 1.5, gift: true },
   cash: { name: 'Wad of Cash', kind: 'scrap', value: [90, 210], weight: 0.3 },
   bomb: { name: 'Lit Charge', kind: 'tool', weight: 1.2, throwable: true, bomb: true, desc: 'Sputtering. Get rid of it.' },
+};
+// what each thing is made of, for the sound it makes landing (see SFX drop): metal rings, tin clinks, glass and
+// porcelain chime, wood and bone knock, plastic tocks, soft things just thump
+const ITEM_MAT = {
+  gear: 'metal', axle: 'metal', engine: 'metal', bolt: 'metal', goldbar: 'metal', core: 'metal', toolbox: 'metal', extinguisher: 'metal', typewriter: 'metal', register: 'metal', shovel: 'metal',
+  bell: 'tin', candelabra: 'tin', watch: 'tin', horn: 'tin', kettle: 'tin', trophy: 'tin', lantern: 'tin', toy: 'tin', flashlight: 'tin', proflash: 'tin', stun: 'tin', cola: 'tin', nightshift: 'tin', mystery: 'tin', camera: 'tin', lamp: 'tin',
+  flask: 'glass', jar: 'glass', bottle: 'glass', vase: 'porcelain', mask: 'porcelain', doll: 'porcelain',
+  painting: 'wood', radio: 'wood', globe: 'wood', skull: 'bone',
+  phone: 'plastic', walkie: 'plastic', tracker: 'plastic', battery: 'plastic', meter: 'plastic', circuit: 'plastic',
+  teddy: 'soft', gift: 'soft', cash: 'soft', ration: 'soft', bomb: 'soft',
 };
 // flashlight beam intensity per unit of light power (yours and your crewmates')
 const FLASH_K = 75;
@@ -2811,7 +2900,17 @@ const ItemMeshes = (() => {
     candelabra(g) {
       add(g, cyl(0.07, 0.09, 0.03, 12), m.brass(), 0, 0.015, 0); add(g, cyl(0.012, 0.015, 0.3, 8), m.brass(), 0, 0.17, 0);
       add(g, box(0.28, 0.015, 0.015), m.brass(), 0, 0.28, 0);
-      for (const x of [-0.13, 0, 0.13]) { add(g, cyl(0.02, 0.015, 0.03, 8), m.brass(), x, 0.3, 0); add(g, cyl(0.012, 0.012, 0.09, 8), m.candle(), x, 0.36, 0); }
+      // (its candles, and their flames when they're lit: a bright core in a softer outer flame, the wick showing)
+      const fl = new THREE.MeshStandardMaterial({ color: 0x3a2008, emissive: 0xffa040, emissiveIntensity: 0, roughness: 1, transparent: true, opacity: 0.85, depthWrite: false });
+      const core = new THREE.MeshStandardMaterial({ color: 0x3a2a10, emissive: 0xfff0c0, emissiveIntensity: 0, roughness: 1 }), glow = [];
+      for (const x of [-0.13, 0, 0.13]) {
+        add(g, cyl(0.02, 0.015, 0.03, 8), m.brass(), x, 0.3, 0); add(g, cyl(0.012, 0.012, 0.09, 8), m.candle(), x, 0.36, 0);
+        add(g, cyl(0.0012, 0.0012, 0.012, 4), m.black(), x, 0.41, 0);
+        const f = add(g, new THREE.SphereGeometry(0.009, 8, 6), fl, x, 0.424, 0); f.scale.set(1, 2.3, 1); f.castShadow = false;
+        const c = add(g, new THREE.SphereGeometry(0.004, 6, 5), core, x, 0.418, 0); c.scale.set(1, 1.8, 1); c.castShadow = false;
+        glow.push({ m: fl, k: 2.2, mesh: f }, { m: core, k: 3, mesh: c });
+      }
+      g.userData.glow = glow;
     },
     // a porcelain doll's head: glass eye, rosebud mouth, blushed cheeks, ringlets of brown hair... and one eye
     // socket empty, a crack running down from it
@@ -2838,7 +2937,26 @@ const ItemMeshes = (() => {
     },
     lamp(g) {
       add(g, cyl(0.12, 0.14, 0.05, 14), m.brass(), 0, 0.025, 0); add(g, cyl(0.015, 0.015, 0.7, 8), m.brass(), 0, 0.4, 0);
-      add(g, cyl(0.12, 0.22, 0.24, 14, 1), M('shade', { color: 0x8a6a4a, roughness: 0.9, side: THREE.DoubleSide }), 0, 0.78, 0);
+      // (its shade glows through, warm, when the bulb inside is lit)
+      const shade = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.9, side: THREE.DoubleSide, emissive: 0xffb060, emissiveIntensity: 0 });
+      const bulb = new THREE.MeshStandardMaterial({ color: 0x4a4030, emissive: 0xfff0d0, emissiveIntensity: 0, roughness: 0.3 });
+      add(g, cyl(0.12, 0.22, 0.24, 14, 1), shade, 0, 0.78, 0); add(g, sph(0.035, 10), bulb, 0, 0.74, 0);
+      g.userData.glow = [{ m: shade, k: 0.45 }, { m: bulb, k: 3 }];
+    },
+    // a storm lantern: a tin base and a hood, a glass globe in a wire guard, the bulb inside (switch it on and it glows,
+    // warm and a little unsteady), a wire bail to carry it by
+    lantern(g) {
+      const tin = M('lanternTin', { color: 0x4a5a3a, roughness: 0.5, metalness: 0.5 }, Object.assign({}, PAINT, { bare: 0x8a8e90 }));
+      const glass = M('lanternGlass', { color: 0xd8e4dc, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.3, depthWrite: false });
+      add(g, cyl(0.07, 0.075, 0.05, 18), tin, 0, 0.025, 0);
+      add(g, cyl(0.05, 0.05, 0.11, 18), glass, 0, 0.105, 0).castShadow = false;
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; add(g, cyl(0.0025, 0.0025, 0.11, 4), m.dsteel(), Math.cos(a) * 0.056, 0.105, Math.sin(a) * 0.056); }
+      for (const y of [0.075, 0.135]) add(g, new THREE.TorusGeometry(0.056, 0.0025, 4, 18), m.dsteel(), 0, y, 0, Math.PI / 2);
+      add(g, cyl(0.03, 0.07, 0.04, 18), tin, 0, 0.18, 0); add(g, cyl(0.012, 0.03, 0.03, 12), tin, 0, 0.215, 0);
+      add(g, new THREE.TorusGeometry(0.07, 0.003, 4, 16, Math.PI), m.dsteel(), 0, 0.2, 0);
+      const bulb = new THREE.MeshStandardMaterial({ color: 0x4a3a20, emissive: 0xffb060, emissiveIntensity: 0, roughness: 0.4 });
+      add(g, sph(0.02, 10), bulb, 0, 0.1, 0).castShadow = false; add(g, cyl(0.006, 0.006, 0.03, 6), m.dsteel(), 0, 0.068, 0);
+      g.userData.glow = [{ m: bulb, k: 3.2 }];
     },
     // an old four-cylinder: iron block on its oil pan, the head with a chipped red rocker cover, plugs and leads,
     // a rusted exhaust manifold down one side, pulleys and a belt on the front, the flywheel at the back
@@ -3214,6 +3332,8 @@ const ItemMeshes = (() => {
     },
   };
   return {
+    // light a lamp's glow in a model of it (the piece itself, the one in your hand, the one in a crewmate's): k 0 for out
+    glow(g, k) { g.traverse((o) => { const L = o.userData && o.userData.glow; if (L) for (const e of L) { e.m.emissiveIntensity = e.k * k; if (e.mesh) e.mesh.visible = k > 0.01; } }); },
     // (seed: the item's id, for things that differ piece to piece, like which painting it is)
     build(type, seed = 0) {
       const g = new THREE.Group();
@@ -3371,6 +3491,8 @@ const HOLD = {
   globe: { p: [0.2, -0.44, -0.6], r: [0, 0, 0] },
   vase: { p: [0.22, -0.46, -0.6], r: [0, 0, 0] },
   extinguisher: { p: [0.24, -0.5, -0.55], r: [0, 0, 0] },
+  lantern: { p: [0.2, -0.33, -0.5], r: [0.15, 0, 0] },
+  candelabra: { p: [0.22, -0.5, -0.6], r: [0, 0, 0] },
   // snacks are held in a fist closed round the lower part (grip: where the fist sits, from the item's origin; gr: how
   // the forearm comes in, from below and to the right so it never hides what's in the hand)
   cola: { p: [0.17, -0.2, -0.5], r: [0.12, 0.6, 0], grip: [0.01, 0.03, 0.008], gr: [1.0, 0.5, 0], fist: true },
@@ -7284,7 +7406,7 @@ const Exterior = (() => {
         if (this.clouds) this.clouds.visible = !R.vol.on;
         if (R.vol.on && this.heightTex) {
           const vu = R.vol.mat.uniforms, h = (G.round ? G.round.time : 480) / 60, wet = this.weather === 'rain' ? 1 : this.weather === 'storm' ? 1.5 : 0, dawn = 1 - sstep(7.5, 10.5, h);
-          vu.tH.value = this.heightTex; this.group.getWorldPosition(vu.uOrg.value); vu.uHB.value.set(-this.heightBox[0] / 2, -this.heightBox[0] / 2, this.heightBox[0], 0); vu.uHR.value.set(this.heightBox[1], this.heightBox[2]);
+          vu.tH.value = this.heightTex; this.group.getWorldPosition(vu.uOrg.value); vu.uFar.value = 600; vu.uHB.value.set(-this.heightBox[0] / 2, -this.heightBox[0] / 2, this.heightBox[0], 0); vu.uHR.value.set(this.heightBox[1], this.heightBox[2]);
           vu.uSunDir.value.copy(L.sunDir); vu.uFogCol.value.copy(L.fog); vu.uScat.value.copy(L.scatter); vu.uShipInv.value.copy(this.shipInv.value);
           vu.uDen.value.set(L.fogDen * 1.1, L.fogFalloff, L.fogDen * (0.6 + 1.6 * Math.max(L.night, dawn)), 1.8);
           let top = 0; for (const v of this.rangeTops || [30]) top += v; top /= (this.rangeTops || [30]).length;
@@ -12906,6 +13028,9 @@ const R = (() => {
     precision highp sampler3D;
     uniform sampler2D tDepth, tH, tShadow; uniform sampler3D tN; uniform mat4 uProjInv, uViewInv, uShadowM, uShipInv;
     uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame; uniform int uSteps;
+    // the flashlights (yours first, then up to three of the crew's): where (xyz) and how bright (w), which way and the
+    // cosine of the cone's edge, colour and reach; yours throws shadows when its shadow map's on
+    uniform vec4 uSpotP[4], uSpotD[4], uSpotC[4]; uniform sampler2D tFlashSh; uniform mat4 uFlashM; uniform float uFlashSh, uSpotK;
     varying vec2 vUv;
     float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uOrg.xz - uHB.xy) / uHB.z).r) + uOrg.y; }
     float noise3(vec3 q) { return texture(tN, q).r; }
@@ -12935,6 +13060,27 @@ const R = (() => {
       if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
       return step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tShadow, sc.xy)));
     }
+    // a flashlight's light scattered toward you from p: inside its cone, falling off with distance, mostly carried on
+    // forward (so someone else's beam crossing in front of you shows best, your own going away from you less), and
+    // none where something stands between it and p
+    vec3 spots(vec3 p, vec3 rd) {
+      vec3 s = vec3(0.0);
+      for (int k = 0; k < 4; k++) {
+        if (uSpotP[k].w <= 0.0) continue;
+        vec3 l = p - uSpotP[k].xyz; float dl = length(l); vec3 ld = l / max(dl, 1e-3);
+        float cone = smoothstep(uSpotD[k].w, uSpotD[k].w + 0.05, dot(ld, uSpotD[k].xyz));
+        if (cone <= 0.0 || dl > uSpotC[k].w) continue;
+        float att = pow(max(1.0 - pow(dl / uSpotC[k].w, 4.0), 0.0), 2.0) / max(pow(dl, 1.5), 2.0) * smoothstep(0.4, 1.6, dl);
+        float c = dot(ld, -rd), hg = 0.75 / pow(1.25 - c, 1.5) / 12.566, ph = 0.6 * 0.0796 + 0.4 * hg;
+        float sh = 1.0;
+        if (k == 0 && uFlashSh > 0.5) {
+          vec4 sc = uFlashM * vec4(p, 1.0); sc.xyz /= sc.w;
+          if (sc.x > 0.0 && sc.x < 1.0 && sc.y > 0.0 && sc.y < 1.0 && sc.z < 1.0) sh = step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tFlashSh, sc.xy)));
+        }
+        s += uSpotC[k].rgb * uSpotP[k].w * cone * att * ph * sh;
+      }
+      return s * uSpotK;
+    }
     void main() {
       float d = texture2D(tDepth, vUv).r;
       vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); v /= v.w;
@@ -12953,14 +13099,14 @@ const R = (() => {
         if (den < 1e-6) continue;
         // light scattered toward you here: the sky's grey light all round, and the sun's (where it reaches), brightest
         // looking toward it; thicker mist a shade darker inside
-        vec3 Ls = uFogCol * (1.08 - 0.16 * n) + uScat * (0.1 + glow * 1.4) * sunLit(p);
+        vec3 Ls = uFogCol * (1.08 - 0.16 * n) + uScat * (0.1 + glow * 1.4) * sunLit(p) + spots(p, rd) * (0.6 + 0.8 * n);
         float a = exp(-den * dt);
         acc += T * (1.0 - a) * Ls; T *= a;
         if (T < 0.01) break;
       }
       gl_FragColor = vec4(acc, T);
     }`;
-  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 };
+  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 }, _vp = new THREE.Vector3(), _vt = new THREE.Vector3();
   let bloomA, bloomB, bloomPre, bloomBlur, quadScene, quad, shadowSize = 15;
   function init(canvas) {
     installFog();
@@ -13014,7 +13160,8 @@ const R = (() => {
       vol.mat = new THREE.ShaderMaterial({
         uniforms: { tDepth: U(rt.depthTexture), tH: U(blank), tShadow: U(null), tN: U(nt), uProjInv: U(new THREE.Matrix4()), uViewInv: U(new THREE.Matrix4()), uShadowM: U(new THREE.Matrix4()), uShipInv: U(new THREE.Matrix4()),
           uCam: U(new THREE.Vector3()), uSunDir: U(new THREE.Vector3(0, 1, 0)), uFogCol: U(new THREE.Color()), uScat: U(new THREE.Color()), uOrg: U(new THREE.Vector3()), uHB: U(new THREE.Vector4(-490, -490, 980, 0)),
-          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0), uSteps: U(30) },
+          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0), uSteps: U(30),
+          uSpotP: U([0, 1, 2, 3].map(() => new THREE.Vector4())), uSpotD: U([0, 1, 2, 3].map(() => new THREE.Vector4())), uSpotC: U([0, 1, 2, 3].map(() => new THREE.Vector4())), tFlashSh: U(null), uFlashM: U(new THREE.Matrix4()), uFlashSh: U(0), uSpotK: U(0.08) },
         vertexShader: POST_VS, fragmentShader: VOL_FS, depthTest: false, depthWrite: false,
       });
       vol.scene = new THREE.Scene(); const vq = new THREE.Mesh(new THREE.BufferGeometry().copy(new THREE.PlaneGeometry(2, 2)), vol.mat); vq.frustumCulled = false; vol.scene.add(vq);
@@ -13145,7 +13292,7 @@ const R = (() => {
   }
   function setBeam(i, s, on) {
     const b = beams[i]; if (!b) return;
-    b.visible = on;
+    b.visible = on && !vol.on;
     if (!on) return;
     b.position.copy(s.position); b.lookAt(s.target.position);
     b.material.uniforms.uA.value = 0.07;
@@ -13192,6 +13339,13 @@ const R = (() => {
         vu.uProjInv.value.copy(camera.projectionMatrixInverse); vu.uViewInv.value.copy(camera.matrixWorld); camera.getWorldPosition(vu.uCam.value);
         const sm = sun.shadow && sun.shadow.map; vu.tShadow.value = sm ? sm.texture : null; vu.uShadowOn.value = sm && sun.castShadow && sun.intensity > 0.01 ? 1 : 0; if (sm) vu.uShadowM.value.copy(sun.shadow.matrix);
         vu.uTime.value = t; vu.uFrame.value = (vol.frame = (vol.frame + 1) % 64);
+        [flash, ...remote].forEach((sl, k) => {
+          const P = vu.uSpotP.value[k], D = vu.uSpotD.value[k], C = vu.uSpotC.value[k];
+          if (!(sl.intensity > 0.01)) { P.w = 0; return; }
+          sl.getWorldPosition(_vp); sl.target.getWorldPosition(_vt); _vt.sub(_vp).normalize();
+          P.set(_vp.x, _vp.y, _vp.z, sl.intensity); D.set(_vt.x, _vt.y, _vt.z, Math.cos(sl.angle)); C.set(sl.color.r, sl.color.g, sl.color.b, sl.distance || 24);
+        });
+        const fm = flash.shadow && flash.shadow.map; vu.tFlashSh.value = fm ? fm.texture : null; vu.uFlashSh.value = fm && flash.castShadow && flash.intensity > 0.01 ? 1 : 0; if (fm) vu.uFlashM.value.copy(flash.shadow.matrix);
         renderer.setRenderTarget(vol.rt); renderer.render(vol.scene, postCam); renderer.setRenderTarget(rt);
       }
       u.uVolOn.value = vol.on ? 1 : 0;
@@ -13267,6 +13421,13 @@ const R = (() => {
     init, resize, render, renderView, updateLights, lightsAt, rig, flickerOf, snapshot, setGlow, setBeam, updateDust, fx,
     // the volumetric air (see VOL_FS): on or off, and its uniforms to fill in
     get vol() { return vol; },
+    // ...or set up for the facility's still air: dust hanging evenly (density per metre), going to col in the dark, no
+    // sun, no mist, no cloud; only lamps and flashlights to light it
+    volIndoor(col, den) {
+      const vu = vol.mat.uniforms;
+      vu.uDen.value.set(den, 0, 0, 1); vu.uCloud.value.x = 0; vu.uFogCol.value.copy(col); vu.uScat.value.setRGB(0, 0, 0); vu.uFar.value = 80;
+      vu.uOrg.value.set(0, -1000, 0); vu.uShipInv.value.identity().makeTranslation(0, 1e5, 0);
+    },
     setBackdrop(group, sun) { backdrop = group; sunObj = sun; bgScene.add(group); },
     // the backdrop's near plane: pulled in when the planet's surface comes close (falling toward it), out again after
     setBgNear(n) { bgNear = n; },
@@ -13677,6 +13838,13 @@ const Player = (() => {
     cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
     me.moving = true; me.air = false;
   }
+  // light (or put out) the lamp in your hand: everyone sees it, and it stays lit if you set it down
+  function toggleLamp(it) {
+    const d = ITEMS[it.type];
+    if (!it.on && d.battery && it.battery <= 0) { HUD.toast('Battery dead'); return; }
+    SFX.play(it.on ? 'click' : d.lamp.fire ? 'match' : 'click', null, { vol: 0.8 });
+    it.on = !it.on; G.request({ a: 'lamp', item: it.id, on: it.on });
+  }
   function standUp(me) {
     const S = G.ship.seats[seat]; seat = null; me.seat = null;
     if (S) { me.pos.set(S.exit.x, 0, S.exit.z); vel.set(0, 0, 0); }
@@ -13823,6 +13991,7 @@ const Player = (() => {
     knock(kx, kz) { kick.x += kx; kick.z += kz; shake = Math.max(shake, 0.6); },
     get fx() { return fx; },
     get seat() { return seat; },
+    get vmItem() { return vm.item; },
     sit(i) {
       const me = G.me(), S = G.ship.seats[i]; if (!me || !S) return;
       seat = i; me.seat = i; sitT = 0; crouch = false;
@@ -14041,7 +14210,7 @@ const Player = (() => {
       for (const id of me.slots) {
         const it = id != null && G.items.get(id); if (!it) continue;
         const d = ITEMS[it.type];
-        if (d.battery && it.on) { it.battery = Math.max(0, it.battery - dt / (d.battery * cells)); if (it.battery <= 0) { it.on = false; SFX.play('click'); HUD.toast(d.name + ': battery dead'); } }
+        if (d.battery && it.on) { it.battery = Math.max(0, it.battery - dt / (d.battery * cells)); if (it.battery <= 0) { it.on = false; SFX.play('click'); HUD.toast(d.name + ': battery dead'); if (d.lamp) G.request({ a: 'lamp', item: it.id, on: false }); } }
       }
       // ---------- use item ----------
       swingT = Math.max(0, swingT - dt); swingCd -= dt; useCd -= dt; scanCd -= dt; eatT = Math.max(0, eatT - dt); unwrapT = Math.max(0, unwrapT - dt);
@@ -14050,6 +14219,7 @@ const Player = (() => {
         const d = ITEMS[cur.type];
         if (Input.lmbP) {
           if (d.light || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
+          else if (d.lamp) toggleLamp(cur);
           else if (cur.type === 'shovel' && swingCd <= 0) {
             swingCd = 0.85; swingT = 0.45; SFX.play('swing');
             const e = cam.getWorldPosition(new THREE.Vector3()), dir = cam.getWorldDirection(new THREE.Vector3());
@@ -14081,11 +14251,14 @@ const Player = (() => {
       if (keyed && !me.radio) { keyed = false; SFX.play('radio_key', null, { vol: 0.6 }); }
       // leech struggle
       if (leeched && !ui && Input.hit('KeyE')) { G.request({ a: 'struggle' }); shake = Math.max(shake, 0.25); }
-      // scan
-      if (!ui && Input.rmbP && scanCd <= 0) { scanCd = 1.3; G.scan(); }
+      // scan (holding something that gives light, the right button lights it instead)
+      if (!ui && Input.rmbP && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
+      else if (!ui && Input.rmbP && scanCd <= 0) { scanCd = 1.3; G.scan(); }
       // ---------- interaction ----------
+      // (use with a lamp in hand and nothing in front of you lights it; facing a door or anything else, it's used)
       target = ui ? null : findTarget(me);
       if (!ui && !leeched && Input.hit('KeyE') && target) G.interact(target);
+      else if (!ui && !leeched && Input.hit('KeyE') && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
       HUD.prompt(target, me);
       // flashlight light
       const lights = me.slots.map((id) => id != null && G.items.get(id)).filter((it) => it && ITEMS[it.type].light && it.on);
@@ -14100,7 +14273,9 @@ const Player = (() => {
         R.flash.distance = L.range; R.flash.angle = L.angle;
         R.flash.position.set(inHand ? 0.22 : 0.05, inHand ? -0.18 : -0.42, 0.05);
       } else R.flash.intensity = 0;
-      R.vmPoint.intensity = fl ? 1.5 : 0;
+      // (the hand lit by the flashlight's spill, or warm from the lamp it's holding)
+      const lampLit = cur && ITEMS[cur.type].lamp && cur.on;
+      R.vmPoint.intensity = fl ? 1.5 : lampLit ? 2.2 : 0; R.vmPoint.color.setHex(lampLit && !fl ? ITEMS[cur.type].lamp.color : 0xfff2dc);
       updateVM(dt, me, moveAmt);
       if (vm.lens && cur && ITEMS[cur.type].light) {
         const lit = cur.on ? clamp(R.flash.intensity / FLASH_K, 0, 1.5) : 0;
@@ -15359,28 +15534,28 @@ const turnFrom = (pm, po) => { const vx = po.x - pm.x, vz = po.z - pm.z; return 
 // what is left in a room depends on what the room was for
 const LOOT = {
   office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4, typewriter: 2.2, radio: 1.4, globe: 1.4, trophy: 1.2, camera: 1, vase: 0.8, bottle: 0.8 },
-  storage: { gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25, toolbox: 1.5, battery: 1.2, kettle: 1, bottle: 1, extinguisher: 0.8, radio: 0.6, typewriter: 0.5 },
+  storage: { lantern: 1.2, gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25, toolbox: 1.5, battery: 1.2, kettle: 1, bottle: 1, extinguisher: 0.8, radio: 0.6, typewriter: 0.5 },
   machine: { gear: 3, bolt: 3, axle: 2, engine: 1.3, horn: 1, goldbar: 0.2, toolbox: 2, battery: 1.8, meter: 1.2, extinguisher: 1.2, circuit: 1 },
-  boiler: { gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8, extinguisher: 1.5, toolbox: 1.2, battery: 1, meter: 1, kettle: 0.6 },
+  boiler: { lantern: 0.8, gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8, extinguisher: 1.5, toolbox: 1.2, battery: 1, meter: 1, kettle: 0.6 },
   hall: { gear: 1, bolt: 1, axle: 1, engine: 0.6, toy: 0.5, doll: 0.5, painting: 0.4, extinguisher: 1, trophy: 0.6, vase: 0.5, globe: 0.4 },
   lab: { flask: 4, jar: 2.2, mask: 1, watch: 0.5, doll: 0.3, meter: 2, circuit: 2.2, skull: 1.2, camera: 0.6, bottle: 0.6 },
   morgue: { mask: 2, doll: 2, watch: 2.2, jar: 1, flask: 1.4, candelabra: 0.5, skull: 2, teddy: 1.4, camera: 0.8, bottle: 0.6 },
-  lockers: { watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35, teddy: 1.4, radio: 1.2, camera: 1.2, kettle: 1, bottle: 1.2, trophy: 0.8 },
+  lockers: { lantern: 0.9, watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35, teddy: 1.4, radio: 1.2, camera: 1.2, kettle: 1, bottle: 1.2, trophy: 0.8 },
   entrance: { phone: 2, register: 1.5, painting: 1, lamp: 1, bell: 1, typewriter: 1.2, radio: 1, trophy: 1.2, vase: 1, globe: 0.8 },
-  exit: { bolt: 1, gear: 1, horn: 1, toy: 0.6, extinguisher: 1.5, toolbox: 0.6 },
+  exit: { lantern: 0.7, bolt: 1, gear: 1, horn: 1, toy: 0.6, extinguisher: 1.5, toolbox: 0.6 },
   core: { bolt: 1, gear: 1, battery: 0.6, meter: 0.6, circuit: 0.6 },
-  corridor: { bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4, extinguisher: 1, teddy: 0.8, bottle: 0.5 },
+  corridor: { lantern: 0.6, bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4, extinguisher: 1, teddy: 0.8, bottle: 0.5 },
 };
 // ...and on what the whole site was
 const SITE_LOOT = {
-  ashgrove: { bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2, typewriter: 1.4, kettle: 1.4, radio: 1.3 },
+  ashgrove: { lantern: 1.3, bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2, typewriter: 1.4, kettle: 1.4, radio: 1.3 },
   kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2, circuit: 1.6, meter: 1.5, skull: 1.3 },
   nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4, battery: 1.5, toolbox: 1.5, extinguisher: 1.3 },
   hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3, skull: 1.8, vase: 1.5, trophy: 1.3, teddy: 1.3 },
   verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2, circuit: 1.3, camera: 1.3, globe: 1.3 },
-  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2, battery: 1.3, kettle: 1.3, radio: 1.3 },
+  rimefall: { lantern: 1.4, engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2, battery: 1.3, kettle: 1.3, radio: 1.3 },
   agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3, teddy: 1.8, vase: 1.4, trophy: 1.4, typewriter: 1.3 },
-  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1, bottle: 1.6, extinguisher: 1.3, globe: 1.3, radio: 1.2 },
+  brinewell: { lantern: 1.4, horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1, bottle: 1.6, extinguisher: 1.3, globe: 1.3, radio: 1.2 },
   saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3, meter: 1.4, circuit: 1.4, camera: 1.2 },
   vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2, trophy: 1.5, vase: 1.5, battery: 1.3 },
 };
@@ -15398,6 +15573,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
+const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
@@ -15407,7 +15583,7 @@ const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
   players: new Map(), items: new Map(), monsters: new Map(),
   run: null, round: null, fac: null, ext: null, ship: null,
-  noises: [], timers: [], nextItemId: 1, nextMonId: 1, nextPid: 1,
+  noises: [], timers: [], nextItemId: 1, nextMonId: 1, nextPid: 1, lampSrc: new Map(),
   lightSources: [], sendT: 0, leechOn: null, flicker: 0, seq: null, leverConfirm: 0, corpses: [], departT: 0, grenades: [],
   bombs: [], fuses: [], blasts: [],
   dir: { t: 20, howl: 40, light: 0, beat: 0 }, now: 0,
@@ -15573,7 +15749,7 @@ const G = {
         it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
         it.vis.x = damp(it.vis.x, it.pos.x, 10, dt); it.vis.z = damp(it.vis.z, it.pos.z, 10, dt);
-        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, metal: ITEMS[it.type].weight > 4, pitch: 1.4 - Math.min(0.8, ITEMS[it.type].weight / 30) }); it.fallV = 0; }
+        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, mat: ITEM_MAT[it.type], w: ITEMS[it.type].weight }); it.fallV = 0; }
       } else it.fallV = 0;
       it.mesh.position.copy(it.vis); it.mesh.rotation.set(0, it.ry, 0);
       if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
@@ -16410,6 +16586,11 @@ const G = {
         } else view = (((view + (r.act === 'next' ? 1 : -1)) % n) + n) % n;
         G.run.mon = view;
         G.emit({ e: 'monitor', view, radar: r.act === 'radar' });
+        break;
+      }
+      case 'lamp': {
+        const it = G.items.get(r.item); if (!it || it.holder !== pid || !ITEMS[it.type].lamp) return;
+        G.emit({ e: 'itemState', id: it.id, on: !!r.on && !(ITEMS[it.type].battery && it.battery <= 0) });
         break;
       }
       case 'charge': {
@@ -17848,6 +18029,39 @@ const G = {
       }
     }
   },
+  // Lamps people carry (a lantern, the candelabra, the fancy lamp): lit, each is a light source like the building's own,
+  // where it is (in someone's hand, or set down), working whether the power's on or not; its glow lit to match in the
+  // piece itself and in whoever's hand it's in. (Shut in a locker, or in the rover's basket, it gives no light.)
+  lamps(t) {
+    const live = new Set();
+    for (const it of G.items.values()) {
+      const L = ITEMS[it.type].lamp; if (!L) continue;
+      const on = it.on && it.box == null && it.basket == null;
+      const k = on ? (L.fire ? 0.82 + 0.12 * Math.sin(t * 13 + it.id) * Math.sin(t * 7.1 + it.id * 2) + Math.random() * 0.06 : L.unsteady ? 0.94 + 0.06 * Math.sin(t * 9 + it.id) : 1) : 0;
+      ItemMeshes.glow(it.mesh, k);
+      const h = it.holder != null ? G.players.get(it.holder) : null;
+      if (h && h.id === G.localId && Player.vmItem && Player.vmItem.userData.type === it.type) ItemMeshes.glow(Player.vmItem, k);
+      if (h && h.avatar && h.avatar.held) ItemMeshes.glow(h.avatar.held, k);
+      if (!on) continue;
+      live.add(it.id);
+      let s = G.lampSrc.get(it.id);
+      if (!s) { s = { x: 0, y: 0, z: 0, color: L.color, power: L.power, state: L.fire ? 'fire' : 'on', range: L.range, lit: 1, phase: it.id, far: 40 }; G.lampSrc.set(it.id, s); }
+      // (the light list is made afresh on every landing: put it back in if it's gone)
+      if (!G.lightSources.includes(s)) G.lightSources.push(s);
+      if (h) {
+        const P = h.id === G.localId ? h.pos : h.rpos, yaw = h.id === G.localId ? h.yaw : h.ryaw || 0;
+        _lampP.set(P.x - Math.sin(yaw) * 0.45 + Math.cos(yaw) * 0.22, P.y + (h.crouch ? 0.7 : 1.05), P.z - Math.cos(yaw) * 0.45 - Math.sin(yaw) * 0.22);
+        if (G.shipMoved && G.playerAboard(h)) _lampP.applyMatrix4(G.shipM);
+        s.zone = h.zone;
+      } else {
+        _lampP.copy(it.vis || it.pos); _lampP.y += L.y != null ? L.y + 0.05 : 0.35;
+        if (G.shipMoved && it.inShip) _lampP.applyMatrix4(G.shipM);
+        s.zone = it.pos.y < FAC_Y0 + 60 ? 'in' : 'out';
+      }
+      s.x = _lampP.x; s.y = _lampP.y; s.z = _lampP.z;
+    }
+    for (const [id, s] of G.lampSrc) if (!live.has(id)) { G.lampSrc.delete(id); const i = G.lightSources.indexOf(s); if (i >= 0) G.lightSources.splice(i, 1); }
+  },
   // a crewmate's flashlight, as a spotlight: held out at their side, pointing where they look
   aimFlash(s, p) {
     const yaw = p.ryaw || p.yaw, pitch = p.rpitch || 0, cp = Math.cos(pitch);
@@ -17922,6 +18136,8 @@ const G = {
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
       R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      // (the volumetric air, if it's on: the building's still, dusty air, the flashlights' beams showing in it)
+      if (Settings.volumetric) { R.vol.on = true; R.volIndoor(scene.fog.color, 0.062 + 0.012 * dp); scene.fog.density = 0; }
       SFX.setEnv('interior');
       R.fx.exposure = 1.25 - 0.06 * dp;
       G.ext.group.visible = false; G.ext.rain.visible = false;
@@ -17981,6 +18197,7 @@ const G = {
     const power = G.round ? G.round.power : true;
     const los = zone === 'in' && G.fac ? (s) => (s.fac ? G.fac.lampReach(cam, s) : G.fac.los(cam.x, cam.z, s.x, s.z) ? 1 : 0) : null;
     R.updateLights(G.lightSources, cam, zone, t, dt, power, (s, f) => { if (s.fac && G.fac) G.fac.setLampVisual(s, power || s.state === 'emergency' ? Math.max(0.05, f) : 0.04); }, los);
+    G.lamps(t);
     // remote flashlights (+ a faint visible beam)
     const remotes = [...G.players.values()].filter((p) => p.id !== G.localId && p.alive && p.flash && p.zone === zone)
       .sort((a, b) => a.rpos.distanceToSquared(cam) - b.rpos.distanceToSquared(cam)).slice(0, R.remote.length);
@@ -18016,7 +18233,7 @@ const G = {
     const me = G.me(); if (!me) return;
     const cam = R.camera.position, d = G.dir;
     // fear from visible creatures
-    let fear = 0, flicker = 0, chased = false;
+    let fear = 0, flicker = 0, chased = false, chaseK = 0;
     const camDir = R.camera.getWorldDirection(new THREE.Vector3());
     for (const m of G.monsters.values()) {
       if (m.dead || m.def.zone !== G.zoneOf(me)) continue;
@@ -18029,7 +18246,7 @@ const G = {
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);
       const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt';
-      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound')) chased = true;
+      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
       if (visible) {
         fear = Math.max(fear, clamp(1 - dist / 22, 0, 1) + (threat ? 0.35 : 0.1));
         if (me.alive && G.now - (m.lastSting || -1e9) > 25000) { m.lastSting = G.now; SFX.play(dist < 5 ? 'stinger_hi' : 'stinger', null, { vol: 0.9, pitch: 0.85 + Math.random() * 0.3 }); }
@@ -18040,9 +18257,14 @@ const G = {
     if (me.alive && me.hp < 35) fear = Math.max(fear, 0.35);
     R.fx.fear = damp(R.fx.fear, me.alive ? clamp(fear, 0, 1) : 0, fear > R.fx.fear ? 3 : 0.4, dt);
     G.flicker = flicker + (R.fx.fear > 0.7 ? 0.01 : 0);
-    // heartbeat
+    // heartbeat: quickening with fear, and racing (over two hundred a minute) with something right behind you
     d.beat -= dt;
-    if (me.alive && R.fx.fear > 0.3 && d.beat <= 0) { d.beat = lerp(1.05, 0.38, R.fx.fear); SFX.play('heartbeat', null, { vol: R.fx.fear * 0.9 }); }
+    if (me.alive && (R.fx.fear > 0.3 || chaseK > 0) && d.beat <= 0) {
+      d.beat = chaseK > 0 ? lerp(0.45, 0.26, chaseK) : lerp(1.05, 0.38, R.fx.fear);
+      SFX.play('heartbeat', null, { vol: Math.max(R.fx.fear * 0.9, chaseK > 0 ? 0.65 + chaseK * 0.45 : 0), gap: Math.min(0.22, d.beat * 0.42) });
+    }
+    // ...and the chase music, swelling with how close it is
+    SFX.chase(dt, me.alive ? chaseK : 0);
     // post fx decay
     R.fx.damage = damp(R.fx.damage, 0, 2.5, dt);
     R.fx.flash = damp(R.fx.flash, 0, 1.4, dt);
@@ -18136,7 +18358,7 @@ const MenuScene = (() => {
       if (!fac) build();
       if (!active) { R.scene.add(fac.group); R.scene.add(pale); active = true; }
       G.ship.group.visible = false; G.ship.space.visible = false;
-      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null); R.vol.on = false;
+      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null); R.vol.on = false; SFX.chase(0, 0, true);
       for (let i = -1; i < 2; i++) R.setGlow(i, null);
       R.remote.forEach((s, i) => { s.intensity = 0; R.setBeam(i, s, false); });
       R.fx.health = 1; R.fx.leech = 0; R.fx.damage = 0; R.fx.sun = 0;

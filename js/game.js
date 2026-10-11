@@ -138,28 +138,28 @@ const turnFrom = (pm, po) => { const vx = po.x - pm.x, vz = po.z - pm.z; return 
 // what is left in a room depends on what the room was for
 const LOOT = {
   office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4, typewriter: 2.2, radio: 1.4, globe: 1.4, trophy: 1.2, camera: 1, vase: 0.8, bottle: 0.8 },
-  storage: { gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25, toolbox: 1.5, battery: 1.2, kettle: 1, bottle: 1, extinguisher: 0.8, radio: 0.6, typewriter: 0.5 },
+  storage: { lantern: 1.2, gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25, toolbox: 1.5, battery: 1.2, kettle: 1, bottle: 1, extinguisher: 0.8, radio: 0.6, typewriter: 0.5 },
   machine: { gear: 3, bolt: 3, axle: 2, engine: 1.3, horn: 1, goldbar: 0.2, toolbox: 2, battery: 1.8, meter: 1.2, extinguisher: 1.2, circuit: 1 },
-  boiler: { gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8, extinguisher: 1.5, toolbox: 1.2, battery: 1, meter: 1, kettle: 0.6 },
+  boiler: { lantern: 0.8, gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8, extinguisher: 1.5, toolbox: 1.2, battery: 1, meter: 1, kettle: 0.6 },
   hall: { gear: 1, bolt: 1, axle: 1, engine: 0.6, toy: 0.5, doll: 0.5, painting: 0.4, extinguisher: 1, trophy: 0.6, vase: 0.5, globe: 0.4 },
   lab: { flask: 4, jar: 2.2, mask: 1, watch: 0.5, doll: 0.3, meter: 2, circuit: 2.2, skull: 1.2, camera: 0.6, bottle: 0.6 },
   morgue: { mask: 2, doll: 2, watch: 2.2, jar: 1, flask: 1.4, candelabra: 0.5, skull: 2, teddy: 1.4, camera: 0.8, bottle: 0.6 },
-  lockers: { watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35, teddy: 1.4, radio: 1.2, camera: 1.2, kettle: 1, bottle: 1.2, trophy: 0.8 },
+  lockers: { lantern: 0.9, watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35, teddy: 1.4, radio: 1.2, camera: 1.2, kettle: 1, bottle: 1.2, trophy: 0.8 },
   entrance: { phone: 2, register: 1.5, painting: 1, lamp: 1, bell: 1, typewriter: 1.2, radio: 1, trophy: 1.2, vase: 1, globe: 0.8 },
-  exit: { bolt: 1, gear: 1, horn: 1, toy: 0.6, extinguisher: 1.5, toolbox: 0.6 },
+  exit: { lantern: 0.7, bolt: 1, gear: 1, horn: 1, toy: 0.6, extinguisher: 1.5, toolbox: 0.6 },
   core: { bolt: 1, gear: 1, battery: 0.6, meter: 0.6, circuit: 0.6 },
-  corridor: { bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4, extinguisher: 1, teddy: 0.8, bottle: 0.5 },
+  corridor: { lantern: 0.6, bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4, extinguisher: 1, teddy: 0.8, bottle: 0.5 },
 };
 // ...and on what the whole site was
 const SITE_LOOT = {
-  ashgrove: { bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2, typewriter: 1.4, kettle: 1.4, radio: 1.3 },
+  ashgrove: { lantern: 1.3, bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2, typewriter: 1.4, kettle: 1.4, radio: 1.3 },
   kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2, circuit: 1.6, meter: 1.5, skull: 1.3 },
   nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4, battery: 1.5, toolbox: 1.5, extinguisher: 1.3 },
   hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3, skull: 1.8, vase: 1.5, trophy: 1.3, teddy: 1.3 },
   verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2, circuit: 1.3, camera: 1.3, globe: 1.3 },
-  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2, battery: 1.3, kettle: 1.3, radio: 1.3 },
+  rimefall: { lantern: 1.4, engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2, battery: 1.3, kettle: 1.3, radio: 1.3 },
   agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3, teddy: 1.8, vase: 1.4, trophy: 1.4, typewriter: 1.3 },
-  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1, bottle: 1.6, extinguisher: 1.3, globe: 1.3, radio: 1.2 },
+  brinewell: { lantern: 1.4, horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1, bottle: 1.6, extinguisher: 1.3, globe: 1.3, radio: 1.2 },
   saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3, meter: 1.4, circuit: 1.4, camera: 1.2 },
   vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2, trophy: 1.5, vase: 1.5, battery: 1.3 },
 };
@@ -177,6 +177,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
+const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
@@ -186,7 +187,7 @@ const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
   players: new Map(), items: new Map(), monsters: new Map(),
   run: null, round: null, fac: null, ext: null, ship: null,
-  noises: [], timers: [], nextItemId: 1, nextMonId: 1, nextPid: 1,
+  noises: [], timers: [], nextItemId: 1, nextMonId: 1, nextPid: 1, lampSrc: new Map(),
   lightSources: [], sendT: 0, leechOn: null, flicker: 0, seq: null, leverConfirm: 0, corpses: [], departT: 0, grenades: [],
   bombs: [], fuses: [], blasts: [],
   dir: { t: 20, howl: 40, light: 0, beat: 0 }, now: 0,
@@ -352,7 +353,7 @@ const G = {
         it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
         it.vis.x = damp(it.vis.x, it.pos.x, 10, dt); it.vis.z = damp(it.vis.z, it.pos.z, 10, dt);
-        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, metal: ITEMS[it.type].weight > 4, pitch: 1.4 - Math.min(0.8, ITEMS[it.type].weight / 30) }); it.fallV = 0; }
+        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, mat: ITEM_MAT[it.type], w: ITEMS[it.type].weight }); it.fallV = 0; }
       } else it.fallV = 0;
       it.mesh.position.copy(it.vis); it.mesh.rotation.set(0, it.ry, 0);
       if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
@@ -1189,6 +1190,11 @@ const G = {
         } else view = (((view + (r.act === 'next' ? 1 : -1)) % n) + n) % n;
         G.run.mon = view;
         G.emit({ e: 'monitor', view, radar: r.act === 'radar' });
+        break;
+      }
+      case 'lamp': {
+        const it = G.items.get(r.item); if (!it || it.holder !== pid || !ITEMS[it.type].lamp) return;
+        G.emit({ e: 'itemState', id: it.id, on: !!r.on && !(ITEMS[it.type].battery && it.battery <= 0) });
         break;
       }
       case 'charge': {
@@ -2627,6 +2633,39 @@ const G = {
       }
     }
   },
+  // Lamps people carry (a lantern, the candelabra, the fancy lamp): lit, each is a light source like the building's own,
+  // where it is (in someone's hand, or set down), working whether the power's on or not; its glow lit to match in the
+  // piece itself and in whoever's hand it's in. (Shut in a locker, or in the rover's basket, it gives no light.)
+  lamps(t) {
+    const live = new Set();
+    for (const it of G.items.values()) {
+      const L = ITEMS[it.type].lamp; if (!L) continue;
+      const on = it.on && it.box == null && it.basket == null;
+      const k = on ? (L.fire ? 0.82 + 0.12 * Math.sin(t * 13 + it.id) * Math.sin(t * 7.1 + it.id * 2) + Math.random() * 0.06 : L.unsteady ? 0.94 + 0.06 * Math.sin(t * 9 + it.id) : 1) : 0;
+      ItemMeshes.glow(it.mesh, k);
+      const h = it.holder != null ? G.players.get(it.holder) : null;
+      if (h && h.id === G.localId && Player.vmItem && Player.vmItem.userData.type === it.type) ItemMeshes.glow(Player.vmItem, k);
+      if (h && h.avatar && h.avatar.held) ItemMeshes.glow(h.avatar.held, k);
+      if (!on) continue;
+      live.add(it.id);
+      let s = G.lampSrc.get(it.id);
+      if (!s) { s = { x: 0, y: 0, z: 0, color: L.color, power: L.power, state: L.fire ? 'fire' : 'on', range: L.range, lit: 1, phase: it.id, far: 40 }; G.lampSrc.set(it.id, s); }
+      // (the light list is made afresh on every landing: put it back in if it's gone)
+      if (!G.lightSources.includes(s)) G.lightSources.push(s);
+      if (h) {
+        const P = h.id === G.localId ? h.pos : h.rpos, yaw = h.id === G.localId ? h.yaw : h.ryaw || 0;
+        _lampP.set(P.x - Math.sin(yaw) * 0.45 + Math.cos(yaw) * 0.22, P.y + (h.crouch ? 0.7 : 1.05), P.z - Math.cos(yaw) * 0.45 - Math.sin(yaw) * 0.22);
+        if (G.shipMoved && G.playerAboard(h)) _lampP.applyMatrix4(G.shipM);
+        s.zone = h.zone;
+      } else {
+        _lampP.copy(it.vis || it.pos); _lampP.y += L.y != null ? L.y + 0.05 : 0.35;
+        if (G.shipMoved && it.inShip) _lampP.applyMatrix4(G.shipM);
+        s.zone = it.pos.y < FAC_Y0 + 60 ? 'in' : 'out';
+      }
+      s.x = _lampP.x; s.y = _lampP.y; s.z = _lampP.z;
+    }
+    for (const [id, s] of G.lampSrc) if (!live.has(id)) { G.lampSrc.delete(id); const i = G.lightSources.indexOf(s); if (i >= 0) G.lightSources.splice(i, 1); }
+  },
   // a crewmate's flashlight, as a spotlight: held out at their side, pointing where they look
   aimFlash(s, p) {
     const yaw = p.ryaw || p.yaw, pitch = p.rpitch || 0, cp = Math.cos(pitch);
@@ -2701,6 +2740,8 @@ const G = {
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
       R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      // (the volumetric air, if it's on: the building's still, dusty air, the flashlights' beams showing in it)
+      if (Settings.volumetric) { R.vol.on = true; R.volIndoor(scene.fog.color, 0.062 + 0.012 * dp); scene.fog.density = 0; }
       SFX.setEnv('interior');
       R.fx.exposure = 1.25 - 0.06 * dp;
       G.ext.group.visible = false; G.ext.rain.visible = false;
@@ -2760,6 +2801,7 @@ const G = {
     const power = G.round ? G.round.power : true;
     const los = zone === 'in' && G.fac ? (s) => (s.fac ? G.fac.lampReach(cam, s) : G.fac.los(cam.x, cam.z, s.x, s.z) ? 1 : 0) : null;
     R.updateLights(G.lightSources, cam, zone, t, dt, power, (s, f) => { if (s.fac && G.fac) G.fac.setLampVisual(s, power || s.state === 'emergency' ? Math.max(0.05, f) : 0.04); }, los);
+    G.lamps(t);
     // remote flashlights (+ a faint visible beam)
     const remotes = [...G.players.values()].filter((p) => p.id !== G.localId && p.alive && p.flash && p.zone === zone)
       .sort((a, b) => a.rpos.distanceToSquared(cam) - b.rpos.distanceToSquared(cam)).slice(0, R.remote.length);
@@ -2795,7 +2837,7 @@ const G = {
     const me = G.me(); if (!me) return;
     const cam = R.camera.position, d = G.dir;
     // fear from visible creatures
-    let fear = 0, flicker = 0, chased = false;
+    let fear = 0, flicker = 0, chased = false, chaseK = 0;
     const camDir = R.camera.getWorldDirection(new THREE.Vector3());
     for (const m of G.monsters.values()) {
       if (m.dead || m.def.zone !== G.zoneOf(me)) continue;
@@ -2808,7 +2850,7 @@ const G = {
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);
       const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt';
-      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound')) chased = true;
+      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
       if (visible) {
         fear = Math.max(fear, clamp(1 - dist / 22, 0, 1) + (threat ? 0.35 : 0.1));
         if (me.alive && G.now - (m.lastSting || -1e9) > 25000) { m.lastSting = G.now; SFX.play(dist < 5 ? 'stinger_hi' : 'stinger', null, { vol: 0.9, pitch: 0.85 + Math.random() * 0.3 }); }
@@ -2819,9 +2861,14 @@ const G = {
     if (me.alive && me.hp < 35) fear = Math.max(fear, 0.35);
     R.fx.fear = damp(R.fx.fear, me.alive ? clamp(fear, 0, 1) : 0, fear > R.fx.fear ? 3 : 0.4, dt);
     G.flicker = flicker + (R.fx.fear > 0.7 ? 0.01 : 0);
-    // heartbeat
+    // heartbeat: quickening with fear, and racing (over two hundred a minute) with something right behind you
     d.beat -= dt;
-    if (me.alive && R.fx.fear > 0.3 && d.beat <= 0) { d.beat = lerp(1.05, 0.38, R.fx.fear); SFX.play('heartbeat', null, { vol: R.fx.fear * 0.9 }); }
+    if (me.alive && (R.fx.fear > 0.3 || chaseK > 0) && d.beat <= 0) {
+      d.beat = chaseK > 0 ? lerp(0.45, 0.26, chaseK) : lerp(1.05, 0.38, R.fx.fear);
+      SFX.play('heartbeat', null, { vol: Math.max(R.fx.fear * 0.9, chaseK > 0 ? 0.65 + chaseK * 0.45 : 0), gap: Math.min(0.22, d.beat * 0.42) });
+    }
+    // ...and the chase music, swelling with how close it is
+    SFX.chase(dt, me.alive ? chaseK : 0);
     // post fx decay
     R.fx.damage = damp(R.fx.damage, 0, 2.5, dt);
     R.fx.flash = damp(R.fx.flash, 0, 1.4, dt);

@@ -579,11 +579,94 @@ const Exterior = (() => {
       this.buildWorldExtras(grp);
       this.buildLampPosts(grp);
       this.buildSky(grp);
+      this.buildRanges(grp);
       this.buildRain(grp);
       this.buildGroundCover(grp);
+      this.buildPuddles(grp);
+      this.buildCrows(grp);
       this.buildMotes(grp);
       this.group = grp;
       return grp;
+    }
+    // ---------------- the far country ----------------
+    // Ranges all round the site beyond where anyone walks, foothills rising to the high ground: the shape of this
+    // world's land (rolling ridges, terraced mesas, volcanoes over an ash plain, low rises and lone mesas across the
+    // flats, jagged snowy peaks), coloured from its own ground and rock, lit by its sun. They stand in the ground mist:
+    // their feet lost in it, their tops clearing it on a fine day, all of it gone in fog (and sharp and black-shadowed
+    // where there's no air at all). Drawn with their own haze (see update), not the scene's fog, which would swallow
+    // anything this far out.
+    buildRanges(grp) {
+      const BI = this.biome, rel = BI.relief, snowy = BI.terrainTex === 'terrainSnow', P = BI.ground, nz = new Noise2D(this.seed + 313), rr = new RNG(this.seed + 314);
+      const A = 384, RN = 18, R0 = 186, R1 = 465, amp = { hills: 85, marsh: 26, canyon: 64, craters: 44, flats: 12 }[rel] || 55;
+      // (volcanoes on the skyline over the ash, and lone flat-topped mesas standing out of the flats)
+      const peaks = [];
+      if (rel === 'craters' || rel === 'flats') for (let i = 0; i < (rel === 'craters' ? 3 : 4); i++) { const a = rr.range(0, TAU), r = rr.range(330, 430); peaks.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, h: rr.range(0.8, 1.5), w: rr.range(40, 75) }); }
+      const H = (x, z, r) => {
+        // (two lines of country: nearer, lower hills standing in the mist, paler for it; then the high range behind,
+        // its peaks clear of it and darker)
+        const t = (r - R0) / (R1 - R0), env = sstep(0.3, 0.75, t) * (0.55 + 0.45 * sstep(0.6, 1, t)), nearEnv = sstep(0.01, 0.08, t) * (1 - sstep(0.3, 0.5, t));
+        const near = (nz.fbm(x * 0.012 + 40, z * 0.012, 3) * 0.5 + 0.5) * (0.3 + 0.7 * (1 - Math.abs(nz.noise(x * 0.02 - 7, z * 0.02)))) * 0.6 * nearEnv * (rel === 'flats' ? 0.5 : 1);
+        let h;
+        if (rel === 'canyon') { const v = (nz.fbm(x * 0.006, z * 0.006, 4) * 0.5 + 0.5) * 4, f = v - Math.floor(v); h = (Math.floor(v) + sstep(0.72, 0.95, f)) / 4 * 1.5; }
+        else if (rel === 'marsh') h = (nz.fbm(x * 0.008, z * 0.008, 3) * 0.5 + 0.5) * 0.9;
+        else if (rel === 'flats') h = (nz.fbm(x * 0.005, z * 0.005, 3) * 0.5 + 0.5) * 0.5;
+        else { const rd = 1 - Math.abs(nz.noise(x * 0.007, z * 0.007)); h = rd * rd * 0.9 + (nz.fbm(x * 0.016 + 9, z * 0.016, 4) * 0.5 + 0.5) * 0.45; if (snowy) h *= 1.5; }
+        h = (h * env + near) * amp;
+        for (const c of peaks) {
+          const d = Math.hypot(x - c.x, z - c.z);
+          if (rel === 'craters') h += c.h * 110 * Math.pow(Math.max(0, 1 - d / c.w), 1.4) - c.h * 22 * Math.max(0, 1 - d / (c.w * 0.2));
+          else h = Math.max(h, c.h * 34 * sstep(c.w * 1.2, c.w, d) * (0.94 + 0.06 * nz.noise(x * 0.05, z * 0.05)));
+        }
+        // (the nearer hills start just past where anyone can walk, rising off the land itself; their near edge dips
+        // under it, so no seam shows)
+        return h + this.height(x, z) * (1 - sstep(190, 260, r)) + 0.3 - 8 * (1 - sstep(R0, R0 + 3, r));
+      };
+      const nv = (A + 1) * (RN + 1), pos = new Float32Array(nv * 3), idx = [];
+      for (let j = 0; j <= RN; j++) for (let i = 0; i <= A; i++) {
+        const a = (i / A) * TAU, r = R0 + (R1 - R0) * Math.pow(j / RN, 1.3), x = Math.cos(a) * r, z = Math.sin(a) * r, k = (j * (A + 1) + i) * 3;
+        pos[k] = x; pos[k + 1] = H(x, z, r); pos[k + 2] = z;
+      }
+      for (let j = 0; j < RN; j++) for (let i = 0; i < A; i++) { const a = j * (A + 1) + i, b = a + 1, c = a + A + 1, d = c + 1; idx.push(a, b, c, b, d, c); }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+      // the ground's own colours: its earth on the gentle slopes, its rock on the steep ones (canyon strata in bands), snow
+      // on the high flat parts of a snowy world
+      const nrm = geo.attributes.normal, col = new Float32Array(nv * 3), hmax = amp * (snowy ? 1.5 : 1) * 1.1;
+      for (let i = 0; i < nv; i++) {
+        const y = pos[i * 3 + 1], ny = nrm.getY(i), steep = sstep(0.9, 0.7, ny), v = 0.85 + 0.3 * (nz.noise(pos[i * 3] * 0.03, pos[i * 3 + 2] * 0.03) * 0.5 + 0.5);
+        // (seen from this far, the colour's gone out of it: greyed toward the rock, darker, a little cold)
+        const rad = Math.hypot(pos[i * 3], pos[i * 3 + 2]), far = sstep(200, 330, rad);
+        const c = [0, 1, 2].map((k) => { const g0 = lerp(P.a[k], P.rock[k], steep), gr = (P.rock[0] + P.rock[1] + P.rock[2]) / 3; return lerp(g0 * 0.5, lerp(g0, gr, 0.45) * 0.3 * [0.94, 0.97, 1.04][k], far) * v; });
+        if (rel === 'canyon') { const band = 0.88 + 0.14 * Math.sin(y * 0.9 + nz.noise(pos[i * 3] * 0.01, pos[i * 3 + 2] * 0.01) * 2); c[0] *= band; c[1] *= band * 0.97; c[2] *= band * 0.94; }
+        if (snowy) { const sn = sstep(0.42, 0.6, y / hmax) * sstep(0.55, 0.8, ny); for (let k = 0; k < 3; k++) c[k] = lerp(c[k], 0.82, sn); }
+        col.set(c, i * 3);
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      // (the top of the fog bank, all the way round: a few metres over the highest the land rises that way, out to its edge)
+      const tops = new Float32Array(64);
+      for (let k = 0; k < 64; k++) { const a = (k / 64) * TAU; let m = -1e9; for (let r = 90; r <= 190; r += 8) m = Math.max(m, this.height(Math.cos(a) * r, Math.sin(a) * r)); tops[k] = m + 4; }
+      const tops0 = tops.slice(); for (let k = 0; k < 64; k++) tops[k] = Math.max(tops0[k], tops0[(k + 1) % 64], tops0[(k + 63) % 64]);
+      const U = (v) => ({ value: v });
+      this.rangeMat = new THREE.ShaderMaterial({
+        uniforms: { uSun: U(new THREE.Vector3(0, 1, 0)), uSunCol: U(new THREE.Color(1, 1, 1)), uSky: U(new THREE.Color(0.7, 0.7, 0.7)), uGround: U(new THREE.Color(0x1a1712)), uFog: U(new THREE.Color(0.5, 0.5, 0.5)), uScatter: U(new THREE.Color(0, 0, 0)), uSunK: U(1), uHemiK: U(1), uD: U(0.005), uF: U(0.045), uTopAdd: U(0), uTop: U(tops) },
+        vertexShader: `varying vec3 vW, vN, vC;
+          void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; vN = normalize(mat3(modelMatrix) * normal); vC = color; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+        fragmentShader: `uniform vec3 uSun, uSunCol, uSky, uGround, uFog, uScatter; uniform float uSunK, uHemiK, uD, uF, uTopAdd, uTop[64]; varying vec3 vW, vN, vC;
+          void main(){
+            vec3 n = normalize(vN);
+            vec3 lit = vC * (uSunCol * uSunK * max(dot(n, uSun), 0.0) + mix(uGround, uSky, n.y * 0.5 + 0.5) * uHemiK) * 0.3183;
+            // the mist thickest low down: a line of sight to their feet goes through all of it, one to the peaks above most
+            vec3 v = vW - cameraPosition; float dist = length(v), sd = max(dot(v / dist, uSun), 0.0);
+            vec3 fc = uFog + uScatter * (pow(sd, 5.0) * 0.55 + pow(sd, 40.0) * 0.9);
+            float hz = 1.0 - exp(-dist * uD * (0.2 + 0.8 * exp(-max(vW.y, 0.0) * uF)));
+            // (and nothing shows through the fog bank lying over the land between: below its top, which is as high as
+            // the land rises that way, they're lost in it; above, they come out of it softly)
+            float fa = atan(vW.z, vW.x) / 6.2831853 * 64.0 + 64.0, fi = floor(fa);
+            float top = mix(uTop[int(mod(fi, 64.0))], uTop[int(mod(fi + 1.0, 64.0))], fa - fi) + uTopAdd;
+            hz = max(hz, 0.92 * (1.0 - smoothstep(top, top + 26.0, vW.y)) * step(0.002, uD));
+            gl_FragColor = vec4(mix(lit, fc, clamp(hz, 0.0, 1.0)), 1.0); }`,
+        vertexColors: true, fog: false,
+      });
+      const m = new THREE.Mesh(geo, this.rangeMat); m.frustumCulled = false; grp.add(m); this.ranges = m;
     }
     // a tapered, slightly crooked limb from p along dir; returns the far end
     limb(parts, p, dir, len, r0, r1, sides) {
@@ -763,6 +846,40 @@ const Exterior = (() => {
       this.grass.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.grass.frustumCulled = false; this.grass.receiveShadow = true;
       this.grass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(5200 * 3), 3);
       grp.add(this.grass);
+      // What's lying on the ground among it, by what grows here: drifts of dead leaves and twigs in the woods, broken
+      // reed stalks by the marsh, grit and dry sticks in the canyon, ash flakes and char, frozen leaves rimed white. Each
+      // a little patch drawn on one flat card, laid on the slope; plus the junk people leave by trails and yards
+      // (crumpled paper, rusted cans).
+      {
+        const LK = { dry: [0.5, 0.06], heather: [0.35, 0.04], fern: [0.45, 0.06], reeds: [0.25, 0], scrub: [0.3, 0.05], ash: [0.35, 0.05], frost: [0.3, 0.03] }[kind] || [0, 0];
+        this.litterDens = LK;
+        const [lc, lg] = TEX.canvas(128, 128), lr = new RNG(this.seed + 17); lg.clearRect(0, 0, 128, 128);
+        const P = (a) => a[lr.int(0, a.length - 1)];
+        const leaf = (x, y, l, w, a, col) => { lg.save(); lg.translate(x, y); lg.rotate(a); lg.fillStyle = col; lg.beginPath(); lg.ellipse(0, 0, l, w, 0, 0, TAU); lg.fill(); lg.strokeStyle = 'rgba(30,20,10,.55)'; lg.lineWidth = 0.8; lg.beginPath(); lg.moveTo(-l * 1.3, 0); lg.lineTo(l * 0.9, 0); lg.stroke(); lg.restore(); };
+        const stick = (x, y, l, a, w, col) => { lg.strokeStyle = col; lg.lineWidth = w; lg.lineCap = 'round'; lg.beginPath(); lg.moveTo(x, y); lg.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); lg.stroke(); };
+        const chip = (x, y, r, col) => { lg.fillStyle = col; lg.beginPath(); for (let k = 0; k < 6; k++) { const a = (k / 6) * TAU, q = r * lr.range(0.6, 1.2); lg[k ? 'lineTo' : 'moveTo'](x + Math.cos(a) * q, y + Math.sin(a) * q); } lg.closePath(); lg.fill(); };
+        const spot = () => { const a = lr.range(0, TAU), d = Math.sqrt(lr.next()) * 50; return [64 + Math.cos(a) * d, 64 + Math.sin(a) * d]; };
+        for (let i = 0; i < 34; i++) {
+          const [x, y] = spot();
+          if (kind === 'dry' || kind === 'heather' || kind === 'fern') { if (lr.chance(0.85)) leaf(x, y, lr.range(5, 9), lr.range(2.5, 4.5), lr.range(0, TAU), P(['#7a4a22', '#94602a', '#6a5426', '#a8782e', '#5a3a1c', '#7c6a34'])); else stick(x, y, lr.range(10, 24), lr.range(0, TAU), 2, '#3e2e20'); }
+          else if (kind === 'reeds') stick(x, y, lr.range(14, 34), lr.range(0, TAU), lr.range(1.5, 2.6), P(['#8a7a50', '#a09060', '#6e6440']));
+          else if (kind === 'scrub') { if (lr.chance(0.6)) chip(x, y, lr.range(1.5, 4), P(['#8a7868', '#6e6054', '#a08a74'])); else stick(x, y, lr.range(8, 18), lr.range(0, TAU), 1.4, '#6a5a48'); }
+          else if (kind === 'ash') chip(x, y, lr.range(2, 5), P(['#3a3836', '#24221f', '#5a5652', '#141210']));
+          else if (kind === 'frost') leaf(x, y, lr.range(5, 8), lr.range(2.5, 4), lr.range(0, TAU), P(['#b8c0c4', '#8a8478', '#d8e0e4']));
+        }
+        const ltex = new THREE.CanvasTexture(lc); ltex.colorSpace = THREE.SRGBColorSpace;
+        const lgeo = new THREE.PlaneGeometry(0.8, 0.8); lgeo.rotateX(-Math.PI / 2);
+        const lmat = new THREE.MeshLambertMaterial({ map: ltex, alphaTest: 0.5, side: THREE.DoubleSide });
+        this.litter = new THREE.InstancedMesh(lgeo, lmat, 1600); this.litter.count = 0;
+        this.litter.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(1600 * 3), 3);
+        const twig = new THREE.CylinderGeometry(0.009, 0.016, 1, 4); twig.rotateZ(Math.PI / 2);
+        this.twigs = new THREE.InstancedMesh(twig, MATS.get('bark'), 400); this.twigs.count = 0;
+        const paper = new THREE.IcosahedronGeometry(1, 0), can = new THREE.CylinderGeometry(0.033, 0.033, 0.12, 10); can.rotateZ(Math.PI / 2);
+        this.paper = new THREE.InstancedMesh(paper, MATS.get('paper'), 120); this.paper.count = 0;
+        this.cans = new THREE.InstancedMesh(can, MATS.get('rust'), 120); this.cans.count = 0;
+        for (const m of [this.litter, this.twigs, this.paper, this.cans]) { m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.frustumCulled = false; m.receiveShadow = true; grp.add(m); }
+        this.twigs.castShadow = true;
+      }
       const pg = new THREE.IcosahedronGeometry(1, 0); pg.scale(1, 0.5, 1);
       this.pebbles = new THREE.InstancedMesh(pg, this.rockMat || MATS.get('rock'), 900); this.pebbles.count = 0;
       this.pebbles.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.pebbles.frustumCulled = false; this.pebbles.receiveShadow = true;
@@ -801,8 +918,71 @@ const Exterior = (() => {
           pi.setMatrixAt(np++, m4);
         }
       }
+      // the litter, the twigs, the junk (laid on the slope of the ground under them)
+      if (this.litter) {
+        const LI = this.litter, TW = this.twigs, PA = this.paper, CA = this.cans, LD = this.litterDens, q = new THREE.Quaternion(), qy = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), nrm = new THREE.Vector3(), sc = new THREE.Vector3(), at = new THREE.Vector3();
+        let nl = 0, nt = 0, npa = 0, nc = 0;
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+          const x = (i + hash(i, j, 21)) * cell, z = (j + hash(i, j, 22)) * cell, d = Math.hypot(x - cx, z - cz);
+          if (d > 30) continue;
+          const y = this.gridAt(this.grid.h, x, z), bare = this.gridAt(this.grid.bare, x, z);
+          if (this.water != null && y < this.water + 0.05) continue;
+          nrm.set(this.gridAt(this.grid.h, x - 0.7, z) - this.gridAt(this.grid.h, x + 0.7, z), 1.4, this.gridAt(this.grid.h, x, z - 0.7) - this.gridAt(this.grid.h, x, z + 0.7)).normalize();
+          q.setFromUnitVectors(up, nrm);
+          const patch = this.noise.noise(x * 0.11 + 30, z * 0.11) * 0.5 + 0.5;
+          if (hash(i, j, 23) < LD[0] * (1 - bare * 0.6) * (0.4 + patch) && nl < 1600) {
+            const k = 0.6 + hash(i, j, 24) * 0.9;
+            qy.setFromAxisAngle(up, hash(i, j, 25) * TAU); m4.compose(at.set(x, y + 0.03, z), q.clone().multiply(qy), sc.set(k, 1, k)); LI.setMatrixAt(nl, m4);
+            const v = 0.38 + hash(i, j, 26) * 0.3; LI.setColorAt(nl++, col.setRGB(v, v * 0.95, v * 0.9));
+          }
+          if (hash(i, j, 27) < LD[1] * (1 - bare * 0.5) && nt < 400) {
+            const l = 0.3 + hash(i, j, 28) * 0.9; qy.setFromAxisAngle(up, hash(i, j, 29) * TAU);
+            m4.compose(at.set(x, y + 0.02, z), q.clone().multiply(qy), sc.set(l, 1 + hash(i, j, 30), 1 + hash(i, j, 30))); TW.setMatrixAt(nt++, m4);
+          }
+          // (junk only where people went: the trail, the yards, round the ship)
+          if (bare > 0.3 && hash(i, j, 31) < 0.035) {
+            qy.setFromAxisAngle(up, hash(i, j, 32) * TAU);
+            if (hash(i, j, 33) < 0.55 && npa < 120) { const k = 0.035 + hash(i, j, 34) * 0.04; m4.compose(at.set(x, y + k * 0.6, z), qy, sc.set(k, k * 0.8, k * 1.1)); PA.setMatrixAt(npa++, m4); }
+            else if (nc < 120) { const k = hash(i, j, 35) < 0.5 ? 1 : 0.6; m4.compose(at.set(x, y + 0.03 * k, z), q.clone().multiply(qy), sc.set(1, k, 1)); CA.setMatrixAt(nc++, m4); }
+          }
+        }
+        LI.count = nl; TW.count = nt; PA.count = npa; CA.count = nc;
+        for (const m of [LI, TW, PA, CA]) m.instanceMatrix.needsUpdate = true; LI.instanceColor.needsUpdate = true;
+      }
       gi.count = ng; pi.count = np;
       gi.instanceMatrix.needsUpdate = true; gi.instanceColor.needsUpdate = true; pi.instanceMatrix.needsUpdate = true;
+    }
+    // in the rain: standing water in the ruts and low spots of the trail and the yards, black and shining
+    buildPuddles(grp) {
+      if (!(this.weather === 'rain' || this.weather === 'storm') || this.biome.airless || this.water != null) return;
+      const r = new RNG(this.seed + 808), m = MATS.get('puddle'), geo = new THREE.CircleGeometry(1, 14); geo.rotateX(-Math.PI / 2);
+      for (let t = 0, n = 0; t < 400 && n < 34; t++) {
+        const x = r.range(-150, 150), z = r.range(-150, 150);
+        if (this.gridAt(this.grid.bare, x, z) < 0.45 || Math.hypot(x, z) < 15) continue;
+        const h = this.height(x, z), lo = Math.min(this.height(x + 1.5, z), this.height(x - 1.5, z), this.height(x, z + 1.5), this.height(x, z - 1.5));
+        if (h - lo > 0.12) continue;
+        const pm = new THREE.Mesh(geo, m), s = r.range(0.4, 1.3); pm.scale.set(s * r.range(1, 1.8), 1, s); pm.rotation.y = r.range(0, TAU); pm.position.set(x, h + 0.025, z); pm.receiveShadow = true; grp.add(pm); n++;
+      }
+    }
+    // a few crows wheeling slowly high over the place by day (none where there's no air, gone to roost by night)
+    buildCrows(grp) {
+      this.crows = [];
+      if (this.biome.airless) return;
+      const r = new RNG(this.seed + 909), mat = new THREE.MeshLambertMaterial({ color: 0x0c0c0e }), n = r.int(3, 6);
+      const cx = this.center.x + r.range(-20, 20), cz = this.center.z + r.range(-20, 20);
+      for (let i = 0; i < n; i++) {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), mat); body.scale.set(0.8, 0.7, 2.2); g.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), mat); head.position.set(0, 0.03, -0.28); g.add(head);
+        const beak = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 5), mat); beak.rotation.x = -Math.PI / 2; beak.position.set(0, 0.02, -0.4); g.add(beak);
+        const tail = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.22), mat); tail.rotation.x = -Math.PI / 2; tail.position.set(0, 0, 0.36); g.add(tail);
+        const wings = [-1, 1].map((sd) => { const w = new THREE.Group(); const p = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.24), mat); p.geometry.translate(sd * 0.31, 0, 0); p.rotation.x = -Math.PI / 2; w.add(p); g.add(w); return w; });
+        for (const o of [body, head, beak, tail]) o.castShadow = true;
+        tail.material.side = THREE.DoubleSide;
+        g.scale.setScalar(1.4); grp.add(g);
+        this.crows.push({ g, wings, cx, cz, rad: r.range(14, 30), alt: r.range(26, 44), sp: r.range(0.12, 0.22) * (r.chance(0.5) ? 1 : -1), ph: r.range(0, TAU), fl: r.range(0, 10) });
+      }
+      mat.side = THREE.DoubleSide;
     }
     // spores and ash drifting on the wind around the camera
     buildMotes(grp) {
@@ -1364,43 +1544,105 @@ const Exterior = (() => {
       const VB = this.biome.vehicles, burnt = VB.burnt;
       const paint = MATS.rep('painted', 1, 1, rr.pick(VB.colors));
       const rust = burnt ? MATS.rep('rust', 1, 1, 0x5a4034) : MATS.get('rust'), dark = MATS.get('dark'), glass = MATS.get('carGlass'), rubber = burnt ? dark : MATS.get('rubber'), steel = burnt ? rust : MATS.get('steelBolt');
+      const chrome = burnt ? rust : MATS.get('hardware');
       const add = (geo, m, px, py, pz, rx = 0, ryy = 0, rz = 0) => { if (burnt && m === glass) return null; const me = new THREE.Mesh(geo, m); me.position.set(px, py, pz); me.rotation.set(rx, ryy, rz); me.castShadow = true; me.receiveShadow = true; g.add(me); return me; };
-      const Bx = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+      const Bx = (w, h, d) => new THREE.BoxGeometry(w, h, d), Cy = (r, h, s = 16) => new THREE.CylinderGeometry(r, r, h, s);
       const pm = () => (rr.chance(burnt ? 0.5 : 0.25) ? rust : paint);
+      // (some windows long since gone)
+      const pane = () => (rr.chance(0.3) ? null : glass);
       if (burnt) g.position.y -= 0.12;
       add(Bx(1.7, 0.25, 4.9), dark, 0, 0.55, 0);
       // lower body / rocker panels: everything above sits directly on this, no daylight between parts
-      const base = paint;
-      add(Bx(1.92, 0.42, 5.3), base, 0, 0.88, 0.08);
-      const van = rr.chance(VB.van);
+      add(Bx(1.92, 0.42, 5.3), paint, 0, 0.88, 0.08);
+      const van = rr.chance(VB.van), front = van ? 2.36 : 2.76, back = -2.6;
+      // a door hanging open on one side, now and then (its window gone with it)
+      const open = !van && rr.chance(0.2) ? (rr.chance(0.5) ? 1 : -1) : 0;
       if (van) {
         add(Bx(1.95, 1.9, 3.5), pm(), 0, 1.65, -0.65);
         add(Bx(1.95, 1.15, 1.25), pm(), 0, 1.22, 1.72);
-        add(Bx(1.85, 0.65, 0.05), glass, 0, 1.98, 1.25, -0.5);
-        for (const s of [-1, 1]) add(Bx(0.03, 0.5, 0.8), glass, s * 0.985, 1.95, 0.75);
+        { const p = pane(); if (p) add(Bx(1.85, 0.65, 0.05), p, 0, 1.98, 1.25, -0.5); }
+        for (const s of [-1, 1]) { const p = pane(); if (p) add(Bx(0.03, 0.5, 0.8), p, s * 0.985, 1.95, 0.75); }
         add(Bx(1.6, 0.35, 0.05), dark, 0, 0.98, 2.36);
+        // (a sliding side door's seams, the rear doors' split, a roof rack on some)
+        for (const s of [-1, 1]) { add(Bx(0.012, 1.3, 0.02), dark, s * 0.98, 1.45, -0.2); add(Bx(0.012, 1.3, 0.02), dark, s * 0.98, 1.45, 0.75); add(Bx(0.02, 0.05, 0.16), chrome, s * 0.985, 1.25, 0.6); }
+        add(Bx(0.02, 1.5, 0.012), dark, 0, 1.5, -2.405);
+        if (rr.chance(0.5)) { for (const s of [-1, 1]) add(Bx(0.04, 0.06, 3.0), steel, s * 0.85, 2.64, -0.65); for (let i = 0; i < 4; i++) add(Bx(1.7, 0.04, 0.05), steel, 0, 2.66, -1.9 + i * 0.85); }
       } else {
         add(Bx(1.9, 0.95, 1.5), pm(), 0, 1.38, 0.55);
         add(Bx(1.8, 0.08, 1.15), paint, 0, 1.89, 0.45);
-        add(Bx(1.7, 0.66, 0.04), glass, 0, 1.56, 1.3, -0.42);
-        for (const s of [-1, 1]) add(Bx(0.03, 0.42, 0.85), glass, s * 0.955, 1.6, 0.45);
+        { const p = pane(); if (p) add(Bx(1.7, 0.66, 0.04), p, 0, 1.56, 1.3, -0.42); }
+        for (const s of [-1, 1]) { const p = s === open ? null : pane(); if (p) add(Bx(0.03, 0.42, 0.85), p, s * 0.955, 1.6, 0.45); }
         add(Bx(1.85, 0.5, 1.45), pm(), 0, 1.08, 2.0, 0.05);
         add(Bx(1.6, 0.4, 0.05), dark, 0, 1.0, 2.73);
         add(Bx(1.9, 0.1, 2.1), paint, 0, 0.92, -1.3);
         for (const s of [-1, 1]) add(Bx(0.08, 0.5, 2.1), pm(), s * 0.91, 1.2, -1.3);
         if (rr.chance(0.5)) add(Bx(1.9, 0.5, 0.08), paint, 0, 1.2, -2.35); else add(Bx(1.9, 0.08, 0.5), paint, 0, 0.72, -2.6, 0.2);
+        // the door seams and handles down each side (and the door that's hanging open)
+        for (const s of [-1, 1]) {
+          for (const sz of [1.25, -0.2]) add(Bx(0.012, 0.85, 0.02), dark, s * 0.962, 1.2, sz);
+          add(Bx(0.02, 0.04, 0.14), chrome, s * 0.965, 1.22, 0.05);
+          if (s === open) { const d = add(Bx(0.06, 0.9, 1.4), paint, 0, 0, 0); d.geometry.translate(0, 0, -0.7); d.position.set(s * 0.97, 1.25, 1.25); d.rotation.y = -s * rr.range(0.7, 1.2); }
+        }
+        // mirrors on stalks, the wipers, an aerial on some
+        for (const s of [-1, 1]) { add(Bx(0.18, 0.03, 0.03), dark, s * 1.02, 1.35, 1.22); add(Bx(0.05, 0.12, 0.16), dark, s * 1.1, 1.38, 1.2); }
+        for (const s of [-1, 1]) add(Bx(0.55, 0.02, 0.03), dark, s * 0.38, 1.25, 1.52, -0.42, 0, s * 0.15);
+        if (rr.chance(0.4)) add(Cy(0.005, 0.8, 4), steel, 0.8, 1.6, 2.2, 0.15, 0, 0);
       }
-      const lamp = new THREE.MeshBasicMaterial({ color: 0x40382a });
-      for (const s of [-1, 1]) add(Bx(0.3, 0.16, 0.05), rr.chance(0.3) ? dark : lamp, s * 0.6, van ? 1.08 : 1.1, van ? 2.36 : 2.76);
-      add(Bx(2.0, 0.18, 0.15), steel, 0, 0.72, van ? 2.4 : 2.82); add(Bx(2.0, 0.18, 0.15), steel, 0, 0.72, -2.5);
+      // round headlights in chrome rims (some smashed), a grille between them, the tail lights, the plate
+      const lamp = new THREE.MeshBasicMaterial({ color: 0x40382a }), tail = new THREE.MeshStandardMaterial({ color: 0x5a1210, roughness: 0.4 });
+      const hy = van ? 1.25 : 1.1;
+      for (const s of [-1, 1]) {
+        add(Cy(0.12, 0.05), chrome, s * 0.62, hy, front + 0.01, Math.PI / 2);
+        if (!rr.chance(0.3)) add(Cy(0.095, 0.02), lamp, s * 0.62, hy, front + 0.035, Math.PI / 2); else add(Cy(0.095, 0.02), dark, s * 0.62, hy, front + 0.02, Math.PI / 2);
+        add(Bx(0.26, 0.12, 0.04), tail, s * 0.72, 1.0, back);
+      }
+      add(Bx(0.85, 0.24, 0.04), dark, 0, hy, front + 0.01);
+      for (let i = 0; i < 3; i++) add(Bx(0.8, 0.025, 0.02), chrome, 0, hy - 0.07 + i * 0.07, front + 0.035);
+      {
+        const pl = new THREE.MeshStandardMaterial({ map: TEX.sign('MS ' + rr.int(10, 99) + ' ' + String.fromCharCode(65 + rr.int(0, 25), 65 + rr.int(0, 25), 65 + rr.int(0, 25)), { w: 128, h: 40, size: 22, bold: true, bg: '#d8d0b0', fg: '#1a1a14' }), roughness: 0.6 });
+        add(Bx(0.42, 0.12, 0.01), pl, 0, 0.98, back - 0.025).rotation.y = Math.PI;
+      }
+      add(Bx(2.0, 0.18, 0.15), steel, 0, 0.72, 2.82); add(Bx(2.0, 0.18, 0.15), steel, 0, 0.72, -2.64);
+      // The wheels: a tyre with a steel rim, its lug nuts, the odd hubcap; now and then a flat. A wheel that's gone is
+      // still plain to see: either the corner's been propped on a block, the bare brake drum showing, with the tyre lying
+      // in the grass nearby; or the car has dropped onto the drum, that corner down in the dirt.
+      const loose = [];
+      let dropX = 0, dropZ = 0;
       for (const [wx, wz] of [[-0.92, 1.7], [0.92, 1.7], [-0.92, -1.55], [0.92, -1.55]]) {
-        if (rr.chance(0.12)) { g.rotation.z += wx * 0.06; continue; }
-        add(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 16), rubber, wx, 0.42, wz, 0, 0, Math.PI / 2);
-        add(new THREE.CylinderGeometry(0.24, 0.24, 0.31, 12), steel, wx, 0.42, wz, 0, 0, Math.PI / 2);
+        const s = Math.sign(wx);
+        // (the dark of the wheel arch over it)
+        add(Bx(0.03, 0.26, 1.0), dark, wx * 1.045, 0.86, wz);
         add(Bx(0.36, 0.1, 1.05), paint, wx * 1.02, 0.92, wz);
+        if (burnt) { add(Cy(0.25, 0.2, 12), rust, wx * 0.95, 0.27, wz, 0, 0, Math.PI / 2); continue; }
+        if (rr.chance(0.14)) {
+          add(Cy(0.2, 0.16, 14), dark, wx * 0.95, 0.42, wz, 0, 0, Math.PI / 2);
+          for (let k = 0; k < 5; k++) { const a = (k / 5) * TAU; add(Cy(0.012, 0.05, 6), steel, wx * 0.95 + s * 0.09, 0.42 + Math.cos(a) * 0.1, wz + Math.sin(a) * 0.1, 0, 0, Math.PI / 2); }
+          if (rr.chance(0.55)) add(Bx(0.32, 0.22, 0.38), this.rockMat || dark, wx * 0.95, 0.11, wz);
+          else { dropX += s; dropZ += Math.sign(wz); }
+          if (rr.chance(0.75)) loose.push({ x: wx * 0.95 + s * rr.range(1.3, 2.4), z: wz + rr.range(-1.2, 1.2), lean: rr.chance(0.3) });
+          continue;
+        }
+        const flat = rr.chance(0.15), t = add(Cy(0.42, 0.26, 18), rubber, wx, flat ? 0.37 : 0.42, wz, 0, 0, Math.PI / 2);
+        if (flat) { t.scale.set(0.82, 1, 1.06); g.rotation.z += s * 0.012; }
+        add(Cy(0.26, 0.27, 14), steel, wx, flat ? 0.37 : 0.42, wz, 0, 0, Math.PI / 2);
+        add(Cy(0.09, 0.28, 10), dark, wx, flat ? 0.37 : 0.42, wz, 0, 0, Math.PI / 2);
+        if (rr.chance(0.4)) add(Cy(0.22, 0.02, 16), chrome, wx + s * 0.14, flat ? 0.37 : 0.42, wz, 0, 0, Math.PI / 2);
+        else for (let k = 0; k < 5; k++) { const a = (k / 5) * TAU; add(Cy(0.016, 0.03, 6), chrome, wx + s * 0.14, (flat ? 0.37 : 0.42) + Math.cos(a) * 0.12, wz + Math.sin(a) * 0.12, 0, 0, Math.PI / 2); }
       }
+      // (a corner down on its drum: the whole car tips that way)
+      if (dropX || dropZ) { g.rotation.z += dropX * 0.12; g.rotation.x -= dropZ * 0.05; g.position.y -= 0.06; }
       grp.add(g);
       this.addObb(x, z, 1.05, 2.85, ry);
+      // the tyres that came off, in the grass beside it (one leaning on the car)
+      g.updateMatrixWorld(true);
+      for (const l of loose) {
+        const w = g.localToWorld(new THREE.Vector3(l.x, 0, l.z)), tg = new THREE.Group(), h = this.height(w.x, w.z);
+        const tyre = new THREE.Mesh(Cy(0.42, 0.26, 18), rubber), rim = new THREE.Mesh(Cy(0.26, 0.27, 14), steel), hub = new THREE.Mesh(Cy(0.09, 0.28, 10), dark);
+        for (const m of [tyre, rim, hub]) { m.castShadow = m.receiveShadow = true; tg.add(m); }
+        if (l.lean) { tg.position.set(w.x, h + 0.41, w.z); tg.rotation.set(0, ry + rr.range(-0.3, 0.3), Math.PI / 2 - 0.35, 'YXZ'); }
+        else { tg.position.set(w.x, h + 0.12, w.z); tg.rotation.set(rr.range(-0.08, 0.08), rr.range(0, TAU), rr.range(-0.08, 0.08)); }
+        grp.add(tg);
+      }
     }
     buildWrecks(grp) {
       const r = this.rng;
@@ -1689,6 +1931,18 @@ const Exterior = (() => {
       if (this.flames) for (const f of this.flames) { const k = 0.8 + 0.22 * Math.sin(t * 13 + f.ph) * Math.sin(t * 7.3 + f.ph * 2) + 0.08 * Math.sin(t * 31 + f.ph); f.sp.scale.set(5 * f.s * k, 8 * f.s * (2 - k), 1); }
       const gusty = this.weather === 'storm' ? 1.8 : this.weather === 'rain' ? 1.3 : 1;
       this.windU.value = t * gusty;
+      // the crows: round and round on the wind, a few flaps then a long glide, banking into the turn
+      if (this.crows && this.crows.length) {
+        const away = L && L.night > 0.6;
+        for (const c of this.crows) {
+          c.g.visible = !away; if (away) continue;
+          const a = c.ph + t * c.sp + Math.sin(t * 0.07 + c.ph) * 0.4, r = c.rad * (1 + 0.15 * Math.sin(t * 0.11 + c.fl));
+          c.g.position.set(c.cx + Math.cos(a) * r, this.height(c.cx, c.cz) + c.alt + Math.sin(t * 0.3 + c.fl) * 2, c.cz + Math.sin(a) * r);
+          c.g.rotation.set(0, Math.atan2(-Math.sin(a) * Math.sign(c.sp), Math.cos(a) * Math.sign(c.sp)) + Math.PI, -Math.sign(c.sp) * 0.35, 'YXZ');
+          const cyc = (t * 0.45 + c.fl) % 4, flap = cyc < 1.2 ? Math.sin(cyc * TAU * 2.5) * 0.55 : 0.08;
+          c.wings[0].rotation.z = flap; c.wings[1].rotation.z = -flap;
+        }
+      }
       if (!cam) return;
       if (!this.coverAt || Math.hypot(cam.x - this.coverAt.x, cam.z - this.coverAt.z) > 7) this.fillGroundCover(cam.x, cam.z);
       const mu = this.moteMat.uniforms; mu.uTime.value = t * gusty; mu.uCam.value.copy(cam);
@@ -1698,6 +1952,13 @@ const Exterior = (() => {
         if (mk === 'pollen') mu.uCol.value.lerp(_pollen, 0.5);
         mu.uGlow.value = mk === 'fireflies' ? L.night : 0;
         mu.uOp.value = mk === 'none' ? 0 : mk === 'fireflies' ? (wet ? 0.2 : 0.35 + L.night * 0.65) : mk === 'embers' ? 0.75 : (wet ? 0.15 : mk === 'dust' ? 0.8 : mk === 'ash' ? 0.75 : mk === 'snow' ? 0.9 : 0.55) * (1 - L.night * (mk === 'ash' || mk === 'snow' ? 0.3 : 0.6));
+        // the far ranges: lit the way the land is, hazed as the mist is today (thinner higher up; on a foggy day, gone)
+        if (this.rangeMat) {
+          const ru = this.rangeMat.uniforms;
+          ru.uSun.value.copy(L.sunDir); ru.uSunCol.value.copy(L.sunColor); ru.uSunK.value = L.sun; ru.uSky.value.copy(L.hemiSky); ru.uHemiK.value = L.hemi;
+          ru.uFog.value.copy(L.fog); ru.uScatter.value.copy(L.scatter);
+          ru.uD.value = L.fogDen * 0.4; ru.uF.value = 0.024; ru.uTopAdd.value = clamp((L.fogDen - 0.008) * 2400, 0, 220);
+        }
         const su = this.skyMat.uniforms;
         su.top.value.copy(L.top); su.hor.value.copy(L.hor); su.fogCol.value.copy(L.fog); su.scatter.value.copy(L.scatter);
         su.sunDir.value.copy(L.sunDir); su.sunCol.value.copy(L.sunColor).multiplyScalar(L.sunGlow);
@@ -1721,10 +1982,13 @@ const Exterior = (() => {
       // the world's own sky: a murky green marsh, a dusty orange canyon, the Hollow's permanent red dusk
       const SK = this.biome.sky, tint = (c, a) => c.multiply(new THREE.Color(a[0], a[1], a[2]));
       tint(top, SK.top).multiplyScalar(SK.dim); tint(hor, SK.hor).multiplyScalar(SK.dim);
-      const fogDen = (wx === 'fog' ? 0.05 : wx === 'storm' ? 0.03 : wx === 'rain' ? 0.024 : 0.012) + night * 0.012 + SK.fogAdd;
+      // (mist that thins as it goes up and greys what's far off long before it hides it: a clear day's lets you make out
+      // shapes a couple of hundred metres off; rain and storms close it in; a foggy day is a wall)
+      const fogDen = (wx === 'fog' ? 0.042 : wx === 'storm' ? 0.02 : wx === 'rain' ? 0.016 : 0.0075) + night * 0.008 + SK.fogAdd * 0.8;
       const sunColor = tint(C(0xfff2dd).lerp(C(0xff8a4a), dusk), SK.sun);
       const L = {
-        top, hor, fog: hor.clone().multiplyScalar(0.9), fogDen,
+        // (the mist takes the colour of the light in it: a soft grey a shade darker than the sky low down, never a white sheet)
+        top, hor, fog: hor.clone().multiplyScalar(0.78).lerp(top, 0.12), fogDen,
         hemi: (lerp(lerp(1.5, 1.0, overcast), 0.05, 1 - day * (1 - dusk * 0.4)) + dusk * 0.2) * SK.dim,
         hemiSky: tint(C(0xb8c4d0).lerp(C(0xd08a60), dusk).lerp(C(0x3a4a66), night), SK.hemi),
         sun: (lerp(2.1 * (1 - overcast * 0.6), 0, 1 - day) + dusk * 0.6) * SK.dim,
@@ -1739,7 +2003,7 @@ const Exterior = (() => {
         cloudDark: top.clone().multiplyScalar(0.8).lerp(hor, 0.25),
         cover: wx === 'clear' ? 0.42 : wx === 'fog' ? 0.72 : 0.92,
         haze: wx === 'fog' ? 1 : wx === 'clear' ? 0.2 : 0.65,
-        fogFalloff: wx === 'fog' ? 0.075 : 0.045,
+        fogFalloff: wx === 'fog' ? 0.06 : 0.065,
       };
       // no air: a black sky by day as well as by night with the stars always out, a hard white sun and deep shadows,
       // nothing to scatter it (no fog to speak of, no cloud, no haze)

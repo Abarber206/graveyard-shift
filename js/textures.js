@@ -1029,7 +1029,7 @@ const MATS = (() => {
       const base = this.get(name), m = base.clone();
       for (const slot of ['map', 'bumpMap', 'normalMap']) if (base[slot]) { m[slot] = base[slot].clone(); m[slot].repeat.set(rx, ry); m[slot].wrapS = m[slot].wrapT = THREE.RepeatWrapping; m[slot].needsUpdate = true; }
       // (a worn painted surface keeps its old drab under a new colour, as the old paint texture used to tint it)
-      if (color != null) { m.color = new THREE.Color(color); if (base.userData.wear && base.userData.wear.tint) m.color.multiply(base.color).multiplyScalar(1.4); }
+      if (color != null) { m.color = new THREE.Color(color); if (base.userData.wear && base.userData.wear.tint) m.color.multiply(base.color).multiplyScalar(2.0); }
       return (repCache[k] = rewear(m, base));
     },
   };

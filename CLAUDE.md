@@ -44,6 +44,9 @@ Keep that file current when gameplay changes.
   - The crew cams (`crewcam.js`) relight the scene for each crewmate's feed (`G.feedLight`: the facility's dark, the
     lamps near them via `R.lightsAt`, their flashlight), between `R.rig()` and `R.rig(true)`, which put your own view back.
   - Fog, the scanner wave and the cabin fog-clearing are injected into three's shader chunks.
+  - Past the walkable land (players are kept within 160 m), `Exterior.buildRanges` rings the site with far hills drawn
+    with their own haze: hidden below a fog-bank top worked out per direction from the land (`uTop`), coming out of it
+    softly above. Keep it consistent with the scene fog when changing `lighting()`'s `fogDen` / `fog`.
 - **Assets are all procedural.**
   - Canvas textures live in `textures.js` (`TEX.get(name)`; `CQ` draws at double resolution; `TEX.normal()` derives relief).
   - Shared materials are `MATS.get(name)` / `MATS.rep` / `MATS.aged`.

@@ -633,6 +633,37 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
+    // a gas giant's cloud tops: belts and zones of warm and pale cloud running round it, their edges churned into waves
+    // and curls where the winds shear past each other, fine streaks drawn out along them, ovals of storm spinning in
+    // them, and the poles a cooler grey. Worked from the sphere's own points, so nothing smears where it wraps
+    giant() {
+      const W = 768, H = 384;
+      const [c, g] = C(W, H);
+      const nz = new Noise2D(77), rr = new RNG(7777), id = g.createImageData(W, H), d = id.data;
+      const storms = Array.from({ length: 9 }, (_, i) => ({ lat: rr.range(-0.75, 0.75), lon: rr.range(0, TAU), w: rr.range(0.05, 0.14) * (i === 0 ? 2.2 : 1), h: rr.range(0.025, 0.05) * (i === 0 ? 2 : 1), k: i === 0 ? -1 : rr.chance(0.6) ? 1 : -1 }));
+      const belt = [0.5, 0.33, 0.21], zone = [0.97, 0.91, 0.77], pole = [0.52, 0.56, 0.6], red = [0.74, 0.36, 0.22], white = [1, 0.98, 0.94];
+      for (let y = 0; y < H; y++) {
+        const v = (y + 0.5) / H * Math.PI, py = Math.cos(v), sv = Math.sin(v);
+        for (let x = 0; x < W; x++) {
+          const u = x / W * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
+          const w1 = nz.fbm3(px * 3 + 5, py * 3, pz * 3, 3), w2 = nz.fbm3(px * 10, py * 10 + 7, pz * 10, 2);
+          let lat = py + w1 * 0.05 + w2 * 0.012, spot = 0, sk = 0;
+          for (const s of storms) {
+            let dl = u - s.lon; dl -= TAU * Math.round(dl / TAU);
+            const dx = dl * sv / s.w, dy = (py - s.lat) / s.h, r2 = dx * dx + dy * dy;
+            if (r2 < 6) { const e = Math.exp(-r2); lat += 0.03 * e * Math.sin(Math.atan2(dy, dx) * 2 + r2 * 1.5) * s.h * 20; if (e > spot) { spot = e; sk = s.k; } }
+          }
+          const t = sstep(0, 1, 0.5 + 0.34 * Math.sin(lat * 14 + 1.3) + 0.2 * Math.sin(lat * 31 + 0.4) + 0.1 * Math.sin(lat * 53 + 2.2) + nz.fbm3(px * 2, py * 60, pz * 2, 2) * 0.2 + w2 * 0.1);
+          let r = lerp(belt[0], zone[0], t), gg = lerp(belt[1], zone[1], t), b = lerp(belt[2], zone[2], t);
+          const pk = sstep(0.72, 0.94, Math.abs(py) + w1 * 0.04); r = lerp(r, pole[0], pk); gg = lerp(gg, pole[1], pk); b = lerp(b, pole[2], pk);
+          if (spot > 0.05) { const S = sk < 0 ? red : white, a = sstep(0.05, 0.6, spot) * 0.8; r = lerp(r, S[0], a); gg = lerp(gg, S[1], a); b = lerp(b, S[2], a); }
+          const i = (y * W + x) * 4;
+          d[i] = clamp(r * 255, 0, 255); d[i + 1] = clamp(gg * 255, 0, 255); d[i + 2] = clamp(b * 255, 0, 255); d[i + 3] = 255;
+        }
+      }
+      g.putImageData(id, 0, 0);
+      return finish(c, true, false);
+    },
     rings() {
       // a ring system's profile from its inner edge (left) to its outer (right): alpha how dense it is, colour how bright.
       // A faint, greyish inner ring of fine ringlets; the broad, dense, bright main ring; a dark division; a fainter

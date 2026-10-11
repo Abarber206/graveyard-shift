@@ -2181,7 +2181,7 @@ const Ship = (() => {
     // resolving as you fall: each finer octave fades in once it is a few pixels across (so nothing ever shimmers),
     // and lights the land as relief. Low over it, the air thickens into haze toward the horizon.
     planetDetail() {
-      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) } };
+      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) }, gas: { value: 0 } };
       const NOISE = `varying vec3 vPDir; float pdHeight = 0.0;
         float pdh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
         float pdn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -2213,22 +2213,23 @@ const Ship = (() => {
         `;
       const vert = (sh) => { sh.vertexShader = 'varying vec3 vPDir;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vPDir = position;'); };
       this.planetMat.onBeforeCompile = (sh) => {
-        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW;
+        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW; sh.uniforms.uPdGas = U.gas;
         Object.assign(sh.uniforms, this.ringU);
         vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir, uPdGas; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
           .replace('#include <map_fragment>', `#include <map_fragment>
             {
               // land (bright in the texture) gets rough, mottled ground and real relief; the sea stays nearly flat
               // (an airless moon has no ranges, no sea and no cloud: just its craters, lightly mottled)
-              float land = smoothstep(0.07, 0.15, dot(sampledDiffuseColor.rgb, vec3(0.3333))) * uPdAir;
+              // (a gas giant has neither: its banded cloud is drawn as it is)
+              float land = smoothstep(0.07, 0.15, dot(sampledDiffuseColor.rgb, vec3(0.3333))) * uPdAir * (1.0 - uPdGas);
               vec3 pp = normalize(vPDir);
               float sh, sea = pdFbm(pp, 30.0, 2.6, 0.75, sh);
               float lh, tone, rid = pdRidge(pp, 34.0, 2.55, 0.78, lh, tone);
               // crests catch the light as bare rock, the low ground between them is darker; the tone wanders a little
               vec3 landC = diffuseColor.rgb * clamp(1.0 + rid * 1.5, 0.25, 2.2) * mix(vec3(1.06, 0.95, 0.82), vec3(0.86, 0.98, 1.08), clamp(0.5 + tone * 1.2, 0.0, 1.0));
               vec3 seaC = diffuseColor.rgb * clamp(1.0 + sea * 0.3, 0.6, 1.4);
-              diffuseColor.rgb = mix(seaC, landC, land);
+              diffuseColor.rgb = mix(mix(seaC, landC, land), diffuseColor.rgb, uPdGas);
               pdHeight = lh * land;
               // the clouds' shadows, thrown a little way off toward the sun (looked up in the cloud shell's own frame)
               vec3 cs = normalize(pp + uPdSun * 0.01);
@@ -2236,7 +2237,7 @@ const Ship = (() => {
               cs = vec3(ca * cs.x + sa * cs.z, cs.y, -sa * cs.x + ca * cs.z);
               vec2 cuv = vec2(fract(atan(cs.z, -cs.x) / 6.28318), 1.0 - acos(clamp(cs.y, -1.0, 1.0)) / 3.14159);
               float cov = textureLod(uPdCMap, cuv, log2(max(1.0, length(fwidth(pp)) * 163.0))).a;
-              diffuseColor.rgb *= 1.0 - 0.6 * smoothstep(0.1, 0.7, cov) * uPdAir;
+              diffuseColor.rgb *= 1.0 - 0.6 * smoothstep(0.1, 0.7, cov) * uPdAir * (1.0 - uPdGas);
             }`)
           .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
             {
@@ -2309,15 +2310,16 @@ const Ship = (() => {
         c.material.customProgramCacheKey = () => 'cloudDetail';
       });
     }
-    setPlanet(tint, atmo, airless) {
+    setPlanet(tint, atmo, airless, giant) {
       this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo);
       // (an airless moon or rock: cratered grey dust, no cloud, no air to glow at the limb or to burn coming down)
       this.airless = !!airless;
       // (its night side is black, like the world's: nothing but the stars behind it to show where it ends)
-      const map = TEX.get(airless ? 'moonmap' : 'planet'), pm = this.planetMat;
+      // (a gas giant: no ground, its cloud tops are all there is, banded, and nothing drifts over them)
+      const map = TEX.get(airless ? 'moonmap' : giant ? 'giant' : 'planet'), pm = this.planetMat;
       if (pm.map !== map) { pm.map = map; pm.normalMap = airless ? TEX.normal('moonmap', 3) : null; pm.normalScale.set(2.4, 2.4); pm.needsUpdate = true; }
-      this.pdU.air.value = airless ? 0 : 1;
-      for (const c of this.cloudLayers) c.visible = !airless;
+      this.pdU.air.value = airless ? 0 : 1; this.pdU.gas.value = giant ? 1 : 0;
+      for (const c of this.cloudLayers) c.visible = !airless && !giant;
       this.atmo.visible = !airless;
     }
     // what circles this world (or, orbiting a moon, the world it belongs to): spheres and lumps hung round it in the
@@ -2386,7 +2388,7 @@ const Ship = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 4) * 0.55; p.setXYZ(i, x * k * 1.3, y * k * 0.78, z * k); }
           geo.computeVertexNormals();
         } else geo = new THREE.SphereGeometry(1, 64, 32);
-        const map = TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
+        const map = TEX.get(b.kind === 'planet' ? (b.giant ? 'giant' : 'planet') : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
         const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', normalMap: nm, normalScale: new THREE.Vector2(2.2, 2.2) }));
         // (round the world it belongs to, a moon or rock really goes round b.orbit of its radii out; seen from one of
         // that world's moons, the other is far off, never in our moon's shadow)

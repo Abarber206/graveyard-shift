@@ -246,6 +246,8 @@ const Exterior = (() => {
     constructor(seed, site, weather, key) {
       this.seed = seed; this.site = site; this.weather = weather;
       const bk = (site && site.biome) || key; this.key = BIOMES[bk] ? bk : 'ashgrove'; this.biome = BIOMES[this.key];
+      // (a moon with dust of its own colour: ice, sulphur, soot, rust)
+      if (site && site.ground) { const k = site.ground, tint = (c) => [c[0] * k[0], c[1] * k[1], c[2] * k[2]], G0 = this.biome.ground; this.biome = Object.assign({}, this.biome, { ground: Object.fromEntries(Object.entries(G0).map(([n, c]) => [n, tint(c)])), rocks: Object.assign({}, this.biome.rocks, { tint: new THREE.Color(this.biome.rocks.tint).multiply(new THREE.Color(k[0], k[1], k[2])).getHex() }) }); }
       this.rng = new RNG(seed ^ 0x5bd1e995); this.noise = new Noise2D(seed + 7);
       this.impacts = [];
       const r = this.rng;
@@ -1921,7 +1923,7 @@ const Exterior = (() => {
         // (a ringed world: its rings, laid out round it as they really are from here; see ringFrame)
         const RU = b.ringSys ? (rf = this.ringFrame(b, D)).U : null, RG = RU ? Rings.GLSL : '';
         const mat = new THREE.ShaderMaterial({
-          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
+          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? (b.giant ? 'giant' : 'planet') : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
           vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz; vW = wp.xyz;
               gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
@@ -1949,7 +1951,9 @@ const Exterior = (() => {
         const G0 = b.kind === 'planet' || b.withWorld ? this.worldG : this.bodiesG;
         G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo, world: G0 === this.worldG });
         if (b.kind !== 'planet') continue;
-        // the world overhead: its weather turning slowly over the day side, and (Nadir, the Hollow) its rings
+        // the world overhead: its weather turning slowly over the day side (a giant's banded cloud is its weather), and
+        // (Nadir, the Hollow, Halcyon) its rings
+        if (!b.giant) {
         const cl = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 32), new THREE.ShaderMaterial({
           uniforms: Object.assign({ map: { value: TEX.get('clouds') }, uSun: mat.uniforms.uSun, uVis: mat.uniforms.uVis, uK: { value: 1.012 } }, RU || {}),
           vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vW; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
@@ -1966,6 +1970,7 @@ const Exterior = (() => {
         const hi = new THREE.Mesh(cl.geometry, cl.material.clone()); Object.assign(hi.material.uniforms, cl.material.uniforms, { uK: { value: 1.025 } });
         hi.position.copy(m.position); hi.scale.setScalar(r * 1.025); hi.rotation.set(m.rotation.x + 0.4, m.rotation.y + 2.1, m.rotation.z - 0.3); hi.renderOrder = m.renderOrder + 2; hi.frustumCulled = false;
         G0.add(hi); this.bodies.push(hi); (this.highClouds || (this.highClouds = [])).push(hi);
+        }
         if (RU) {
           // the rings: drawn on a dome round the eye, each point of it following its line of sight out to the sheet,
           // behind everything on the ground, over the world and anything else up there where they pass in front

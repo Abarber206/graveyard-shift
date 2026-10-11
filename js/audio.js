@@ -775,6 +775,8 @@ const SFX = (() => {
     get ctx() { return ctx; },
     get bus() { return sfxBus; },
     get revIn() { return revIn; },
+    // (how much the place you're in echoes: the voices use it too)
+    get envRev() { return envRev; },
     held: false, // true while single player is paused: keep audio suspended
     init() {
       if (ctx) { if (ctx.state === 'suspended' && !this.held) ctx.resume(); return; }

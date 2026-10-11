@@ -689,7 +689,8 @@ const G = {
       const p = G.players.get(e.pid); if (!p) return;
       const me = G.me();
       if (e.radio) {
-        if (G.hasItem(G.localId, 'walkie') || e.pid === G.localId) { HUD.chat(p.name + ' [RADIO]', e.text, 'radio'); SFX.play('static', null, { dur: 0.2 }); }
+        // (the channel opening on the call, and the squelch tail as it closes)
+        if (G.hasItem(G.localId, 'walkie') || e.pid === G.localId) { HUD.chat(p.name + ' [RADIO]', e.text, 'radio'); SFX.play('squelch_on', null, { vol: 0.5 }); SFX.play('squelch_off', null, { vol: 0.5, delay: 0.6 }); }
         // the call comes out of every other walkie-talkie: the words bob up over each set, dropped or in a hand
         for (const it of G.items.values()) {
           if (it.type !== 'walkie' || it.holder === e.pid) continue;
@@ -2406,7 +2407,8 @@ const G = {
     if (!HUD.blocking) {
       if (Input.hit('KeyT') || Input.hit('Enter')) HUD.openChat();
     }
-    if (Settings.ptt) Voice.setPTT(Input.down('KeyV'));
+    // (push-to-talk: V, or the talk button on a walkie-talkie in your hand, which keys the mic whichever mode it's in)
+    { const keyed = !!(G.me() && G.me().radio); Voice.setPTT(Settings.ptt ? Input.down('KeyV') || keyed : keyed); }
     G.uncarryCamera();
     Player.update(dt);
     if (G.sendoff) G.updateSendoff(dt);

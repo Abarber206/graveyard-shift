@@ -36,18 +36,34 @@ const Voice = (() => {
       e.src.connect(e.prox); e.prox.connect(e.lp); e.lp.connect(e.panner); e.panner.connect(SFX.bus);
       // (and the room answering: the same however far off they are, so the further away a voice is the more of it is echo)
       e.rv = ctx.createGain(); e.rv.gain.value = 0; e.lp.connect(e.rv); e.rv.connect(SFX.revIn);
+      // over the radio: a narrow, boxy band of the voice, driven hard into the little speaker, with the hiss of the
+      // channel under it while they're keyed up
       e.radio = ctx.createGain(); e.radio.gain.value = 0;
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 1.1;
-      const ws = ctx.createWaveShaper(); const c = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 128 - 1; c[i] = Math.tanh(x * 3); } ws.curve = c;
-      e.src.connect(bp); bp.connect(ws); ws.connect(e.radio); e.radio.connect(SFX.bus);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 480; hp.Q.value = 0.7;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2900; lp.Q.value = 1.2;
+      const box = ctx.createBiquadFilter(); box.type = 'peaking'; box.frequency.value = 1500; box.Q.value = 1.4; box.gain.value = 6;
+      const ws = ctx.createWaveShaper(); const c = new Float32Array(512); for (let i = 0; i < 512; i++) { const x = i / 256 - 1; c[i] = Math.tanh(x * 5) * 0.8; } ws.curve = c;
+      e.src.connect(hp); hp.connect(lp); lp.connect(box); box.connect(ws); ws.connect(e.radio); e.radio.connect(SFX.bus);
+      e.hiss = ctx.createGain(); e.hiss.gain.value = 0;
+      const hs = ctx.createBufferSource(); hs.buffer = hissBuf(); hs.loop = true;
+      const hbp = ctx.createBiquadFilter(); hbp.type = 'bandpass'; hbp.frequency.value = 2400; hbp.Q.value = 0.6;
+      hs.connect(hbp); hbp.connect(e.hiss); e.hiss.connect(SFX.bus); hs.start(); e.hissSrc = hs;
       e.flat = ctx.createGain(); e.flat.gain.value = 0; e.src.connect(e.flat); e.flat.connect(SFX.bus);
     });
     call.on('close', () => drop(call.peer));
     call.on('error', () => drop(call.peer));
   }
+  // (a second of white noise for the radio hiss, made once)
+  let hissB = null;
+  function hissBuf() {
+    if (hissB) return hissB;
+    const ctx = SFX.ctx; hissB = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = hissB.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return hissB;
+  }
   function drop(peerId) {
     const e = peers.get(peerId); if (!e) return;
-    try { e.src && e.src.disconnect(); e.call && e.call.close(); } catch (x) { /* ignore */ }
+    try { e.src && e.src.disconnect(); e.hissSrc && e.hissSrc.stop(); e.call && e.call.close(); } catch (x) { /* ignore */ }
     if (e.el) { e.el.srcObject = null; }
     peers.delete(peerId);
   }
@@ -95,8 +111,9 @@ const Voice = (() => {
       chain.an.getFloatTimeDomainData(chain.buf);
       let s = 0; for (let i = 0; i < chain.buf.length; i++) s += chain.buf[i] * chain.buf[i];
       level = damp(level, Math.sqrt(s / chain.buf.length), 12, dt);
+      // (and keying a walkie-talkie opens it whatever the mode: a keyed radio sends all the while it's held)
       if (Settings.ptt) open = pttDown;
-      else if (dbOf(level) > Settings.micGate) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
+      else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
     },
     onCall(call) { call.answer(outStream()); setup(call); },
@@ -123,15 +140,16 @@ const Voice = (() => {
       for (const e of peers.values()) {
         if (!e.src) continue;
         const p = game.playerByPeer(e.peerId);
-        let prox = 0, radio = 0, flat = 0, lpf = 20000, rv = 0;
+        let prox = 0, radio = 0, flat = 0, lpf = 20000, rv = 0, tx = 0;
         if (p) {
           if (!me.alive) flat = p.alive ? 0.6 : 1;
           else if (p.alive) {
             const at = p.rpos || p.pos, yaw = p.ryaw != null ? p.ryaw : p.yaw, h = { x: at.x, y: at.y + (p.crouch ? 1.0 : 1.6), z: at.z };
             const dx = h.x - ear.x, dy = h.y - ear.y, dz = h.z - ear.z, d = Math.hypot(dx, dy, dz), aboard = G.ship.inside(at.x, at.y + 0.5, at.z);
-            if (p.radio && iHaveWalkie) radio = 1;
+            // (tx: how strongly they're coming in over a radio right now, walkie-talkie or suit)
+            if (p.radio && iHaveWalkie) radio = tx = 1;
             if (p.zone === me.zone) {
-              if (vacuum && p.zone === 'out' && !aboard && !earAboard) radio = Math.max(radio, 0.85 * sstep(120, 70, d));
+              if (vacuum && p.zone === 'out' && !aboard && !earAboard) { const sr = sstep(120, 70, d); radio = Math.max(radio, 0.85 * sr); if (p.talking) tx = Math.max(tx, sr); }
               else {
                 // (what's in the way, looked at a few times a second, along three lines a little apart, so a voice
                 // comes round a doorway gradually rather than all at once)
@@ -160,7 +178,13 @@ const Voice = (() => {
         e.prox.gain.setTargetAtTime(prox * 1.6 * vv, t, 0.05);
         e.lp.frequency.setTargetAtTime(lpf, t, 0.08);
         e.rv.gain.setTargetAtTime(rv * vv, t, 0.08);
-        e.radio.gain.setTargetAtTime(radio * 1.1 * vv, t, 0.05);
+        // over the radio: the squelch as they key up and let go, the hiss of the open channel under their voice, and a
+        // signal that's never quite steady (it crackles and dips, and now and then breaks up for an instant)
+        const on = tx > 0.05;
+        if (on !== !!e.onAir) { e.onAir = on; SFX.play(on ? 'squelch_on' : 'squelch_off', null, { vol: 0.55 * vv * Math.max(tx, 0.5) }); }
+        const flutter = on ? (Math.random() < 0.015 ? 0.2 : 0.8 + Math.random() * 0.2) : 1;
+        e.radio.gain.setTargetAtTime(radio * 1.15 * vv * flutter, t, 0.02);
+        e.hiss.gain.setTargetAtTime(on ? 0.045 * vv * tx * (0.6 + Math.random() * 0.8) : 0, t, 0.03);
         e.flat.gain.setTargetAtTime(flat * vv, t, 0.05);
       }
     },

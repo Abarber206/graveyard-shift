@@ -42,7 +42,7 @@ const Input = {
 const Player = (() => {
   const vel = new THREE.Vector3(), kick = new THREE.Vector3();
   let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0;
-  let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, radioT = 0, eatT = 0, unwrapT = 0;
+  let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
   let target = null;
   // a ship seat (index into G.ship.seats) while sitting in it, and how far into the sitting-down move the view is
   let seat = null, sitT = 0;
@@ -238,6 +238,14 @@ const Player = (() => {
     get climbing() { return !!climb; },
     swing() { swingT = 0.45; },
     resetVM() { setVM(null); },
+    // where the walkie-talkie in your hand is on screen (just over the tip of its antenna), for words coming out of it:
+    // { x, y } from -1 to 1 like the camera's; null when there isn't one showing
+    handSpot() {
+      const it = vm.item; if (!it || vm.type !== 'walkie' || !vm.root.visible || !vm.holder.visible || !it.visible) return null;
+      it.updateWorldMatrix(true, false);
+      const p = it.localToWorld(_vmp.set(-0.012, 0.25, 0.004)).project(R.vmCamera);
+      return p.z < 1 ? { x: p.x, y: p.y } : null;
+    },
     update(dt) {
       const me = G.me(); if (!me) return;
       const cam = R.camera;
@@ -457,9 +465,13 @@ const Player = (() => {
             if (Math.random() < 0.3) setTimeout(() => SFX.play('radio_ghost', null, { vol: 0.8 }), 600);
           }
         }
-        if (cur.type === 'walkie' && Input.lmb && cur.battery > 0) { me.radio = true; cur.battery = Math.max(0, cur.battery - dt / (d.battery * cells)); radioT -= dt; if (radioT <= 0 && G.players.size > 1) { radioT = 99; SFX.play('static', null, { dur: 0.15 }); } }
-        else radioT = 0;
+        // (keying it up: the click of the talk button and the hiss of the channel opening; letting go, the click again)
+        if (cur.type === 'walkie' && Input.lmb && cur.battery > 0) {
+          me.radio = true; cur.battery = Math.max(0, cur.battery - dt / (d.battery * cells));
+          if (!keyed && G.players.size > 1) { keyed = true; SFX.play('radio_key', null, { vol: 0.8 }); SFX.play('squelch_on', null, { vol: 0.35 }); }
+        }
       }
+      if (keyed && !me.radio) { keyed = false; SFX.play('radio_key', null, { vol: 0.6 }); }
       // leech struggle
       if (leeched && !ui && Input.hit('KeyE')) { G.request({ a: 'struggle' }); shake = Math.max(shake, 0.25); }
       // scan

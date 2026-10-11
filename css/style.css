@@ -81,6 +81,10 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .bubble.say b { position: relative; }
 .bubble.radio { color: #a8ff9c; text-shadow: 0 0 8px rgba(90,255,120,.65), 0 0 2px #000; }
 .bubble.radio b { background: rgba(4,18,6,.6); border: 1px solid rgba(120,255,140,.35); animation: bubblepop .45s cubic-bezier(.2,1.8,.4,1) both, radiohiss .18s steps(2) infinite .45s; }
+/* out of the walkie-talkie in your hand: a tail down to its speaker */
+.bubble.hand b { position: relative; }
+.bubble.hand b::after { content: ''; position: absolute; left: calc(50% + var(--tail, 0px)); bottom: -8px; margin-left: -6px; border: 6px solid transparent; border-top-color: rgba(120,255,140,.45); border-bottom: 0; }
+.bubble.hand.stacked b::after { display: none; }
 @keyframes bubblebob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 @keyframes bubblepop { from { transform: scale(.2) translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes radiohiss { 50% { filter: brightness(1.25) blur(.3px); } }

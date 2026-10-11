@@ -457,6 +457,16 @@ const SFX = (() => {
     pin(d, t) { osc(d, 'triangle', 2600, 2400, t, 0.12, 0.08); nz(d, t, 0.03, 0.3, 'highpass', 3000); },
     vent(d, t) { for (let i = 0; i < 16; i++) nz(d, t + i * 0.065 + Math.random() * 0.02, 0.04, 0.5, 'bandpass', rnd(1400, 3200), null, 3); osc(d, 'sine', 140, 80, t + 1, 0.2, 0.4); },
     static(d, t, o) { nz(d, t, o.dur || 0.3, 0.22, 'bandpass', 2200, null, 0.6, 0.01); },
+    // a walkie-talkie: the hard plastic click of its talk button...
+    radio_key(d, t) { nz(d, t, 0.008, 0.5, 'highpass', 2800, null, 0.8, 0.0008); nz(d, t + 0.006, 0.02, 0.22, 'bandpass', 1400, null, 4, 0.001); },
+    // ...a channel opening on someone: a burst of hiss as the squelch lifts, a little tone of the carrier under it...
+    squelch_on(d, t) { nz(d, t, 0.11, 0.42, 'bandpass', 3000, 1900, 0.8, 0.003); osc(d, 'square', 1050, 1050, t + 0.01, 0.05, 0.012, 0.002); },
+    // ...and closing: the squelch tail, a rush of static cut off dead
+    squelch_off(d, t) {
+      const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const bp = filt(d, 'bandpass', 2600, 0.7);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.4, t + 0.012); g.gain.setValueAtTime(0.4, t + 0.17); g.gain.linearRampToValueAtTime(0.0001, t + 0.18);
+      s.connect(g); g.connect(bp); s.start(t, Math.random() * 2); s.stop(t + 0.2);
+    },
     radio_ghost(d, t) {
       nz(d, t, 2.4, 0.18, 'bandpass', 2000, null, 0.6, 0.05);
       const bp = filt(d, 'bandpass', 1500, 1.2); const w = shaper(bp, 15);

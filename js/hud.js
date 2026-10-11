@@ -177,7 +177,7 @@ const HUD = (() => {
     // walkie-talkie, wherever it is. Each letter bounces in turn. anchor: a function giving the spot (ship/world
     // coordinates, as positions are kept) or 'hand' for the set in your own hand; only seen from close enough.
     bubble(anchor, text, kind, zone) {
-      const el = document.createElement('div'); el.className = 'bubble ' + kind;
+      const el = document.createElement('div'); el.className = 'bubble ' + kind + (anchor === 'hand' ? ' hand' : '');
       const letters = [...String(text).slice(0, 80)].map((ch, i) => `<span style="animation-delay:${(i * 0.045).toFixed(3)}s">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('');
       el.innerHTML = `<b>${kind === 'radio' ? '<i>))) </i>' : ''}${letters}</b>`;
       el.style.opacity = 0;
@@ -270,11 +270,21 @@ const HUD = (() => {
       }
       // words in the air: they follow what's speaking, shrink with distance, and fade out past earshot
       const me = G.me(), eye = G.simCam.position;
+      let handUp = 0;
       for (let i = bubbles.length - 1; i >= 0; i--) {
         const b = bubbles[i]; b.t += dt;
         if (b.t > b.life) { b.el.remove(); bubbles.splice(i, 1); continue; }
         const fade = Math.min(1, b.t / 0.15) * Math.min(1, (b.life - b.t) / 0.6);
-        if (b.anchor === 'hand') { b.el.style.left = (W * 0.96) + 'px'; b.el.style.top = (H * 0.62) + 'px'; b.el.style.transform = 'translate(-100%,-100%)'; b.el.style.opacity = fade; continue; }
+        // (the set in your own hand: the words rise out of it, over its speaker, the tail pointing down at it, kept on
+        // the screen however long they are; with it put away, they come from low on the right where it would be.
+        // Calls one after another stack up: the newest on the set, the older ones above it)
+        if (b.anchor === 'hand') {
+          const s = Player.handSpot(), w = b.el.offsetWidth, sx = s ? (s.x * 0.5 + 0.5) * W : W * 0.8, sy = s ? (-s.y * 0.5 + 0.5) * H : H * 0.62;
+          const x = clamp(sx, w / 2 + 8, Math.max(w / 2 + 8, W - w / 2 - 8));
+          b.el.style.left = x + 'px'; b.el.style.top = (sy - 6 - handUp) + 'px'; b.el.style.transform = 'translate(-50%,-100%)'; b.el.style.setProperty('--tail', (sx - x).toFixed(1) + 'px');
+          b.el.classList.toggle('stacked', handUp > 0); handUp += b.el.offsetHeight + 4;
+          b.el.style.opacity = fade; continue;
+        }
         const p = b.anchor(); if (!p) { b.el.style.opacity = 0; continue; }
         const range = b.kind === 'radio' ? 18 : 22, d = p.distanceTo(eye);
         const zone = me ? G.zoneOf(me) : 'out';

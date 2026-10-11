@@ -63,7 +63,16 @@ If you change the code (`index.html`, `css/`, `js/`), double-click **`Build.bat`
 - **Distance:** a voice gets quieter with distance and more echoey in the room you're in.
 - **Facing:** it's duller and quieter from behind someone's back.
 - **What's in the way:** it's muffled by facility walls and shut doors, by the floors between levels, and by the ship's hull (unless the hatch is open).
-- **Vacuum:** out on an airless moon or rock there's no air to carry it, so outside you hear each other over the suit radios, which fade out past about a hundred metres. Walkie-talkies carry your voice to anyone else carrying one (hold left click to transmit). Dead players can still listen in, but the living can't hear them. Sound you make, including your voice, attracts things outside.
+- **Vacuum:** out on an airless moon or rock there's no air to carry it, so outside you hear each other over the suit radios, which fade out past about a hundred metres.
+
+**Walkie-talkies** carry your voice to anyone else carrying one, anywhere on the map. Hold left click (USE on a phone) to transmit. It keys your mic whether you're on open mic or push-to-talk, so you don't need V as well. Calls sound like a real handset:
+- A click of the talk button and a burst of squelch as the channel opens.
+- A narrow, crushed voice over a hiss that crackles and now and then breaks up.
+- The squelch tail as they let go.
+
+A typed message sent with a walkie-talkie in your hand (T, then Enter) comes out of every other set. Over a crewmate's set it bobs up above them; on the one in your own hand it rises out of the antenna, with newer calls stacking under older ones.
+
+Dead players can still listen in, but the living can't hear them. Sound you make, including your voice, attracts things outside.
 
 **Text chat (T or Enter)** works the same way. What you type is said out loud: it bobs over your head and only reaches crewmates within earshot (about 20 m). Holding a walkie-talkie, you send it over the radio instead: the words bounce up in green over every other walkie-talkie, whether it's in someone's hand or lying in the grass, so anyone near one sees it.
 

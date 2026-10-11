@@ -193,7 +193,10 @@ const Player = (() => {
     const eye = cam.getWorldPosition(new THREE.Vector3()), dir = cam.getWorldDirection(new THREE.Vector3());
     let best = null, bestScore = Infinity;
     const consider = (o) => {
-      const v = new THREE.Vector3(o.x - eye.x, o.y - eye.y, o.z - eye.z);
+      // something tall (h: half its height) is aimed at anywhere up it: the point on it level with where you're looking
+      let oy = o.y;
+      if (o.h) { const hd = Math.hypot(o.x - eye.x, o.z - eye.z), hl = Math.hypot(dir.x, dir.z); oy = clamp(eye.y + dir.y * hd / Math.max(hl, 0.05), o.y - o.h, o.y + o.h); }
+      const v = new THREE.Vector3(o.x - eye.x, oy - eye.y, o.z - eye.z);
       const along = v.dot(dir);
       if (along < 0.1 || along > 2.6 + (o.r || 0.3)) return;
       const perp = v.clone().sub(dir.clone().multiplyScalar(along)).length();

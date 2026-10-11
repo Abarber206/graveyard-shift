@@ -483,6 +483,23 @@ class Noise2D {
     for (let i = 0; i < oct; i++) { s += a * this.noise(x * f, y * f); n += a; a *= 0.5; f *= 2.03; }
     return s / n;
   }
+  // (and in 3D, for things drawn round a sphere: a flat noise wrapped round one smears into streaks)
+  static grad3(h, x, y, z) { const g = h & 15, u = g < 8 ? x : y, v = g < 4 ? y : g === 12 || g === 14 ? x : z; return (g & 1 ? -u : u) + (g & 2 ? -v : v); }
+  noise3(x, y, z) {
+    const p = this.p, gr = Noise2D.grad3;
+    let X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
+    x -= X; y -= Y; z -= Z; X &= 255; Y &= 255; Z &= 255;
+    const u = Noise2D.fade(x), v = Noise2D.fade(y), w = Noise2D.fade(z);
+    const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z, B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+    return lerp(
+      lerp(lerp(gr(p[AA], x, y, z), gr(p[BA], x - 1, y, z), u), lerp(gr(p[AB], x, y - 1, z), gr(p[BB], x - 1, y - 1, z), u), v),
+      lerp(lerp(gr(p[AA + 1], x, y, z - 1), gr(p[BA + 1], x - 1, y, z - 1), u), lerp(gr(p[AB + 1], x, y - 1, z - 1), gr(p[BB + 1], x - 1, y - 1, z - 1), u), v), w) * 0.7;
+  }
+  fbm3(x, y, z, oct = 4) {
+    let a = 0.5, f = 1, s = 0, n = 0;
+    for (let i = 0; i < oct; i++) { s += a * this.noise3(x * f, y * f, z * f); n += a; a *= 0.5; f *= 2.03; }
+    return s / n;
+  }
 }
 
 // ---------- storage + settings ----------
@@ -2156,18 +2173,25 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
+    // a world's weather seen from space, drawn from the sphere's own points in 3D (so nothing smears into streaks round
+    // it): the cloud drawn out a little along the latitudes the way the winds stretch it, swirled, with a band of
+    // storms along the equator, clear belts either side of it and the storm tracks further out
     clouds() {
       const W = 1024, H = 512;
       const [c, g] = C(W, H);
       const nz = new Noise2D(3);
       const id = g.createImageData(W, H), d = id.data;
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const u = x / W * TAU, v = y / H * Math.PI;
-        const px = Math.cos(u) * Math.sin(v) * 4, py = Math.cos(v) * 4, pz = Math.sin(u) * Math.sin(v) * 4;
-        const n = nz.fbm(px + 5, py * 2.0 + pz, 6);
-        const a = sstep(0.0, 0.35, n);
-        const i = (y * W + x) * 4;
-        d[i] = d[i + 1] = d[i + 2] = 245; d[i + 3] = a * 210;
+      for (let y = 0; y < H; y++) {
+        const v = (y + 0.5) / H * Math.PI, py = Math.cos(v), sv = Math.sin(v), ay = Math.abs(py);
+        const band = 0.09 * Math.exp(-Math.pow(py / 0.11, 2)) - 0.11 * Math.exp(-Math.pow((ay - 0.42) / 0.13, 2)) + 0.06 * Math.exp(-Math.pow((ay - 0.74) / 0.12, 2));
+        for (let x = 0; x < W; x++) {
+          const u = x / W * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
+          const wx = nz.fbm3(px * 1.6 + 11, py * 1.6, pz * 1.6, 2), wz = nz.fbm3(px * 1.6 - 7, py * 1.6 + 5, pz * 1.6, 2);
+          const n = nz.fbm3(px * 3.4 + wx * 1.3, py * 5.2 + wz * 0.8, pz * 3.4 + wz * 1.3, 5);
+          const a = sstep(0.02, 0.3, n + band - 0.02);
+          const i = (y * W + x) * 4;
+          d[i] = d[i + 1] = d[i + 2] = 245; d[i + 3] = a * 210;
+        }
       }
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
@@ -7228,6 +7252,10 @@ const Exterior = (() => {
       // (drawn at the very back of the depth range, so they're behind everything on the ground however big they are;
       // under a black airless sky they're solid, their night side blotting out the stars)
       const far = 'gl_Position.z = gl_Position.w * 0.99995;';
+      // (so which is in front of which goes by how far off each really is: anything beyond the world is drawn before
+      // it, and hidden behind it where they cross; anything this side of it after it and its clouds, over them. Left
+      // to the usual sort they'd swap places as you turned your head, and the world would swallow the rock)
+      const wd0 = (list.find((b) => b.kind === 'planet') || {}).dist, order = (b) => b.dist == null ? -9 : (wd0 != null && b.dist < wd0 ? -6.5 : -12) - b.dist * 1e-4;
       let rf = null;
       for (let b of list) {
         // (seen from a ringed world's moon or rock, the other one is out in the rings' plane, where it really is)
@@ -7271,7 +7299,7 @@ const Exterior = (() => {
         });
         const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
-        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = -9; m.frustumCulled = false;
+        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = b.kind === 'planet' ? -9 : order(b); m.frustumCulled = false;
         // (seen from a moon, the other one goes in the world's frame: where it is is reckoned from where the world is)
         const G0 = b.kind === 'planet' || b.withWorld ? this.worldG : this.bodiesG;
         G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo, world: G0 === this.worldG });
@@ -7332,7 +7360,7 @@ const Exterior = (() => {
         const c = Math.cos(p.eps) * p.dist * s, pos = C.clone().addScaledVector(e1, Math.cos(p.dphi) * c).addScaledVector(e2, Math.sin(p.dphi) * c).addScaledVector(N, Math.sin(p.eps) * p.dist * s);
         const L = pos.length(), d = pos.clone().divideScalar(L), rad = p.size * s, w = pos.applyAxisAngle(_Y, rot);
         U.uRingOcc.value[0].set(w.x, w.y, w.z, rad);
-        return { az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), r: Math.max(0.006, Math.asin(Math.min(0.5, rad / L))) };
+        return { az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), r: Math.max(0.006, Math.asin(Math.min(0.5, rad / L))), dist: L / s };
       } };
     }
     // the sky's bodies: lit by the sun, veiled by cloud and weather, drifting slowly across the sky over the day
@@ -7786,8 +7814,9 @@ const Ship = (() => {
       this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.43); this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.43);
       this.pt(D, 0.3, 0.03, R.hx, H - 0.08, R.hz, Math.PI / 2, 0, 0, 16);
       this.col(lx - 0.05, AIRLOCK.x1, R.hz - 0.28, R.hz + 0.28);
-      this.interact.push({ kind: 'ladder', x: lx - 0.15, y: 1.5, z: R.hz, r: 0.5 });
-      this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.55 });
+      // you take hold of the ladder by looking at the rungs themselves (anywhere up them), not just near it
+      this.interact.push({ kind: 'ladder', x: lx - 0.04, y: 1.6, z: R.hz, r: 0.1, h: 1.3 });
+      this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.3 });
     }
     // ---------- the airlock: a slim outer hatch in the hull, a small chamber, an inner door into the bay ----------
     buildAirlock() {
@@ -7816,7 +7845,8 @@ const Ship = (() => {
         const gl = new THREE.Mesh(new THREE.CircleGeometry(0.15, 24), this.glassMat); gl.position.set(0, 1.55, 0); door.add(gl);
         for (const z of [-0.04, 0.04]) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 24), dm); ring.position.set(0, 1.55, z); door.add(ring); }
         for (const z of [-0.045, 0.045]) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.42, 0.03), dm); h.position.set(W / 2 - 0.16, 1.05, z); door.add(h); }
-        const band = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.09, 0.062), MATS.get('hazard')); band.position.set(0, 0.16, 0); door.add(band); }
+        // the stripe stands proud of the plate both sides, so it never flickers through the face
+        const band = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.09, 0.084), MATS.get('hazard')); band.position.set(0, 0.16, 0); door.add(band); }
       this.doorMesh = door;
       // the chamber: two side walls and an inner wall, all up to the ceiling
       const depth = 4.0 - A.z0, zc = (4.0 + A.z0) / 2;
@@ -7838,7 +7868,7 @@ const Ship = (() => {
         else { sh.moveTo(a, 0); sh.lineTo(b, 0); sh.lineTo(b, h - r); sh.quadraticCurveTo(b, h, b - r, h); sh.lineTo(a, h); sh.closePath(); }
         const geo = ext(sh, 0.045, 0.008); geo.translate(0, 0, -0.022); meshAt(geo, leafM, 0, 0, 0, 0, g);
         const seal = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.02, 0.06), MATS.get('rubber')); seal.position.set(-s * (hw / 2 - 0.01), h / 2, 0); g.add(seal);
-        const band = new THREE.Mesh(new THREE.BoxGeometry(hw - 0.06, 0.08, 0.06), MATS.get('hazard')); band.position.set(0, 0.15, 0); g.add(band);
+        const band = new THREE.Mesh(new THREE.BoxGeometry(hw - 0.06, 0.08, 0.078), MATS.get('hazard')); band.position.set(0, 0.15, 0); g.add(band);
         const hd = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.34, 0.03), dm); hd.position.set(-s * (hw / 2 - 0.09), 1.05, -0.045); g.add(hd);
         if (s < 0) { const pane = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.012), this.glassMat); pane.position.set(0, 1.62, -0.03); g.add(pane); }
         return { g, s, x0: cx + s * hw / 2 };
@@ -9275,7 +9305,7 @@ const Ship = (() => {
     }
     // dust thrown up from the ground below the ship: strength 0..1 at ground point (cx, gy, cz)
     updateWash(dt, strength, cx, gy, cz, groundAt, color, glow) {
-      const P = this.washP, pos = this.wash.geometry.attributes.position, age = this.wash.geometry.attributes.aAge, sz = this.wash.geometry.attributes.aSize;
+      const P = this.washP, pos = this.wash.geometry.attributes.position, age = this.wash.geometry.attributes.aAge, sz = this.wash.geometry.attributes.aSize, vac = this.washVac;
       this.washAcc += dt * strength * 150;
       let live = 0;
       // dust is never inside the hull: low over the ground, the puffs kicked up under the belly would otherwise sit in
@@ -9287,18 +9317,20 @@ const Ship = (() => {
           this.washAcc -= 1;
           const a = Math.random() * TAU, r = 1 + Math.random() * 5, sp = (7 + Math.random() * 11) * (0.5 + strength * 0.7);
           p.x = cx + Math.cos(a) * r; p.z = cz + Math.sin(a) * r; p.y = gy + 0.3 + Math.random() * 0.5;
-          p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 0.4 + Math.random() * 1.6; p.t = 0; p.life = 1.4 + Math.random() * 1.8; p.s0 = 0.8 + Math.random() * 1.2;
+          p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 0.4 + Math.random() * (vac ? 2.6 : 1.6); p.t = 0; p.life = 1.4 + Math.random() * 1.8; p.s0 = 0.8 + Math.random() * 1.2;
         }
         if (p.t < 1) {
           p.t += dt / p.life;
-          const drag = Math.exp(-dt * 1.6); p.vx *= drag; p.vz *= drag; p.vy = p.vy * drag + dt * 0.4;
+          // with no air (vac) it isn't a cloud: each grain flies out on its own arc and falls back, and nothing billows
+          if (vac) p.vy -= dt * 1.6;
+          else { const drag = Math.exp(-dt * 1.6); p.vx *= drag; p.vz *= drag; p.vy = p.vy * drag + dt * 0.4; }
           p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt;
-          const gh = groundAt(p.x, p.z) + 0.25; if (p.y < gh) p.y = gh;
+          const gh = groundAt(p.x, p.z) + 0.25; if (p.y < gh) { p.y = gh; if (vac && p.vy < 0) p.t = 1; }
           live++;
         }
         lp.set(p.x, p.y, p.z).applyMatrix4(inv);
         const inHull = this.onFootprint(lp.x, lp.z) && lp.y > -1.6 && lp.y < 5.6;
-        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, inHull ? 0 : Math.min(p.t, 1)); sz.setX(i, Math.min(4.2, p.s0 * (1 + p.t * 3.2)));
+        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, inHull ? 0 : Math.min(p.t, 1)); sz.setX(i, Math.min(4.2, p.s0 * (1 + p.t * (vac ? 0.5 : 3.2))));
       }
       if (this.washAcc > 4) this.washAcc = 4;
       pos.needsUpdate = true; age.needsUpdate = true; sz.needsUpdate = true;
@@ -9347,13 +9379,15 @@ const Ship = (() => {
     // and are hidden while inside the hull (like the dust)
     stepSmoke(dt, color, groundAt, gy) {
       const P = this.smokeP, A = this.smoke.geometry.attributes, inv = _washInv.copy(this.group.matrixWorld).invert(), lp = _washP;
-      const sx = this.group.position.x, sz = this.group.position.z, drag = Math.exp(-dt * 1.3), k = 1 - drag;
+      const sx = this.group.position.x, sz = this.group.position.z, drag = Math.exp(-dt * 1.3), k = 1 - drag, vac = this.washVac;
       let live = 0;
       for (let i = 0; i < P.length; i++) {
         const p = P[i];
         if (p.t < 1) {
-          p.t += dt / p.life;
-          p.vx = p.vx * drag + 1.6 * k; p.vy = p.vy * drag + 0.7 * k; p.vz = p.vz * drag + 0.7 * k;
+          // (with no air there's no cloud to hang about: the exhaust flies out, falls back and is gone in moments)
+          p.t += dt / p.life * (vac ? 3 : 1);
+          if (vac) p.vy -= dt * 1.6;
+          else { p.vx = p.vx * drag + 1.6 * k; p.vy = p.vy * drag + 0.7 * k; p.vz = p.vz * drag + 0.7 * k; }
           p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
           if (p.y < gy + 30) {
             const size = p.s0 * (1 + p.t * p.grow), gh = groundAt(p.x, p.z) + size * 0.22;
@@ -9972,7 +10006,11 @@ const Ship = (() => {
       this.plasma.material.uniforms.uV.value.copy(D);
       // the world turns beneath us; the sun appears to wheel around as we travel along the orbit
       this.planet.rotation.y = nu + t * o.spin;
-      this.cloudLayers.forEach((c, i) => { c.rotation.y = nu * 1.02 + t * o.spin * 1.3 + (i === 3 ? 1.7 + t * o.spin * 1.4 : 0); });
+      // (the cloud rides round with the ground under it: the ship passes over it the way it passes over the ground, the
+      // wind carrying it along a touch behind; the high layer drifts on slowly by itself. The angle along the orbit is
+      // taken unwrapped, so it never jumps a little once a lap)
+      const nuU = nu + TAU * Math.round((E - nu) / TAU);
+      this.cloudLayers.forEach((c, i) => { c.rotation.y = nuU * 0.997 + t * o.spin * 0.92 + (i === 3 ? 1.7 + t * o.spin * 0.1 : 0); });
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       const sa = o.sunPhase - nu;
       this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);
@@ -13961,7 +13999,10 @@ const Player = (() => {
     const eye = cam.getWorldPosition(new THREE.Vector3()), dir = cam.getWorldDirection(new THREE.Vector3());
     let best = null, bestScore = Infinity;
     const consider = (o) => {
-      const v = new THREE.Vector3(o.x - eye.x, o.y - eye.y, o.z - eye.z);
+      // something tall (h: half its height) is aimed at anywhere up it: the point on it level with where you're looking
+      let oy = o.y;
+      if (o.h) { const hd = Math.hypot(o.x - eye.x, o.z - eye.z), hl = Math.hypot(dir.x, dir.z); oy = clamp(eye.y + dir.y * hd / Math.max(hl, 0.05), o.y - o.h, o.y + o.h); }
+      const v = new THREE.Vector3(o.x - eye.x, oy - eye.y, o.z - eye.z);
       const along = v.dot(dir);
       if (along < 0.1 || along > 2.6 + (o.r || 0.3)) return;
       const perp = v.clone().sub(dir.clone().multiplyScalar(along)).length();
@@ -15574,7 +15615,7 @@ const FLY = {
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
 const _lampP = new THREE.Vector3();
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3();
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0);
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
@@ -15853,7 +15894,8 @@ const G = {
   // from here and where it really is, out along the plane they all circle in
   skyToday(key) {
     const s = SITES[key], world = s.bonus || key, O = orbitsToday(world, G.run);
-    if (!s.bonus) return s.sky.map((e, i) => { const o = O[BODIES[world][i].key]; return Object.assign({}, e, { r: e.r / o.near, az: e.az + 0.5 * Math.sin(o.phase), fixed: true }); });
+    // (each with how far off it really is, in the world's radii, so the nearer one is drawn over the farther)
+    if (!s.bonus) return s.sky.map((e, i) => { const o = O[BODIES[world][i].key]; return Object.assign({}, e, { r: e.r / o.near, az: e.az + 0.5 * Math.sin(o.phase), fixed: true, dist: BODIES[world][i].orbit * o.near }); });
     const me = BODIES[world].find((b) => b.key === key), pm = bodyAt(me, O[key]), others = BODIES[world].filter((b) => b !== me), W = s.sky[0];
     // A ringed world is laid out as it really is (Exterior.buildSkyBodies works out the rest): the world as big as it
     // looks from this far out, its rings round it in the plane everything here circles in, and the other one out in
@@ -15869,11 +15911,15 @@ const G = {
     const wd = new THREE.Vector3(Math.cos(W.az) * Math.cos(W.el), Math.sin(W.el), Math.sin(W.az) * Math.cos(W.el));
     const t1 = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), wd).normalize(), t2 = new THREE.Vector3().crossVectors(wd, t1);
     const road = t1.multiplyScalar(Math.cos(0.3)).addScaledVector(t2, Math.sin(0.3));
+    // (the world is drawn bigger than it truly looks from here, so the sky round it is spread to match: what's really
+    // just past its edge shows just past the edge drawn, and only what's really behind it is hidden)
+    const Wr = Math.min(0.78, W.r / O[key].near), Rr = Math.asin(Math.min(1, 1 / (me.orbit * O[key].near)));
+    const spread = (a) => Math.sign(a) * Math.min(Math.PI, Math.abs(a) < Rr ? Math.abs(a) * Wr / Rr : Math.abs(a) + Wr - Rr);
     return s.sky.map((e, i) => {
-      if (e.kind === 'planet') return Object.assign({}, e, { r: Math.min(0.78, e.r / O[key].near), fixed: true });
-      const b = others[i - 1], po = bodyAt(b, O[b.key]), a = turnFrom(pm, po), dist = Math.hypot(po.x - pm.x, po.z - pm.z);
+      if (e.kind === 'planet') return Object.assign({}, e, { r: Wr, fixed: true, dist: me.orbit * O[key].near });
+      const b = others[i - 1], po = bodyAt(b, O[b.key]), a = spread(turnFrom(pm, po)), dist = Math.hypot(po.x - pm.x, po.z - pm.z);
       const d = wd.clone().multiplyScalar(Math.cos(a)).addScaledVector(road, Math.sin(a));
-      return Object.assign({}, e, { r: clamp(Math.asin(Math.min(0.5, b.size / dist)) * 1.3, 0.008, 0.09), az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), fixed: true, withWorld: true });
+      return Object.assign({}, e, { r: clamp(Math.asin(Math.min(0.5, b.size / dist)) * 1.3, 0.008, 0.09), az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), fixed: true, withWorld: true, dist });
     });
   },
   // what hangs round the world the ship is orbiting, for the view from orbit (Ship.setBodies): its moon and rock, or
@@ -17332,6 +17378,8 @@ const G = {
       if (S.lift || S.main) S.setThrust(0, 0);
       // (whatever smoke is still hanging about drifts off and thins out; the wind it made dies down)
       if (G.ext && dt > 0 && (S.smoke.visible || S.scorchT > 0)) S.stepSmoke(dt, S.smokeMat.uniforms.uCol.value, (x, z) => G.ext.height(x, z), G.ext.height(0, 0));
+      // (and the dust the jets threw up settles, rather than hanging where it was when they cut out)
+      if (S.wash.visible) { if (G.ext && dt > 0) S.updateWash(dt, 0, 0, 0, 0, (x, z) => G.ext.height(x, z), S.washMat.uniforms.uCol.value, _noGlow); else if (!G.ext) S.wash.visible = false; }
       if (G.ext && G.ext.blastU.value.z) G.ext.setBlast(0, 0, 0, 20);
       SFX.blastWind = 0;
       return;
@@ -17376,7 +17424,7 @@ const G = {
       const L = G.ext.lighting(G.round ? G.round.time : 720), day = 0.22 + 0.78 * (1 - L.night);
       const base = B.water != null ? [0.66, 0.7, 0.66] : B.ground.trail;
       const col = new THREE.Color(base[0] * day, base[1] * day, base[2] * day), glow = new THREE.Color(0.7, 0.3, 0.08).multiplyScalar(p.lift * (1 - sstep(2, 18, alt)));
-      S.updateWash(dt, strength, p.x, gy, p.z, (x, z) => G.ext.height(x, z), col, glow);
+      S.washVac = !!B.airless; S.updateWash(dt, strength, p.x, gy, p.z, (x, z) => G.ext.height(x, z), col, glow);
       S.updateSmoke(dt, p, _smokeCol.setRGB(0.34 * day, 0.33 * day, 0.32 * day), (x, z) => G.ext.height(x, z));
       // and its wind: the downwash flattening the grass and bending the trees under it while it's low, then the blast
       // when the mains fire, rolling out from where the flame hit (heard as a roaring gust by anyone near enough)
@@ -17653,7 +17701,7 @@ const G = {
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
         if (o.kind === 'ladder') { if (me.roof) continue; label = G.roofOpen() ? 'Climb to the roof' : 'Roof hatch (sealed)'; }
         if (o.kind === 'roofHatch') { if (!me.roof) continue; label = 'Climb down'; }
-        out.push({ kind: o.kind, ref: o, x: o.x, y: o.y, z: o.z, r: o.r, label });
+        out.push({ kind: o.kind, ref: o, x: o.x, y: o.y, z: o.z, r: o.r, h: o.h, label });
       }
       if (G.ext) Pods.interactables(me, out);
       // seats nobody else is in
@@ -18198,20 +18246,21 @@ const G = {
     const los = zone === 'in' && G.fac ? (s) => (s.fac ? G.fac.lampReach(cam, s) : G.fac.los(cam.x, cam.z, s.x, s.z) ? 1 : 0) : null;
     R.updateLights(G.lightSources, cam, zone, t, dt, power, (s, f) => { if (s.fac && G.fac) G.fac.setLampVisual(s, power || s.state === 'emergency' ? Math.max(0.05, f) : 0.04); }, los);
     G.lamps(t);
-    // remote flashlights (+ a faint visible beam)
+    // remote flashlights (+ a faint visible beam, but not where there's no air for it to show in)
+    const vac = zone === 'out' && !!(G.ext && G.ext.biome.airless);
     const remotes = [...G.players.values()].filter((p) => p.id !== G.localId && p.alive && p.flash && p.zone === zone)
       .sort((a, b) => a.rpos.distanceToSquared(cam) - b.rpos.distanceToSquared(cam)).slice(0, R.remote.length);
     R.remote.forEach((s, i) => {
       const p = remotes[i];
       if (!p) { s.intensity = 0; R.setBeam(i, s, false); return; }
       G.aimFlash(s, p);
-      R.setBeam(i, s, zone === 'in' || (G.round && G.round.time > 18 * 60));
+      R.setBeam(i, s, zone === 'in' || (!vac && G.round && G.round.time > 18 * 60));
     });
     // suits give off no light of their own: in the dark, a crewmate is only as visible as their flashlight
     const me2 = G.me();
     for (let i = -1; i < 2; i++) R.setGlow(i, null);
     // dust drifting through your flashlight beam
-    R.updateDust(t, me2.alive && R.flash.intensity > 1 ? (zone === 'in' ? 1 : 0.5) : 0);
+    R.updateDust(t, me2.alive && !vac && R.flash.intensity > 1 ? (zone === 'in' ? 1 : 0.5) : 0);
     // ambience: what this place sounds like right now
     const amb = { cam, storm: !!(G.round && G.round.weather === 'storm'), night: 0, buzz: 0 };
     if (!inSpace && zone === 'out' && G.ext) { amb.night = G.ext.lighting(G.round.time).night; amb.trees = G.ext.trees; amb.complex = G.ext.center; }

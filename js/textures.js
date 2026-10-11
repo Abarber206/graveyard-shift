@@ -610,18 +610,25 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
+    // a world's weather seen from space, drawn from the sphere's own points in 3D (so nothing smears into streaks round
+    // it): the cloud drawn out a little along the latitudes the way the winds stretch it, swirled, with a band of
+    // storms along the equator, clear belts either side of it and the storm tracks further out
     clouds() {
       const W = 1024, H = 512;
       const [c, g] = C(W, H);
       const nz = new Noise2D(3);
       const id = g.createImageData(W, H), d = id.data;
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const u = x / W * TAU, v = y / H * Math.PI;
-        const px = Math.cos(u) * Math.sin(v) * 4, py = Math.cos(v) * 4, pz = Math.sin(u) * Math.sin(v) * 4;
-        const n = nz.fbm(px + 5, py * 2.0 + pz, 6);
-        const a = sstep(0.0, 0.35, n);
-        const i = (y * W + x) * 4;
-        d[i] = d[i + 1] = d[i + 2] = 245; d[i + 3] = a * 210;
+      for (let y = 0; y < H; y++) {
+        const v = (y + 0.5) / H * Math.PI, py = Math.cos(v), sv = Math.sin(v), ay = Math.abs(py);
+        const band = 0.09 * Math.exp(-Math.pow(py / 0.11, 2)) - 0.11 * Math.exp(-Math.pow((ay - 0.42) / 0.13, 2)) + 0.06 * Math.exp(-Math.pow((ay - 0.74) / 0.12, 2));
+        for (let x = 0; x < W; x++) {
+          const u = x / W * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
+          const wx = nz.fbm3(px * 1.6 + 11, py * 1.6, pz * 1.6, 2), wz = nz.fbm3(px * 1.6 - 7, py * 1.6 + 5, pz * 1.6, 2);
+          const n = nz.fbm3(px * 3.4 + wx * 1.3, py * 5.2 + wz * 0.8, pz * 3.4 + wz * 1.3, 5);
+          const a = sstep(0.02, 0.3, n + band - 0.02);
+          const i = (y * W + x) * 4;
+          d[i] = d[i + 1] = d[i + 2] = 245; d[i + 3] = a * 210;
+        }
       }
       g.putImageData(id, 0, 0);
       return finish(c, true, false);

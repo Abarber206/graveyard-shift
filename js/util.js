@@ -67,6 +67,23 @@ class Noise2D {
     for (let i = 0; i < oct; i++) { s += a * this.noise(x * f, y * f); n += a; a *= 0.5; f *= 2.03; }
     return s / n;
   }
+  // (and in 3D, for things drawn round a sphere: a flat noise wrapped round one smears into streaks)
+  static grad3(h, x, y, z) { const g = h & 15, u = g < 8 ? x : y, v = g < 4 ? y : g === 12 || g === 14 ? x : z; return (g & 1 ? -u : u) + (g & 2 ? -v : v); }
+  noise3(x, y, z) {
+    const p = this.p, gr = Noise2D.grad3;
+    let X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
+    x -= X; y -= Y; z -= Z; X &= 255; Y &= 255; Z &= 255;
+    const u = Noise2D.fade(x), v = Noise2D.fade(y), w = Noise2D.fade(z);
+    const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z, B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+    return lerp(
+      lerp(lerp(gr(p[AA], x, y, z), gr(p[BA], x - 1, y, z), u), lerp(gr(p[AB], x, y - 1, z), gr(p[BB], x - 1, y - 1, z), u), v),
+      lerp(lerp(gr(p[AA + 1], x, y, z - 1), gr(p[BA + 1], x - 1, y, z - 1), u), lerp(gr(p[AB + 1], x, y - 1, z - 1), gr(p[BB + 1], x - 1, y - 1, z - 1), u), v), w) * 0.7;
+  }
+  fbm3(x, y, z, oct = 4) {
+    let a = 0.5, f = 1, s = 0, n = 0;
+    for (let i = 0; i < oct; i++) { s += a * this.noise3(x * f, y * f, z * f); n += a; a *= 0.5; f *= 2.03; }
+    return s / n;
+  }
 }
 
 // ---------- storage + settings ----------

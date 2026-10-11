@@ -285,8 +285,9 @@ const Ship = (() => {
       this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.43); this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.43);
       this.pt(D, 0.3, 0.03, R.hx, H - 0.08, R.hz, Math.PI / 2, 0, 0, 16);
       this.col(lx - 0.05, AIRLOCK.x1, R.hz - 0.28, R.hz + 0.28);
-      this.interact.push({ kind: 'ladder', x: lx - 0.15, y: 1.5, z: R.hz, r: 0.5 });
-      this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.55 });
+      // you take hold of the ladder by looking at the rungs themselves (anywhere up them), not just near it
+      this.interact.push({ kind: 'ladder', x: lx - 0.04, y: 1.6, z: R.hz, r: 0.1, h: 1.3 });
+      this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.3 });
     }
     // ---------- the airlock: a slim outer hatch in the hull, a small chamber, an inner door into the bay ----------
     buildAirlock() {
@@ -315,7 +316,8 @@ const Ship = (() => {
         const gl = new THREE.Mesh(new THREE.CircleGeometry(0.15, 24), this.glassMat); gl.position.set(0, 1.55, 0); door.add(gl);
         for (const z of [-0.04, 0.04]) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 24), dm); ring.position.set(0, 1.55, z); door.add(ring); }
         for (const z of [-0.045, 0.045]) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.42, 0.03), dm); h.position.set(W / 2 - 0.16, 1.05, z); door.add(h); }
-        const band = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.09, 0.062), MATS.get('hazard')); band.position.set(0, 0.16, 0); door.add(band); }
+        // the stripe stands proud of the plate both sides, so it never flickers through the face
+        const band = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.09, 0.084), MATS.get('hazard')); band.position.set(0, 0.16, 0); door.add(band); }
       this.doorMesh = door;
       // the chamber: two side walls and an inner wall, all up to the ceiling
       const depth = 4.0 - A.z0, zc = (4.0 + A.z0) / 2;
@@ -337,7 +339,7 @@ const Ship = (() => {
         else { sh.moveTo(a, 0); sh.lineTo(b, 0); sh.lineTo(b, h - r); sh.quadraticCurveTo(b, h, b - r, h); sh.lineTo(a, h); sh.closePath(); }
         const geo = ext(sh, 0.045, 0.008); geo.translate(0, 0, -0.022); meshAt(geo, leafM, 0, 0, 0, 0, g);
         const seal = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.02, 0.06), MATS.get('rubber')); seal.position.set(-s * (hw / 2 - 0.01), h / 2, 0); g.add(seal);
-        const band = new THREE.Mesh(new THREE.BoxGeometry(hw - 0.06, 0.08, 0.06), MATS.get('hazard')); band.position.set(0, 0.15, 0); g.add(band);
+        const band = new THREE.Mesh(new THREE.BoxGeometry(hw - 0.06, 0.08, 0.078), MATS.get('hazard')); band.position.set(0, 0.15, 0); g.add(band);
         const hd = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.34, 0.03), dm); hd.position.set(-s * (hw / 2 - 0.09), 1.05, -0.045); g.add(hd);
         if (s < 0) { const pane = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.012), this.glassMat); pane.position.set(0, 1.62, -0.03); g.add(pane); }
         return { g, s, x0: cx + s * hw / 2 };
@@ -1774,7 +1776,7 @@ const Ship = (() => {
     }
     // dust thrown up from the ground below the ship: strength 0..1 at ground point (cx, gy, cz)
     updateWash(dt, strength, cx, gy, cz, groundAt, color, glow) {
-      const P = this.washP, pos = this.wash.geometry.attributes.position, age = this.wash.geometry.attributes.aAge, sz = this.wash.geometry.attributes.aSize;
+      const P = this.washP, pos = this.wash.geometry.attributes.position, age = this.wash.geometry.attributes.aAge, sz = this.wash.geometry.attributes.aSize, vac = this.washVac;
       this.washAcc += dt * strength * 150;
       let live = 0;
       // dust is never inside the hull: low over the ground, the puffs kicked up under the belly would otherwise sit in
@@ -1786,18 +1788,20 @@ const Ship = (() => {
           this.washAcc -= 1;
           const a = Math.random() * TAU, r = 1 + Math.random() * 5, sp = (7 + Math.random() * 11) * (0.5 + strength * 0.7);
           p.x = cx + Math.cos(a) * r; p.z = cz + Math.sin(a) * r; p.y = gy + 0.3 + Math.random() * 0.5;
-          p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 0.4 + Math.random() * 1.6; p.t = 0; p.life = 1.4 + Math.random() * 1.8; p.s0 = 0.8 + Math.random() * 1.2;
+          p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 0.4 + Math.random() * (vac ? 2.6 : 1.6); p.t = 0; p.life = 1.4 + Math.random() * 1.8; p.s0 = 0.8 + Math.random() * 1.2;
         }
         if (p.t < 1) {
           p.t += dt / p.life;
-          const drag = Math.exp(-dt * 1.6); p.vx *= drag; p.vz *= drag; p.vy = p.vy * drag + dt * 0.4;
+          // with no air (vac) it isn't a cloud: each grain flies out on its own arc and falls back, and nothing billows
+          if (vac) p.vy -= dt * 1.6;
+          else { const drag = Math.exp(-dt * 1.6); p.vx *= drag; p.vz *= drag; p.vy = p.vy * drag + dt * 0.4; }
           p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt;
-          const gh = groundAt(p.x, p.z) + 0.25; if (p.y < gh) p.y = gh;
+          const gh = groundAt(p.x, p.z) + 0.25; if (p.y < gh) { p.y = gh; if (vac && p.vy < 0) p.t = 1; }
           live++;
         }
         lp.set(p.x, p.y, p.z).applyMatrix4(inv);
         const inHull = this.onFootprint(lp.x, lp.z) && lp.y > -1.6 && lp.y < 5.6;
-        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, inHull ? 0 : Math.min(p.t, 1)); sz.setX(i, Math.min(4.2, p.s0 * (1 + p.t * 3.2)));
+        pos.setXYZ(i, p.x, p.y, p.z); age.setX(i, inHull ? 0 : Math.min(p.t, 1)); sz.setX(i, Math.min(4.2, p.s0 * (1 + p.t * (vac ? 0.5 : 3.2))));
       }
       if (this.washAcc > 4) this.washAcc = 4;
       pos.needsUpdate = true; age.needsUpdate = true; sz.needsUpdate = true;
@@ -1846,13 +1850,15 @@ const Ship = (() => {
     // and are hidden while inside the hull (like the dust)
     stepSmoke(dt, color, groundAt, gy) {
       const P = this.smokeP, A = this.smoke.geometry.attributes, inv = _washInv.copy(this.group.matrixWorld).invert(), lp = _washP;
-      const sx = this.group.position.x, sz = this.group.position.z, drag = Math.exp(-dt * 1.3), k = 1 - drag;
+      const sx = this.group.position.x, sz = this.group.position.z, drag = Math.exp(-dt * 1.3), k = 1 - drag, vac = this.washVac;
       let live = 0;
       for (let i = 0; i < P.length; i++) {
         const p = P[i];
         if (p.t < 1) {
-          p.t += dt / p.life;
-          p.vx = p.vx * drag + 1.6 * k; p.vy = p.vy * drag + 0.7 * k; p.vz = p.vz * drag + 0.7 * k;
+          // (with no air there's no cloud to hang about: the exhaust flies out, falls back and is gone in moments)
+          p.t += dt / p.life * (vac ? 3 : 1);
+          if (vac) p.vy -= dt * 1.6;
+          else { p.vx = p.vx * drag + 1.6 * k; p.vy = p.vy * drag + 0.7 * k; p.vz = p.vz * drag + 0.7 * k; }
           p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
           if (p.y < gy + 30) {
             const size = p.s0 * (1 + p.t * p.grow), gh = groundAt(p.x, p.z) + size * 0.22;
@@ -2471,7 +2477,11 @@ const Ship = (() => {
       this.plasma.material.uniforms.uV.value.copy(D);
       // the world turns beneath us; the sun appears to wheel around as we travel along the orbit
       this.planet.rotation.y = nu + t * o.spin;
-      this.cloudLayers.forEach((c, i) => { c.rotation.y = nu * 1.02 + t * o.spin * 1.3 + (i === 3 ? 1.7 + t * o.spin * 1.4 : 0); });
+      // (the cloud rides round with the ground under it: the ship passes over it the way it passes over the ground, the
+      // wind carrying it along a touch behind; the high layer drifts on slowly by itself. The angle along the orbit is
+      // taken unwrapped, so it never jumps a little once a lap)
+      const nuU = nu + TAU * Math.round((E - nu) / TAU);
+      this.cloudLayers.forEach((c, i) => { c.rotation.y = nuU * 0.997 + t * o.spin * 0.92 + (i === 3 ? 1.7 + t * o.spin * 0.1 : 0); });
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       const sa = o.sunPhase - nu;
       this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);

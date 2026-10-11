@@ -1894,6 +1894,10 @@ const Exterior = (() => {
       // (drawn at the very back of the depth range, so they're behind everything on the ground however big they are;
       // under a black airless sky they're solid, their night side blotting out the stars)
       const far = 'gl_Position.z = gl_Position.w * 0.99995;';
+      // (so which is in front of which goes by how far off each really is: anything beyond the world is drawn before
+      // it, and hidden behind it where they cross; anything this side of it after it and its clouds, over them. Left
+      // to the usual sort they'd swap places as you turned your head, and the world would swallow the rock)
+      const wd0 = (list.find((b) => b.kind === 'planet') || {}).dist, order = (b) => b.dist == null ? -9 : (wd0 != null && b.dist < wd0 ? -6.5 : -12) - b.dist * 1e-4;
       let rf = null;
       for (let b of list) {
         // (seen from a ringed world's moon or rock, the other one is out in the rings' plane, where it really is)
@@ -1937,7 +1941,7 @@ const Exterior = (() => {
         });
         const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
-        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = -9; m.frustumCulled = false;
+        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = b.kind === 'planet' ? -9 : order(b); m.frustumCulled = false;
         // (seen from a moon, the other one goes in the world's frame: where it is is reckoned from where the world is)
         const G0 = b.kind === 'planet' || b.withWorld ? this.worldG : this.bodiesG;
         G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo, world: G0 === this.worldG });
@@ -1998,7 +2002,7 @@ const Exterior = (() => {
         const c = Math.cos(p.eps) * p.dist * s, pos = C.clone().addScaledVector(e1, Math.cos(p.dphi) * c).addScaledVector(e2, Math.sin(p.dphi) * c).addScaledVector(N, Math.sin(p.eps) * p.dist * s);
         const L = pos.length(), d = pos.clone().divideScalar(L), rad = p.size * s, w = pos.applyAxisAngle(_Y, rot);
         U.uRingOcc.value[0].set(w.x, w.y, w.z, rad);
-        return { az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), r: Math.max(0.006, Math.asin(Math.min(0.5, rad / L))) };
+        return { az: Math.atan2(d.z, d.x), el: Math.asin(clamp(d.y, -1, 1)), r: Math.max(0.006, Math.asin(Math.min(0.5, rad / L))), dist: L / s };
       } };
     }
     // the sky's bodies: lit by the sun, veiled by cloud and weather, drifting slowly across the sky over the day
@@ -2072,7 +2076,7 @@ const Exterior = (() => {
         if (this.clouds) this.clouds.visible = !R.vol.on;
         if (R.vol.on && this.heightTex) {
           const vu = R.vol.mat.uniforms, h = (G.round ? G.round.time : 480) / 60, wet = this.weather === 'rain' ? 1 : this.weather === 'storm' ? 1.5 : 0, dawn = 1 - sstep(7.5, 10.5, h);
-          vu.tH.value = this.heightTex; this.group.getWorldPosition(vu.uOrg.value); vu.uHB.value.set(-this.heightBox[0] / 2, -this.heightBox[0] / 2, this.heightBox[0], 0); vu.uHR.value.set(this.heightBox[1], this.heightBox[2]);
+          vu.tH.value = this.heightTex; this.group.getWorldPosition(vu.uOrg.value); vu.uFar.value = 600; vu.uHB.value.set(-this.heightBox[0] / 2, -this.heightBox[0] / 2, this.heightBox[0], 0); vu.uHR.value.set(this.heightBox[1], this.heightBox[2]);
           vu.uSunDir.value.copy(L.sunDir); vu.uFogCol.value.copy(L.fog); vu.uScat.value.copy(L.scatter); vu.uShipInv.value.copy(this.shipInv.value);
           vu.uDen.value.set(L.fogDen * 1.1, L.fogFalloff, L.fogDen * (0.6 + 1.6 * Math.max(L.night, dawn)), 1.8);
           let top = 0; for (const v of this.rangeTops || [30]) top += v; top /= (this.rangeTops || [30]).length;

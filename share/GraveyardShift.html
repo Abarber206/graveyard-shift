@@ -14171,7 +14171,7 @@ const Bots = (() => {
   function sitDown(p, b, dt) {
     const S = G.ship.seats;
     if (b.sat) { const s = S[b.seat]; p.pos.set(s.x, 0, s.z); p.yaw = s.yaw; return; }
-    if (G.flight || G.mode === 'landing') return;
+    // (still on its feet when the ship goes, it makes for a seat all the same, as anyone would)
     if (b.seat == null || taken(b.seat, p)) {
       b.seat = null; let bd = Infinity;
       S.forEach((s, i) => { if (s.x > 4 || taken(i, p) || b.noSeat.has(i)) return; const d = Math.hypot(s.exit.x - p.pos.x, s.exit.z - p.pos.z); if (d < bd) { bd = d; b.seat = i; } });

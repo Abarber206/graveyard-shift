@@ -11,7 +11,9 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   const pinned = /(^|\.)(cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)$/.test(url.hostname);
   if (url.origin === location.origin) {
-    e.respondWith(fetch(req).then((res) => { if (res.ok) { const c = res.clone(); caches.open(CACHE).then((ca) => ca.put(req, c)); } return res; })
+    // (asked of the server every time, not taken from the browser's own cache: the host keeps files for ten minutes,
+    // and a reload in that time would otherwise run the old game, or a mix of old and new files)
+    e.respondWith(fetch(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' })).then((res) => { if (res.ok) { const c = res.clone(); caches.open(CACHE).then((ca) => ca.put(req, c)); } return res; })
       .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./'))));
   } else if (pinned) {
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok || res.type === 'opaque') { const c = res.clone(); caches.open(CACHE).then((ca) => ca.put(req, c)); } return res; })));

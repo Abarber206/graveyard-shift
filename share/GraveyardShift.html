@@ -2511,36 +2511,49 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
-    // a gas giant's cloud tops: belts and zones of warm and pale cloud running round it, their edges churned into waves
-    // and curls where the winds shear past each other, fine streaks drawn out along them, ovals of storm spinning in
-    // them, and the poles a cooler grey. Worked from the sphere's own points, so nothing smears where it wraps
-    giant() {
-      const W = 768, H = 384;
-      const [c, g] = C(W, H);
-      const nz = new Noise2D(77), rr = new RNG(7777), id = g.createImageData(W, H), d = id.data;
-      const storms = Array.from({ length: 9 }, (_, i) => ({ lat: rr.range(-0.75, 0.75), lon: rr.range(0, TAU), w: rr.range(0.05, 0.14) * (i === 0 ? 2.2 : 1), h: rr.range(0.025, 0.05) * (i === 0 ? 2 : 1), k: i === 0 ? -1 : rr.chance(0.6) ? 1 : -1 }));
-      const belt = [0.5, 0.33, 0.21], zone = [0.97, 0.91, 0.77], pole = [0.52, 0.56, 0.6], red = [0.74, 0.36, 0.22], white = [1, 0.98, 0.94];
-      for (let y = 0; y < H; y++) {
-        const v = (y + 0.5) / H * Math.PI, py = Math.cos(v), sv = Math.sin(v);
-        for (let x = 0; x < W; x++) {
-          const u = x / W * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
-          const w1 = nz.fbm3(px * 3 + 5, py * 3, pz * 3, 3), w2 = nz.fbm3(px * 10, py * 10 + 7, pz * 10, 2);
-          let lat = py + w1 * 0.05 + w2 * 0.012, spot = 0, sk = 0;
-          for (const s of storms) {
-            let dl = u - s.lon; dl -= TAU * Math.round(dl / TAU);
-            const dx = dl * sv / s.w, dy = (py - s.lat) / s.h, r2 = dx * dx + dy * dy;
-            if (r2 < 6) { const e = Math.exp(-r2); lat += 0.03 * e * Math.sin(Math.atan2(dy, dx) * 2 + r2 * 1.5) * s.h * 20; if (e > spot) { spot = e; sk = s.k; } }
+    // a gas giant's cloud tops: belts and zones of darker and paler cloud running round it (how strongly: amp), their
+    // edges churned into waves and curls where the winds shear past each other, fine streaks drawn out along them, ovals
+    // of storm spinning in them (the first, big: the great storm), and the poles a cooler colour. Worked from the
+    // sphere's own points, so nothing smears where it wraps. Three faces: pale gold and softly banded (Halcyon), boldly
+    // banded with a great red storm (Tarrow), and an ice giant's pale blue, nearly featureless but for a dark spot (Hush)
+    giant() { return this.giantFace({ seed: 77, belt: [0.74, 0.6, 0.4], zone: [0.96, 0.9, 0.72], pole: [0.6, 0.66, 0.62], spot: [0.9, 0.84, 0.66], white: [1, 0.97, 0.88], amp: 0.6, storms: 5, great: 1.2 }); },
+    giantJove() { return this.giantFace({ seed: 31, belt: [0.47, 0.29, 0.18], zone: [0.98, 0.93, 0.8], pole: [0.5, 0.52, 0.55], spot: [0.78, 0.34, 0.2], white: [1, 0.98, 0.94], amp: 1.15, storms: 14, great: 2.6 }); },
+    giantIce() { return this.giantFace({ seed: 53, belt: [0.36, 0.6, 0.7], zone: [0.62, 0.86, 0.92], pole: [0.48, 0.7, 0.82], spot: [0.14, 0.24, 0.44], white: [0.92, 0.98, 1], amp: 0.35, storms: 3, great: 1.6 }); },
+    // (it's a lot of work at this size, so it's done a band of rows at a time between frames, never stalling one; a
+    // rough pass at an eighth of the size stands in until it's done)
+    giantFace(o) {
+      const W = 1024, H = 512;
+      const [c, g] = C(W, H), tex = finish(c, true, false);
+      const nz = new Noise2D(o.seed), rr = new RNG(o.seed * 101);
+      const storms = Array.from({ length: o.storms }, (_, i) => ({ lat: rr.range(-0.75, 0.75), lon: rr.range(0, TAU), w: rr.range(0.05, 0.14) * (i === 0 ? o.great : 1), h: rr.range(0.025, 0.05) * (i === 0 ? o.great * 0.9 : 1), k: i === 0 ? -1 : rr.chance(0.6) ? 1 : -1 }));
+      const { belt, zone, pole, white } = o, red = o.spot;
+      const rows = (id, w, h, y0, y1) => {
+        const d = id.data;
+        for (let y = y0; y < y1; y++) {
+          const v = (y + 0.5) / h * Math.PI, py = Math.cos(v), sv = Math.sin(v);
+          for (let x = 0; x < w; x++) {
+            const u = x / w * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
+            const w1 = nz.fbm3(px * 3 + 5, py * 3, pz * 3, 3), w2 = nz.fbm3(px * 10, py * 10 + 7, pz * 10, 2);
+            let lat = py + w1 * 0.05 + w2 * 0.012, spot = 0, sk = 0;
+            for (const s of storms) {
+              let dl = u - s.lon; dl -= TAU * Math.round(dl / TAU);
+              const dx = dl * sv / s.w, dy = (py - s.lat) / s.h, r2 = dx * dx + dy * dy;
+              if (r2 < 6) { const e = Math.exp(-r2); lat += 0.03 * e * Math.sin(Math.atan2(dy, dx) * 2 + r2 * 1.5) * s.h * 20; if (e > spot) { spot = e; sk = s.k; } }
+            }
+            const t = sstep(0, 1, 0.5 + o.amp * (0.34 * Math.sin(lat * 14 + 1.3) + 0.2 * Math.sin(lat * 31 + 0.4) + 0.1 * Math.sin(lat * 53 + 2.2) + nz.fbm3(px * 2, py * 60, pz * 2, 2) * 0.2 + w2 * 0.1));
+            let r = lerp(belt[0], zone[0], t), gg = lerp(belt[1], zone[1], t), b = lerp(belt[2], zone[2], t);
+            const pk = sstep(0.72, 0.94, Math.abs(py) + w1 * 0.04); r = lerp(r, pole[0], pk); gg = lerp(gg, pole[1], pk); b = lerp(b, pole[2], pk);
+            if (spot > 0.05) { const S = sk < 0 ? red : white, a = sstep(0.05, 0.6, spot) * 0.8; r = lerp(r, S[0], a); gg = lerp(gg, S[1], a); b = lerp(b, S[2], a); }
+            const i = ((y - y0) * w + x) * 4;
+            d[i] = clamp(r * 255, 0, 255); d[i + 1] = clamp(gg * 255, 0, 255); d[i + 2] = clamp(b * 255, 0, 255); d[i + 3] = 255;
           }
-          const t = sstep(0, 1, 0.5 + 0.34 * Math.sin(lat * 14 + 1.3) + 0.2 * Math.sin(lat * 31 + 0.4) + 0.1 * Math.sin(lat * 53 + 2.2) + nz.fbm3(px * 2, py * 60, pz * 2, 2) * 0.2 + w2 * 0.1);
-          let r = lerp(belt[0], zone[0], t), gg = lerp(belt[1], zone[1], t), b = lerp(belt[2], zone[2], t);
-          const pk = sstep(0.72, 0.94, Math.abs(py) + w1 * 0.04); r = lerp(r, pole[0], pk); gg = lerp(gg, pole[1], pk); b = lerp(b, pole[2], pk);
-          if (spot > 0.05) { const S = sk < 0 ? red : white, a = sstep(0.05, 0.6, spot) * 0.8; r = lerp(r, S[0], a); gg = lerp(gg, S[1], a); b = lerp(b, S[2], a); }
-          const i = (y * W + x) * 4;
-          d[i] = clamp(r * 255, 0, 255); d[i + 1] = clamp(gg * 255, 0, 255); d[i + 2] = clamp(b * 255, 0, 255); d[i + 3] = 255;
         }
-      }
-      g.putImageData(id, 0, 0);
-      return finish(c, true, false);
+      };
+      { const [c8, g8] = C(W / 8, H / 8), id = g8.createImageData(W / 8, H / 8); rows(id, W / 8, H / 8, 0, H / 8); g8.putImageData(id, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(c8, 0, 0, W, H); }
+      let y = 0;
+      const band = () => { const n = Math.min(16, H - y), id = g.createImageData(W, n); rows(id, W, H, y, y + n); g.putImageData(id, 0, y); y += n; if (y >= H || (y & 127) === 0) tex.needsUpdate = true; if (y < H) setTimeout(band, 0); };
+      setTimeout(band, 0);
+      return tex;
     },
     rings() {
       // a ring system's profile from its inner edge (left) to its outer (right): alpha how dense it is, colour how bright.
@@ -2558,6 +2571,30 @@ const TEX = (() => {
         else if (u < 0.9) { a = (0.48 + 0.18 * n(45, 3.3) + 0.1 * n(200, 8)) * (u > 0.855 && u < 0.866 ? 0.02 : 1); b = 165 + 30 * n(35, 5); }
         else if (u > 0.95 && u < 0.962) { a = 0.55 * Math.sin((u - 0.95) / 0.012 * Math.PI); b = 235; }
         for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b * 0.93; d[i + 2] = b * 0.82; d[i + 3] = clamp(a, 0, 1) * 255; }
+      }
+      g.putImageData(id, 0, 0);
+      return finish(c, false, false);
+    },
+    // ...a faint, broad sheet of dust, rust-brown, densest in a band near its middle (Tarrow's)
+    ringsDust() {
+      const [c, g] = C(1024, 4);
+      const nz = new Noise2D(23), id = g.createImageData(1024, 4), d = id.data;
+      for (let x = 0; x < 1024; x++) {
+        const u = (x + 0.5) / 1024, n = (k, s) => nz.noise(u * k, s) * 0.5 + 0.5;
+        const a = (0.07 + 0.1 * n(12, 1) + 0.16 * Math.exp(-Math.pow((u - 0.55) / 0.12, 2))) * sstep(0, 0.12, u) * sstep(1, 0.8, u), b = 150 + 40 * n(30, 3);
+        for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b * 0.9; d[i + 2] = b * 0.8; d[i + 3] = clamp(a, 0, 1) * 255; }
+      }
+      g.putImageData(id, 0, 0);
+      return finish(c, false, false);
+    },
+    // ...and nine thin, sharp ringlets of dark ice with clear space between, the outermost the widest and brightest (Hush's)
+    ringsThin() {
+      const [c, g] = C(1024, 4);
+      const id = g.createImageData(1024, 4), d = id.data, L = [[0.04, 0.006], [0.12, 0.005], [0.2, 0.007], [0.31, 0.004], [0.42, 0.006], [0.55, 0.008], [0.66, 0.005], [0.8, 0.01], [0.95, 0.03]];
+      for (let x = 0; x < 1024; x++) {
+        const u = (x + 0.5) / 1024; let a = 0.01, b = 90;
+        L.forEach(([c0, w], i) => { const k = Math.max(0, 1 - Math.abs(u - c0) / w); if (k > 0) { a = Math.max(a, (i === L.length - 1 ? 0.9 : 0.75) * Math.sqrt(k)); b = i === L.length - 1 ? 150 : 110; } });
+        for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b; d[i + 2] = b * 1.05; d[i + 3] = clamp(a, 0, 1) * 255; }
       }
       g.putImageData(id, 0, 0);
       return finish(c, false, false);
@@ -5737,7 +5774,8 @@ const Rings = {
     if (!sys) { U.uRingR.value.w = 0; return; }
     U.uRingR.value.set(sys.in, sys.out, U.uRingR.value.z || 1, 1);
     const g = sys.gaps || []; U.uRingGap.value.set(g[0] ? g[0][0] : 0, g[0] ? g[0][1] : 0, g[1] ? g[1][0] : 0, g[1] ? g[1][1] : 0);
-    U.uRingCol.value.set(tint).lerp(_ringW, 0.3).multiplyScalar(k);
+    U.uRingMap.value = TEX.get(sys.map || 'rings');
+    if (sys.col != null) U.uRingCol.value.set(sys.col).multiplyScalar(k); else U.uRingCol.value.set(tint).lerp(_ringW, 0.3).multiplyScalar(k);
   },
   GLSL: `uniform sampler2D uRingMap; uniform vec3 uRingC, uRingN, uRingCol; uniform vec4 uRingR, uRingGap; uniform vec4 uRingOcc[3];
     // the sheet r of the world's radii out: its colour, and how dense it is (alpha)
@@ -7624,7 +7662,7 @@ const Exterior = (() => {
         // (a moon or rock's orbit brings it in close some days and takes it far out on others, round the sky as well)
         // (today's sky comes already worked out from where everything really is: see G.skyToday)
         const near = b.fixed || b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.fixed || b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
-        const r = D * Math.sin(Math.min(0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
+        const r = D * Math.sin(Math.min(b.giant ? 0.97 : 0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
         if (b.kind === 'rock') {
           // (a lumpy, broken potato of a thing)
           const p = geo.attributes.position, nz = new Noise2D(7 + rr.next() * 100);
@@ -7637,7 +7675,7 @@ const Exterior = (() => {
         // (a ringed world: its rings, laid out round it as they really are from here; see ringFrame)
         const RU = b.ringSys ? (rf = this.ringFrame(b, D)).U : null, RG = RU ? Rings.GLSL : '';
         const mat = new THREE.ShaderMaterial({
-          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? (b.giant ? 'giant' : 'planet') : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
+          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? b.giant || 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
           vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz; vW = wp.xyz;
               gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,
@@ -10123,6 +10161,13 @@ const Ship = (() => {
               vec3 landC = diffuseColor.rgb * clamp(1.0 + rid * 1.5, 0.25, 2.2) * mix(vec3(1.06, 0.95, 0.82), vec3(0.86, 0.98, 1.08), clamp(0.5 + tone * 1.2, 0.0, 1.0));
               vec3 seaC = diffuseColor.rgb * clamp(1.0 + sea * 0.3, 0.6, 1.4);
               diffuseColor.rgb = mix(mix(seaC, landC, land), diffuseColor.rgb, uPdGas);
+              // (a giant's cloud close up: fine streaks drawn out along its bands, finer than its map, fading out before
+              // they're too fine to show)
+              if (uPdGas > 0.5) {
+                vec3 q1 = vec3(pp.x * 30.0, pp.y * 260.0, pp.z * 30.0), q2 = q1 * 2.7;
+                float s = (pdn(q1) - 0.5) * (1.0 - smoothstep(0.3, 0.9, length(fwidth(q1)))) + (pdn(q2 + 7.1) - 0.5) * 0.6 * (1.0 - smoothstep(0.3, 0.9, length(fwidth(q2))));
+                diffuseColor.rgb *= 1.0 + s * 0.22;
+              }
               pdHeight = lh * land;
               // the clouds' shadows, thrown a little way off toward the sun (looked up in the cloud shell's own frame)
               vec3 cs = normalize(pp + uPdSun * 0.01);
@@ -10209,7 +10254,7 @@ const Ship = (() => {
       this.airless = !!airless;
       // (its night side is black, like the world's: nothing but the stars behind it to show where it ends)
       // (a gas giant: no ground, its cloud tops are all there is, banded, and nothing drifts over them)
-      const map = TEX.get(airless ? 'moonmap' : giant ? 'giant' : 'planet'), pm = this.planetMat;
+      const map = TEX.get(airless ? 'moonmap' : giant || 'planet'), pm = this.planetMat;
       if (pm.map !== map) { pm.map = map; pm.normalMap = airless ? TEX.normal('moonmap', 3) : null; pm.normalScale.set(2.4, 2.4); pm.needsUpdate = true; }
       this.pdU.air.value = airless ? 0 : 1; this.pdU.gas.value = giant ? 1 : 0;
       for (const c of this.cloudLayers) c.visible = !airless && !giant;
@@ -10281,7 +10326,7 @@ const Ship = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 4) * 0.55; p.setXYZ(i, x * k * 1.3, y * k * 0.78, z * k); }
           geo.computeVertexNormals();
         } else geo = new THREE.SphereGeometry(1, 64, 32);
-        const map = TEX.get(b.kind === 'planet' ? (b.giant ? 'giant' : 'planet') : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
+        const map = TEX.get(b.kind === 'planet' ? b.giant || 'planet' : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
         const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', normalMap: nm, normalScale: new THREE.Vector2(2.2, 2.2) }));
         // (round the world it belongs to, a moon or rock really goes round b.orbit of its radii out; seen from one of
         // that world's moons, the other is far off, never in our moon's shadow)
@@ -10332,7 +10377,8 @@ const Ship = (() => {
       const N = N0.clone().applyAxisAngle(D, r.range(-0.6, 0.6)).normalize();
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
-      const a = R * r.range(1.6, 3.6), e = r.range(0.02, 0.07);
+      // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it)
+      const a = R * (look.giant ? r.range(1.25, 1.7) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
       this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
@@ -15823,9 +15869,12 @@ const SITE_LOOK = {
   brinewell: { tint: 0x4a6a7a, atmo: 0x8ac8e8 },
   saltreach: { tint: 0xd8ccb0, atmo: 0xffe8a8, rings: { in: 1.3, out: 2.4 } },
   vesper: { tint: 0x3a2a24, atmo: 0xff8a3a },
-  // a gas giant: no ground at all, only cloud all the way down (giant), banded, ringed, and enormous next to the
-  // moons that go round it
-  halcyon: { tint: 0xd4c4a4, atmo: 0xc8b890, rings: { in: 1.3, out: 2.35 }, giant: true },
+  // gas giants: no ground at all, only cloud all the way down (giant: which face it wears), and enormous next to the
+  // moons that go round them; each with its own kind of rings (map: the rings' profile; col: their colour, where it
+  // isn't the world's): Halcyon's broad and bright, Tarrow's a faint rusty haze of dust, Hush's thin dark ringlets
+  halcyon: { tint: 0xece4d4, atmo: 0xd8c8a0, rings: { in: 1.25, out: 2.25 }, giant: 'giant' },
+  tarrow: { tint: 0xf4ece4, atmo: 0xe0c0a0, rings: { in: 1.4, out: 1.85, map: 'ringsDust', col: 0x8a6a50 }, giant: 'giantJove' },
+  hush: { tint: 0xeaf4f8, atmo: 0x9ad8ff, rings: { in: 1.6, out: 2.05, map: 'ringsThin', col: 0x5a5e64 }, giant: 'giantIce' },
 };
 const SITES = {
   // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once
@@ -15842,7 +15891,12 @@ const SITES = {
 };
 // Halcyon, a gas giant: nowhere to land on it, but a family of moons round it, each with a facility, and all of them
 // open every day (open): jump to any of them, or to the giant to look, and hop between them for nothing
-SITES.halcyon = { name: 'Halcyon', code: '9', risk: 'VARIES', cost: 150, giant: true, size: 30, stairs: [2], scrap: [0, 0], mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, desc: 'A gas giant: no surface. Five moons round it, every one with a facility. Route to any of them.' };
+const GIANT = { stairs: [2], scrap: [0, 0], size: 30, mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, risk: 'VARIES', giant: true };
+Object.assign(SITES, {
+  halcyon: Object.assign({ name: 'Halcyon', code: '9', cost: 150, desc: 'A pale gold gas giant in broad bright rings: no surface. Five moons, each with a facility. Route to any of them.' }, GIANT),
+  tarrow: Object.assign({ name: 'Tarrow', code: '14', cost: 190, desc: 'A banded giant, its storms bigger than worlds: no surface. Three moons, each with a facility.' }, GIANT),
+  hush: Object.assign({ name: 'Hush', code: '20', cost: 240, desc: 'A still, pale blue giant in thin dark rings: no surface. Three moons, each with a facility.' }, GIANT),
+});
 // (inside, each world's dark has its own faint cast: the colour of the murk the fog fades into)
 Object.assign(SITES.verdigris, { murk: 0x020904 }); Object.assign(SITES.rimefall, { murk: 0x03060b }); Object.assign(SITES.agnes, { murk: 0x070507 });
 Object.assign(SITES.brinewell, { murk: 0x010607 }); Object.assign(SITES.saltreach, { murk: 0x080602 }); Object.assign(SITES.vesper, { murk: 0x0b0301 });
@@ -15891,14 +15945,24 @@ const BODIES = {
     { key: 'flux', kind: 'moon', size: 0.23, orbit: 6.0, ang: -1.6, off: 0.16, tint: 0x6a5048 },
     { key: 'dross', kind: 'rock', size: 0.07, orbit: 3.2, ang: 2.0, off: 0.08, tint: 0x3a3230 },
   ],
-  // (a giant's moons are tiny beside it: from the nearest, it fills a third of the sky; from the farthest, a fist held
-  // out at arm's length. A moonlet goes round in its rings)
+  // (a giant's moons are specks beside it, and they go round it close: from the nearest it fills most of the sky,
+  // and even from the farthest it's a wall of cloud a quarter of the way across. One goes round in its rings)
   halcyon: [
-    { key: 'sump', kind: 'rock', size: 0.012, orbit: 1.9, ang: 0.8, off: 0.06, tint: 0x7a7064, ring: true },
-    { key: 'lantern', kind: 'moon', size: 0.03, orbit: 2.8, ang: -0.5, off: 0.12, tint: 0xdfe6ee, incl: 0.06 },
-    { key: 'chandler', kind: 'moon', size: 0.05, orbit: 4.3, ang: 2.2, off: 0.15, tint: 0xd8c070, incl: 0.1 },
-    { key: 'gloam', kind: 'moon', size: 0.045, orbit: 7.0, ang: -2.0, off: 0.14, tint: 0x5a5a60, incl: 0.16 },
-    { key: 'ferrule', kind: 'moon', size: 0.035, orbit: 10.5, ang: 1.3, off: 0.13, tint: 0xa87a62, incl: 0.22 },
+    { key: 'sump', kind: 'rock', size: 0.012, orbit: 1.7, ang: 0.8, off: 0.06, tint: 0x7a7064, ring: true },
+    { key: 'lantern', kind: 'moon', size: 0.03, orbit: 2.4, ang: -0.5, off: 0.12, tint: 0xdfe6ee, incl: 0.06 },
+    { key: 'chandler', kind: 'moon', size: 0.05, orbit: 3.0, ang: 2.2, off: 0.15, tint: 0xd8c070, incl: 0.1 },
+    { key: 'gloam', kind: 'moon', size: 0.045, orbit: 3.8, ang: -2.0, off: 0.14, tint: 0x5a5a60, incl: 0.14 },
+    { key: 'ferrule', kind: 'moon', size: 0.035, orbit: 4.8, ang: 1.3, off: 0.13, tint: 0xa87a62, incl: 0.18 },
+  ],
+  tarrow: [
+    { key: 'kiln', kind: 'moon', size: 0.03, orbit: 1.6, ang: 0.5, off: 0.1, tint: 0xc89060, ring: true },
+    { key: 'tithe', kind: 'moon', size: 0.04, orbit: 2.6, ang: -1.2, off: 0.13, tint: 0xb8b8b0, incl: 0.08 },
+    { key: 'warden', kind: 'moon', size: 0.035, orbit: 3.8, ang: 2.4, off: 0.12, tint: 0x8a7060, incl: 0.15 },
+  ],
+  hush: [
+    { key: 'murmur', kind: 'moon', size: 0.028, orbit: 1.4, ang: -0.4, off: 0.1, tint: 0xd8eef8, incl: 0.04 },
+    { key: 'lull', kind: 'rock', size: 0.012, orbit: 2.4, ang: 1.9, off: 0.07, tint: 0x9aa8b0, incl: 0.1 },
+    { key: 'pall', kind: 'moon', size: 0.04, orbit: 3.5, ang: -2.3, off: 0.13, tint: 0x5a6070, incl: 0.18 },
   ],
 };
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
@@ -15925,10 +15989,18 @@ Object.assign(SITES, {
   flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
   // Halcyon's: open every day (open), each a little world of its own (ground: its dust's colour against a plain moon's)
   sump: { name: 'Sump', code: '9-R', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [16, 21], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.4, slime: 0.8 }, ground: [0.95, 0.9, 0.85], desc: "A moonlet in the rings, mined hollow for ice. The drills stopped mid-shift." },
-  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon under the rings. The relay station still answers hails, in a voice nobody recorded.' },
+  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon just outside the rings. The relay station still answers hails, in a voice nobody recorded.' },
   chandler: { name: 'Chandler', code: '9-II', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, slime: 1.2, pale: 1 }, ground: [1.2, 1.04, 0.62], desc: 'Sulphur flats and a refinery that ran itself for years. It kept the furnaces lit for someone.' },
   gloam: { name: 'Gloam', code: '9-III', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 38, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.8, pale: 1.4, leech: 0.8 }, ground: [0.5, 0.5, 0.54], desc: 'A moon as black as soot. The observatory on it was watching something, then stopped reporting.' },
   ferrule: { name: 'Ferrule', code: '9-IV', risk: 'EXTREME', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [1.12, 0.82, 0.7], desc: "Halcyon's outermost moon, rust-red. A breakers' yard for ships that came back wrong." },
+  // Tarrow's
+  kiln: { name: 'Kiln', code: '14-I', risk: 'HIGH', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, slime: 1.4, pale: 1 }, ground: [1.2, 0.85, 0.55], desc: "Down in Tarrow's dust ring, its crust cracking and smoking in the giant's pull. The geothermal plant still runs, hot as a stove." },
+  tithe: { name: 'Tithe', code: '14-II', risk: 'MEDIUM', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, pale: 1 }, ground: [0.96, 0.96, 0.93], desc: 'A grey moon with a company chapel and its counting house. The tithes were paid in something other than money.' },
+  warden: { name: 'Warden', code: '14-III', risk: 'EXTREME', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [0.78, 0.64, 0.52], desc: 'A prison moon. The cells were built to keep things in; the doors all open from the inside now.' },
+  // Hush's
+  murmur: { name: 'Murmur', code: '20-I', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, leech: 1.2, crawler: 1 }, ground: [1.1, 1.18, 1.3], desc: 'An ice moon so close in that Hush fills half its sky. A listening post, every dish turned the same way.' },
+  lull: { name: 'Lull', code: '20-R', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, slime: 1.2 }, ground: [0.9, 0.96, 1.06], desc: 'A captured rock in a slow, cold orbit. A cryo vault is cut into it; most of the pods are open.' },
+  pall: { name: 'Pall', code: '20-II', risk: 'EXTREME', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.9, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2.2, mannequin: 1.6, crawler: 1.4 }, ground: [0.46, 0.49, 0.56], desc: "Hush's dark outer moon. They brought a lost fleet's crews here to lie in state, and something kept them." },
   dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: [2], scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
 });
 for (const w in BODIES) {
@@ -15962,7 +16034,7 @@ function orbitsToday(world, run) {
 function ringsToday(world, run) {
   const R = SITE_LOOK[world] && SITE_LOOK[world].rings; if (!R) return null;
   const O = orbitsToday(world, run);
-  return { in: R.in, out: R.out, gaps: (BODIES[world] || []).filter((b) => b.ring).map((b) => [b.orbit * O[b.key].near, b.size * 2]) };
+  return { in: R.in, out: R.out, map: R.map, col: R.col, gaps: (BODIES[world] || []).filter((b) => b.ring).map((b) => [b.orbit * O[b.key].near, b.size * 2]) };
 }
 // where it is today, in the world's radii from its centre, in the plane they all go round in
 const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin(o.phase) * b.orbit * o.near });

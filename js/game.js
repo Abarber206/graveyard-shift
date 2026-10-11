@@ -13,9 +13,12 @@ const SITE_LOOK = {
   brinewell: { tint: 0x4a6a7a, atmo: 0x8ac8e8 },
   saltreach: { tint: 0xd8ccb0, atmo: 0xffe8a8, rings: { in: 1.3, out: 2.4 } },
   vesper: { tint: 0x3a2a24, atmo: 0xff8a3a },
-  // a gas giant: no ground at all, only cloud all the way down (giant), banded, ringed, and enormous next to the
-  // moons that go round it
-  halcyon: { tint: 0xd4c4a4, atmo: 0xc8b890, rings: { in: 1.3, out: 2.35 }, giant: true },
+  // gas giants: no ground at all, only cloud all the way down (giant: which face it wears), and enormous next to the
+  // moons that go round them; each with its own kind of rings (map: the rings' profile; col: their colour, where it
+  // isn't the world's): Halcyon's broad and bright, Tarrow's a faint rusty haze of dust, Hush's thin dark ringlets
+  halcyon: { tint: 0xece4d4, atmo: 0xd8c8a0, rings: { in: 1.25, out: 2.25 }, giant: 'giant' },
+  tarrow: { tint: 0xf4ece4, atmo: 0xe0c0a0, rings: { in: 1.4, out: 1.85, map: 'ringsDust', col: 0x8a6a50 }, giant: 'giantJove' },
+  hush: { tint: 0xeaf4f8, atmo: 0x9ad8ff, rings: { in: 1.6, out: 2.05, map: 'ringsThin', col: 0x5a5e64 }, giant: 'giantIce' },
 };
 const SITES = {
   // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once
@@ -32,7 +35,12 @@ const SITES = {
 };
 // Halcyon, a gas giant: nowhere to land on it, but a family of moons round it, each with a facility, and all of them
 // open every day (open): jump to any of them, or to the giant to look, and hop between them for nothing
-SITES.halcyon = { name: 'Halcyon', code: '9', risk: 'VARIES', cost: 150, giant: true, size: 30, stairs: [2], scrap: [0, 0], mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, desc: 'A gas giant: no surface. Five moons round it, every one with a facility. Route to any of them.' };
+const GIANT = { stairs: [2], scrap: [0, 0], size: 30, mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, risk: 'VARIES', giant: true };
+Object.assign(SITES, {
+  halcyon: Object.assign({ name: 'Halcyon', code: '9', cost: 150, desc: 'A pale gold gas giant in broad bright rings: no surface. Five moons, each with a facility. Route to any of them.' }, GIANT),
+  tarrow: Object.assign({ name: 'Tarrow', code: '14', cost: 190, desc: 'A banded giant, its storms bigger than worlds: no surface. Three moons, each with a facility.' }, GIANT),
+  hush: Object.assign({ name: 'Hush', code: '20', cost: 240, desc: 'A still, pale blue giant in thin dark rings: no surface. Three moons, each with a facility.' }, GIANT),
+});
 // (inside, each world's dark has its own faint cast: the colour of the murk the fog fades into)
 Object.assign(SITES.verdigris, { murk: 0x020904 }); Object.assign(SITES.rimefall, { murk: 0x03060b }); Object.assign(SITES.agnes, { murk: 0x070507 });
 Object.assign(SITES.brinewell, { murk: 0x010607 }); Object.assign(SITES.saltreach, { murk: 0x080602 }); Object.assign(SITES.vesper, { murk: 0x0b0301 });
@@ -81,14 +89,24 @@ const BODIES = {
     { key: 'flux', kind: 'moon', size: 0.23, orbit: 6.0, ang: -1.6, off: 0.16, tint: 0x6a5048 },
     { key: 'dross', kind: 'rock', size: 0.07, orbit: 3.2, ang: 2.0, off: 0.08, tint: 0x3a3230 },
   ],
-  // (a giant's moons are tiny beside it: from the nearest, it fills a third of the sky; from the farthest, a fist held
-  // out at arm's length. A moonlet goes round in its rings)
+  // (a giant's moons are specks beside it, and they go round it close: from the nearest it fills most of the sky,
+  // and even from the farthest it's a wall of cloud a quarter of the way across. One goes round in its rings)
   halcyon: [
-    { key: 'sump', kind: 'rock', size: 0.012, orbit: 1.9, ang: 0.8, off: 0.06, tint: 0x7a7064, ring: true },
-    { key: 'lantern', kind: 'moon', size: 0.03, orbit: 2.8, ang: -0.5, off: 0.12, tint: 0xdfe6ee, incl: 0.06 },
-    { key: 'chandler', kind: 'moon', size: 0.05, orbit: 4.3, ang: 2.2, off: 0.15, tint: 0xd8c070, incl: 0.1 },
-    { key: 'gloam', kind: 'moon', size: 0.045, orbit: 7.0, ang: -2.0, off: 0.14, tint: 0x5a5a60, incl: 0.16 },
-    { key: 'ferrule', kind: 'moon', size: 0.035, orbit: 10.5, ang: 1.3, off: 0.13, tint: 0xa87a62, incl: 0.22 },
+    { key: 'sump', kind: 'rock', size: 0.012, orbit: 1.7, ang: 0.8, off: 0.06, tint: 0x7a7064, ring: true },
+    { key: 'lantern', kind: 'moon', size: 0.03, orbit: 2.4, ang: -0.5, off: 0.12, tint: 0xdfe6ee, incl: 0.06 },
+    { key: 'chandler', kind: 'moon', size: 0.05, orbit: 3.0, ang: 2.2, off: 0.15, tint: 0xd8c070, incl: 0.1 },
+    { key: 'gloam', kind: 'moon', size: 0.045, orbit: 3.8, ang: -2.0, off: 0.14, tint: 0x5a5a60, incl: 0.14 },
+    { key: 'ferrule', kind: 'moon', size: 0.035, orbit: 4.8, ang: 1.3, off: 0.13, tint: 0xa87a62, incl: 0.18 },
+  ],
+  tarrow: [
+    { key: 'kiln', kind: 'moon', size: 0.03, orbit: 1.6, ang: 0.5, off: 0.1, tint: 0xc89060, ring: true },
+    { key: 'tithe', kind: 'moon', size: 0.04, orbit: 2.6, ang: -1.2, off: 0.13, tint: 0xb8b8b0, incl: 0.08 },
+    { key: 'warden', kind: 'moon', size: 0.035, orbit: 3.8, ang: 2.4, off: 0.12, tint: 0x8a7060, incl: 0.15 },
+  ],
+  hush: [
+    { key: 'murmur', kind: 'moon', size: 0.028, orbit: 1.4, ang: -0.4, off: 0.1, tint: 0xd8eef8, incl: 0.04 },
+    { key: 'lull', kind: 'rock', size: 0.012, orbit: 2.4, ang: 1.9, off: 0.07, tint: 0x9aa8b0, incl: 0.1 },
+    { key: 'pall', kind: 'moon', size: 0.04, orbit: 3.5, ang: -2.3, off: 0.13, tint: 0x5a6070, incl: 0.18 },
   ],
 };
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
@@ -115,10 +133,18 @@ Object.assign(SITES, {
   flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
   // Halcyon's: open every day (open), each a little world of its own (ground: its dust's colour against a plain moon's)
   sump: { name: 'Sump', code: '9-R', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [16, 21], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.4, slime: 0.8 }, ground: [0.95, 0.9, 0.85], desc: "A moonlet in the rings, mined hollow for ice. The drills stopped mid-shift." },
-  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon under the rings. The relay station still answers hails, in a voice nobody recorded.' },
+  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon just outside the rings. The relay station still answers hails, in a voice nobody recorded.' },
   chandler: { name: 'Chandler', code: '9-II', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, slime: 1.2, pale: 1 }, ground: [1.2, 1.04, 0.62], desc: 'Sulphur flats and a refinery that ran itself for years. It kept the furnaces lit for someone.' },
   gloam: { name: 'Gloam', code: '9-III', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 38, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.8, pale: 1.4, leech: 0.8 }, ground: [0.5, 0.5, 0.54], desc: 'A moon as black as soot. The observatory on it was watching something, then stopped reporting.' },
   ferrule: { name: 'Ferrule', code: '9-IV', risk: 'EXTREME', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [1.12, 0.82, 0.7], desc: "Halcyon's outermost moon, rust-red. A breakers' yard for ships that came back wrong." },
+  // Tarrow's
+  kiln: { name: 'Kiln', code: '14-I', risk: 'HIGH', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, slime: 1.4, pale: 1 }, ground: [1.2, 0.85, 0.55], desc: "Down in Tarrow's dust ring, its crust cracking and smoking in the giant's pull. The geothermal plant still runs, hot as a stove." },
+  tithe: { name: 'Tithe', code: '14-II', risk: 'MEDIUM', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, pale: 1 }, ground: [0.96, 0.96, 0.93], desc: 'A grey moon with a company chapel and its counting house. The tithes were paid in something other than money.' },
+  warden: { name: 'Warden', code: '14-III', risk: 'EXTREME', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [0.78, 0.64, 0.52], desc: 'A prison moon. The cells were built to keep things in; the doors all open from the inside now.' },
+  // Hush's
+  murmur: { name: 'Murmur', code: '20-I', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, leech: 1.2, crawler: 1 }, ground: [1.1, 1.18, 1.3], desc: 'An ice moon so close in that Hush fills half its sky. A listening post, every dish turned the same way.' },
+  lull: { name: 'Lull', code: '20-R', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, slime: 1.2 }, ground: [0.9, 0.96, 1.06], desc: 'A captured rock in a slow, cold orbit. A cryo vault is cut into it; most of the pods are open.' },
+  pall: { name: 'Pall', code: '20-II', risk: 'EXTREME', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.9, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2.2, mannequin: 1.6, crawler: 1.4 }, ground: [0.46, 0.49, 0.56], desc: "Hush's dark outer moon. They brought a lost fleet's crews here to lie in state, and something kept them." },
   dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: [2], scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
 });
 for (const w in BODIES) {
@@ -152,7 +178,7 @@ function orbitsToday(world, run) {
 function ringsToday(world, run) {
   const R = SITE_LOOK[world] && SITE_LOOK[world].rings; if (!R) return null;
   const O = orbitsToday(world, run);
-  return { in: R.in, out: R.out, gaps: (BODIES[world] || []).filter((b) => b.ring).map((b) => [b.orbit * O[b.key].near, b.size * 2]) };
+  return { in: R.in, out: R.out, map: R.map, col: R.col, gaps: (BODIES[world] || []).filter((b) => b.ring).map((b) => [b.orbit * O[b.key].near, b.size * 2]) };
 }
 // where it is today, in the world's radii from its centre, in the plane they all go round in
 const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin(o.phase) * b.orbit * o.near });

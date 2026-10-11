@@ -85,11 +85,13 @@ Keep that file current when gameplay changes.
 - **Seeing vs passing.** `fac.los(ax, az, bx, bz, sight)`: with `sight`, a shut door's window (`door.pane`) lets the
   line through. Use it for anything about seeing or light (creature senses, `canSee`, the scanner, lamp culling via
   `fac.lampReach`); leave it off for anything about moving or sound (paths, throws, drops, occlusion).
-- **A gas giant** (`SITE_LOOK[k].giant`, Halcyon) has no surface: `hostLand` refuses it and the lever says so. Its
-  moons are bonus sites with `open` (no beacon, open every day, a direct jump from anywhere, a free hop between
-  them: `routeProblem` / `isHop`), and `ground` tints their dust. Its face is `TEX.get('giant')` (bands, no cloud
-  shells: `setPlanet`'s `giant`, `uPdGas` in the planet shader, `b.giant` in the sky and in `setBodies`), and its
-  moons keep nearly round orbits (`orbitsToday`). It has rings, so its sky and orbit views take the real-scale ring path.
+- **Gas giants** (`SITE_LOOK[k].giant`: the name of its face, `giant` / `giantJove` / `giantIce`, from `giantFace`, worked
+  out a band of rows at a time) have no surface: `hostLand` refuses them and the lever says so. Their moons are bonus
+  sites with `open` (no beacon, open every day, a direct jump from anywhere, a free hop between them: `routeProblem` /
+  `isHop`), and `ground` tints their dust. No cloud shells (`setPlanet`'s `giant`, `uPdGas` in the planet shader, which
+  adds fine streaks, `b.giant` in the sky and in `setBodies`); the ship orbits them low (`setOrbit`), their moons go round
+  close and keep nearly round orbits (`orbitsToday`). Every giant has rings (`rings.map`: the profile, `rings`,
+  `ringsDust` or `ringsThin`; `rings.col`: their own colour), so its sky and orbit views take the real-scale ring path.
 - **Adding a world** takes an entry in `SITE_LOOK` (its colour from orbit; `rings` if it has them), `SITES`, `BODIES`
   (its moon and rock, each with a bonus site), `SITE_LOOT`; a biome in `BIOMES` (`exterior.js`: the land, sky, motes and
   `plant`, the kind of buildings, drawn in `buildComplex` / `buildPlantExtras`); and in `facility.js` a room mix in

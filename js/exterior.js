@@ -23,7 +23,8 @@ const Rings = {
     if (!sys) { U.uRingR.value.w = 0; return; }
     U.uRingR.value.set(sys.in, sys.out, U.uRingR.value.z || 1, 1);
     const g = sys.gaps || []; U.uRingGap.value.set(g[0] ? g[0][0] : 0, g[0] ? g[0][1] : 0, g[1] ? g[1][0] : 0, g[1] ? g[1][1] : 0);
-    U.uRingCol.value.set(tint).lerp(_ringW, 0.3).multiplyScalar(k);
+    U.uRingMap.value = TEX.get(sys.map || 'rings');
+    if (sys.col != null) U.uRingCol.value.set(sys.col).multiplyScalar(k); else U.uRingCol.value.set(tint).lerp(_ringW, 0.3).multiplyScalar(k);
   },
   GLSL: `uniform sampler2D uRingMap; uniform vec3 uRingC, uRingN, uRingCol; uniform vec4 uRingR, uRingGap; uniform vec4 uRingOcc[3];
     // the sheet r of the world's radii out: its colour, and how dense it is (alpha)
@@ -1910,7 +1911,7 @@ const Exterior = (() => {
         // (a moon or rock's orbit brings it in close some days and takes it far out on others, round the sky as well)
         // (today's sky comes already worked out from where everything really is: see G.skyToday)
         const near = b.fixed || b.kind === 'planet' ? 1 : 0.6 + rr.next() * 0.9, swing = b.fixed || b.kind === 'planet' ? 0 : rr.range(-0.5, 0.5);
-        const r = D * Math.sin(Math.min(0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
+        const r = D * Math.sin(Math.min(b.giant ? 0.97 : 0.78, b.r / near)), geo = b.kind === 'rock' ? new THREE.IcosahedronGeometry(1, 3) : new THREE.SphereGeometry(1, 64, 32);
         if (b.kind === 'rock') {
           // (a lumpy, broken potato of a thing)
           const p = geo.attributes.position, nz = new Noise2D(7 + rr.next() * 100);
@@ -1923,7 +1924,7 @@ const Exterior = (() => {
         // (a ringed world: its rings, laid out round it as they really are from here; see ringFrame)
         const RU = b.ringSys ? (rf = this.ringFrame(b, D)).U : null, RG = RU ? Rings.GLSL : '';
         const mat = new THREE.ShaderMaterial({
-          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? (b.giant ? 'giant' : 'planet') : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
+          uniforms: Object.assign({ map: { value: TEX.get(b.kind === 'planet' ? b.giant || 'planet' : 'moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uCol: { value: new THREE.Color(b.tint) }, uAtmo: { value: new THREE.Color(b.atmo != null ? b.atmo : 0x000000) }, uVis: { value: 1 }, uHarsh: { value: harsh }, uBump: { value: r * 0.35 * harsh } }, RU || {}),
           vertexShader: `varying vec3 vN; varying vec2 vUv; varying vec3 vV; varying vec3 vW;
             void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vUv = uv; vV = cameraPosition - wp.xyz; vW = wp.xyz;
               gl_Position = projectionMatrix * viewMatrix * wp; ${far} }`,

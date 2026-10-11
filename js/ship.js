@@ -2230,6 +2230,13 @@ const Ship = (() => {
               vec3 landC = diffuseColor.rgb * clamp(1.0 + rid * 1.5, 0.25, 2.2) * mix(vec3(1.06, 0.95, 0.82), vec3(0.86, 0.98, 1.08), clamp(0.5 + tone * 1.2, 0.0, 1.0));
               vec3 seaC = diffuseColor.rgb * clamp(1.0 + sea * 0.3, 0.6, 1.4);
               diffuseColor.rgb = mix(mix(seaC, landC, land), diffuseColor.rgb, uPdGas);
+              // (a giant's cloud close up: fine streaks drawn out along its bands, finer than its map, fading out before
+              // they're too fine to show)
+              if (uPdGas > 0.5) {
+                vec3 q1 = vec3(pp.x * 30.0, pp.y * 260.0, pp.z * 30.0), q2 = q1 * 2.7;
+                float s = (pdn(q1) - 0.5) * (1.0 - smoothstep(0.3, 0.9, length(fwidth(q1)))) + (pdn(q2 + 7.1) - 0.5) * 0.6 * (1.0 - smoothstep(0.3, 0.9, length(fwidth(q2))));
+                diffuseColor.rgb *= 1.0 + s * 0.22;
+              }
               pdHeight = lh * land;
               // the clouds' shadows, thrown a little way off toward the sun (looked up in the cloud shell's own frame)
               vec3 cs = normalize(pp + uPdSun * 0.01);
@@ -2316,7 +2323,7 @@ const Ship = (() => {
       this.airless = !!airless;
       // (its night side is black, like the world's: nothing but the stars behind it to show where it ends)
       // (a gas giant: no ground, its cloud tops are all there is, banded, and nothing drifts over them)
-      const map = TEX.get(airless ? 'moonmap' : giant ? 'giant' : 'planet'), pm = this.planetMat;
+      const map = TEX.get(airless ? 'moonmap' : giant || 'planet'), pm = this.planetMat;
       if (pm.map !== map) { pm.map = map; pm.normalMap = airless ? TEX.normal('moonmap', 3) : null; pm.normalScale.set(2.4, 2.4); pm.needsUpdate = true; }
       this.pdU.air.value = airless ? 0 : 1; this.pdU.gas.value = giant ? 1 : 0;
       for (const c of this.cloudLayers) c.visible = !airless && !giant;
@@ -2388,7 +2395,7 @@ const Ship = (() => {
           for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.6 + 3, y * 1.6 + z * 1.2, 4) * 0.55; p.setXYZ(i, x * k * 1.3, y * k * 0.78, z * k); }
           geo.computeVertexNormals();
         } else geo = new THREE.SphereGeometry(1, 64, 32);
-        const map = TEX.get(b.kind === 'planet' ? (b.giant ? 'giant' : 'planet') : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
+        const map = TEX.get(b.kind === 'planet' ? b.giant || 'planet' : 'moonmap'), nm = b.kind === 'planet' ? null : TEX.normal('moonmap', 3);
         const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: b.tint, roughness: 1, metalness: 0, fog: false, flatShading: b.kind === 'rock', normalMap: nm, normalScale: new THREE.Vector2(2.2, 2.2) }));
         // (round the world it belongs to, a moon or rock really goes round b.orbit of its radii out; seen from one of
         // that world's moons, the other is far off, never in our moon's shadow)
@@ -2439,7 +2446,8 @@ const Ship = (() => {
       const N = N0.clone().applyAxisAngle(D, r.range(-0.6, 0.6)).normalize();
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
-      const a = R * r.range(1.6, 3.6), e = r.range(0.02, 0.07);
+      // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it)
+      const a = R * (look.giant ? r.range(1.25, 1.7) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
       this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));

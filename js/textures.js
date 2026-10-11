@@ -633,36 +633,49 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, true, false);
     },
-    // a gas giant's cloud tops: belts and zones of warm and pale cloud running round it, their edges churned into waves
-    // and curls where the winds shear past each other, fine streaks drawn out along them, ovals of storm spinning in
-    // them, and the poles a cooler grey. Worked from the sphere's own points, so nothing smears where it wraps
-    giant() {
-      const W = 768, H = 384;
-      const [c, g] = C(W, H);
-      const nz = new Noise2D(77), rr = new RNG(7777), id = g.createImageData(W, H), d = id.data;
-      const storms = Array.from({ length: 9 }, (_, i) => ({ lat: rr.range(-0.75, 0.75), lon: rr.range(0, TAU), w: rr.range(0.05, 0.14) * (i === 0 ? 2.2 : 1), h: rr.range(0.025, 0.05) * (i === 0 ? 2 : 1), k: i === 0 ? -1 : rr.chance(0.6) ? 1 : -1 }));
-      const belt = [0.5, 0.33, 0.21], zone = [0.97, 0.91, 0.77], pole = [0.52, 0.56, 0.6], red = [0.74, 0.36, 0.22], white = [1, 0.98, 0.94];
-      for (let y = 0; y < H; y++) {
-        const v = (y + 0.5) / H * Math.PI, py = Math.cos(v), sv = Math.sin(v);
-        for (let x = 0; x < W; x++) {
-          const u = x / W * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
-          const w1 = nz.fbm3(px * 3 + 5, py * 3, pz * 3, 3), w2 = nz.fbm3(px * 10, py * 10 + 7, pz * 10, 2);
-          let lat = py + w1 * 0.05 + w2 * 0.012, spot = 0, sk = 0;
-          for (const s of storms) {
-            let dl = u - s.lon; dl -= TAU * Math.round(dl / TAU);
-            const dx = dl * sv / s.w, dy = (py - s.lat) / s.h, r2 = dx * dx + dy * dy;
-            if (r2 < 6) { const e = Math.exp(-r2); lat += 0.03 * e * Math.sin(Math.atan2(dy, dx) * 2 + r2 * 1.5) * s.h * 20; if (e > spot) { spot = e; sk = s.k; } }
+    // a gas giant's cloud tops: belts and zones of darker and paler cloud running round it (how strongly: amp), their
+    // edges churned into waves and curls where the winds shear past each other, fine streaks drawn out along them, ovals
+    // of storm spinning in them (the first, big: the great storm), and the poles a cooler colour. Worked from the
+    // sphere's own points, so nothing smears where it wraps. Three faces: pale gold and softly banded (Halcyon), boldly
+    // banded with a great red storm (Tarrow), and an ice giant's pale blue, nearly featureless but for a dark spot (Hush)
+    giant() { return this.giantFace({ seed: 77, belt: [0.74, 0.6, 0.4], zone: [0.96, 0.9, 0.72], pole: [0.6, 0.66, 0.62], spot: [0.9, 0.84, 0.66], white: [1, 0.97, 0.88], amp: 0.6, storms: 5, great: 1.2 }); },
+    giantJove() { return this.giantFace({ seed: 31, belt: [0.47, 0.29, 0.18], zone: [0.98, 0.93, 0.8], pole: [0.5, 0.52, 0.55], spot: [0.78, 0.34, 0.2], white: [1, 0.98, 0.94], amp: 1.15, storms: 14, great: 2.6 }); },
+    giantIce() { return this.giantFace({ seed: 53, belt: [0.36, 0.6, 0.7], zone: [0.62, 0.86, 0.92], pole: [0.48, 0.7, 0.82], spot: [0.14, 0.24, 0.44], white: [0.92, 0.98, 1], amp: 0.35, storms: 3, great: 1.6 }); },
+    // (it's a lot of work at this size, so it's done a band of rows at a time between frames, never stalling one; a
+    // rough pass at an eighth of the size stands in until it's done)
+    giantFace(o) {
+      const W = 1024, H = 512;
+      const [c, g] = C(W, H), tex = finish(c, true, false);
+      const nz = new Noise2D(o.seed), rr = new RNG(o.seed * 101);
+      const storms = Array.from({ length: o.storms }, (_, i) => ({ lat: rr.range(-0.75, 0.75), lon: rr.range(0, TAU), w: rr.range(0.05, 0.14) * (i === 0 ? o.great : 1), h: rr.range(0.025, 0.05) * (i === 0 ? o.great * 0.9 : 1), k: i === 0 ? -1 : rr.chance(0.6) ? 1 : -1 }));
+      const { belt, zone, pole, white } = o, red = o.spot;
+      const rows = (id, w, h, y0, y1) => {
+        const d = id.data;
+        for (let y = y0; y < y1; y++) {
+          const v = (y + 0.5) / h * Math.PI, py = Math.cos(v), sv = Math.sin(v);
+          for (let x = 0; x < w; x++) {
+            const u = x / w * TAU, px = Math.cos(u) * sv, pz = Math.sin(u) * sv;
+            const w1 = nz.fbm3(px * 3 + 5, py * 3, pz * 3, 3), w2 = nz.fbm3(px * 10, py * 10 + 7, pz * 10, 2);
+            let lat = py + w1 * 0.05 + w2 * 0.012, spot = 0, sk = 0;
+            for (const s of storms) {
+              let dl = u - s.lon; dl -= TAU * Math.round(dl / TAU);
+              const dx = dl * sv / s.w, dy = (py - s.lat) / s.h, r2 = dx * dx + dy * dy;
+              if (r2 < 6) { const e = Math.exp(-r2); lat += 0.03 * e * Math.sin(Math.atan2(dy, dx) * 2 + r2 * 1.5) * s.h * 20; if (e > spot) { spot = e; sk = s.k; } }
+            }
+            const t = sstep(0, 1, 0.5 + o.amp * (0.34 * Math.sin(lat * 14 + 1.3) + 0.2 * Math.sin(lat * 31 + 0.4) + 0.1 * Math.sin(lat * 53 + 2.2) + nz.fbm3(px * 2, py * 60, pz * 2, 2) * 0.2 + w2 * 0.1));
+            let r = lerp(belt[0], zone[0], t), gg = lerp(belt[1], zone[1], t), b = lerp(belt[2], zone[2], t);
+            const pk = sstep(0.72, 0.94, Math.abs(py) + w1 * 0.04); r = lerp(r, pole[0], pk); gg = lerp(gg, pole[1], pk); b = lerp(b, pole[2], pk);
+            if (spot > 0.05) { const S = sk < 0 ? red : white, a = sstep(0.05, 0.6, spot) * 0.8; r = lerp(r, S[0], a); gg = lerp(gg, S[1], a); b = lerp(b, S[2], a); }
+            const i = ((y - y0) * w + x) * 4;
+            d[i] = clamp(r * 255, 0, 255); d[i + 1] = clamp(gg * 255, 0, 255); d[i + 2] = clamp(b * 255, 0, 255); d[i + 3] = 255;
           }
-          const t = sstep(0, 1, 0.5 + 0.34 * Math.sin(lat * 14 + 1.3) + 0.2 * Math.sin(lat * 31 + 0.4) + 0.1 * Math.sin(lat * 53 + 2.2) + nz.fbm3(px * 2, py * 60, pz * 2, 2) * 0.2 + w2 * 0.1);
-          let r = lerp(belt[0], zone[0], t), gg = lerp(belt[1], zone[1], t), b = lerp(belt[2], zone[2], t);
-          const pk = sstep(0.72, 0.94, Math.abs(py) + w1 * 0.04); r = lerp(r, pole[0], pk); gg = lerp(gg, pole[1], pk); b = lerp(b, pole[2], pk);
-          if (spot > 0.05) { const S = sk < 0 ? red : white, a = sstep(0.05, 0.6, spot) * 0.8; r = lerp(r, S[0], a); gg = lerp(gg, S[1], a); b = lerp(b, S[2], a); }
-          const i = (y * W + x) * 4;
-          d[i] = clamp(r * 255, 0, 255); d[i + 1] = clamp(gg * 255, 0, 255); d[i + 2] = clamp(b * 255, 0, 255); d[i + 3] = 255;
         }
-      }
-      g.putImageData(id, 0, 0);
-      return finish(c, true, false);
+      };
+      { const [c8, g8] = C(W / 8, H / 8), id = g8.createImageData(W / 8, H / 8); rows(id, W / 8, H / 8, 0, H / 8); g8.putImageData(id, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(c8, 0, 0, W, H); }
+      let y = 0;
+      const band = () => { const n = Math.min(16, H - y), id = g.createImageData(W, n); rows(id, W, H, y, y + n); g.putImageData(id, 0, y); y += n; if (y >= H || (y & 127) === 0) tex.needsUpdate = true; if (y < H) setTimeout(band, 0); };
+      setTimeout(band, 0);
+      return tex;
     },
     rings() {
       // a ring system's profile from its inner edge (left) to its outer (right): alpha how dense it is, colour how bright.
@@ -680,6 +693,30 @@ const TEX = (() => {
         else if (u < 0.9) { a = (0.48 + 0.18 * n(45, 3.3) + 0.1 * n(200, 8)) * (u > 0.855 && u < 0.866 ? 0.02 : 1); b = 165 + 30 * n(35, 5); }
         else if (u > 0.95 && u < 0.962) { a = 0.55 * Math.sin((u - 0.95) / 0.012 * Math.PI); b = 235; }
         for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b * 0.93; d[i + 2] = b * 0.82; d[i + 3] = clamp(a, 0, 1) * 255; }
+      }
+      g.putImageData(id, 0, 0);
+      return finish(c, false, false);
+    },
+    // ...a faint, broad sheet of dust, rust-brown, densest in a band near its middle (Tarrow's)
+    ringsDust() {
+      const [c, g] = C(1024, 4);
+      const nz = new Noise2D(23), id = g.createImageData(1024, 4), d = id.data;
+      for (let x = 0; x < 1024; x++) {
+        const u = (x + 0.5) / 1024, n = (k, s) => nz.noise(u * k, s) * 0.5 + 0.5;
+        const a = (0.07 + 0.1 * n(12, 1) + 0.16 * Math.exp(-Math.pow((u - 0.55) / 0.12, 2))) * sstep(0, 0.12, u) * sstep(1, 0.8, u), b = 150 + 40 * n(30, 3);
+        for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b * 0.9; d[i + 2] = b * 0.8; d[i + 3] = clamp(a, 0, 1) * 255; }
+      }
+      g.putImageData(id, 0, 0);
+      return finish(c, false, false);
+    },
+    // ...and nine thin, sharp ringlets of dark ice with clear space between, the outermost the widest and brightest (Hush's)
+    ringsThin() {
+      const [c, g] = C(1024, 4);
+      const id = g.createImageData(1024, 4), d = id.data, L = [[0.04, 0.006], [0.12, 0.005], [0.2, 0.007], [0.31, 0.004], [0.42, 0.006], [0.55, 0.008], [0.66, 0.005], [0.8, 0.01], [0.95, 0.03]];
+      for (let x = 0; x < 1024; x++) {
+        const u = (x + 0.5) / 1024; let a = 0.01, b = 90;
+        L.forEach(([c0, w], i) => { const k = Math.max(0, 1 - Math.abs(u - c0) / w); if (k > 0) { a = Math.max(a, (i === L.length - 1 ? 0.9 : 0.75) * Math.sqrt(k)); b = i === L.length - 1 ? 150 : 110; } });
+        for (let y = 0; y < 4; y++) { const i = (y * 1024 + x) * 4; d[i] = b; d[i + 1] = b; d[i + 2] = b * 1.05; d[i + 3] = clamp(a, 0, 1) * 255; }
       }
       g.putImageData(id, 0, 0);
       return finish(c, false, false);

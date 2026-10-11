@@ -219,7 +219,7 @@ const Menu = (() => {
     slider('BRIGHTNESS', 'bright', 0.6, 2, 0.05, (v) => v.toFixed(2));
     toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); });
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
-    toggle('VOLUMETRIC FOG', () => (Settings.volumetric ? 'ON' : 'OFF'), () => { Settings.volumetric = !Settings.volumetric; });
+    toggle('VOLUMETRIC FOG', () => ['OFF', 'LOW', 'HIGH'][Settings.volumetric | 0], () => { Settings.volumetric = ((Settings.volumetric | 0) + 1) % 3; R.resize(); });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
     toggle('TOUCH CONTROLS', () => ['AUTO', 'ON', 'OFF'][Settings.touch] + (Touch.on ? ' (ON)' : ' (OFF)'), () => { Settings.touch = (Settings.touch + 1) % 3; Touch.apply(); });
     toggle('VOICE & MIC', () => (Settings.voice ? 'ON · SET UP' : 'OFF · SET UP'), () => { const me = () => go(settingsNodes(back, go)); go(voiceNodes(me)); });

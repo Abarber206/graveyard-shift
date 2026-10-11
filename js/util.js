@@ -88,8 +88,9 @@ const RES_LEVELS = [
 const TOUCH_DEVICE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
 const Settings = {
   sens: 1, volume: 0.8, fov: 72, res: 2, bright: 1, name: '', suit: 0, voice: false, ptt: false, invertY: false, shadows: true, touch: 0,
-  // the air drawn as a real volume (mist, cloud, light shafts); off to start with on a phone
-  volumetric: !TOUCH_DEVICE,
+  // the air drawn as a real volume (mist, cloud, light shafts): 0 off, 1 low (a lighter version for phones), 2 high;
+  // off to start with on a phone
+  volumetric: TOUCH_DEVICE ? 0 : 2,
   // voice & mic: which microphone and speakers ('' the default), mic volume, the open-mic threshold (dB), the browser's
   // noise cleanup, and how loud everyone else's voices are
   micId: '', outId: '', micVol: 1, micGate: -30, micClean: true, voiceVol: 1,
@@ -99,6 +100,8 @@ const Settings = {
     // first time on a phone: a lighter picture to start with (it can be turned up in the settings)
     if (!o && TOUCH_DEVICE) { this.res = 1; this.shadows = false; this.fov = 78; }
     if (o) for (const k of this.KEYS) if (o[k] !== undefined) this[k] = o[k];
+    // (saved as on/off before it had a low setting)
+    if (typeof this.volumetric === 'boolean') this.volumetric = this.volumetric ? 2 : 0;
   },
   save() { const o = {}; for (const k of this.KEYS) o[k] = this[k]; Store.set('gs_settings', o); },
 };

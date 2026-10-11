@@ -29,7 +29,7 @@ Open the play link on your phone and turn it sideways. Touch controls come up by
 
 To **install it** like an app: on Android, use INSTALL APP in the main menu (or *Add to Home screen* in Chrome's menu). On iPhone or iPad, tap Share, then *Add to Home Screen*. It then opens full screen and in landscape, and once it has loaded it also works offline in single player.
 
-Phones start with a lighter picture (lower resolution, no flashlight shadows, no volumetric fog), which you can turn up in *Settings*. **Volumetric fog** (on by default on a computer) draws the air as a real volume: ground mist lying in drifting patches, thinning as it rises, cloud banks among the far hills, and the sun coming through the trees in shafts; turned off, the outdoors uses a lighter flat mist and drifting cloud cards instead. *Settings → Touch controls* can also force the touch controls on or off (on a touchscreen laptop, say).
+Phones start with a lighter picture (lower resolution, no flashlight shadows, no volumetric fog), which you can turn up in *Settings*. **Volumetric fog** (OFF / LOW / HIGH: high by default on a computer; phones start with it off, and LOW is a lighter version made for them) draws the air as a real volume: ground mist lying in drifting patches, thinning as it rises, cloud banks among the far hills, and the sun coming through the trees in shafts; turned off, the outdoors uses a lighter flat mist and drifting cloud cards instead. *Settings → Touch controls* can also force the touch controls on or off (on a touchscreen laptop, say).
 
 ## Playing with friends
 

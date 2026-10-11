@@ -266,7 +266,7 @@ const R = (() => {
     #include <packing>
     precision highp sampler3D;
     uniform sampler2D tDepth, tH, tShadow; uniform sampler3D tN; uniform mat4 uProjInv, uViewInv, uShadowM, uShipInv;
-    uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame;
+    uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame; uniform int uSteps;
     varying vec2 vUv;
     float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uOrg.xz - uHB.xy) / uHB.z).r) + uOrg.y; }
     float noise3(vec3 q) { return texture(tN, q).r; }
@@ -305,9 +305,10 @@ const R = (() => {
       float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy + uFrame * 5.588238, vec2(0.06711056, 0.00583715))));
       float mu = max(dot(rd, uSunDir), 0.0), glow = pow(mu, 5.0) * 0.55 + pow(mu, 40.0) * 0.9;
       vec3 acc = vec3(0.0); float T = 1.0;
-      const int N = 30;
-      for (int i = 0; i < N; i++) {
-        float t0 = L * pow(float(i) / float(N), 2.0), t1 = L * pow(float(i + 1) / float(N), 2.0), dt = t1 - t0;
+      float N = float(uSteps);
+      for (int i = 0; i < 40; i++) {
+        if (i >= uSteps) break;
+        float t0 = L * pow(float(i) / N, 2.0), t1 = L * pow(float(i + 1) / N, 2.0), dt = t1 - t0;
         vec3 p = uCam + rd * mix(t0, t1, jit);
         float n, den = density(p, n);
         if (den < 1e-6) continue;
@@ -374,7 +375,7 @@ const R = (() => {
       vol.mat = new THREE.ShaderMaterial({
         uniforms: { tDepth: U(rt.depthTexture), tH: U(blank), tShadow: U(null), tN: U(nt), uProjInv: U(new THREE.Matrix4()), uViewInv: U(new THREE.Matrix4()), uShadowM: U(new THREE.Matrix4()), uShipInv: U(new THREE.Matrix4()),
           uCam: U(new THREE.Vector3()), uSunDir: U(new THREE.Vector3(0, 1, 0)), uFogCol: U(new THREE.Color()), uScat: U(new THREE.Color()), uOrg: U(new THREE.Vector3()), uHB: U(new THREE.Vector4(-490, -490, 980, 0)),
-          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0) },
+          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0), uSteps: U(30) },
         vertexShader: POST_VS, fragmentShader: VOL_FS, depthTest: false, depthWrite: false,
       });
       vol.scene = new THREE.Scene(); const vq = new THREE.Mesh(new THREE.BufferGeometry().copy(new THREE.PlaneGeometry(2, 2)), vol.mat); vq.frustumCulled = false; vol.scene.add(vq);
@@ -402,7 +403,9 @@ const R = (() => {
     const ih = RES_LEVELS[clamp(Settings.res, 0, RES_LEVELS.length - 1)].h;
     const rh = Math.min(h, ih), rw = Math.round(rh * a);
     rt.setSize(rw, rh);
-    vol.rt.setSize(Math.max(4, Math.ceil(rw / 2)), Math.max(4, Math.ceil(rh / 2)));
+    // (the air at half the frame's size, or a quarter with fewer steps on low: the lighter one, for phones)
+    const vd = Settings.volumetric === 1 ? 4 : 2; vol.rt.setSize(Math.max(4, Math.ceil(rw / vd)), Math.max(4, Math.ceil(rh / vd)));
+    if (vol.mat) vol.mat.uniforms.uSteps.value = Settings.volumetric === 1 ? 16 : 30;
     post.uniforms.uRes.value.set(rw, rh);
     const bw = Math.max(4, Math.round(rw / 4)), bh = Math.max(4, Math.round(rh / 4));
     bloomA.setSize(bw, bh); bloomB.setSize(bw, bh);

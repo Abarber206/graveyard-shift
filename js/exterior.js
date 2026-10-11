@@ -369,12 +369,13 @@ const Exterior = (() => {
       return true;
     }
     // a supply pod came down here: carve the crater (the coarse terrain dips out of the way; a finely meshed, scorched
-    // bowl is laid over it), and keep anything from growing in it
-    addCrater(x, z, r, d) {
+    // bowl is laid over it), and keep anything from growing in it. (fresh: a meteor's, on an airless moon: not scorched
+    // but ringed with bright spray thrown out in rays, the floor a little darker)
+    addCrater(x, z, r, d, fresh) {
       this.impacts.push({ x, z, r, d });
       // (coarse vertices inside rd sink well below the bowl; the bowl reaches a full grid diagonal past them, so no
       // coarse triangle that dips can show outside it)
-      const rd = r + 0.6, R = rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
+      const rd = r + 0.6, R = fresh ? Math.max(rd + 3, r * 2.6) : rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
       for (let i = 0; i < pos.count; i++) {
         const vx = pos.getX(i), vz = pos.getZ(i), q = Math.hypot(vx - x, vz - z); if (q > R + 2.2) continue;
         const h = this.height(vx, vz);
@@ -394,6 +395,12 @@ const Exterior = (() => {
         const vx = bp.getX(i) + x, vz = bp.getZ(i) + z, q = Math.hypot(vx - x, vz - z) / r;
         bp.setX(i, vx); bp.setZ(i, vz); bp.setY(i, this.height(vx, vz) + 0.01); buv.setXY(i, vx / 5, vz / 5);
         const c = sampleCol(vx, vz), burn = sstep(1.15, 0.25, q), lip = Math.exp(-((q - 1.0) ** 2) / 0.04) * 0.35;
+        if (fresh) {
+          const an = Math.atan2(vz - z, vx - x), ph = x * 0.37 + z * 0.11, rays = Math.pow(Math.max(0, Math.sin(an * 9 + ph) * Math.sin(an * 5.3 + ph * 1.7)), 2) * sstep(2.6, 1.1, q) * sstep(0.9, 1.15, q);
+          const lit = clamp(lip * 2.6 + rays * 1.1 + sstep(1.9, 1.0, q) * sstep(0.9, 1.0, q) * 0.45, 0, 1), fl = sstep(1, 0.55, q) * 0.3;
+          for (let k = 0; k < 3; k++) bc[i * 3 + k] = lerp(c[k] * (1 - fl), Math.min(1, c[k] * 1.8 + 0.1), lit);
+          continue;
+        }
         const soil = [0.42, 0.34, 0.27];
         for (let k = 0; k < 3; k++) { let v = lerp(c[k], soil[k], lip); v = lerp(v, [0.1, 0.085, 0.075][k], burn * 0.85); bc[i * 3 + k] = v; }
       }

@@ -214,7 +214,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 8;
+const PROTO = 9;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -230,7 +230,7 @@ const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0);
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
+const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -464,7 +464,9 @@ const G = {
     G.fac = b.fac; G.ext = b.ext;
     const fac = G.fac, ext = G.ext;
     G.siteShown = false;
-    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down)
+    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down; on an
+    // airless moon, what a meteor strike would need too)
+    if (b.ext.biome.airless) Meteors.prepare();
     R.precompile(R.scene, () => {});
     R.precompile(b.facG, () => R.precompile(b.extG, () => { if (G.fac !== fac) return; R.scene.add(b.facG); R.scene.add(b.extG); G.siteShown = true; }));
     G.fac.lamps.forEach((l) => (l.fac = true));
@@ -495,6 +497,7 @@ const G = {
     for (const p of G.players.values()) { const n = r.upgrades.belt ? 5 : 4; while (p.slots.length < n) p.slots.push(null); }
     if (G.jumping) return;   // (mid-jump: the new world appears when the ship drops out)
     const look = SITE_LOOK[r.route] || SITE_LOOK.ashgrove; G.ship.setPlanet(look.tint, look.atmo, look.airless, look.giant);
+    G.ship.setScars((r.scars || []).filter((s) => s.site === r.route));
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route), ringsToday(SITES[r.route].bonus || r.route, r)); }
@@ -593,7 +596,7 @@ const G = {
   fullState() {
     return {
       v: PROTO, mode: G.mode, run: G.run, orbitT: G.orbitT || 60,
-      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken } : null,
+      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken, strikes: G.round.strikes || [] } : null,
       players: [...G.players.values()].map(G.pinfo),
       items: [...G.items.values()].map(G.iinfo),
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
@@ -615,6 +618,8 @@ const G = {
     if (s.round) {
       G.prepareSite(s.round.seed, s.round.site, s.round.weather);
       Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken });
+      // (the craters today's meteors left)
+      for (const m of s.round.strikes || []) G.ext.addCrater(m.x, m.z, m.r, m.d, true);
       s.doors.forEach((o, i) => { const d = G.fac.doors[i]; if (!d) return; if (o === 2) { G.fac.breakDoor(d); return; } d.open = !!o; d.dir = o === 3 ? -1 : 1; d.anim = o ? 1 : 0; G.fac.applyDoor(d); });
       (s.boxes || []).forEach((o, i) => { const c = G.fac.containers[i]; if (!c) return; c.open = !!o; c.anim = o ? 1 : 0; c.mesh.rotation.y = c.closedRy + c.swing * c.anim; });
       (s.blasts || []).forEach((o, i) => { const d = G.fac.blasts[i]; if (!d) return; d.open = !!o; d.anim = o ? 1 : 0; G.fac.applyBlast(d); });
@@ -902,6 +907,7 @@ const G = {
       SFX.play('engine', null, { dur: 3.6, vol: 1.1 });
     },
     // a supply pod on its way down, and one being cracked open
+    meteors(e) { Meteors.spawn(e); },
     pod(e) {
       Pods.spawn(e);
       // (the Company calls it in over the radio, so whoever wants to can go out and watch it come down)
@@ -1099,7 +1105,8 @@ const G = {
     if (G.flight || G.seq || G.robot || G.jumping) return 'Jump drive busy.';
     const why = G.routeProblem(k); if (why) { delete run.course; G.emit({ e: 'run', run }); return why.charAt(0) + why.slice(1).toLowerCase(); }
     const hop = G.isHop(k);
-    if (!hop) run.credits -= SITES[k].cost;
+    // (a jump to another world leaves this one's fresh craters behind)
+    if (!hop) { run.credits -= SITES[k].cost; run.scars = []; }
     run.route = k; delete run.course;
     G.emit({ e: 'jumpLever' });
     G.emit({ e: hop ? 'hop' : 'jump', route: k });
@@ -1448,6 +1455,37 @@ const G = {
         G.emit({ e: 'itemDel', id: b.id });
       } else if (b.at) at = b.at;
       if (at) G.hostExplode(at, zone, b.id, b.pid);
+    }
+  },
+  // A meteoroid swarm: a handful of strikes over a dozen seconds, scattered over the ground round the site (some close
+  // to whoever's out in it), one of them big; and a fresh scar on the moon, seen from orbit until the ship leaves this
+  // world and its moons behind (run.scars)
+  hostMeteors() {
+    const ext = G.ext, list = [], out = G.alivePlayers().filter((p) => p.zone === 'out' && !G.playerAboard(p));
+    const n = 4 + Math.floor(Math.random() * 5), big = Math.floor(Math.random() * n);
+    for (let tries = 0; list.length < n && tries < 120; tries++) {
+      const i = list.length, near = out.length && Math.random() < 0.4 ? out[Math.floor(Math.random() * out.length)].pos : null;
+      const a = Math.random() * TAU, dd = near ? 10 + Math.random() * 28 : 20 + Math.random() * 110, r = i === big ? 6 + Math.random() * 3 : 1.6 + Math.random() * 2.4;
+      const x = (near ? near.x : 0) + Math.cos(a) * dd, z = (near ? near.z : 0) + Math.sin(a) * dd, dc = Math.hypot(x, z);
+      // (not on the ship, the buildings or the trail)
+      if (dc < 18 + r || dc > 160 || Math.hypot(x - ext.center.x, z - ext.center.z) < 36 + r || Math.hypot(x - ext.fire.x, z - ext.fire.z) < 10 + r || ext.pathInfo(x, z).d < r + 2) continue;
+      list.push({ x: +x.toFixed(2), z: +z.toFixed(2), r: +r.toFixed(2), d: +(r * (0.28 + Math.random() * 0.1)).toFixed(2), t: +(i === 0 ? 1.5 : 1.5 + Math.random() * 11).toFixed(2), dir: +(Math.random() * TAU).toFixed(3) });
+    }
+    if (!list.length) return;
+    G.emit({ e: 'meteors', list });
+    const run = G.run; (run.scars || (run.scars = [])).push({ site: G.round.site, lat: +(Math.random() * 1.2 - 0.6).toFixed(3), lon: +(Math.random() * TAU).toFixed(3), r: +(0.02 + Math.random() * 0.015).toFixed(4) });
+    if (run.scars.length > 8) run.scars.shift();
+    G.emit({ e: 'run', run });
+  },
+  // a strike landing (host): anyone out in the open near it is thrown off their feet or killed; aboard, you're safe
+  hostMeteorHit(m) {
+    (G.round.strikes || (G.round.strikes = [])).push({ x: m.x, z: m.z, r: m.r, d: m.d });
+    for (const p of G.alivePlayers()) {
+      if (p.zone !== 'out' || G.playerAboard(p)) continue;
+      const d = Math.hypot(p.pos.x - m.x, p.pos.z - m.z), reach = m.r * 4; if (d > reach) continue;
+      const k = Math.pow(1 - d / reach, 1.3), dmg = d < m.r * 1.2 ? 200 : Math.round(150 * k); if (dmg < 3) continue;
+      const nn = Math.max(d, 0.5);
+      G.hurtPlayer(p.id, dmg, 'meteor', (p.pos.x - m.x) / nn * 14 * k, (p.pos.z - m.z) / nn * 14 * k);
     }
   },
   hostExplode(at, zone, id, pid) {
@@ -1879,6 +1917,16 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
+    // now and then (one landing in four) a meteoroid swarm comes down on an airless moon or rock, the survey office
+    // radioing a warning half a minute ahead
+    const R0 = G.round;
+    if (R0 && G.mode === 'site' && !G.flight && G.ext && G.ext.biome.airless) {
+      if (R0.strikeAt === undefined) R0.strikeAt = Math.random() < 0.25 ? R0.time + 90 + Math.random() * 330 : null;
+      if (R0.strikeAt != null) {
+        if (!R0.strikeWarned && R0.time > R0.strikeAt - 30) { R0.strikeWarned = true; G.emit({ e: 'chat', text: 'Mercy Survey: meteoroid swarm crossing your position. Impacts inside the minute. Get under cover.', sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (R0.time > R0.strikeAt) { R0.strikeAt = null; G.hostMeteors(); }
+      }
+    }
     // the hatch in flight: it shuts itself once the ship climbs too high, and opens itself after touchdown
     const f = G.flight;
     if (f && G.fp && G.ship.door.open && G.fp.y > FLY.doorAlt) G.emit({ e: 'hatch', open: false, auto: true });

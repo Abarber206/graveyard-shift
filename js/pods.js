@@ -1,6 +1,7 @@
 'use strict';
 // Supply pods: on the ground, whatever you order comes down out of the sky in a battered capsule that slams in a
-// little way from the ship, leaves a smoking crater, and has to be cracked open to get at the goods.
+// little way from the ship, leaves a smoking crater, and has to be cracked open to get at the goods. (And meteors,
+// below: the other thing that comes down out of the sky.)
 //
 // Each pod is driven by one clock, so every crewmate sees the same fall. It starts negative:
 //   -WAIT-GLINT .. -GLINT   nothing yet (the order is on its way)
@@ -237,6 +238,7 @@ const Pods = (() => {
     },
     update(dt) {
       const ext = G.ext; if (!ext) return;
+      this.meteors.update(dt);
       const gAt = (x, z) => ext.height(x, z);
       for (const pod of list) {
         pod.t += dt;
@@ -299,10 +301,87 @@ const Pods = (() => {
       }
     },
     get(id) { return list.find((p) => p.id === id); },
+    // On the airless moons and rocks, once in a while, a swarm of meteoroids comes down out of the black sky. There's no
+    // air to burn them or slow them, so there's no fireball coming in: just a glint of sunlight on rock streaking down
+    // an instant before it hits. Each impact is a white flash, a cone of ejecta thrown out on long, slow arcs in the
+    // light gravity (nothing billows: every grain flies on its own and falls), the ground jumping underfoot, and a fresh
+    // crater ringed with bright spray. Each strike runs on its own clock, t: how long until it hits.
+    meteors: {
+      list: [], fx: null,
+      // (built when a site on an airless moon goes up, so it's compiled with the rest before anyone sees it)
+      prepare() {
+        if (this.fx) return;
+        const fx = this.fx = { ejecta: particles(1800, 0x9a968e, false, 120), rocks: particles(140, 0x4a4640, false, 95), skim: particles(240, 0x9a968e, false, 260), flash: [], line: [] };
+        for (const k of ['ejecta', 'rocks', 'skim']) R.scene.add(fx[k].pts);
+        for (let i = 0; i < 4; i++) {
+          const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: new THREE.Color(3, 2.9, 2.7), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+          R.scene.add(f); fx.flash.push(f);
+          const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V(0, -500, 0), V(0, -500, 0)]), new THREE.LineBasicMaterial({ color: new THREE.Color(2.6, 2.5, 2.3), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+          l.frustumCulled = false; R.scene.add(l); fx.line.push(l);
+        }
+      },
+      // a swarm on its way (everyone): e.list: [{ x, z, r (crater radius), d (its depth), t (seconds till it hits), dir }]
+      spawn(e) {
+        if (!G.ext) return;
+        this.prepare();
+        for (const m of e.list) {
+          const gy = G.ext.height(m.x, m.z), el = 0.9 + Math.random() * 0.35, L = 900;
+          this.list.push(Object.assign({}, m, { gy, from: V(m.x + Math.cos(m.dir) * Math.cos(el) * L, gy + Math.sin(el) * L, m.z + Math.sin(m.dir) * Math.cos(el) * L), hit: false, ft: 0 }));
+        }
+      },
+      impact(s) {
+        s.hit = true;
+        const ext = G.ext, fx = this.fx;
+        ext.addCrater(s.x, s.z, s.r, s.d, true);
+        const at = V(s.x, ext.height(s.x, s.z) + 0.3, s.z), k = s.r / 5;
+        const f = fx.flash.find((o) => o.material.opacity <= 0) || fx.flash[0]; f.position.copy(at).y += s.r * 0.4; f.scale.setScalar(s.r * 9); s.flash = f; s.ft = 0.3;
+        const L = ext.lighting(G.round ? G.round.time : 720), day = 0.3 + 0.7 * (1 - L.night), base = ext.biome.ground.trail;
+        for (const sys of [fx.ejecta, fx.skim]) sys.pts.material.uniforms.uCol.value.setRGB(Math.min(1, base[0] * 1.35) * day, Math.min(1, base[1] * 1.35) * day, Math.min(1, base[2] * 1.35) * day);
+        fx.rocks.pts.material.uniforms.uCol.value.setRGB(base[0] * 0.6 * day, base[1] * 0.6 * day, base[2] * 0.6 * day);
+        // the cone of ejecta, flung up and out and falling back slowly; chunks of rock; a sheet of dust skimming low
+        // (the curtain: a thin cone of it, every grain thrown at much the same angle, so it reads as a sheet)
+        const cone = rnd(0.7, 0.85);
+        for (let i = 0; i < 360 * k; i++) { const a = rnd(0, TAU), e = cone + rnd(-0.12, 0.12) + (Math.random() < 0.15 ? rnd(-0.3, 0.25) : 0), v = rnd(5, 22) * Math.sqrt(k); emit(fx.ejecta, { x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * Math.cos(e) * v, vy: Math.sin(e) * v, vz: Math.sin(a) * Math.cos(e) * v, life: rnd(5, 9), s0: rnd(0.15, 0.45), s1: rnd(0.5, 1.1), grav: 4, drag: 0, a0: 0.75 }); }
+        for (let i = 0; i < 26 * k; i++) { const a = rnd(0, TAU), e = rnd(0.4, 1.1), v = rnd(4, 13); emit(fx.rocks, { x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * Math.cos(e) * v, vy: Math.sin(e) * v, vz: Math.sin(a) * Math.cos(e) * v, life: rnd(4, 7), s0: rnd(0.25, 0.6), s1: 0.4, grav: 4, drag: 0 }); }
+        for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(8, 26); emit(fx.skim, { x: at.x, y: at.y - 0.1, z: at.z, vx: Math.cos(a) * v, vy: rnd(0.3, 1.6), vz: Math.sin(a) * v, life: rnd(2.5, 4.5), s0: 1.5, s1: 4, grav: 4, drag: 0, a0: 0.5 }); }
+        // with no air nothing carries the sound: you feel it come up through the ground (and the hull, aboard)
+        const cam = R.camera.position, d = cam.distanceTo(at), me = G.me();
+        SFX.play('thud', at, { vol: 1.4 * k + 0.6, ref: 30, occl: 0.6, delay: d / 2500 }); SFX.play('bang', at, { vol: 0.9 * k, ref: 25, occl: 0.85, delay: d / 2500 });
+        SFX.play('debris', at, { vol: 0.5, ref: 12, occl: 0.6, delay: 1.5 });
+        if (me && me.alive) { Player.addShake(clamp((1.6 - d / 70) * (0.5 + 0.5 * k), 0, 1.2)); if (me.zone === 'out' && d < 60) R.fx.flash = Math.max(R.fx.flash, clamp(0.5 - d / 120, 0, 0.5) * k); }
+        if (G.isHost) G.hostMeteorHit(s);
+      },
+      update(dt) {
+        const fx = this.fx; if (!fx || !G.ext) return;
+        const gAt = (x, z) => G.ext.height(x, z);
+        let n = 0;
+        for (const s of this.list) {
+          s.t -= dt;
+          // the glint coming in: sunlight on a rock, streaking down the last instant
+          if (!s.hit && s.t < 0.35) {
+            const l = s.line || (s.line = fx.line.find((o) => !o.userData.busy) || fx.line[0]); l.userData.busy = true;
+            const u = clamp(1 - s.t / 0.35, 0, 1), head = s.from.clone().lerp(V(s.x, s.gy, s.z), u), tail = s.from.clone().lerp(V(s.x, s.gy, s.z), Math.max(0, u - 0.12));
+            l.geometry.attributes.position.setXYZ(0, head.x, head.y, head.z); l.geometry.attributes.position.setXYZ(1, tail.x, tail.y, tail.z); l.geometry.attributes.position.needsUpdate = true;
+            l.material.opacity = 0.9;
+          }
+          if (!s.hit && s.t <= 0) { this.impact(s); if (s.line) { s.line.material.opacity = 0; s.line.userData.busy = false; } }
+          if (s.ft > 0) { s.ft -= dt; s.flash.material.opacity = Math.max(0, s.ft / 0.3); }
+          if (!s.hit || s.ft > 0) n++;
+        }
+        if (!n) this.list.length = 0;
+        stepParticles(fx.ejecta, dt, gAt); stepParticles(fx.rocks, dt, gAt); stepParticles(fx.skim, dt, gAt);
+      },
+      clear() {
+        this.list.length = 0;
+        if (this.fx) { for (const o of [this.fx.ejecta.pts, this.fx.rocks.pts, this.fx.skim.pts, ...this.fx.flash, ...this.fx.line]) if (o.parent) o.parent.remove(o); this.fx = null; }
+      },
+    },
     serialize() { return list.map((p) => ({ id: p.id, x: p.x, z: p.z, dir: p.dir, items: p.items, t: p.t, opened: p.opened })); },
     clear() {
       for (const p of list) { for (const o of [p.mesh, p.trail.pts, p.dirt.pts, p.dust.pts, p.fire.pts, p.smoke.pts, p.flash, p.head, p.lid, p.glint]) if (o && o.parent) o.parent.remove(o); }
       list.length = 0;
+      this.meteors.clear();
     },
   };
 })();
+const Meteors = Pods.meteors;

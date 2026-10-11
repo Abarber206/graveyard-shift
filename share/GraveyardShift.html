@@ -6329,7 +6329,9 @@ const Exterior = (() => {
       for (let i = 0; i < n; i++) { const a = rr.range(0, TAU), y = rr.range(0.08, 1), rad = Math.sqrt(1 - y * y); sp[i * 3] = Math.cos(a) * rad * 440; sp[i * 3 + 1] = y * 440; sp[i * 3 + 2] = Math.sin(a) * rad * 440; }
       const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
       this.starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
-      this.stars = new THREE.Points(sg, this.starMat); grp.add(this.stars);
+      // (the sky draws first, at the back: the dome, the stars, then the bodies in it; so smoke, dust and everything else
+      // down here, drawn after, passes in front of them, while a world with no air between blots out the stars behind it)
+      this.stars = new THREE.Points(sg, this.starMat); this.stars.renderOrder = -9.5; grp.add(this.stars);
       this.moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xdde6ff, transparent: true, opacity: 0, fog: false, depthWrite: false }));
       this.moon.scale.set(60, 60, 1); this.moon.position.set(-200, 260, -260); grp.add(this.moon);
       this.buildSkyBodies();
@@ -6395,7 +6397,7 @@ const Exterior = (() => {
         });
         const m = new THREE.Mesh(geo, mat), el = b.el, az = b.az + swing;
         m.position.set(Math.cos(az) * Math.cos(el) * D, Math.sin(el) * D, Math.sin(az) * Math.cos(el) * D); m.scale.setScalar(r);
-        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = air ? -9 : 2; m.frustumCulled = false;
+        m.rotation.set(rr.range(-0.4, 0.4), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.renderOrder = -9; m.frustumCulled = false;
         // (seen from a moon, the other one goes in the world's frame: where it is is reckoned from where the world is)
         const G0 = b.kind === 'planet' || b.withWorld ? this.worldG : this.bodiesG;
         G0.add(m); this.bodies.push(m); this.eclipsers.push({ m, kind: b.kind, tint: b.tint, atmo: b.atmo, world: G0 === this.worldG });
@@ -6427,7 +6429,7 @@ const Exterior = (() => {
               void main(){ float t; vec4 c = ringSee(vec3(0.0), normalize(vD), uSun, t); if (c.a < 0.003) discard; gl_FragColor = vec4(c.rgb * uVis, c.a); }`,
             transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
           }));
-          dome.renderOrder = 8; dome.frustumCulled = false; G0.add(dome); this.bodies.push(dome);
+          dome.renderOrder = -6; dome.frustumCulled = false; G0.add(dome); this.bodies.push(dome);
         }
       }
     }

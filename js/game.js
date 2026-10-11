@@ -265,6 +265,8 @@ const G = {
     for (const k of Object.keys(ITEMS)) g.add(ItemMeshes.build(k));
     for (const k of Object.keys(MON_DEFS)) g.add(MonModels.build(k));
     R.precompile(g, () => {});
+    // (and everything on the ship that's only seen landing or taking off, the jets and the smoke; the space outside)
+    R.precompile(R.scene, () => {}); R.precompile(R.bgScene, () => {}, R.bgScene); R.warmVol();
   },
   quit(msg) {
     if (G.mode === 'menu') return;
@@ -383,17 +385,20 @@ const G = {
     if (G.fac && G.round && G.round.seed === seed) { if (done) done(); return; }
     if (G.siteBuild && G.siteBuild.seed === seed) { if (done) G.siteBuild.done.push(done); return; }
     const site = SITES[siteKey], b = { seed, siteKey, weather, i: 0, done: done ? [done] : [] };
+    // (a step that's built in pieces takes a piece a frame, and says false until it's done)
+    const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
       () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs); },
-      () => { b.facG = b.fac.build(); },
-      () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); b.ext.buildLand(); },
-      () => { b.extG = b.ext.buildRest(); },
+      pieces(() => b.fac.buildGen(), (v) => { b.facG = v; }),
+      () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); },
+      pieces(() => b.ext.landGen(), () => {}),
+      pieces(() => b.ext.restGen(), (v) => { b.extG = v; }),
     ];
     G.siteBuild = b;
   },
   stepSite(all) {
     const b = G.siteBuild; if (!b) return;
-    do b.steps[b.i++](); while (all && b.i < b.steps.length);
+    do { if (b.steps[b.i]() !== false) b.i++; } while (all && b.i < b.steps.length);
     if (b.i < b.steps.length) return;
     G.siteBuild = null;
     G.installSite(b);
@@ -410,6 +415,8 @@ const G = {
     G.fac = b.fac; G.ext = b.ext;
     const fac = G.fac, ext = G.ext;
     G.siteShown = false;
+    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down)
+    R.precompile(R.scene, () => {});
     R.precompile(b.facG, () => R.precompile(b.extG, () => { if (G.fac !== fac) return; R.scene.add(b.facG); R.scene.add(b.extG); G.siteShown = true; }));
     G.fac.lamps.forEach((l) => (l.fac = true));
     G.lightSources = [...G.ship.lights, ...G.ext.lights, ...G.fac.lamps];
@@ -1490,10 +1497,16 @@ const G = {
       const weather = rng.weighted(site.weather);
       G.emit({ e: 'sitePrep', site: key, seed, weather });
       G.stageSite(seed, key, weather, () => {
-        const items = G.spawnScrap(seed, site, key);
-        G.emit({ e: 'land', site: key, seed, weather, items });
-        const first = key === 'hollow' ? 2 : 1;
-        for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
+        // (the descent waits, shutters down, until the site's shaders are ready, so it doesn't stutter its way down)
+        const go = () => {
+          if (G.mode !== 'landing' || !G.round || G.round.seed !== seed) return;
+          const items = G.spawnScrap(seed, site, key);
+          G.emit({ e: 'land', site: key, seed, weather, items });
+          const first = key === 'hollow' ? 2 : 1;
+          for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
+        };
+        const wait = (t) => (G.siteShown || t > 6 ? go() : G.timers.push({ t: 0.1, fn: () => wait(t + 0.1) }));
+        wait(0);
       });
     } });
   },

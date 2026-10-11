@@ -425,7 +425,10 @@ const Exterior = (() => {
       if (this.water != null && this.height(x, z) < this.water - 0.6) return false;
       return Math.hypot(x, z) < 165;
     }
-    buildLand() {
+    // (the land and the rest are each built in pieces, so a landing can put them together a frame or so apart: see
+    // G.stageSite)
+    buildLand() { const g = this.landGen(); let r; do r = g.next(); while (!r.done); return r.value; }
+    *landGen() {
       const grp = new THREE.Group(); grp.name = 'exterior';
       const r = this.rng;
       // ---- terrain ----
@@ -436,6 +439,7 @@ const Exterior = (() => {
       this.grid = { n: seg + 1, size, h: new Float32Array(pos.count), bare: new Float32Array(pos.count) };
       const trails = new Float32Array(pos.count), yards = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) {
+        if (i % 9000 === 8999) yield;
         const x = pos.getX(i), z = pos.getZ(i), h = this.height(x, z);
         pos.setY(i, h); this.grid.h[i] = h;
         uv.setXY(i, x / 5, z / 5);
@@ -445,6 +449,7 @@ const Exterior = (() => {
         this.grid.bare[i] = Math.max(sstep(0.15, 0.45, trails[i]), sstep(0.3, 0.7, yards[i]), pads);
       }
       geo.computeVertexNormals();
+      yield;
       const nrm = geo.attributes.normal, BI = this.biome, P = BI.ground, W = this.water;
       const mix = (c, k, t) => { c[0] = lerp(c[0], k[0], t); c[1] = lerp(c[1], k[1], t); c[2] = lerp(c[2], k[2], t); };
       for (let i = 0; i < pos.count; i++) {
@@ -472,6 +477,7 @@ const Exterior = (() => {
         const wm = new THREE.MeshStandardMaterial({ color: 0x18221c, roughness: 0.06, metalness: 0.65, transparent: true, opacity: 0.88 });
         const water = new THREE.Mesh(new THREE.PlaneGeometry(size, size), wm); water.rotation.x = -Math.PI / 2; water.position.y = W; water.receiveShadow = true; grp.add(water);
       }
+      yield;
       // ---- dead forest: branching trees and snags that creak in the wind ----
       this.windU = { value: 0 };
       // the ship's own wind: the downwash of its lift jets, and the blast when its mains fire, shoving everything that
@@ -528,7 +534,9 @@ const Exterior = (() => {
       };
       kinds.forEach((k, v) => { plant(k.geo, lists[v].bark, treeMat); plant(k.geo, lists[v].char, charMat); if (k.moss) plant(k.moss, lists[v].bark, mossMat); });
       this.trees = lists.flatMap((l) => [...l.bark, ...l.char]);
+      yield;
       this.buildDeadwood(grp);
+      yield;
       // ---- rocks ----
       const rockGeos = [0, 1, 2].map((v) => {
         const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position, rr = new RNG(this.seed * 3 + v);
@@ -570,22 +578,16 @@ const Exterior = (() => {
     }
     // (in two halves, so a landing can build them a frame apart)
     build() { this.buildLand(); return this.buildRest(); }
-    buildRest() {
+    buildRest() { const g = this.restGen(); let r; do r = g.next(); while (!r.done); return r.value; }
+    *restGen() {
       const grp = this.group;
-      this.buildComplex(grp);
-      this.buildFireExit(grp);
-      this.buildPylons(grp);
-      this.buildWrecks(grp);
-      this.buildWorldExtras(grp);
-      this.buildLampPosts(grp);
-      this.buildSky(grp);
-      this.buildRanges(grp);
-      this.buildClouds(grp);
-      this.buildRain(grp);
-      this.buildGroundCover(grp);
-      this.buildPuddles(grp);
-      this.buildCrows(grp);
-      this.buildMotes(grp);
+      this.buildComplex(grp); yield;
+      this.buildFireExit(grp); this.buildPylons(grp); yield;
+      this.buildWrecks(grp); yield;
+      this.buildWorldExtras(grp); this.buildLampPosts(grp); this.buildSky(grp); yield;
+      this.buildRanges(grp); yield;
+      yield* this.buildClouds(grp);
+      this.buildRain(grp); this.buildGroundCover(grp); this.buildPuddles(grp); this.buildCrows(grp); this.buildMotes(grp);
       this.group = grp;
       return grp;
     }
@@ -678,7 +680,7 @@ const Exterior = (() => {
     // it billows and churns. They're lit like cloud: bright tops, shaded undersides, a bright rim when the sun is behind
     // them, the sky's light in the shadows; hazed with distance like the ranges; and they thin away wherever they meet
     // the ground or a hillside, so no hard line shows where a card cuts into the land.
-    buildClouds(grp) {
+    *buildClouds(grp) {
       this.clouds = null;
       if (this.biome.airless || !this.rangeH) return;
       const r = new RNG(this.seed + 1212), wx = this.weather, H = this.rangeH, tops = this.rangeTops;
@@ -686,6 +688,7 @@ const Exterior = (() => {
       const HN = 256, HS = 980, HMIN = -30, HMAX = 230, hd = new Uint8Array(HN * HN);
       const ground = (x, z) => { const rr = Math.hypot(x, z); return rr < 200 ? Math.max(this.height(x, z), rr > 186 ? H(x, z, rr) : -1e9) : rr < 465 ? H(x, z, rr) : this.height(x, z) * 0; };
       for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) {
+        if (i === 0 && (j & 63) === 63) yield;
         const x = ((i + 0.5) / HN - 0.5) * HS, z = ((j + 0.5) / HN - 0.5) * HS;
         hd[j * HN + i] = clamp(Math.round((ground(x, z) - HMIN) / (HMAX - HMIN) * 255), 0, 255);
       }

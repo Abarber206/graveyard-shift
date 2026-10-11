@@ -673,10 +673,17 @@ const R = (() => {
     setFog, setShipFog, startScan,
     // compile what a new object needs before it is ever drawn: where the browser can, off the main thread, so the
     // first frame that shows it doesn't stall. Calls back once it's ready (or after a while regardless).
-    precompile(obj, cb) {
+    // (the volumetric air's own pass, compiled ahead of the first time it's needed)
+    warmVol() { const keep = renderer.getRenderTarget(); renderer.setRenderTarget(vol.rt); try { renderer.compile(vol.scene, postCam); } finally { renderer.setRenderTarget(keep); } },
+    // (into: the scene it'll be drawn in, whose lights it's built for; anything already in that scene is compiled by
+    // compiling the scene itself, or its own lights would be counted twice and the programs built for one too many)
+    precompile(obj, cb, into = scene) {
       let fired = false; const go = () => { if (!fired) { fired = true; cb(); } };
       setTimeout(go, 4000);
-      try { renderer.compileAsync(obj, camera, scene).then(go, go); } catch (e) { go(); }
+      // (built for the buffer the scene is drawn into, not the screen: a program built for the wrong one would only
+      // have to be built again the moment it's first drawn, stalling that frame)
+      const keep = renderer.getRenderTarget(); renderer.setRenderTarget(rt);
+      try { renderer.compileAsync(obj, camera, into).then(go, go); } catch (e) { go(); } finally { renderer.setRenderTarget(keep); }
     },
     // the sun's shadow frustum: tight in the ship (sunlight through the windows), wide outdoors
     setSunShadow(size, far) {

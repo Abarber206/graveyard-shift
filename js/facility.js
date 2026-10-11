@@ -1198,7 +1198,9 @@ const Facility = (() => {
     }
 
     // ---------- mesh building ----------
-    build() {
+    // (built in pieces, so a landing can put it together a frame or so apart: see G.stageSite)
+    build() { const g = this.buildGen(); let r; do r = g.next(); while (!r.done); return r.value; }
+    *buildGen() {
       const grp = new THREE.Group(); grp.name = 'facility';
       const P = {};
       const bucket = (m) => P[m] || (P[m] = { pos: [], nor: [], uv: [] });
@@ -1224,6 +1226,7 @@ const Facility = (() => {
         quad(m, [p(a0, y0), p(a1, y0), p(a1, y1), p(a0, y1)], [-dx, 0, -dy], [[u(a0), y0 / 3], [u(a1), y0 / 3], [u(a1), y1 / 3], [u(a0), y1 / 3]]);
       };
       for (let k = 0; k < W * H; k++) {
+        if ((k & 2047) === 2047) yield;
         // (a stairwell builds itself, below)
         if (!this.grid[k] || this.grid[k] === 4) continue;
         const i = k % W, j = Math.floor(k / W), x0 = this.ox + i * TS, x1 = x0 + TS, z0 = this.oz + j * TS, z1 = z0 + TS, h = this.ceil[k];
@@ -1247,13 +1250,16 @@ const Facility = (() => {
           }
           if (nh < h) wallQuad(wm, k, dx, dy, nh, h);
         }
-      }      for (const m in P) {
+      }
+      yield;
+      for (const m in P) {
         const b = P[m], geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
         const me = new THREE.Mesh(geo, this.mat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); grp.add(me);
       }
+      yield;
       // doors: frames + panels
       const leafGeo = Pane.leaf(LEAF_W, DH - 0.03, LEAF_T);
       const leafHW = {};
@@ -1295,6 +1301,7 @@ const Facility = (() => {
         d.mesh = pivot; this.applyDoor(d); grp.add(pivot);
         { const a = d.base, lz = { x: Math.sin(a), z: Math.cos(a) }; d.leafSign = Math.sign(lz.x * d.nx + lz.z * d.nz) || 1; }
       }
+      yield;
       // locker and cabinet doors: hinged on the left front edge, a small pull at the right
       const chw = {};
       for (const c of this.containers) {
@@ -1336,8 +1343,10 @@ const Facility = (() => {
         this.pbox('vent', 0.9, 0.55, 0.06, v.x, v.y - 0.275, v.z, ry);
       }
       this.lv = 0;
-      for (const s of this.shafts) this.buildShaft(s, grp);
+      yield;
+      for (const s of this.shafts) { this.buildShaft(s, grp); yield; }
       this.buildBlasts(grp);
+      yield;
       // prop buckets
       for (const m in this.buckets) {
         const geo = mergeGeoList(this.buckets[m]);
@@ -1347,6 +1356,7 @@ const Facility = (() => {
         me.castShadow = !mat.transparent && m !== 'paper'; me.receiveShadow = true;
         if (mat.transparent) me.renderOrder = 2;
         grp.add(me);
+        yield;
       }
       this.buckets = {};
       // lamps (instanced)

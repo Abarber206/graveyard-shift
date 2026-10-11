@@ -278,6 +278,8 @@ const CrewCam = (() => {
       eyeOf(p, isMe);
       // (each lit the way it is where they are: see G.feedLight)
       R.rig(true); if (ext) ext.visible = extV;
+      // (the body-cams don't march the air: they get the flat mist back while they're drawn)
+      if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075;
       if (!isMe) { G.feedLight(p, cam.position); if (ext && p.zone === 'in') ext.visible = false; }
       cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
       // you appear in everyone else's feed; nobody sees the inside of their own head
@@ -298,6 +300,7 @@ const CrewCam = (() => {
   function hullCams(me, t) {
     const S = G.ship, down = S.groundCamUp, cams = S.hullCams.filter((c) => (down ? !c.space : !c.ground)), rects = layout(cams.length);
     S.monMesh.visible = false;
+    const fd0 = R.scene.fog.density; if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075;
     const sa = selfAvatar();
     if (sa) {
       const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0));
@@ -313,7 +316,7 @@ const CrewCam = (() => {
       cam.lookAt(_t); cam.fov = 82; cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
       R.renderView(cam, rt, r.x, r.y, r.w, r.h);
     });
-    cam.fov = 72; cam.up.set(0, 1, 0);
+    cam.fov = 72; cam.up.set(0, 1, 0); R.scene.fog.density = fd0;
     if (sa) sa.root.visible = false;
     S.monMesh.visible = true;
     const key = 'hull' + down + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);

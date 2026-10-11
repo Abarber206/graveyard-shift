@@ -44,6 +44,11 @@ Keep that file current when gameplay changes.
   - The crew cams (`crewcam.js`) relight the scene for each crewmate's feed (`G.feedLight`: the facility's dark, the
     lamps near them via `R.lightsAt`, their flashlight), between `R.rig()` and `R.rig(true)`, which put your own view back.
   - Fog, the scanner wave and the cabin fog-clearing are injected into three's shader chunks.
+  - Volumetric air (`Settings.volumetric`, off by default on touch devices): `R.vol` marches each pixel's ray through
+    a density field (height fog, ground mist from the land's height map, cloud banks among the far hills, sun shadow
+    map for light shafts) at half resolution, using the frame's depth texture, and post composites it. The outdoors sets
+    its uniforms (`Exterior.update`) and `G.environment` turns it on outdoors only, zeroing the flat scene fog; when it's
+    off, the flat fog, the ranges' own haze and the cloud cards (`buildClouds`) do the job instead.
   - Past the walkable land (players are kept within 160 m), `Exterior.buildRanges` rings the site with far hills drawn
     with their own haze: hidden below a fog-bank top worked out per direction from the land (`uTop`), coming out of it
     softly above. Keep it consistent with the scene fog when changing `lighting()`'s `fogDen` / `fog`.

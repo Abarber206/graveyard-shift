@@ -121,7 +121,7 @@ const R = (() => {
 
   const POST_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const POST_FS = `
-    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp, uPeek; uniform vec2 uSunUV, uPeekUV; uniform vec3 uHeatCol;
+    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform sampler2D tVol; uniform float uVolOn; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp, uPeek; uniform vec2 uSunUV, uPeekUV; uniform vec3 uHeatCol;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -147,6 +147,8 @@ const R = (() => {
       col.r = texture2D(tDiffuse, uv + c * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - c * ca).b;
+      // the air between you and everything: what's lost on the way (alpha) and the light it scatters toward you (rgb)
+      if (uVolOn > 0.5) { vec4 fv = texture2D(tVol, uv); col = col * fv.a + fv.rgb; }
       // ...smeared outward in long streaks, with just a hint of colour at the edges
       if (uWarp > 0.0) {
         vec3 acc = vec3(0.0);
@@ -162,7 +164,7 @@ const R = (() => {
         v += step(5.0, dot(texture2D(tDiffuse, uSunUV - vec2(tx.x, 0.0)).rgb, vec3(0.3333)));
         v += step(5.0, dot(texture2D(tDiffuse, uSunUV + vec2(0.0, tx.y)).rgb, vec3(0.3333)));
         v += step(5.0, dot(texture2D(tDiffuse, uSunUV - vec2(0.0, tx.y)).rgb, vec3(0.3333)));
-        v *= 0.2 * uSun;
+        v *= 0.2 * uSun * (uVolOn > 0.5 ? texture2D(tVol, uSunUV).a : 1.0);
         vec2 dv = (uv - uSunUV) * vec2(uRes.x / uRes.y, 1.0);
         float d = length(dv);
         float gl = 3.2 * exp(-d * 28.0) + 0.7 * exp(-d * 8.0) + 0.09 * exp(-d * 2.2);
@@ -255,6 +257,70 @@ const R = (() => {
     return pts;
   }
 
+  // ---- the air, volumetric: each pixel's line of sight marched out through it to whatever it hits (the depth buffer)
+  // or far out over the land, adding up what the air takes away and the light it scatters back toward you. The air is
+  // thickest on the ground and thins as it goes up; drifting patches of mist lie low over the land; cloud banks hang
+  // among the far hills; and where the sun's shadow map says a point is shaded, it scatters no sunlight, so light comes
+  // through the trees in shafts. Drawn at half the frame's size and laid over it in post.
+  const VOL_FS = `
+    #include <packing>
+    precision highp sampler3D;
+    uniform sampler2D tDepth, tH, tShadow; uniform sampler3D tN; uniform mat4 uProjInv, uViewInv, uShadowM, uShipInv;
+    uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame;
+    varying vec2 vUv;
+    float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uOrg.xz - uHB.xy) / uHB.z).r) + uOrg.y; }
+    float noise3(vec3 q) { return texture(tN, q).r; }
+    // uDen: x the air's density on the ground, y how fast it thins with height, z the low mist's density, w its depth (m)
+    // uCloud: x the cloud banks' density, y the height they hang at, z how deep they are, w how far out they start
+    float density(vec3 p, out float n) {
+      vec3 q = p * 0.03 + vec3(uWind.x, 0.0, uWind.y) * uTime * 0.03;
+      n = noise3(q) * 0.62 + noise3(q * 2.63 + 3.7) * 0.38;
+      float air = uDen.x * exp(-clamp(p.y - uOrg.y, -20.0, 400.0) * uDen.y) * (0.7 + 0.6 * n);
+      float gh = groundH(p.xz), above = p.y - gh;
+      float mist = uDen.z * exp(-max(above, 0.0) / uDen.w) * smoothstep(0.38, 0.72, n) * step(-1.0, above);
+      float r = length(p.xz - uOrg.xz), cl = 0.0;
+      if (uCloud.x > 0.0 && r > uCloud.w) {
+        float y = p.y - uOrg.y - uCloud.y, band = smoothstep(-uCloud.z * 0.45, 0.0, y) * (1.0 - smoothstep(0.0, uCloud.z, y));
+        vec3 cq = p * 0.0065 + vec3(uTime * 0.0014, 0.0, uTime * 0.0006);
+        float cn = noise3(cq) * 0.6 + noise3(cq * 2.4 + 1.3) * 0.4;
+        cl = uCloud.x * band * smoothstep(0.48, 0.7, cn + 0.15 * n) * smoothstep(uCloud.w, uCloud.w + 60.0, r);
+      }
+      // (none of it inside the ship)
+      vec3 sl = (uShipInv * vec4(p, 1.0)).xyz;
+      if (sl.x > -18.6 && sl.x < 12.6 && abs(sl.z) < 5.2 && sl.y > -1.1 && sl.y < 5.3) return 0.0;
+      return air + mist + cl;
+    }
+    float sunLit(vec3 p) {
+      if (uShadowOn < 0.5) return 1.0;
+      vec4 sc = uShadowM * vec4(p, 1.0); sc.xyz /= sc.w;
+      if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
+      return step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tShadow, sc.xy)));
+    }
+    void main() {
+      float d = texture2D(tDepth, vUv).r;
+      vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); v /= v.w;
+      vec3 end = (uViewInv * v).xyz, rd = end - uCam; float L = length(rd); rd /= max(L, 1e-4);
+      if (d >= 1.0) L = uFar; L = min(L, uFar);
+      // (steps bunched up near you, where it matters most; each pixel starting a little differently so no bands show)
+      float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy + uFrame * 5.588238, vec2(0.06711056, 0.00583715))));
+      float mu = max(dot(rd, uSunDir), 0.0), glow = pow(mu, 5.0) * 0.55 + pow(mu, 40.0) * 0.9;
+      vec3 acc = vec3(0.0); float T = 1.0;
+      const int N = 30;
+      for (int i = 0; i < N; i++) {
+        float t0 = L * pow(float(i) / float(N), 2.0), t1 = L * pow(float(i + 1) / float(N), 2.0), dt = t1 - t0;
+        vec3 p = uCam + rd * mix(t0, t1, jit);
+        float n, den = density(p, n);
+        if (den < 1e-6) continue;
+        // light scattered toward you here: the sky's grey light all round, and the sun's (where it reaches), brightest
+        // looking toward it; thicker mist a shade darker inside
+        vec3 Ls = uFogCol * (1.08 - 0.16 * n) + uScat * (0.1 + glow * 1.4) * sunLit(p);
+        float a = exp(-den * dt);
+        acc += T * (1.0 - a) * Ls; T *= a;
+        if (T < 0.01) break;
+      }
+      gl_FragColor = vec4(acc, T);
+    }`;
+  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 };
   let bloomA, bloomB, bloomPre, bloomBlur, quadScene, quad, shadowSize = 15;
   function init(canvas) {
     installFog();
@@ -291,12 +357,34 @@ const R = (() => {
     vmHemi = new THREE.HemisphereLight(0xffffff, 0x222222, 0.3); vmScene.add(vmHemi);
     vmPoint = new THREE.PointLight(0xfff2dc, 0, 3, 2); vmPoint.position.set(0.3, 0.2, 0.2); vmScene.add(vmPoint);
     rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+    // (the frame's depth, kept so the air can be marched out to whatever each pixel hits)
+    rt.depthTexture = new THREE.DepthTexture(16, 16); rt.depthTexture.type = THREE.UnsignedIntType;
+    vol.rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+    {
+      // (tiling 3D noise for the mist and the clouds: smooth value noise on a wrapping lattice, three octaves)
+      const S = 32, d = new Uint8Array(S * S * S), r = new RNG(4242), lat = [4, 8, 16].map((P) => ({ P, g: Array.from({ length: P * P * P }, () => r.next()) }));
+      const sm = (t) => t * t * (3 - 2 * t), at = (L, a, b, c) => { const P = L.P, m = (k) => ((k % P) + P) % P; return L.g[(m(c) * P + m(b)) * P + m(a)]; };
+      const vn = (L, x, y, z) => { const P = L.P, fx = x * P, fy = y * P, fz = z * P, ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz), u = sm(fx - ix), v = sm(fy - iy), w = sm(fz - iz);
+        const l = (a, b, t) => a + (b - a) * t;
+        return l(l(l(at(L, ix, iy, iz), at(L, ix + 1, iy, iz), u), l(at(L, ix, iy + 1, iz), at(L, ix + 1, iy + 1, iz), u), v), l(l(at(L, ix, iy, iz + 1), at(L, ix + 1, iy, iz + 1), u), l(at(L, ix, iy + 1, iz + 1), at(L, ix + 1, iy + 1, iz + 1), u), v), w); };
+      for (let k = 0; k < S; k++) for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = i / S, y = j / S, z = k / S; d[(k * S + j) * S + i] = Math.round((vn(lat[0], x, y, z) * 0.55 + vn(lat[1], x, y, z) * 0.3 + vn(lat[2], x, y, z) * 0.15) * 255); }
+      const nt = new THREE.Data3DTexture(d, S, S, S); nt.format = THREE.RedFormat; nt.type = THREE.UnsignedByteType; nt.minFilter = nt.magFilter = THREE.LinearFilter; nt.wrapS = nt.wrapT = nt.wrapR = THREE.RepeatWrapping; nt.needsUpdate = true;
+      const blank = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType); blank.needsUpdate = true;
+      const U = (x) => ({ value: x });
+      vol.mat = new THREE.ShaderMaterial({
+        uniforms: { tDepth: U(rt.depthTexture), tH: U(blank), tShadow: U(null), tN: U(nt), uProjInv: U(new THREE.Matrix4()), uViewInv: U(new THREE.Matrix4()), uShadowM: U(new THREE.Matrix4()), uShipInv: U(new THREE.Matrix4()),
+          uCam: U(new THREE.Vector3()), uSunDir: U(new THREE.Vector3(0, 1, 0)), uFogCol: U(new THREE.Color()), uScat: U(new THREE.Color()), uOrg: U(new THREE.Vector3()), uHB: U(new THREE.Vector4(-490, -490, 980, 0)),
+          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0) },
+        vertexShader: POST_VS, fragmentShader: VOL_FS, depthTest: false, depthWrite: false,
+      });
+      vol.scene = new THREE.Scene(); const vq = new THREE.Mesh(new THREE.BufferGeometry().copy(new THREE.PlaneGeometry(2, 2)), vol.mat); vq.frustumCulled = false; vol.scene.add(vq);
+    }
     const bopt = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
     bloomA = new THREE.WebGLRenderTarget(8, 8, bopt); bloomB = new THREE.WebGLRenderTarget(8, 8, bopt);
     bloomPre = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: rt.texture }, uTx: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_PRE, depthTest: false, depthWrite: false });
     bloomBlur = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_BLUR, depthTest: false, depthWrite: false });
     post = new THREE.ShaderMaterial({
-      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uPeek: { value: 0 }, uPeekUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
+      uniforms: { tBloom: { value: bloomA.texture }, tVol: { value: vol.rt.texture }, uVolOn: { value: 0 }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uPeek: { value: 0 }, uPeekUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
       vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     const tri = new THREE.BufferGeometry();
@@ -314,6 +402,7 @@ const R = (() => {
     const ih = RES_LEVELS[clamp(Settings.res, 0, RES_LEVELS.length - 1)].h;
     const rh = Math.min(h, ih), rw = Math.round(rh * a);
     rt.setSize(rw, rh);
+    vol.rt.setSize(Math.max(4, Math.ceil(rw / 2)), Math.max(4, Math.ceil(rh / 2)));
     post.uniforms.uRes.value.set(rw, rh);
     const bw = Math.max(4, Math.round(rw / 4)), bh = Math.max(4, Math.round(rh / 4));
     bloomA.setSize(bw, bh); bloomB.setSize(bw, bh);
@@ -436,7 +525,7 @@ const R = (() => {
     u.uFlash.value = fx.flash; u.uStatic.value = fx.static; u.uExposure.value = fx.exposure; u.uLowHp.value = fx.lowhp; u.uBright.value = Settings.bright; u.uHealth.value = fx.health; u.uWhite.value = fx.white; u.uHeat.value = fx.heat; u.uWarp.value = fx.warp;
     renderer.setRenderTarget(rt);
     renderer.clear();
-    u.uSun.value = 0;
+    u.uSun.value = 0; u.uVolOn.value = 0;
     if (backdrop && backdrop.visible) {
       camera.updateMatrixWorld();
       // the backdrop is seen from the ship's middle, whatever the eye does: a world that size shows no parallax at all
@@ -455,6 +544,15 @@ const R = (() => {
       scene.background = bg;
     } else {
       renderer.render(scene, camera);
+      // the air, marched through (outdoors, when it's on): into its own target, then back to the frame for the hands
+      if (vol.on) {
+        const vu = vol.mat.uniforms; camera.updateMatrixWorld();
+        vu.uProjInv.value.copy(camera.projectionMatrixInverse); vu.uViewInv.value.copy(camera.matrixWorld); camera.getWorldPosition(vu.uCam.value);
+        const sm = sun.shadow && sun.shadow.map; vu.tShadow.value = sm ? sm.texture : null; vu.uShadowOn.value = sm && sun.castShadow && sun.intensity > 0.01 ? 1 : 0; if (sm) vu.uShadowM.value.copy(sun.shadow.matrix);
+        vu.uTime.value = t; vu.uFrame.value = (vol.frame = (vol.frame + 1) % 64);
+        renderer.setRenderTarget(vol.rt); renderer.render(vol.scene, postCam); renderer.setRenderTarget(rt);
+      }
+      u.uVolOn.value = vol.on ? 1 : 0;
       // (on the ground with no air, the sun in the sky glares the same way, while its disc can be seen)
       if (fx.sun > 0) {
         camera.getWorldPosition(_sv).addScaledVector(fx.sunDir, 100).project(camera);
@@ -525,6 +623,8 @@ const R = (() => {
   }
   return {
     init, resize, render, renderView, updateLights, lightsAt, rig, flickerOf, snapshot, setGlow, setBeam, updateDust, fx,
+    // the volumetric air (see VOL_FS): on or off, and its uniforms to fill in
+    get vol() { return vol; },
     setBackdrop(group, sun) { backdrop = group; sunObj = sun; bgScene.add(group); },
     // the backdrop's near plane: pulled in when the planet's surface comes close (falling toward it), out again after
     setBgNear(n) { bgNear = n; },

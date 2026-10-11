@@ -25,7 +25,7 @@ const MenuScene = (() => {
       if (!fac) build();
       if (!active) { R.scene.add(fac.group); R.scene.add(pale); active = true; }
       G.ship.group.visible = false; G.ship.space.visible = false;
-      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null);
+      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null); R.vol.on = false;
       for (let i = -1; i < 2; i++) R.setGlow(i, null);
       R.remote.forEach((s, i) => { s.intensity = 0; R.setBeam(i, s, false); });
       R.fx.health = 1; R.fx.leech = 0; R.fx.damage = 0; R.fx.sun = 0;
@@ -219,6 +219,7 @@ const Menu = (() => {
     slider('BRIGHTNESS', 'bright', 0.6, 2, 0.05, (v) => v.toFixed(2));
     toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); });
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
+    toggle('VOLUMETRIC FOG', () => (Settings.volumetric ? 'ON' : 'OFF'), () => { Settings.volumetric = !Settings.volumetric; });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
     toggle('TOUCH CONTROLS', () => ['AUTO', 'ON', 'OFF'][Settings.touch] + (Touch.on ? ' (ON)' : ' (OFF)'), () => { Settings.touch = (Settings.touch + 1) % 3; Touch.apply(); });
     toggle('VOICE & MIC', () => (Settings.voice ? 'ON · SET UP' : 'OFF · SET UP'), () => { const me = () => go(settingsNodes(back, go)); go(voiceNodes(me)); });

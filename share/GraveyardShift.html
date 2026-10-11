@@ -504,10 +504,12 @@ const RES_LEVELS = [
 const TOUCH_DEVICE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
 const Settings = {
   sens: 1, volume: 0.8, fov: 72, res: 2, bright: 1, name: '', suit: 0, voice: false, ptt: false, invertY: false, shadows: true, touch: 0,
+  // the air drawn as a real volume (mist, cloud, light shafts); off to start with on a phone
+  volumetric: !TOUCH_DEVICE,
   // voice & mic: which microphone and speakers ('' the default), mic volume, the open-mic threshold (dB), the browser's
   // noise cleanup, and how loud everyone else's voices are
   micId: '', outId: '', micVol: 1, micGate: -30, micClean: true, voiceVol: 1,
-  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'touch', 'micId', 'outId', 'micVol', 'micGate', 'micClean', 'voiceVol'],
+  KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'volumetric', 'touch', 'micId', 'outId', 'micVol', 'micGate', 'micClean', 'voiceVol'],
   load() {
     const o = Store.get('gs_settings', null);
     // first time on a phone: a lighter picture to start with (it can be turned up in the settings)
@@ -5787,6 +5789,7 @@ const Exterior = (() => {
       this.buildLampPosts(grp);
       this.buildSky(grp);
       this.buildRanges(grp);
+      this.buildClouds(grp);
       this.buildRain(grp);
       this.buildGroundCover(grp);
       this.buildPuddles(grp);
@@ -5874,6 +5877,112 @@ const Exterior = (() => {
         vertexColors: true, fog: false,
       });
       const m = new THREE.Mesh(geo, this.rangeMat); m.frustumCulled = false; grp.add(m); this.ranges = m;
+      this.rangeH = H; this.rangeTops = tops;
+    }
+    // ---------------- cloud and mist ----------------
+    // Soft particles: big churning cloud banks hanging among the ranges at half their height, and along the top of the
+    // fog bank lying over the land between (so you can see how big the hills are), drifting slowly round on the wind;
+    // and near you, low wisps of ground mist trailing over the land, thicker at dawn and by night. Each is a camera-
+    // facing card held level, its shape a soft envelope eaten into by two layers of noise sliding past each other so
+    // it billows and churns. They're lit like cloud: bright tops, shaded undersides, a bright rim when the sun is behind
+    // them, the sky's light in the shadows; hazed with distance like the ranges; and they thin away wherever they meet
+    // the ground or a hillside, so no hard line shows where a card cuts into the land.
+    buildClouds(grp) {
+      this.clouds = null;
+      if (this.biome.airless || !this.rangeH) return;
+      const r = new RNG(this.seed + 1212), wx = this.weather, H = this.rangeH, tops = this.rangeTops;
+      // (the height of whatever's under any spot, land or range, out to well past the ranges: for the soft edges)
+      const HN = 256, HS = 980, HMIN = -30, HMAX = 230, hd = new Uint8Array(HN * HN);
+      const ground = (x, z) => { const rr = Math.hypot(x, z); return rr < 200 ? Math.max(this.height(x, z), rr > 186 ? H(x, z, rr) : -1e9) : rr < 465 ? H(x, z, rr) : this.height(x, z) * 0; };
+      for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) {
+        const x = ((i + 0.5) / HN - 0.5) * HS, z = ((j + 0.5) / HN - 0.5) * HS;
+        hd[j * HN + i] = clamp(Math.round((ground(x, z) - HMIN) / (HMAX - HMIN) * 255), 0, 255);
+      }
+      const htex = new THREE.DataTexture(hd, HN, HN, THREE.RedFormat, THREE.UnsignedByteType); htex.magFilter = htex.minFilter = THREE.LinearFilter; htex.needsUpdate = true;
+      this.heightTex = htex; this.heightBox = [HS, HMIN, HMAX];
+      // (tiling cloud noise: smooth value noise on a wrapping lattice, a few octaves)
+      const NN = 128, nd = new Uint8Array(NN * NN * 4), nr = new RNG(this.seed + 1313);
+      const lat = [8, 16, 32].map((P) => { const g = Array.from({ length: P * P }, () => nr.next()); return { P, g }; });
+      const vn = (L, x, y) => { const P = L.P, fx = x * P, fy = y * P, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty), at = (a, b) => L.g[((b % P + P) % P) * P + ((a % P + P) % P)];
+        return lerp(lerp(at(ix, iy), at(ix + 1, iy), sx), lerp(at(ix, iy + 1), at(ix + 1, iy + 1), sx), sy); };
+      for (let j = 0; j < NN; j++) for (let i = 0; i < NN; i++) {
+        const x = i / NN, y = j / NN, v = vn(lat[0], x, y) * 0.55 + vn(lat[1], x, y) * 0.3 + vn(lat[2], x, y) * 0.15, k = (j * NN + i) * 4;
+        nd[k] = nd[k + 1] = nd[k + 2] = nd[k + 3] = clamp(Math.round(v * 255), 0, 255);
+      }
+      const ntex = new THREE.DataTexture(nd, NN, NN); ntex.wrapS = ntex.wrapT = THREE.RepeatWrapping; ntex.magFilter = ntex.minFilter = THREE.LinearFilter; ntex.needsUpdate = true;
+      // where they hang: banks among the ranges (more of them, lower and greyer, when it's wet), a broken layer along
+      // the top of the fog bank, and the ground wisps (placed round the camera, wrapping as it moves)
+      const C = [], add = (x, y, z, w, h, a, kind, drift) => C.push([x, y, z, w, h, r.next(), a, drift, kind]);
+      const wet = wx === 'rain' ? 1 : wx === 'storm' ? 1.5 : 0, nBank = Math.round(22 + wet * 14), topAt = (a) => tops[Math.floor((((a / TAU) % 1) + 1) % 1 * 64)];
+      for (let c = 0; c < nBank; c++) {
+        const a = r.range(0, TAU), rad = r.range(250, 430), x0 = Math.cos(a) * rad, z0 = Math.sin(a) * rad;
+        const hill = H(x0, z0, rad), top = topAt(a), y0 = Math.max(top + 6, lerp(top, hill, r.range(0.35, 0.7)) - wet * 8);
+        const n = r.int(4, 9), tx = -Math.sin(a), tz = Math.cos(a), dr = r.range(0.0004, 0.0009) * (r.chance(0.8) ? 1 : -1);
+        for (let k = 0; k < n; k++) { const u = r.range(-1, 1) * 45; add(x0 + tx * u + Math.cos(a) * r.range(-14, 14), y0 + r.range(-5, 7), z0 + tz * u + Math.sin(a) * r.range(-14, 14), r.range(38, 85), r.range(14, 30), r.range(0.75, 1.0) * (0.85 + wet * 0.15), 0, dr); }
+      }
+      for (let k = 0; k < 40; k++) { const a = r.range(0, TAU), rad = r.range(205, 300); add(Math.cos(a) * rad, topAt(a) + r.range(-3, 6), Math.sin(a) * rad, r.range(60, 120), r.range(10, 18), r.range(0.35, 0.6), 0, 0.0005); }
+      const nW = wx === 'fog' ? 30 : 70;
+      for (let k = 0; k < nW; k++) { const a = r.range(0, TAU), rad = r.range(25, 110); add(Math.cos(a) * rad, r.range(0.6, 2.5), Math.sin(a) * rad, r.range(10, 26), r.range(2.5, 5.5), r.range(0.1, 0.22), 1, 0); }
+      const n = C.length, q = new THREE.PlaneGeometry(1, 1), g = new THREE.InstancedBufferGeometry();
+      g.index = q.index; g.setAttribute('position', q.attributes.position); g.setAttribute('uv', q.attributes.uv); g.instanceCount = n;
+      const ip = new Float32Array(n * 3), is = new Float32Array(n * 2), im = new Float32Array(n * 4);
+      C.forEach((c, i) => { ip.set([c[0], c[1], c[2]], i * 3); is.set([c[3], c[4]], i * 2); im.set([c[5], c[6], c[7], c[8]], i * 4); });
+      g.setAttribute('iPos', new THREE.InstancedBufferAttribute(ip, 3)); g.setAttribute('iSize', new THREE.InstancedBufferAttribute(is, 2)); g.setAttribute('iMisc', new THREE.InstancedBufferAttribute(im, 4));
+      const U = (v) => ({ value: v }), ru = this.rangeMat.uniforms;
+      this.cloudMat = new THREE.ShaderMaterial({
+        uniforms: { tH: U(htex), tN: U(ntex), uHB: U(new THREE.Vector4(-HS / 2, -HS / 2, HS, 0)), uHR: U(new THREE.Vector2(HMIN, HMAX)), uOrg: U(new THREE.Vector3()), uTime: U(0), uWind: U(new THREE.Vector2(0.9, 0.35)), uVis: U(new THREE.Vector2(1, 1)),
+          uSun: ru.uSun, uSunCol: ru.uSunCol, uSky: ru.uSky, uFog: ru.uFog, uScatter: ru.uScatter, uSunK: ru.uSunK, uHemiK: ru.uHemiK, uD: ru.uD, uF: ru.uF, uShipInv: this.shipInv },
+        vertexShader: `uniform sampler2D tH; uniform vec4 uHB; uniform vec2 uHR, uWind; uniform vec3 uOrg; uniform float uTime;
+          attribute vec3 iPos; attribute vec2 iSize; attribute vec4 iMisc;
+          varying vec2 vUv; varying vec3 vW, vR; varying float vA, vSeed, vKind;
+          float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uHB.xy) / uHB.z).r); }
+          void main(){
+            vec3 c = iPos;
+            if (iMisc.w < 0.5) { float a = uTime * iMisc.z, cs = cos(a), sn = sin(a); c.xz = vec2(c.x * cs - c.z * sn, c.x * sn + c.z * cs); }
+            else {
+              // (ground wisps ride the wind and wrap round wherever you are, hugging the land under them)
+              vec2 cl = cameraPosition.xz - uOrg.xz;
+              c.xz += uWind * uTime * (0.5 + iMisc.x * 0.7); c.xz = cl + mod(c.xz - cl + 110.0, 220.0) - 110.0;
+              c.y += groundH(c.xz);
+            }
+            vec3 wc = c + uOrg, toCam = cameraPosition - wc; toCam.y = 0.0;
+            vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), normalize(toCam + vec3(0.0001))));
+            vec3 w = wc + right * position.x * iSize.x + vec3(0.0, 1.0, 0.0) * (position.y + 0.15) * iSize.y;
+            vW = w; vR = right; vUv = uv; vSeed = iMisc.x; vKind = iMisc.w;
+            // (a wisp thins away as you walk into it; one far out, as it reaches the end of its round)
+            float d = length(cameraPosition - wc);
+            vA = iMisc.y * (iMisc.w > 0.5 ? smoothstep(8.0, 26.0, d) * (1.0 - smoothstep(85.0, 108.0, d)) : 1.0);
+            gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
+          }`,
+        fragmentShader: `uniform sampler2D tH, tN; uniform vec4 uHB; uniform vec2 uHR, uVis; uniform vec3 uOrg, uSun, uSunCol, uSky, uFog, uScatter; uniform float uTime, uSunK, uHemiK, uD, uF; uniform mat4 uShipInv;
+          varying vec2 vUv; varying vec3 vW, vR; varying float vA, vSeed, vKind;
+          float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uHB.xy) / uHB.z).r); }
+          void main(){
+            // the shape: a soft envelope, flatter underneath, eaten into by two layers of noise sliding past each other
+            vec2 e = (vUv - 0.5) * 2.0; e.y = e.y > 0.0 ? e.y : e.y * 1.6;
+            float env = 1.0 - smoothstep(0.35, 1.0, length(e));
+            float n1 = texture2D(tN, vUv * vec2(1.3, 0.8) + vSeed * 7.3 + vec2(uTime * 0.0035, 0.0)).r, n2 = texture2D(tN, vUv * vec2(2.9, 1.7) - vSeed * 3.1 + vec2(-uTime * 0.006, uTime * 0.002)).r;
+            float dens = smoothstep(0.3, 0.68, env * (0.45 + n1 * 0.75 + n2 * 0.45));
+            // lit like cloud: as if a rounded mass, its top toward the sky, the underside and the thick of it in shadow
+            vec3 nrm = normalize(vR * e.x * 0.8 + vec3(0.0, 1.0, 0.0) * (e.y * 0.7 + 0.45) + normalize(cameraPosition - vW) * 0.6);
+            float ndl = dot(nrm, uSun) * 0.5 + 0.5, self = mix(0.5, 1.0, smoothstep(-0.6, 0.6, e.y)) * mix(1.0, 0.72, dens * dens);
+            vec3 v = normalize(vW - cameraPosition); float sd = max(dot(v, uSun), 0.0);
+            vec3 lit = (uSunCol * uSunK * (ndl * self + pow(sd, 8.0) * (1.0 - dens) * 1.6) + uSky * uHemiK * 0.95) * 0.3183 * 0.9;
+            // hazed with distance, as the ranges are
+            float dist = length(vW - cameraPosition), hz = 1.0 - exp(-dist * uD * (0.2 + 0.8 * exp(-max(vW.y - uOrg.y, 0.0) * uF)));
+            vec3 fc = uFog + uScatter * (pow(sd, 5.0) * 0.55 + pow(sd, 40.0) * 0.9);
+            vec3 col = mix(lit, fc, clamp(hz, 0.0, 1.0) * 0.85);
+            // thinning away where it meets the land or a hillside
+            float gh = groundH(vW.xz - uOrg.xz) + uOrg.y, soft = smoothstep(gh - 0.5, gh + (vKind > 0.5 ? 2.0 : 12.0), vW.y);
+            float a = dens * vA * soft * (vKind > 0.5 ? uVis.y : uVis.x);
+            // (and none of it in the ship)
+            vec3 sl = (uShipInv * vec4(vW, 1.0)).xyz;
+            if (a < 0.004 || (sl.x > -18.6 && sl.x < 12.6 && abs(sl.z) < 5.2 && sl.y > -1.1 && sl.y < 5.3)) discard;
+            gl_FragColor = vec4(col, a);
+          }`,
+        transparent: true, depthWrite: false, fog: false,
+      });
+      const mesh = new THREE.Mesh(g, this.cloudMat); mesh.frustumCulled = false; mesh.renderOrder = 2; grp.add(mesh); this.clouds = mesh;
     }
     // a tapered, slightly crooked limb from p along dir; returns the far end
     limb(parts, p, dir, len, r0, r1, sides) {
@@ -7164,7 +7273,25 @@ const Exterior = (() => {
           const ru = this.rangeMat.uniforms;
           ru.uSun.value.copy(L.sunDir); ru.uSunCol.value.copy(L.sunColor); ru.uSunK.value = L.sun; ru.uSky.value.copy(L.hemiSky); ru.uHemiK.value = L.hemi;
           ru.uFog.value.copy(L.fog); ru.uScatter.value.copy(L.scatter);
-          ru.uD.value = L.fogDen * 0.4; ru.uF.value = 0.024; ru.uTopAdd.value = clamp((L.fogDen - 0.008) * 2400, 0, 220);
+          ru.uD.value = R.vol.on ? 0 : L.fogDen * 0.4; ru.uF.value = 0.024; ru.uTopAdd.value = clamp((L.fogDen - 0.008) * 2400, 0, 220);
+        }
+        // the cloud and the mist: drifting by the site's own clock; the banks gone in a fog, the ground mist thickest at
+        // dawn and by night
+        // (with the volumetric air on, it carries the mist and the cloud itself: see R.vol)
+        if (this.clouds) this.clouds.visible = !R.vol.on;
+        if (R.vol.on && this.heightTex) {
+          const vu = R.vol.mat.uniforms, h = (G.round ? G.round.time : 480) / 60, wet = this.weather === 'rain' ? 1 : this.weather === 'storm' ? 1.5 : 0, dawn = 1 - sstep(7.5, 10.5, h);
+          vu.tH.value = this.heightTex; this.group.getWorldPosition(vu.uOrg.value); vu.uHB.value.set(-this.heightBox[0] / 2, -this.heightBox[0] / 2, this.heightBox[0], 0); vu.uHR.value.set(this.heightBox[1], this.heightBox[2]);
+          vu.uSunDir.value.copy(L.sunDir); vu.uFogCol.value.copy(L.fog); vu.uScat.value.copy(L.scatter); vu.uShipInv.value.copy(this.shipInv.value);
+          vu.uDen.value.set(L.fogDen * 1.1, L.fogFalloff, L.fogDen * (0.6 + 1.6 * Math.max(L.night, dawn)), 1.8);
+          let top = 0; for (const v of this.rangeTops || [30]) top += v; top /= (this.rangeTops || [30]).length;
+          vu.uCloud.value.set(this.weather === 'fog' ? 0 : (0.02 + wet * 0.012) * (1 - L.night * 0.3), top + 12 - wet * 6, 45, 200);
+          vu.uWind.value.set(0.9, 0.35).multiplyScalar(gusty);
+        }
+        if (this.cloudMat) {
+          const cu = this.cloudMat.uniforms, h = (G.round ? G.round.time : 480) / 60;
+          cu.uTime.value = t; this.group.getWorldPosition(cu.uOrg.value);
+          cu.uVis.value.set(this.weather === 'fog' ? 0 : 1 - L.night * 0.5, (this.weather === 'fog' ? 0.6 : 0.7) + 0.6 * Math.max(L.night, 1 - sstep(7.5, 10.5, h)));
         }
         const su = this.skyMat.uniforms;
         su.top.value.copy(L.top); su.hor.value.copy(L.hor); su.fogCol.value.copy(L.fog); su.scatter.value.copy(L.scatter);
@@ -7184,8 +7311,10 @@ const Exterior = (() => {
       const wx = this.weather;
       const overcast = wx === 'clear' ? 0 : wx === 'fog' ? 0.6 : 0.8;
       const C = (hex) => new THREE.Color(hex);
-      const top = C(0x6f7d88).lerp(C(0x4a4f5a), overcast).lerp(C(0x3a2c44), dusk).lerp(C(0x04060a), night);
-      const hor = C(0x9aa3a6).lerp(C(0x7c8286), overcast).lerp(C(0xa0573a), dusk * 0.85).lerp(C(0x0b0e13), night);
+      // (under cloud, a sunset barely shows: the dusk colour is muted the more of the sky is overcast)
+      const duskTint = dusk * (1 - overcast * 0.6);
+      const top = C(0x6f7d88).lerp(C(0x4a4f5a), overcast).lerp(C(0x3a2c44), duskTint).lerp(C(0x04060a), night);
+      const hor = C(0x9aa3a6).lerp(C(0x7c8286), overcast).lerp(C(0xa0573a), duskTint * 0.85).lerp(C(0x0b0e13), night);
       // the world's own sky: a murky green marsh, a dusty orange canyon, the Hollow's permanent red dusk
       const SK = this.biome.sky, tint = (c, a) => c.multiply(new THREE.Color(a[0], a[1], a[2]));
       tint(top, SK.top).multiplyScalar(SK.dim); tint(hor, SK.hor).multiplyScalar(SK.dim);
@@ -12044,6 +12173,8 @@ const CrewCam = (() => {
       eyeOf(p, isMe);
       // (each lit the way it is where they are: see G.feedLight)
       R.rig(true); if (ext) ext.visible = extV;
+      // (the body-cams don't march the air: they get the flat mist back while they're drawn)
+      if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075;
       if (!isMe) { G.feedLight(p, cam.position); if (ext && p.zone === 'in') ext.visible = false; }
       cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
       // you appear in everyone else's feed; nobody sees the inside of their own head
@@ -12064,6 +12195,7 @@ const CrewCam = (() => {
   function hullCams(me, t) {
     const S = G.ship, down = S.groundCamUp, cams = S.hullCams.filter((c) => (down ? !c.space : !c.ground)), rects = layout(cams.length);
     S.monMesh.visible = false;
+    const fd0 = R.scene.fog.density; if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075;
     const sa = selfAvatar();
     if (sa) {
       const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0));
@@ -12079,7 +12211,7 @@ const CrewCam = (() => {
       cam.lookAt(_t); cam.fov = 82; cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
       R.renderView(cam, rt, r.x, r.y, r.w, r.h);
     });
-    cam.fov = 72; cam.up.set(0, 1, 0);
+    cam.fov = 72; cam.up.set(0, 1, 0); R.scene.fog.density = fd0;
     if (sa) sa.root.visible = false;
     S.monMesh.visible = true;
     const key = 'hull' + down + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
@@ -12625,7 +12757,7 @@ const R = (() => {
 
   const POST_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const POST_FS = `
-    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp, uPeek; uniform vec2 uSunUV, uPeekUV; uniform vec3 uHeatCol;
+    uniform sampler2D tDiffuse; uniform sampler2D tBloom; uniform sampler2D tVol; uniform float uVolOn; uniform float uBloom; uniform vec2 uRes; uniform float uTime, uFear, uDamage, uFade, uLeech, uFlash, uBright, uStatic, uExposure, uLowHp, uHealth, uSun, uWhite, uHeat, uWarp, uPeek; uniform vec2 uSunUV, uPeekUV; uniform vec3 uHeatCol;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -12651,6 +12783,8 @@ const R = (() => {
       col.r = texture2D(tDiffuse, uv + c * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - c * ca).b;
+      // the air between you and everything: what's lost on the way (alpha) and the light it scatters toward you (rgb)
+      if (uVolOn > 0.5) { vec4 fv = texture2D(tVol, uv); col = col * fv.a + fv.rgb; }
       // ...smeared outward in long streaks, with just a hint of colour at the edges
       if (uWarp > 0.0) {
         vec3 acc = vec3(0.0);
@@ -12666,7 +12800,7 @@ const R = (() => {
         v += step(5.0, dot(texture2D(tDiffuse, uSunUV - vec2(tx.x, 0.0)).rgb, vec3(0.3333)));
         v += step(5.0, dot(texture2D(tDiffuse, uSunUV + vec2(0.0, tx.y)).rgb, vec3(0.3333)));
         v += step(5.0, dot(texture2D(tDiffuse, uSunUV - vec2(0.0, tx.y)).rgb, vec3(0.3333)));
-        v *= 0.2 * uSun;
+        v *= 0.2 * uSun * (uVolOn > 0.5 ? texture2D(tVol, uSunUV).a : 1.0);
         vec2 dv = (uv - uSunUV) * vec2(uRes.x / uRes.y, 1.0);
         float d = length(dv);
         float gl = 3.2 * exp(-d * 28.0) + 0.7 * exp(-d * 8.0) + 0.09 * exp(-d * 2.2);
@@ -12759,6 +12893,70 @@ const R = (() => {
     return pts;
   }
 
+  // ---- the air, volumetric: each pixel's line of sight marched out through it to whatever it hits (the depth buffer)
+  // or far out over the land, adding up what the air takes away and the light it scatters back toward you. The air is
+  // thickest on the ground and thins as it goes up; drifting patches of mist lie low over the land; cloud banks hang
+  // among the far hills; and where the sun's shadow map says a point is shaded, it scatters no sunlight, so light comes
+  // through the trees in shafts. Drawn at half the frame's size and laid over it in post.
+  const VOL_FS = `
+    #include <packing>
+    precision highp sampler3D;
+    uniform sampler2D tDepth, tH, tShadow; uniform sampler3D tN; uniform mat4 uProjInv, uViewInv, uShadowM, uShipInv;
+    uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame;
+    varying vec2 vUv;
+    float groundH(vec2 xz) { return mix(uHR.x, uHR.y, texture2D(tH, (xz - uOrg.xz - uHB.xy) / uHB.z).r) + uOrg.y; }
+    float noise3(vec3 q) { return texture(tN, q).r; }
+    // uDen: x the air's density on the ground, y how fast it thins with height, z the low mist's density, w its depth (m)
+    // uCloud: x the cloud banks' density, y the height they hang at, z how deep they are, w how far out they start
+    float density(vec3 p, out float n) {
+      vec3 q = p * 0.03 + vec3(uWind.x, 0.0, uWind.y) * uTime * 0.03;
+      n = noise3(q) * 0.62 + noise3(q * 2.63 + 3.7) * 0.38;
+      float air = uDen.x * exp(-clamp(p.y - uOrg.y, -20.0, 400.0) * uDen.y) * (0.7 + 0.6 * n);
+      float gh = groundH(p.xz), above = p.y - gh;
+      float mist = uDen.z * exp(-max(above, 0.0) / uDen.w) * smoothstep(0.38, 0.72, n) * step(-1.0, above);
+      float r = length(p.xz - uOrg.xz), cl = 0.0;
+      if (uCloud.x > 0.0 && r > uCloud.w) {
+        float y = p.y - uOrg.y - uCloud.y, band = smoothstep(-uCloud.z * 0.45, 0.0, y) * (1.0 - smoothstep(0.0, uCloud.z, y));
+        vec3 cq = p * 0.0065 + vec3(uTime * 0.0014, 0.0, uTime * 0.0006);
+        float cn = noise3(cq) * 0.6 + noise3(cq * 2.4 + 1.3) * 0.4;
+        cl = uCloud.x * band * smoothstep(0.48, 0.7, cn + 0.15 * n) * smoothstep(uCloud.w, uCloud.w + 60.0, r);
+      }
+      // (none of it inside the ship)
+      vec3 sl = (uShipInv * vec4(p, 1.0)).xyz;
+      if (sl.x > -18.6 && sl.x < 12.6 && abs(sl.z) < 5.2 && sl.y > -1.1 && sl.y < 5.3) return 0.0;
+      return air + mist + cl;
+    }
+    float sunLit(vec3 p) {
+      if (uShadowOn < 0.5) return 1.0;
+      vec4 sc = uShadowM * vec4(p, 1.0); sc.xyz /= sc.w;
+      if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
+      return step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tShadow, sc.xy)));
+    }
+    void main() {
+      float d = texture2D(tDepth, vUv).r;
+      vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); v /= v.w;
+      vec3 end = (uViewInv * v).xyz, rd = end - uCam; float L = length(rd); rd /= max(L, 1e-4);
+      if (d >= 1.0) L = uFar; L = min(L, uFar);
+      // (steps bunched up near you, where it matters most; each pixel starting a little differently so no bands show)
+      float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy + uFrame * 5.588238, vec2(0.06711056, 0.00583715))));
+      float mu = max(dot(rd, uSunDir), 0.0), glow = pow(mu, 5.0) * 0.55 + pow(mu, 40.0) * 0.9;
+      vec3 acc = vec3(0.0); float T = 1.0;
+      const int N = 30;
+      for (int i = 0; i < N; i++) {
+        float t0 = L * pow(float(i) / float(N), 2.0), t1 = L * pow(float(i + 1) / float(N), 2.0), dt = t1 - t0;
+        vec3 p = uCam + rd * mix(t0, t1, jit);
+        float n, den = density(p, n);
+        if (den < 1e-6) continue;
+        // light scattered toward you here: the sky's grey light all round, and the sun's (where it reaches), brightest
+        // looking toward it; thicker mist a shade darker inside
+        vec3 Ls = uFogCol * (1.08 - 0.16 * n) + uScat * (0.1 + glow * 1.4) * sunLit(p);
+        float a = exp(-den * dt);
+        acc += T * (1.0 - a) * Ls; T *= a;
+        if (T < 0.01) break;
+      }
+      gl_FragColor = vec4(acc, T);
+    }`;
+  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 };
   let bloomA, bloomB, bloomPre, bloomBlur, quadScene, quad, shadowSize = 15;
   function init(canvas) {
     installFog();
@@ -12795,12 +12993,34 @@ const R = (() => {
     vmHemi = new THREE.HemisphereLight(0xffffff, 0x222222, 0.3); vmScene.add(vmHemi);
     vmPoint = new THREE.PointLight(0xfff2dc, 0, 3, 2); vmPoint.position.set(0.3, 0.2, 0.2); vmScene.add(vmPoint);
     rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+    // (the frame's depth, kept so the air can be marched out to whatever each pixel hits)
+    rt.depthTexture = new THREE.DepthTexture(16, 16); rt.depthTexture.type = THREE.UnsignedIntType;
+    vol.rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+    {
+      // (tiling 3D noise for the mist and the clouds: smooth value noise on a wrapping lattice, three octaves)
+      const S = 32, d = new Uint8Array(S * S * S), r = new RNG(4242), lat = [4, 8, 16].map((P) => ({ P, g: Array.from({ length: P * P * P }, () => r.next()) }));
+      const sm = (t) => t * t * (3 - 2 * t), at = (L, a, b, c) => { const P = L.P, m = (k) => ((k % P) + P) % P; return L.g[(m(c) * P + m(b)) * P + m(a)]; };
+      const vn = (L, x, y, z) => { const P = L.P, fx = x * P, fy = y * P, fz = z * P, ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz), u = sm(fx - ix), v = sm(fy - iy), w = sm(fz - iz);
+        const l = (a, b, t) => a + (b - a) * t;
+        return l(l(l(at(L, ix, iy, iz), at(L, ix + 1, iy, iz), u), l(at(L, ix, iy + 1, iz), at(L, ix + 1, iy + 1, iz), u), v), l(l(at(L, ix, iy, iz + 1), at(L, ix + 1, iy, iz + 1), u), l(at(L, ix, iy + 1, iz + 1), at(L, ix + 1, iy + 1, iz + 1), u), v), w); };
+      for (let k = 0; k < S; k++) for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = i / S, y = j / S, z = k / S; d[(k * S + j) * S + i] = Math.round((vn(lat[0], x, y, z) * 0.55 + vn(lat[1], x, y, z) * 0.3 + vn(lat[2], x, y, z) * 0.15) * 255); }
+      const nt = new THREE.Data3DTexture(d, S, S, S); nt.format = THREE.RedFormat; nt.type = THREE.UnsignedByteType; nt.minFilter = nt.magFilter = THREE.LinearFilter; nt.wrapS = nt.wrapT = nt.wrapR = THREE.RepeatWrapping; nt.needsUpdate = true;
+      const blank = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType); blank.needsUpdate = true;
+      const U = (x) => ({ value: x });
+      vol.mat = new THREE.ShaderMaterial({
+        uniforms: { tDepth: U(rt.depthTexture), tH: U(blank), tShadow: U(null), tN: U(nt), uProjInv: U(new THREE.Matrix4()), uViewInv: U(new THREE.Matrix4()), uShadowM: U(new THREE.Matrix4()), uShipInv: U(new THREE.Matrix4()),
+          uCam: U(new THREE.Vector3()), uSunDir: U(new THREE.Vector3(0, 1, 0)), uFogCol: U(new THREE.Color()), uScat: U(new THREE.Color()), uOrg: U(new THREE.Vector3()), uHB: U(new THREE.Vector4(-490, -490, 980, 0)),
+          uDen: U(new THREE.Vector4(0.008, 0.065, 0.01, 2.5)), uCloud: U(new THREE.Vector4(0, 40, 40, 220)), uHR: U(new THREE.Vector2(-30, 230)), uWind: U(new THREE.Vector2(0.9, 0.35)), uRes: U(new THREE.Vector2()), uTime: U(0), uFar: U(600), uShadowOn: U(0), uFrame: U(0) },
+        vertexShader: POST_VS, fragmentShader: VOL_FS, depthTest: false, depthWrite: false,
+      });
+      vol.scene = new THREE.Scene(); const vq = new THREE.Mesh(new THREE.BufferGeometry().copy(new THREE.PlaneGeometry(2, 2)), vol.mat); vq.frustumCulled = false; vol.scene.add(vq);
+    }
     const bopt = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
     bloomA = new THREE.WebGLRenderTarget(8, 8, bopt); bloomB = new THREE.WebGLRenderTarget(8, 8, bopt);
     bloomPre = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: rt.texture }, uTx: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_PRE, depthTest: false, depthWrite: false });
     bloomBlur = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: POST_VS, fragmentShader: BLOOM_BLUR, depthTest: false, depthWrite: false });
     post = new THREE.ShaderMaterial({
-      uniforms: { tBloom: { value: bloomA.texture }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uPeek: { value: 0 }, uPeekUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
+      uniforms: { tBloom: { value: bloomA.texture }, tVol: { value: vol.rt.texture }, uVolOn: { value: 0 }, uBloom: { value: 0.32 }, tDiffuse: { value: rt.texture }, uRes: { value: new THREE.Vector2(16, 16) }, uTime: { value: 0 }, uFear: { value: 0 }, uDamage: { value: 0 }, uFade: { value: 0 }, uLeech: { value: 0 }, uFlash: { value: 0 }, uBright: { value: 1 }, uStatic: { value: 0 }, uExposure: { value: 1 }, uLowHp: { value: 0 }, uHealth: { value: 1 }, uSun: { value: 0 }, uSunUV: { value: new THREE.Vector2() }, uPeek: { value: 0 }, uPeekUV: { value: new THREE.Vector2() }, uWhite: { value: 0 }, uHeat: { value: 0 }, uWarp: { value: 0 }, uHeatCol: { value: fx.heatCol } },
       vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     const tri = new THREE.BufferGeometry();
@@ -12818,6 +13038,7 @@ const R = (() => {
     const ih = RES_LEVELS[clamp(Settings.res, 0, RES_LEVELS.length - 1)].h;
     const rh = Math.min(h, ih), rw = Math.round(rh * a);
     rt.setSize(rw, rh);
+    vol.rt.setSize(Math.max(4, Math.ceil(rw / 2)), Math.max(4, Math.ceil(rh / 2)));
     post.uniforms.uRes.value.set(rw, rh);
     const bw = Math.max(4, Math.round(rw / 4)), bh = Math.max(4, Math.round(rh / 4));
     bloomA.setSize(bw, bh); bloomB.setSize(bw, bh);
@@ -12940,7 +13161,7 @@ const R = (() => {
     u.uFlash.value = fx.flash; u.uStatic.value = fx.static; u.uExposure.value = fx.exposure; u.uLowHp.value = fx.lowhp; u.uBright.value = Settings.bright; u.uHealth.value = fx.health; u.uWhite.value = fx.white; u.uHeat.value = fx.heat; u.uWarp.value = fx.warp;
     renderer.setRenderTarget(rt);
     renderer.clear();
-    u.uSun.value = 0;
+    u.uSun.value = 0; u.uVolOn.value = 0;
     if (backdrop && backdrop.visible) {
       camera.updateMatrixWorld();
       // the backdrop is seen from the ship's middle, whatever the eye does: a world that size shows no parallax at all
@@ -12959,6 +13180,15 @@ const R = (() => {
       scene.background = bg;
     } else {
       renderer.render(scene, camera);
+      // the air, marched through (outdoors, when it's on): into its own target, then back to the frame for the hands
+      if (vol.on) {
+        const vu = vol.mat.uniforms; camera.updateMatrixWorld();
+        vu.uProjInv.value.copy(camera.projectionMatrixInverse); vu.uViewInv.value.copy(camera.matrixWorld); camera.getWorldPosition(vu.uCam.value);
+        const sm = sun.shadow && sun.shadow.map; vu.tShadow.value = sm ? sm.texture : null; vu.uShadowOn.value = sm && sun.castShadow && sun.intensity > 0.01 ? 1 : 0; if (sm) vu.uShadowM.value.copy(sun.shadow.matrix);
+        vu.uTime.value = t; vu.uFrame.value = (vol.frame = (vol.frame + 1) % 64);
+        renderer.setRenderTarget(vol.rt); renderer.render(vol.scene, postCam); renderer.setRenderTarget(rt);
+      }
+      u.uVolOn.value = vol.on ? 1 : 0;
       // (on the ground with no air, the sun in the sky glares the same way, while its disc can be seen)
       if (fx.sun > 0) {
         camera.getWorldPosition(_sv).addScaledVector(fx.sunDir, 100).project(camera);
@@ -13029,6 +13259,8 @@ const R = (() => {
   }
   return {
     init, resize, render, renderView, updateLights, lightsAt, rig, flickerOf, snapshot, setGlow, setBeam, updateDust, fx,
+    // the volumetric air (see VOL_FS): on or off, and its uniforms to fill in
+    get vol() { return vol; },
     setBackdrop(group, sun) { backdrop = group; sunObj = sun; bgScene.add(group); },
     // the backdrop's near plane: pulled in when the planet's surface comes close (falling toward it), out again after
     setBgNear(n) { bgNear = n; },
@@ -17640,6 +17872,7 @@ const G = {
     const scene = R.scene, cam = R.camera.position;
     const t = performance.now() / 1000;
     const inSpace = G.mode === 'orbit' || G.mode === 'landing' || !G.ext;
+    R.vol.on = false;
     // the sun casts shadows in orbit (through the windows) and outdoors; inside the facility the map is simply not
     // refreshed (switching castShadow would recompile every shader)
     if (!R.sun.castShadow) R.sun.castShadow = true;
@@ -17693,6 +17926,8 @@ const G = {
       // (no air: the sun glares as it does from space, as long as it is up and nothing is across it)
       R.fx.sun = G.ext.biome.airless ? clamp(L.sun / 5, 0, 1) : 0; R.fx.sunDir.copy(L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
+      // (the volumetric air, if it's on, takes over from the flat fog: not on an airless world, nor up in the cloud deck)
+      R.vol.on = !!Settings.volumetric && !G.ext.biome.airless && !G.camCarried; G.ext.fogDen = L.fogDen;
       // height fog that pools in the hollows and glows toward the sun
       R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);
       // riding the ship up through the cloud deck (or down out of it): from about 30 m above the ground the air
@@ -17700,6 +17935,7 @@ const G = {
       const deck = G.camCarried && !G.ext.biome.airless ? sstep(28, 105, cam.y - G.ext.height(cam.x, cam.z)) : 0;
       G.ext.skyMat.uniforms.inCloud.value = deck * 0.97;
       if (deck > 0) { scene.fog.density = lerp(L.fogDen, 0.034, deck); R.setFog(L.sunDir, L.scatter, L.fogFalloff * (1 - deck), 0); }
+      if (R.vol.on) scene.fog.density = 0;
       G.ext.starMat.opacity = L.stars; G.ext.moon.material.opacity = L.night * 0.7;
       G.ext.sky.position.copy(cam); G.ext.stars.position.copy(cam);
       R.hemi.intensity = L.hemi; R.hemi.color.copy(L.hemiSky); R.hemi.groundColor.set(0x1a1712);
@@ -17894,7 +18130,7 @@ const MenuScene = (() => {
       if (!fac) build();
       if (!active) { R.scene.add(fac.group); R.scene.add(pale); active = true; }
       G.ship.group.visible = false; G.ship.space.visible = false;
-      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null);
+      R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null); R.vol.on = false;
       for (let i = -1; i < 2; i++) R.setGlow(i, null);
       R.remote.forEach((s, i) => { s.intensity = 0; R.setBeam(i, s, false); });
       R.fx.health = 1; R.fx.leech = 0; R.fx.damage = 0; R.fx.sun = 0;
@@ -18088,6 +18324,7 @@ const Menu = (() => {
     slider('BRIGHTNESS', 'bright', 0.6, 2, 0.05, (v) => v.toFixed(2));
     toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); });
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
+    toggle('VOLUMETRIC FOG', () => (Settings.volumetric ? 'ON' : 'OFF'), () => { Settings.volumetric = !Settings.volumetric; });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });
     toggle('TOUCH CONTROLS', () => ['AUTO', 'ON', 'OFF'][Settings.touch] + (Touch.on ? ' (ON)' : ' (OFF)'), () => { Settings.touch = (Settings.touch + 1) % 3; Touch.apply(); });
     toggle('VOICE & MIC', () => (Settings.voice ? 'ON · SET UP' : 'OFF · SET UP'), () => { const me = () => go(settingsNodes(back, go)); go(voiceNodes(me)); });

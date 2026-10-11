@@ -2657,6 +2657,7 @@ const G = {
     const scene = R.scene, cam = R.camera.position;
     const t = performance.now() / 1000;
     const inSpace = G.mode === 'orbit' || G.mode === 'landing' || !G.ext;
+    R.vol.on = false;
     // the sun casts shadows in orbit (through the windows) and outdoors; inside the facility the map is simply not
     // refreshed (switching castShadow would recompile every shader)
     if (!R.sun.castShadow) R.sun.castShadow = true;
@@ -2710,6 +2711,8 @@ const G = {
       // (no air: the sun glares as it does from space, as long as it is up and nothing is across it)
       R.fx.sun = G.ext.biome.airless ? clamp(L.sun / 5, 0, 1) : 0; R.fx.sunDir.copy(L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
+      // (the volumetric air, if it's on, takes over from the flat fog: not on an airless world, nor up in the cloud deck)
+      R.vol.on = !!Settings.volumetric && !G.ext.biome.airless && !G.camCarried; G.ext.fogDen = L.fogDen;
       // height fog that pools in the hollows and glows toward the sun
       R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);
       // riding the ship up through the cloud deck (or down out of it): from about 30 m above the ground the air
@@ -2717,6 +2720,7 @@ const G = {
       const deck = G.camCarried && !G.ext.biome.airless ? sstep(28, 105, cam.y - G.ext.height(cam.x, cam.z)) : 0;
       G.ext.skyMat.uniforms.inCloud.value = deck * 0.97;
       if (deck > 0) { scene.fog.density = lerp(L.fogDen, 0.034, deck); R.setFog(L.sunDir, L.scatter, L.fogFalloff * (1 - deck), 0); }
+      if (R.vol.on) scene.fog.density = 0;
       G.ext.starMat.opacity = L.stars; G.ext.moon.material.opacity = L.night * 0.7;
       G.ext.sky.position.copy(cam); G.ext.stars.position.copy(cam);
       R.hemi.intensity = L.hemi; R.hemi.color.copy(L.hemiSky); R.hemi.groundColor.set(0x1a1712);

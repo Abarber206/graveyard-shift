@@ -420,7 +420,8 @@ const Bots = (() => {
   // ---------------- the brain ----------------
   function think(p, b, dt) {
     p.moving = false; p.sprint = false;
-    p.flash = p.zone === 'in' ? 1 : 0;
+    // (a flashlight on in the facility, and outside once the light goes, so you can see where they're headed)
+    p.flash = p.zone === 'in' || (G.round && G.round.time > 18 * 60 && G.mode === 'site' && !G.inShip(p)) ? 1 : 0;
     p.pitch = damp(p.pitch, b.look || 0, 4, dt); b.look = 0;
     if (!p.alive) return;
     watchProgress(p, b, dt);

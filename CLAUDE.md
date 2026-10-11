@@ -41,6 +41,8 @@ Keep that file current when gameplay changes.
 - **Rendering** (`render.js`).
   - The space backdrop is a separate background pass.
   - Lights are "sources" fed to a fixed pool of point lights; never add `THREE` lights at runtime, because that recompiles shaders.
+  - The crew cams (`crewcam.js`) relight the scene for each crewmate's feed (`G.feedLight`: the facility's dark, the
+    lamps near them via `R.lightsAt`, their flashlight), between `R.rig()` and `R.rig(true)`, which put your own view back.
   - Fog, the scanner wave and the cabin fog-clearing are injected into three's shader chunks.
 - **Assets are all procedural.**
   - Canvas textures live in `textures.js` (`TEX.get(name)`; `CQ` draws at double resolution; `TEX.normal()` derives relief).
@@ -70,7 +72,9 @@ Keep that file current when gameplay changes.
   and the orbit view (a dome writing true depth), with the planet, moons and the ground as analytic spheres for hiding
   and shadowing, and `ringThrough` for the rings' shadow on surfaces. `ringsToday` gives the radii and lanes for a day.
 - **Orbits are per day** (`orbitsToday`): the orbit view (`bodiesAround`) and each landing's sky (`G.skyToday`) read the
-  same numbers, so they always agree.
+  same numbers, so they always agree. The orbit view draws moons nearer the world than they are, so their shadows are
+  reckoned out along the line of sight at their real distance (`uLift` in `setBodies`), and they hide the rings without
+  shadowing them (a negative radius in `uRingOcc`).
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style

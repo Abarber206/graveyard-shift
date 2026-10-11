@@ -269,12 +269,16 @@ const CrewCam = (() => {
     timer = 1 / FPS;
     if (view === crew.length + 1) { hullCams(me, t); return; }
     const rects = layout(crew.length);
-    const sa = selfAvatar(), mon = G.ship.monMesh;
+    const sa = selfAvatar(), mon = G.ship.monMesh, ext = G.ext && G.ext.group, extV = ext && ext.visible;
     mon.visible = false;   // (never draw the screen into itself)
+    R.rig();
     crew.forEach((p, i) => {
       const r = rects[i]; if (!p.alive) return;
       const isMe = p.id === G.localId;
       eyeOf(p, isMe);
+      // (each lit the way it is where they are: see G.feedLight)
+      R.rig(true); if (ext) ext.visible = extV;
+      if (!isMe) { G.feedLight(p, cam.position); if (ext && p.zone === 'in') ext.visible = false; }
       cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
       // you appear in everyone else's feed; nobody sees the inside of their own head
       if (sa) { sa.root.visible = !isMe && me.alive; if (!isMe) { const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0)); if (G.camCarried) { mp.applyMatrix4(G.shipM); q = q.premultiply(G.shipQ); } sa.root.position.copy(mp); sa.root.quaternion.copy(q); sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch }); } }
@@ -282,6 +286,7 @@ const CrewCam = (() => {
       R.renderView(cam, rt, r.x, r.y, r.w, r.h);
       if (av) av.root.visible = p.alive;
     });
+    R.rig(true); if (ext) ext.visible = extV;
     if (sa) sa.root.visible = false;
     mon.visible = true;
     const key = crew.map((p) => p.id + where(p) + p.alive).join() + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft) + Math.floor(t * 1.1 % 1 < 0.6);

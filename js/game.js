@@ -2627,6 +2627,30 @@ const G = {
       }
     }
   },
+  // a crewmate's flashlight, as a spotlight: held out at their side, pointing where they look
+  aimFlash(s, p) {
+    const yaw = p.ryaw || p.yaw, pitch = p.rpitch || 0, cp = Math.cos(pitch);
+    s.position.set(p.rpos.x - Math.sin(yaw) * 0.3 + Math.cos(yaw) * 0.2, p.rpos.y + (p.crouch ? 1.0 : 1.5), p.rpos.z - Math.cos(yaw) * 0.3 - Math.sin(yaw) * 0.2);
+    s.target.position.set(s.position.x - Math.sin(yaw) * cp * 5, s.position.y + Math.sin(pitch) * 5, s.position.z - Math.cos(yaw) * cp * 5);
+    if (G.shipMoved && G.playerAboard(p)) { s.position.applyMatrix4(G.shipM); s.target.position.applyMatrix4(G.shipM); }
+    const L = ITEMS[p.flash === 2 ? 'proflash' : 'flashlight'].light;
+    s.intensity = FLASH_K * L.power; s.distance = L.range; s.angle = L.angle;
+  },
+  // A crewmate's body-cam is lit the way it is where they are, not where you are: down in the facility, its dark, its
+  // murk and the lamps around them, instead of the daylight up by the ship; their own flashlight lighting the way ahead
+  // (and anyone else's down there with them). R.rig() first, R.rig(true) after.
+  feedLight(p, eye) {
+    const me = G.me(), t = performance.now() / 1000, power = G.round ? G.round.power : true, fac = G.fac;
+    if (p.zone === 'in' && fac && G.zoneOf(me) !== 'in') {
+      const dp = fac.depthOfY(eye.y - 1.4);
+      R.scene.background.set(0x000000); R.scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); R.scene.fog.density = 0.07 + 0.014 * dp; R.setFog(null);
+      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      R.lightsAt(G.lightSources, eye, 'in', t, power, (s) => (s.fac ? fac.lampReach(eye, s) : fac.los(eye.x, eye.z, s.x, s.z) ? 1 : 0));
+    }
+    const lamps = [...G.players.values()].filter((q) => q.id !== G.localId && q.alive && q.flash && q.zone === p.zone)
+      .sort((a, b) => (a === p ? -1 : b === p ? 1 : a.rpos.distanceToSquared(eye) - b.rpos.distanceToSquared(eye))).slice(0, R.remote.length);
+    R.remote.forEach((s, i) => { R.setBeam(i, s, false); if (lamps[i]) G.aimFlash(s, lamps[i]); else s.intensity = 0; });
+  },
   environment(dt) {
     const me = G.me();
     const zone = G.zoneOf(me);
@@ -2738,12 +2762,7 @@ const G = {
     R.remote.forEach((s, i) => {
       const p = remotes[i];
       if (!p) { s.intensity = 0; R.setBeam(i, s, false); return; }
-      const yaw = p.ryaw || p.yaw, pitch = p.rpitch || 0, cp = Math.cos(pitch);
-      s.position.set(p.rpos.x - Math.sin(yaw) * 0.3 + Math.cos(yaw) * 0.2, p.rpos.y + (p.crouch ? 1.0 : 1.5), p.rpos.z - Math.cos(yaw) * 0.3 - Math.sin(yaw) * 0.2);
-      s.target.position.set(s.position.x - Math.sin(yaw) * cp * 5, s.position.y + Math.sin(pitch) * 5, s.position.z - Math.cos(yaw) * cp * 5);
-      if (G.shipMoved && G.playerAboard(p)) { s.position.applyMatrix4(G.shipM); s.target.position.applyMatrix4(G.shipM); }
-      const pro = p.flash === 2, L = ITEMS[pro ? 'proflash' : 'flashlight'].light;
-      s.intensity = FLASH_K * L.power; s.distance = L.range; s.angle = L.angle;
+      G.aimFlash(s, p);
       R.setBeam(i, s, zone === 'in' || (G.round && G.round.time > 18 * 60));
     });
     // suits give off no light of their own: in the dark, a crewmate is only as visible as their flashlight

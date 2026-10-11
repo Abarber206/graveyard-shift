@@ -11,7 +11,8 @@
 // rocks fall across them, sharp; and their own shadow lies across the world (and whatever's inside them) in bands.
 // Everything is in one space: the world's centre uRingC, the sheet's normal uRingN, uRingR (inner and outer edge in
 // the world's radii, the world's radius, 1 if there are rings at all), two lanes in uRingGap (radius, half-width), and
-// up to three other bodies in uRingOcc (centre, radius) that hide the rings and shade them.
+// up to three other bodies in uRingOcc (centre, radius) that hide the rings and shade them (a negative radius: one that
+// only hides them).
 const Rings = {
   uniforms() {
     return { uRingMap: { value: TEX.get('rings') }, uRingC: { value: new THREE.Vector3() }, uRingN: { value: new THREE.Vector3(0, 1, 0) }, uRingR: { value: new THREE.Vector4(1.3, 3, 1, 0) },
@@ -56,7 +57,7 @@ const Rings = {
       if (t <= 0.0 || tau < 1e-4) return vec4(0.0);
       vec4 W = vec4(uRingC, uRingR.z); float h = ringHit(o, d, W);
       if (h >= 0.0 && h < t) return vec4(0.0);
-      for (int i = 0; i < 3; i++) { h = ringHit(o, d, uRingOcc[i]); if (uRingOcc[i].w > 0.0 && h >= 0.0 && h < t) return vec4(0.0); }
+      for (int i = 0; i < 3; i++) { h = ringHit(o, d, uRingOcc[i]); if (uRingOcc[i].w != 0.0 && h >= 0.0 && h < t) return vec4(0.0); }
       float mu = max(abs(dn), 0.01), sn = dot(S, uRingN), mu0 = max(abs(sn), 0.01), cover = 1.0 - exp(-tau / mu);
       float lit = ringSun(P, S, W);
       for (int i = 0; i < 3; i++) lit *= ringSun(P, S, uRingOcc[i]);

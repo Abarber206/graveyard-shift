@@ -370,6 +370,42 @@ const R = (() => {
       if (onVisual) onVisual(s, f);
     }
   }
+  // A body-cam's view from somewhere else (deep in the facility while you're up in the ship) is lit the way it is
+  // there while it's drawn. rig() keeps how the lights are set for your own view; rig(true) puts them all back.
+  const _rig = { pool: [], rem: [], hc: new THREE.Color(), hg: new THREE.Color(), fc: new THREE.Color(), bg: new THREE.Color(), fa: new Float32Array(4), fb: new Float32Array(4), hi: 0, si: 0, fd: 0 };
+  function rig(back) {
+    const K = _rig, fog = scene.fog;
+    if (!back) {
+      pool.forEach((L, i) => { const k = K.pool[i] || (K.pool[i] = { p: new THREE.Vector3(), c: new THREE.Color() }); k.p.copy(L.position); k.c.copy(L.color); k.d = L.distance; k.i = L.intensity; });
+      remote.forEach((s, i) => { const k = K.rem[i] || (K.rem[i] = { p: new THREE.Vector3(), t: new THREE.Vector3() }); k.p.copy(s.position); k.t.copy(s.target.position); k.i = s.intensity; k.d = s.distance; k.a = s.angle; k.b = beams[i].visible; });
+      K.hi = hemi.intensity; K.hc.copy(hemi.color); K.hg.copy(hemi.groundColor); K.si = sun.intensity; K.fc.copy(fog.color); K.fd = fog.density; K.bg.copy(scene.background); K.fa.set(FOG_A); K.fb.set(FOG_B);
+      return;
+    }
+    pool.forEach((L, i) => { const k = K.pool[i]; L.position.copy(k.p); L.color.copy(k.c); L.distance = k.d; L.intensity = k.i; });
+    remote.forEach((s, i) => { const k = K.rem[i]; s.position.copy(k.p); s.target.position.copy(k.t); s.intensity = k.i; s.distance = k.d; s.angle = k.a; beams[i].visible = k.b; });
+    hemi.intensity = K.hi; hemi.color.copy(K.hc); hemi.groundColor.copy(K.hg); sun.intensity = K.si; fog.color.copy(K.fc); fog.density = K.fd; scene.background.copy(K.bg); FOG_A.set(K.fa); FOG_B.set(K.fb);
+  }
+  // the lamps nearest a spot lighting it, for that one view: picked the way updateLights picks them (only those it can
+  // see), but at once, and leaving what your own view has picked alone
+  const _at = [];
+  function lightsAt(sources, at, zone, t, power, losFn) {
+    _at.length = 0;
+    for (const s of sources) {
+      if (s.zone !== zone || s.state === 'off' || (s.fac && !power && s.state !== 'emergency')) continue;
+      const d = (s.x - at.x) ** 2 + (s.y - at.y) ** 2 + (s.z - at.z) ** 2;
+      if (d > (s.far || 40) ** 2) continue;
+      const vis = losFn && d > 6 ? +losFn(s) : 1;
+      if (vis) _at.push([d, s, vis]);
+    }
+    _at.sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < POOL; i++) {
+      const L = pool[i], c = _at[i];
+      if (!c) { L.intensity = 0; continue; }
+      const s = c[1], f = s.fac && !power && s.state !== 'emergency' ? 0 : flickerOf(s, t);
+      L.position.set(s.x, s.y, s.z); L.color.set(s.color); L.distance = s.range || 11;
+      L.intensity = f * (s.power || 1) * (s.ship ? 34 * fx.cabin : s.zone === 'out' ? 60 : 26) * c[2];
+    }
+  }
   function setGlow(i, pos, color, k) {
     const L = i < 0 ? glowLocal : glowRemote[i];
     if (!L) return;
@@ -488,7 +524,7 @@ const R = (() => {
     return cv.toDataURL();
   }
   return {
-    init, resize, render, renderView, updateLights, flickerOf, snapshot, setGlow, setBeam, updateDust, fx,
+    init, resize, render, renderView, updateLights, lightsAt, rig, flickerOf, snapshot, setGlow, setBeam, updateDust, fx,
     setBackdrop(group, sun) { backdrop = group; sunObj = sun; bgScene.add(group); },
     // the backdrop's near plane: pulled in when the planet's surface comes close (falling toward it), out again after
     setBgNear(n) { bgNear = n; },

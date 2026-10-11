@@ -369,12 +369,13 @@ const Exterior = (() => {
       return true;
     }
     // a supply pod came down here: carve the crater (the coarse terrain dips out of the way; a finely meshed, scorched
-    // bowl is laid over it), and keep anything from growing in it
-    addCrater(x, z, r, d) {
+    // bowl is laid over it), and keep anything from growing in it. (fresh: a meteor's, on an airless moon: not scorched
+    // but ringed with bright spray thrown out in rays, the floor a little darker)
+    addCrater(x, z, r, d, fresh) {
       this.impacts.push({ x, z, r, d });
       // (coarse vertices inside rd sink well below the bowl; the bowl reaches a full grid diagonal past them, so no
       // coarse triangle that dips can show outside it)
-      const rd = r + 0.6, R = rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
+      const rd = r + 0.6, R = fresh ? Math.max(rd + 3, r * 2.6) : rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
       for (let i = 0; i < pos.count; i++) {
         const vx = pos.getX(i), vz = pos.getZ(i), q = Math.hypot(vx - x, vz - z); if (q > R + 2.2) continue;
         const h = this.height(vx, vz);
@@ -394,6 +395,12 @@ const Exterior = (() => {
         const vx = bp.getX(i) + x, vz = bp.getZ(i) + z, q = Math.hypot(vx - x, vz - z) / r;
         bp.setX(i, vx); bp.setZ(i, vz); bp.setY(i, this.height(vx, vz) + 0.01); buv.setXY(i, vx / 5, vz / 5);
         const c = sampleCol(vx, vz), burn = sstep(1.15, 0.25, q), lip = Math.exp(-((q - 1.0) ** 2) / 0.04) * 0.35;
+        if (fresh) {
+          const an = Math.atan2(vz - z, vx - x), ph = x * 0.37 + z * 0.11, rays = Math.pow(Math.max(0, Math.sin(an * 9 + ph) * Math.sin(an * 5.3 + ph * 1.7)), 2) * sstep(2.6, 1.1, q) * sstep(0.9, 1.15, q);
+          const lit = clamp(lip * 2.6 + rays * 1.1 + sstep(1.9, 1.0, q) * sstep(0.9, 1.0, q) * 0.45, 0, 1), fl = sstep(1, 0.55, q) * 0.3;
+          for (let k = 0; k < 3; k++) bc[i * 3 + k] = lerp(c[k] * (1 - fl), Math.min(1, c[k] * 1.8 + 0.1), lit);
+          continue;
+        }
         const soil = [0.42, 0.34, 0.27];
         for (let k = 0; k < 3; k++) { let v = lerp(c[k], soil[k], lip); v = lerp(v, [0.1, 0.085, 0.075][k], burn * 0.85); bc[i * 3 + k] = v; }
       }
@@ -2021,6 +2028,34 @@ const Exterior = (() => {
       this.bodiesG.rotation.y = this.skyRot0 + (this.skyMins || 0) * 0.0012;
       for (const m of this.bodies) { const u = m.material.uniforms; u.uSun.value.copy(L.sunDir); u.uVis.value = vis * (1 + 0.7 * L.night); }
       if (this.highClouds) for (const c of this.highClouds) c.rotateY(0.00025);
+      this.updateAsteroid(L);
+    }
+    // Something on its way in (G.round.doom): first a new star, sunlight off it brighter than any of the real ones;
+    // then a speck with a shape, a lumpy rock, its night side black against the stars; then filling the sky. It holds
+    // its place, because it's coming straight at us; it only grows (as the time left to impact shrinks).
+    updateAsteroid(L) {
+      const d = G.round && G.round.doom;
+      if (!d) { if (this.roid) this.roid.visible = false; return; }
+      const D = 400;
+      if (!this.roid) {
+        const geo = new THREE.IcosahedronGeometry(1, 4), p = geo.attributes.position, nz = new Noise2D(this.seed + 13);
+        for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.4 + 5, y * 1.4 + z * 1.1, 4) * 0.6; p.setXYZ(i, x * k * 1.35, y * k * 0.85, z * k); }
+        geo.computeVertexNormals();
+        this.roid = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+          uniforms: { map: { value: TEX.get('moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uGlint: { value: 0 } },
+          vertexShader: 'varying vec3 vN; varying vec2 vUv; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w * 0.99995; }',
+          fragmentShader: `uniform sampler2D map; uniform vec3 uSun; uniform float uGlint; varying vec3 vN; varying vec2 vUv;
+            void main(){ float l = dot(normalize(vN), uSun); vec3 c = texture2D(map, vUv).rgb * vec3(0.62, 0.57, 0.52) * (0.03 + 1.1 * smoothstep(-0.02, 0.25, l) * max(l, 0.0));
+              gl_FragColor = vec4(c + vec3(1.0, 0.96, 0.88) * uGlint, 1.0); }`,
+          transparent: true, depthWrite: false, fog: false,
+        }));
+        this.roid.renderOrder = -5; this.roid.frustumCulled = false; this.sky.add(this.roid);
+      }
+      const left = d.at - (G.round.time || 0), ang = clamp(0.55 / Math.max(left, 0.3), 0.004, 1.25);
+      this.roid.visible = true;
+      this.roid.position.set(Math.cos(d.az) * Math.cos(d.el), Math.sin(d.el), Math.sin(d.az) * Math.cos(d.el)).multiplyScalar(D);
+      this.roid.scale.setScalar(D * Math.sin(ang)); this.roid.rotation.set(0.4, (G.round.time || 0) * 0.01, 0.2);
+      const u = this.roid.material.uniforms; u.uSun.value.copy(L.sunDir); u.uGlint.value = clamp(1 - ang / 0.025, 0, 1) * 1.6;
     }
     buildRain(grp) {
       // each drop is a short line; both of its vertices share the drop's head position (position) and differ

@@ -669,10 +669,11 @@ const SFX = (() => {
   const rnd = (a, b) => a + Math.random() * (b - a);
   // (one recipe sounding another goes through that one's level: LEVEL)
   const lv = (d, k) => { const g = ctx.createGain(); g.gain.value = LEVEL[k] ?? 1; g.connect(d); return g; };
-  // a take played into d at t
+  // a take played into d at t (never quite the same twice: each time a touch higher or lower, harder or softer, the
+  // way the real thing would be)
   function smp(d, t, buf, vol = 1, rate = 1) {
-    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
-    const g = ctx.createGain(); g.gain.value = vol; s.connect(g); g.connect(d); s.start(t); return s;
+    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate * (1 + (Math.random() - 0.5) * 0.05);
+    const g = ctx.createGain(); g.gain.value = vol * rnd(0.86, 1); s.connect(g); g.connect(d); s.start(t); return s;
   }
 
   // ---------- the physical models ----------
@@ -880,11 +881,20 @@ const SFX = (() => {
   }
   // the takes: worked out fresh the first n times a sound's wanted (or in the quiet after startup), then one of those.
   // sr: the rate to work it at (low, slow sounds need less)
-  const bank = {};
+  // Once it has its n, a sound goes on getting more takes in the background (up to MORE), so that over a night nothing
+  // comes round sounding the same twice
+  const bank = {}, MORE = 6, more = new Set();
   function toBuf(y) { const b = ctx.createBuffer(1, y.length, SR); b.getChannelData(0).set(norm(y, 0.9)); return b; }
   function take(key, n, make, sr = 32000) {
     const b = bank[key] || (bank[key] = []);
-    if (b.length >= n) return b[(Math.random() * b.length) | 0];
+    if (b.length >= n) {
+      if (n > 1 && b.length < MORE && !more.has(key)) {
+        more.add(key);
+        jobs.push(() => { const keep = SR; SR = sr; try { b.push(toBuf(make(b.length))); } finally { SR = keep; more.delete(key); } });
+        kick();
+      }
+      return b[(Math.random() * b.length) | 0];
+    }
     const keep = SR; SR = sr;
     try { b.push(toBuf(make(b.length))); } finally { SR = keep; }
     return b[b.length - 1];
@@ -1298,6 +1308,131 @@ const SFX = (() => {
       smp(d, t, take('spinup', 2, () => fade(add(buzz(1.8, (u) => 25 * Math.pow(120 / 25, u), (u) => Math.min(1, u * 1.5), [[240, 1, 0.03], [480, 0.6, 0.02], [130, 0.6, 0.05]], { duty: 0.2, jit: 0.01 }),
         buzz(0.8, () => 60, (u) => Math.min(1, u * 5) * (1 - u), [[120, 1, 0.05], [240, 0.5, 0.04], [360, 0.2, 0.03]], { duty: 0.4 }), 1, 0.4), (u) => Math.min(1, (1 - u) * 20)), 24000), 0.4);
     },
+    // ---- the things from behind the siren ----
+    // a Sister's shoes: a hard heel on concrete, ticking, one leg dragging a little
+    heel(d, t) { smp(d, t, take('heel', 6, () => add(struck({ modes: [1, 1.7, 2.9, 4.3], f0: rnd(650, 900), T: 0.03, hf: 2, tc: 0.0006, grit: 0.5, click: 0.5 }), grains(0.05, 8, 1500, 5000, 0.002), 0.004, 0.3)), 1); },
+    // its joints going: a knuckle-crack, then the cloth and the dressings rasping as it wrenches round
+    sister_twitch(d, t) {
+      smp(d, t, take('sister_twitch', 6, () => {
+        const y = arr(0.7), n = 1 + ((Math.random() * 3) | 0);
+        for (let i = 0; i < n; i++) add(y, struck({ modes: BAR, f0: rnd(1100, 2400), T: 0.015, hf: 1, tc: 0.0003, grit: 0.8, click: 0.8 }), i * rnd(0.03, 0.09), rnd(0.5, 1));
+        add(y, norm(bq(fade(noise(0.4), (u) => Math.sin(Math.PI * u) ** 2), 'bp', rnd(1800, 3200), 1.2)), rnd(0.05, 0.15), 0.25);
+        return y;
+      }), 1);
+    },
+    // breath through a wet mouth under the dressings: a slow rattle in, a gurgle out
+    sister_breath(d, t) {
+      smp(d, t, take('sister_breath', 4, () => add(voice(1.6, (u) => rnd(55, 70) * (1 - 0.15 * u), { jit: 0.2, shim: 0.6, sub: 0.6, breath: 1.4, open: 0.004, air: 0.3, amp: (u) => Math.sin(Math.PI * u) * (0.6 + 0.4 * Math.sin(u * 37)), mouth: [[380, 3, 1], [950, 5, 0.35], [2400, 6, 0.08]] }),
+        (() => { const y = arr(1.6); for (let i = 0; i < 9; i++) bubble(y, Math.round(rnd(0.6, 1.5) * SR), rnd(1.2, 3), rnd(0.1, 0.35)); return norm(y); })(), 0, 0.3), 24000), 1);
+    },
+    // the scalpel: a quick dry swish, the blade ticking off something
+    sister_slash(d, t) { nz(d, t, 0.16, 0.5, 'bandpass', 2400, 900, 1.6, 0.02); smp(d, t + 0.1, take('scalpel', 4, () => struck({ modes: plate(8, 6), f0: rnd(2600, 3400), T: 0.12, hf: 0.3, tc: 0.0002, click: 0.6 })), 0.4); },
+    // a Bound's voice: a moan from inside a sack of skin, low, through a mouth with no throat behind it
+    bound_groan(d, t) { smp(d, t, take('bound_groan', 5, () => growl(rnd(1.4, 2.2), rnd(48, 62), rnd(5, 9), [[rnd(260, 320), 3, 1], [rnd(600, 750), 4, 0.25]], { breath: 0.8, clip: 1.5 }), 22050), 1); },
+    bound_breath(d, t) { nz(d, t, 1.4, 0.12, 'lowpass', 400, 200, 0.7, 0.5); },
+    // ...heaving up what it spits: the gut clenching (a gulping rise), then a wet spray
+    bound_retch(d, t) {
+      smp(d, t, take('bound_retch', 4, () => {
+        const y = arr(1.6);
+        add(y, voice(0.85, (u) => rnd(70, 90) * (1 + u * 0.8), { jit: 0.25, shim: 0.7, sub: 0.5, breath: 1.2, open: 0.005, air: 0.25, amp: (u) => Math.min(1, u * 3) * (0.5 + 0.5 * Math.abs(Math.sin(u * 22))), mouth: [[420, 3, 1], [1100, 5, 0.4]], clip: 2 }), 0, 1);
+        add(y, norm(bq(fade(noise(0.6), (u) => Math.min(1, u * 30) * (1 - u) ** 1.5), 'bp', (u) => 2200 - u * 1200, 0.9)), 0.9, 0.8);
+        for (let i = 0; i < 14; i++) bubble(y, Math.round(rnd(0.9, 1.5) * SR), rnd(0.8, 2.5), rnd(0.1, 0.3));
+        return y;
+      }, 24000), 1);
+    },
+    // getting up: its skin stretching and creaking as it folds up off the floor, a wet slap of it finding its feet
+    bound_rise(d, t) {
+      smp(d, t, take('bound_rise', 3, () => add(fric(1.2, (u) => 30 + 60 * u, (u) => Math.sin(Math.PI * u), [[rnd(180, 240), 1, 0.05], [rnd(420, 520), 0.5, 0.03], [rnd(900, 1100), 0.25, 0.02]], 0.4),
+        struck({ modes: [1, 1.6, 2.3, 3.4], f0: rnd(70, 90), T: 0.12, hf: 2, tc: 0.012, grit: 0.4 }), 1.15, 0.8), 24000), 1);
+    },
+    bound_slam(d, t) { smp(d, t, bodyThud(), 1); smp(d, t + 0.01, lowThud(), 0.6); nz(d, t, 0.15, 0.4, 'lowpass', 700, 150, 1); },
+    // the Executioner. Its blade along the concrete: a great slab of iron catching and slipping (each slip ringing the
+    // whole length of it), grit grinding under its edge
+    blade_drag(d, t) {
+      smp(d, t, take('blade_drag', 6, () => add(fric(rnd(0.9, 1.3), (u) => rnd(28, 40) * (1 + 0.3 * Math.sin(u * 9)), (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 4) * (0.7 + 0.3 * Math.random()), plate(18, 5.5).map(([r, a]) => [r * rnd(150, 175), a, rnd(0.3, 0.8)]), 0.5),
+        grains(1.1, 90, 1500, 6000, 0.002), 0, 0.35), 24000), 1);
+    },
+    // ...lifted: dragging free with a scrape, the iron ringing as it comes up off the floor
+    blade_lift(d, t) { smp(d, t, take('blade_lift', 3, () => add(struck({ modes: plate(20, 5.5), f0: rnd(150, 170), T: 2.2, hf: 0.2, tc: 0.002, grit: 0.4, len: 2.6 }), fric(0.4, () => 60, (u) => 1 - u, [[rnd(900, 1300), 1, 0.05]], 0.5), 0, 0.5), 24000), 0.7); },
+    // ...and down: the floor taking the whole weight of it (concrete cracking, the iron ringing, chips flying)
+    blade_floor(d, t) {
+      nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2);
+      smp(d, t, take('blade_floor', 3, () => add(add(struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, grit: 0.5, click: 0.5, len: 3 }), struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(38, 46), T: 0.6, hf: 4, tc: 0.02, grit: 0.4 }), 0, 1), grains(0.5, 60, 900, 4000, 0.004), 0.01, 0.4), 24000), 1);
+    },
+    blade_flesh(d, t) { nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2); smp(d, t, bodyThud(), 1); smp(d, t + 0.02, lowThud(), 1); smp(d, t + 0.05, take('blade_floor', 3, () => struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, len: 3 }), 24000), 0.5); },
+    // its tread: a great weight coming down on bare feet, the chains on its hood swinging and clinking with it
+    heavy_step(d, t) {
+      smp(d, t, take('heavy_step', 5, () => {
+        const y = add(arr(0.9), struck({ modes: [1, 1.5, 2.2, 3.3], f0: rnd(42, 52), T: 0.3, hf: 3, tc: 0.025, grit: 0.4 }), 0, 1);
+        for (let i = 0; i < 4; i++) add(y, struck({ modes: [1, 2.76, 5.4], f0: rnd(1500, 2600), T: 0.08, hf: 0.5, tc: 0.0003, grit: 0.4 }), 0.08 + i * rnd(0.05, 0.12), rnd(0.1, 0.25));
+        return y;
+      }, 24000), 1);
+    },
+    // the hood shifting on its shoulders: iron grating on iron, the chains
+    hood_rattle(d, t) {
+      smp(d, t, take('hood_rattle', 4, () => {
+        const y = add(arr(1.2), fric(0.6, () => rnd(40, 70), (u) => Math.sin(Math.PI * u), plate(10, 1.2).map(([r, a]) => [r * rnd(220, 260), a, 0.4]), 0.6), 0, 0.6);
+        for (let i = 0; i < 7; i++) add(y, struck({ modes: [1, 2.76, 5.4], f0: rnd(1400, 2800), T: 0.07, hf: 0.5, tc: 0.0003 }), rnd(0.1, 0.9), rnd(0.1, 0.3));
+        return y;
+      }, 24000), 1);
+    },
+    // a Bound's mist eating through what it lands on
+    mist_hiss(d, t) { nz(d, t, 2.5, 0.25, 'highpass', 3000, 5000, 0.7, 0.1); nz(d, t, 2.5, 0.12, 'bandpass', 1200, 700, 2, 0.3); },
+    // Pulling the core: the emergency circuit's main breaker thrown somewhere below, a contactor the size of a door
+    // slamming home in its cabinet, the slam rolling off down every corridor; the fire shutter on the circuit dropping
+    // a slat at a time, quicker and quicker, into its stops; then the ballasts all over the building striking up at once
+    em_breaker(d, t, o) {
+      smp(d, t, take('em_breaker', 3, () => {
+        const y = arr(4.2);
+        add(y, struck({ modes: plate(22, 1.3), f0: rnd(48, 62), T: 2.8, hf: 0.25, tc: 0.004, grit: 0.4, glide: 0.015, click: 0.4, len: 3.2 }), 0, 1);
+        add(y, struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(30, 38), T: 1.2, hf: 4, tc: 0.03, grit: 0.3 }), 0, 0.9);
+        let at = rnd(0.15, 0.22), gap = rnd(0.09, 0.12);
+        for (let i = 0; i < 14; i++) { add(y, struck({ modes: plate(10, 3), f0: rnd(240, 330), T: 0.18, hf: 0.6, tc: 0.0015, grit: 0.5 }), at, 0.35 * rnd(0.6, 1)); at += gap; gap *= 0.86; }
+        add(y, struck({ modes: plate(16, 2.2), f0: rnd(110, 140), T: 1.0, hf: 0.4, tc: 0.003, grit: 0.4 }), at + 0.02, 0.7);
+        add(y, buzz(2.6, (u) => 100 * (1 + 0.01 * Math.sin(u * 30)), (u) => Math.min(1, u * 2.5) * (1 - u) ** 1.5, [[100, 1, 0.08], [200, 0.7, 0.06], [300, 0.4, 0.05], [1200, 0.15, 0.01]], { duty: 0.3, jit: 0.02, clip: 1.6 }), at + 0.1, 0.3);
+        return y;
+      }, 24000), 1, o.rate || 1);
+      nz(d, t, 0.5, 0.5, 'lowpass', 700, 80, 0.7);
+    },
+    // ...and each emergency fitting coming on as the circuit reaches it: its relay clacking over, the contactor seating
+    // with a thunk, the little shutter on its cage (if it has one) rattling up, and the ballast catching (after a try
+    // or two, some of them) with a buzz. Every fitting has worn its own way, so no two sound alike
+    em_lamp(d, t, o) {
+      smp(d, t, take('em_lamp', 12, () => {
+        const y = arr(1.8);
+        add(y, struck({ modes: plate(8, 1.6), f0: rnd(700, 1500), T: 0.06, hf: 0.8, tc: 0.0006, grit: 0.6, click: 0.6 }), 0, 0.5);
+        add(y, struck({ modes: plate(12, rnd(1.2, 2.4)), f0: rnd(90, 190), T: rnd(0.3, 0.8), hf: 0.5, tc: 0.002, grit: 0.4 }), rnd(0.005, 0.03), 0.8);
+        if (Math.random() < 0.6) {
+          let at = rnd(0.05, 0.1), gap = rnd(0.03, 0.06); const f0 = rnd(300, 600);
+          for (let i = 0, n = 3 + ((Math.random() * 6) | 0); i < n; i++) { add(y, struck({ modes: plate(8, 3), f0: f0 * rnd(0.95, 1.05), T: 0.08, hf: 0.7, tc: 0.001, grit: 0.5 }), at, 0.3); at += gap; gap *= rnd(0.8, 1.1); }
+        }
+        const tries = 1 + ((Math.random() * 3) | 0), fb = rnd(98, 122), ring = rnd(1800, 3200), clip = rnd(1.5, 3);
+        let at = rnd(0.12, 0.25);
+        for (let i = 0; i < tries; i++) {
+          const last = i === tries - 1, L = last ? rnd(0.5, 0.9) : rnd(0.04, 0.12);
+          add(y, buzz(L, () => fb, (u) => Math.min(1, u * 30) * (last ? (1 - u) ** 2 : 1), [[fb, 1, 0.05], [fb * 2, 0.8, 0.04], [fb * 4, 0.4, 0.02], [ring, 0.25, 0.006]], { duty: rnd(0.1, 0.3), jit: 0.02, clip }), at, 0.35);
+          at += L + rnd(0.04, 0.12);
+        }
+        return y;
+      }, 24000), 1, (o.rate || 1) * rnd(0.92, 1.08));
+    },
+    // the facility's own alarm on the emergency circuit: an old motor siren with its bearings gone, wailing up and
+    // sagging, its horn torn so the cone rattles, a bad contact cutting it in and out. It never quite gets going, and
+    // never stops
+    em_alarm(d, t, o) {
+      smp(d, t, take('em_alarm', 6, () => {
+        const dur = rnd(2.2, 2.7), dr = wander(8, 0.06), base = rnd(330, 420), top = base * rnd(1.6, 2.1);
+        // (where the contact cuts it: a few gaps, some dead, some only weak)
+        const cuts = Array.from({ length: 2 + ((Math.random() * 4) | 0) }, () => { const a = Math.random(); return [a, a + rnd(0.02, 0.12), Math.random() < 0.6 ? 0 : rnd(0.15, 0.4)]; });
+        const gate = (u) => { let k = 1; for (const [a, b, v] of cuts) if (u > a && u < b) k = Math.min(k, v); return k; };
+        const f = (u) => (base + (top - base) * Math.pow(Math.sin(Math.PI * Math.min(1, u * 1.15)), 0.8)) * (1 + dr(u)) * (1 - 0.15 * ramp(u, 0.8, 1));
+        const y = buzz(dur, f, (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 6) * gate(u) * (0.75 + 0.25 * Math.sin(u * 60)),
+          [[rnd(700, 820), 1, 0.02], [rnd(1250, 1450), 0.7, 0.012], [rnd(2100, 2500), 0.4, 0.008], [rnd(380, 450), 0.6, 0.03], [3400, 0.2, 0.005]], { duty: 0.12, jit: 0.02, shim: 0.3, clip: rnd(3, 5) });
+        add(y, fric(dur, (u) => f(u) * 0.5, (u) => Math.min(1, u * 8) * gate(u) * 0.6, [[rnd(1800, 2600), 1, 0.01], [rnd(3500, 4500), 0.5, 0.006]], 0.4), 0, 0.3);
+        for (const [a] of cuts) add(y, grains(0.06, 20, 2000, 7000, 0.002), a * dur, 0.25);
+        return bq(y, 'hp', 180);
+      }, 32000), 1, o.rate || 1);
+    },
     metal_bang(d, t) { smp(d, t, take('metal_bang', 3, () => struck({ modes: plate(26, 1.8), f0: rnd(170, 190), T: 2.4, hf: 0.2, tc: 0.0008, glide: 0.02, len: 2.6 }), 24000), 0.6); nz(d, t, 0.12, 0.6, 'lowpass', 1200, 200); },
     drip(d, t) { smp(d, t, take('drip', 5, () => bubble(arr(0.12), 0, rnd(1.6, 2.6))), 1); },
     whisper(d, t) {
@@ -1464,7 +1599,8 @@ const SFX = (() => {
     err: 1.5, scan: 2, locker_open: 0.6, alarm: 0.62, power_down: 1.6, metal_bang: 1.4, drip: 0.17, knock: 1.3,
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,
     pin: 0.67, toy: 0.065, ring: 0.089, chime: 0.17, gong: 1.3, charge: 1.8, creak: 0.16, caw: 0.18, cricket: 0.034,
-    owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12
+    owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12,
+    em_breaker: 1.5, em_lamp: 0.5, em_alarm: 0.35, heel: 0.35, sister_twitch: 0.5, sister_breath: 0.6, bound_groan: 1.2, bound_retch: 1.1, bound_rise: 1, blade_drag: 0.8, blade_lift: 1, blade_floor: 1.4, heavy_step: 1.3, hood_rattle: 0.5
   };
 
   // ---------- routing ----------
@@ -1690,11 +1826,13 @@ const SFX = (() => {
   // The heavy takes (the music, the long drones) and a first take of everything else are worked out a piece at a time
   // just after startup, between frames, so as little as possible has to be made the moment it's first heard.
   const jobs = [];
+  let working = false;
   function work() {
     const t0 = performance.now();
     while (jobs.length && performance.now() - t0 < 10) { try { jobs.shift()(); } catch (e) { console.warn('sound prep', e); } }
-    if (jobs.length) setTimeout(work, 40);
+    if (jobs.length) setTimeout(work, 40); else working = false;
   }
+  function kick() { if (!working) { working = true; setTimeout(work, 40); } }
   // a take of several players, worked out a second of it at a time, one player after another, and laid together when
   // the last is done (made a loop, overlapping by xf, if xf)
   function ensemble(key, dur, xf, sr, players) {
@@ -1728,7 +1866,10 @@ const SFX = (() => {
     for (const surf of ['concrete', 'metal', 'dirt']) quiet('step', { surf });
     for (const mat of ['metal', 'tin', 'glass', 'porcelain', 'wood', 'bone', 'plastic']) quiet('drop', { mat, w: 1 });
     for (const k of Object.keys(S)) if (!['step', 'drop', 'run_far', 'stinger', 'stinger_hi', 'fired'].includes(k)) quiet(k);
-    setTimeout(work, 200);
+    // (every emergency fitting and every turn of the alarm its own: their takes worked out ahead, as they all come at once)
+    for (let i = 0; i < 11; i++) quiet('em_lamp');
+    for (let i = 0; i < 5; i++) quiet('em_alarm');
+    working = true; setTimeout(work, 200);
   }
   // the orbit chord joining in once its players are ready
   function padStart() { if (!loops.padSrc && pick('pad')) { loops.padSrc = loopSrc(pick('pad')); const g = ctx.createGain(); g.gain.value = 0.23; loops.padSrc.connect(g); g.connect(loops.padIn); } }
@@ -6120,12 +6261,13 @@ const Exterior = (() => {
       return true;
     }
     // a supply pod came down here: carve the crater (the coarse terrain dips out of the way; a finely meshed, scorched
-    // bowl is laid over it), and keep anything from growing in it
-    addCrater(x, z, r, d) {
+    // bowl is laid over it), and keep anything from growing in it. (fresh: a meteor's, on an airless moon: not scorched
+    // but ringed with bright spray thrown out in rays, the floor a little darker)
+    addCrater(x, z, r, d, fresh) {
       this.impacts.push({ x, z, r, d });
       // (coarse vertices inside rd sink well below the bowl; the bowl reaches a full grid diagonal past them, so no
       // coarse triangle that dips can show outside it)
-      const rd = r + 0.6, R = rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
+      const rd = r + 0.6, R = fresh ? Math.max(rd + 3, r * 2.6) : rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
       for (let i = 0; i < pos.count; i++) {
         const vx = pos.getX(i), vz = pos.getZ(i), q = Math.hypot(vx - x, vz - z); if (q > R + 2.2) continue;
         const h = this.height(vx, vz);
@@ -6145,6 +6287,12 @@ const Exterior = (() => {
         const vx = bp.getX(i) + x, vz = bp.getZ(i) + z, q = Math.hypot(vx - x, vz - z) / r;
         bp.setX(i, vx); bp.setZ(i, vz); bp.setY(i, this.height(vx, vz) + 0.01); buv.setXY(i, vx / 5, vz / 5);
         const c = sampleCol(vx, vz), burn = sstep(1.15, 0.25, q), lip = Math.exp(-((q - 1.0) ** 2) / 0.04) * 0.35;
+        if (fresh) {
+          const an = Math.atan2(vz - z, vx - x), ph = x * 0.37 + z * 0.11, rays = Math.pow(Math.max(0, Math.sin(an * 9 + ph) * Math.sin(an * 5.3 + ph * 1.7)), 2) * sstep(2.6, 1.1, q) * sstep(0.9, 1.15, q);
+          const lit = clamp(lip * 2.6 + rays * 1.1 + sstep(1.9, 1.0, q) * sstep(0.9, 1.0, q) * 0.45, 0, 1), fl = sstep(1, 0.55, q) * 0.3;
+          for (let k = 0; k < 3; k++) bc[i * 3 + k] = lerp(c[k] * (1 - fl), Math.min(1, c[k] * 1.8 + 0.1), lit);
+          continue;
+        }
         const soil = [0.42, 0.34, 0.27];
         for (let k = 0; k < 3; k++) { let v = lerp(c[k], soil[k], lip); v = lerp(v, [0.1, 0.085, 0.075][k], burn * 0.85); bc[i * 3 + k] = v; }
       }
@@ -7772,6 +7920,34 @@ const Exterior = (() => {
       this.bodiesG.rotation.y = this.skyRot0 + (this.skyMins || 0) * 0.0012;
       for (const m of this.bodies) { const u = m.material.uniforms; u.uSun.value.copy(L.sunDir); u.uVis.value = vis * (1 + 0.7 * L.night); }
       if (this.highClouds) for (const c of this.highClouds) c.rotateY(0.00025);
+      this.updateAsteroid(L);
+    }
+    // Something on its way in (G.round.doom): first a new star, sunlight off it brighter than any of the real ones;
+    // then a speck with a shape, a lumpy rock, its night side black against the stars; then filling the sky. It holds
+    // its place, because it's coming straight at us; it only grows (as the time left to impact shrinks).
+    updateAsteroid(L) {
+      const d = G.round && G.round.doom;
+      if (!d) { if (this.roid) this.roid.visible = false; return; }
+      const D = 400;
+      if (!this.roid) {
+        const geo = new THREE.IcosahedronGeometry(1, 4), p = geo.attributes.position, nz = new Noise2D(this.seed + 13);
+        for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.4 + 5, y * 1.4 + z * 1.1, 4) * 0.6; p.setXYZ(i, x * k * 1.35, y * k * 0.85, z * k); }
+        geo.computeVertexNormals();
+        this.roid = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+          uniforms: { map: { value: TEX.get('moonmap') }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uGlint: { value: 0 } },
+          vertexShader: 'varying vec3 vN; varying vec2 vUv; void main(){ vN = normalize(mat3(modelMatrix) * normal); vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w * 0.99995; }',
+          fragmentShader: `uniform sampler2D map; uniform vec3 uSun; uniform float uGlint; varying vec3 vN; varying vec2 vUv;
+            void main(){ float l = dot(normalize(vN), uSun); vec3 c = texture2D(map, vUv).rgb * vec3(0.62, 0.57, 0.52) * (0.03 + 1.1 * smoothstep(-0.02, 0.25, l) * max(l, 0.0));
+              gl_FragColor = vec4(c + vec3(1.0, 0.96, 0.88) * uGlint, 1.0); }`,
+          transparent: true, depthWrite: false, fog: false,
+        }));
+        this.roid.renderOrder = -5; this.roid.frustumCulled = false; this.sky.add(this.roid);
+      }
+      const left = d.at - (G.round.time || 0), ang = clamp(0.55 / Math.max(left, 0.3), 0.004, 1.25);
+      this.roid.visible = true;
+      this.roid.position.set(Math.cos(d.az) * Math.cos(d.el), Math.sin(d.el), Math.sin(d.az) * Math.cos(d.el)).multiplyScalar(D);
+      this.roid.scale.setScalar(D * Math.sin(ang)); this.roid.rotation.set(0.4, (G.round.time || 0) * 0.01, 0.2);
+      const u = this.roid.material.uniforms; u.uSun.value.copy(L.sunDir); u.uGlint.value = clamp(1 - ang / 0.025, 0, 1) * 1.6;
     }
     buildRain(grp) {
       // each drop is a short line; both of its vertices share the drop's head position (position) and differ
@@ -10112,7 +10288,7 @@ const Ship = (() => {
     // resolving as you fall: each finer octave fades in once it is a few pixels across (so nothing ever shimmers),
     // and lights the land as relief. Low over it, the air thickens into haze toward the horizon.
     planetDetail() {
-      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) }, gas: { value: 0 } };
+      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) }, gas: { value: 0 }, scar: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) } };
       const NOISE = `varying vec3 vPDir; float pdHeight = 0.0;
         float pdh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
         float pdn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -10144,10 +10320,10 @@ const Ship = (() => {
         `;
       const vert = (sh) => { sh.vertexShader = 'varying vec3 vPDir;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vPDir = position;'); };
       this.planetMat.onBeforeCompile = (sh) => {
-        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW; sh.uniforms.uPdGas = U.gas;
+        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW; sh.uniforms.uPdGas = U.gas; sh.uniforms.uPdScar = U.scar;
         Object.assign(sh.uniforms, this.ringU);
         vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir, uPdGas; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir, uPdGas; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3], uPdScar[4]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
           .replace('#include <map_fragment>', `#include <map_fragment>
             {
               // land (bright in the texture) gets rough, mottled ground and real relief; the sea stays nearly flat
@@ -10169,6 +10345,18 @@ const Ship = (() => {
                 diffuseColor.rgb *= 1.0 + s * 0.22;
               }
               pdHeight = lh * land;
+              // (on an airless moon or rock, the fresh craters today's meteors left, big enough to see from up here: a
+              // darker floor, a bright raised rim, a splash of bright rays thrown out round it)
+              if (uPdAir < 0.5) for (int i = 0; i < 4; i++) {
+                vec4 sc = uPdScar[i]; if (sc.w <= 0.0) continue;
+                float a = acos(clamp(dot(pp, sc.xyz), -1.0, 1.0)) / sc.w; if (a > 6.0) continue;
+                vec3 t1 = normalize(cross(sc.xyz, abs(sc.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))), t2 = cross(sc.xyz, t1);
+                float an = atan(dot(pp, t2), dot(pp, t1));
+                float rays = pow(max(0.0, sin(an * 9.0 + float(i) * 2.1) * sin(an * 5.3 + 1.7)), 2.0) * smoothstep(6.0, 1.2, a) * smoothstep(0.9, 1.2, a);
+                float fl = 1.0 - smoothstep(0.75, 1.0, a), rim = exp(-pow((a - 1.0) / 0.16, 2.0)), halo = smoothstep(2.4, 1.0, a) * step(1.0, a);
+                diffuseColor.rgb *= (1.0 - 0.35 * fl) * (1.0 + 0.9 * rim + 0.45 * halo + 0.8 * rays);
+                pdHeight += sc.w * (-0.5 * fl * (1.0 - a * a) + 0.25 * rim);
+              }
               // the clouds' shadows, thrown a little way off toward the sun (looked up in the cloud shell's own frame)
               vec3 cs = normalize(pp + uPdSun * 0.01);
               float ca = cos(uPdCRot), sa = sin(uPdCRot);
@@ -10260,6 +10448,84 @@ const Ship = (() => {
       for (const c of this.cloudLayers) c.visible = !airless && !giant;
       this.atmo.visible = !airless;
     }
+    // the fresh craters on the moon or rock we're circling (G.run.scars): where round it, in its own frame, and how wide
+    setScars(list) { this.pdU.scar.value.forEach((v, i) => { const s = list[i]; if (s) v.set(Math.cos(s.lat) * Math.cos(s.lon), Math.sin(s.lat), Math.cos(s.lat) * Math.sin(s.lon), s.r); else v.set(0, 0, 0, 0); }); }
+    // The asteroid that was on its way in to the moon or rock we left, coming down on it while we watch from orbit: on
+    // the moon we're circling, or on that one out there among the others. It falls in out of the dark, a lumpy rock
+    // catching the sun, faster and faster; a flash that lights the whole limb; then a plume of molten rock and dust
+    // thrown up and out, glowing at first and cooling to grey, hanging there a long while. The scar it leaves is one
+    // of the moon's scars (setScars) once the dust is down.
+    impactTarget(site, route) { return site === route ? this.planet : this.bodiesG && this.bodiesG.children.find((m) => m.userData.key === site) || null; }
+    // (where on it, in its own frame: round toward the limb from the middle of the face we see, so the plume shows)
+    impactAt(site, route) {
+      const m = this.impactTarget(site, route); if (!m) return null;
+      m.updateMatrixWorld(true);
+      const c = m.worldToLocal(_camP.clone()).normalize(), side = V().crossVectors(c, Math.abs(c.y) < 0.9 ? V(0, 1, 0) : V(1, 0, 0)).normalize();
+      const p = c.multiplyScalar(Math.cos(0.9)).addScaledVector(side, Math.sin(0.9)).normalize();
+      return { lat: +Math.asin(clamp(p.y, -1, 1)).toFixed(4), lon: +Math.atan2(p.z, p.x).toFixed(4) };
+    }
+    impact(site, route, lat, lon, lead = 8) {
+      const m = this.impactTarget(site, route); if (!m) return;
+      if (this.imp) this.clearImpact();
+      const rl = m === this.planet ? this.R : 1, rw = m === this.planet ? this.R : m.scale.x;
+      const n = V(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon)), side = V().crossVectors(n, Math.abs(n.y) < 0.9 ? V(0, 1, 0) : V(1, 0, 0)).normalize();
+      const g = new THREE.Group(); m.add(g);
+      // (the rock, coming in at a slant)
+      const geo = new THREE.IcosahedronGeometry(1, 2), pp = geo.attributes.position, nz = new Noise2D(31);
+      for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), y = pp.getY(i), z = pp.getZ(i), k = 1 + nz.fbm(x * 1.5, y * 1.5 + z, 3) * 0.6; pp.setXYZ(i, x * k * 1.3, y * k * 0.8, z * k); }
+      geo.computeVertexNormals();
+      const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: TEX.get('moonmap'), color: 0x8a8278, roughness: 1, metalness: 0, fog: false, flatShading: true }));
+      rock.scale.setScalar(rl * 0.05); rock.frustumCulled = false; g.add(rock);
+      const from = n.clone().multiplyScalar(0.55).addScaledVector(side, 0.85).normalize().multiplyScalar(rl * 3.2).addScaledVector(n, rl);
+      // (the flash)
+      const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: new THREE.Color(4, 3.6, 3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false }));
+      flash.position.copy(n).multiplyScalar(rl * 1.02); g.add(flash);
+      // (the plume: every grain on its own way up and out, slowing as it goes, falling back over a long while)
+      const N = 1400, pos = new Float32Array(N * 3), vel = new Float32Array(N * 3), sz = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const a = Math.random() * TAU, sp = Math.pow(Math.random(), 0.6), up = 0.25 + Math.random() * 0.9, t2 = V().crossVectors(n, side);
+        const v = n.clone().multiplyScalar(up).addScaledVector(side, Math.cos(a) * sp).addScaledVector(t2, Math.sin(a) * sp).multiplyScalar((0.18 + Math.random() * 0.5) * 0.12);
+        pos.set([n.x * rl * 1.005, n.y * rl * 1.005, n.z * rl * 1.005], i * 3); vel.set([v.x * rl, v.y * rl, v.z * rl], i * 3); sz[i] = 0.5 + Math.random() * 1.5;
+      }
+      const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.setAttribute('aV', new THREE.BufferAttribute(vel, 3)); pg.setAttribute('aS', new THREE.BufferAttribute(sz, 1));
+      const pm = new THREE.ShaderMaterial({
+        uniforms: { uT: { value: 0 }, uSize: { value: rw * 0.006 }, uSun: { value: this.sunDir } },
+        vertexShader: `attribute vec3 aV; attribute float aS; uniform float uT, uSize; varying float vS; void main(){
+            float f = 6.0 * (1.0 - exp(-uT / 6.0)) - 0.004 * uT * uT; vec3 p = position + aV * max(f, 0.0) * 0.5;
+            vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv; vS = aS; gl_PointSize = clamp(aS * uSize * 600.0 / -mv.z, 1.0, 9.0); }`,
+        fragmentShader: `uniform float uT; varying float vS; void main(){ float r = length(gl_PointCoord - 0.5); if (r > 0.5) discard;
+            vec3 hot = vec3(1.6, 0.75, 0.3), dust = vec3(0.55, 0.52, 0.48);
+            float cool = smoothstep(1.0, 10.0, uT + vS * 2.0), a = smoothstep(0.5, 0.1, r) * smoothstep(0.0, 0.3, uT) * (1.0 - smoothstep(25.0, 55.0, uT));
+            gl_FragColor = vec4(mix(hot, dust, cool), a * mix(0.9, 0.5, cool)); }`,
+        transparent: true, depthWrite: false, fog: false,
+      });
+      const plume = new THREE.Points(pg, pm); plume.frustumCulled = false; plume.visible = false; g.add(plume);
+      this.imp = { g, rock, from, to: n.clone().multiplyScalar(rl), flash, plume, rw, ps: m === this.planet ? 1 : m.scale.x, t: -lead, lead };
+    }
+    clearImpact() {
+      const I = this.imp; if (!I) return;
+      if (I.g.parent) I.g.parent.remove(I.g);
+      I.rock.geometry.dispose(); I.plume.geometry.dispose(); I.plume.material.dispose(); I.flash.material.dispose(); I.rock.material.dispose();
+      this.imp = null;
+    }
+    stepImpact(dt) {
+      const I = this.imp; if (!I) return;
+      I.t += dt;
+      if (I.t < 0) {
+        // (falling in: slowly at first, then all at once)
+        const u = Math.pow(1 + I.t / I.lead, 2.5); I.rock.position.copy(I.from).lerp(I.to, u); I.rock.rotation.x += dt * 0.4; I.rock.rotation.y += dt * 0.25;
+        return;
+      }
+      if (I.rock.visible) {
+        I.rock.visible = false; I.plume.visible = true;
+        R.fx.flash = Math.max(R.fx.flash, 0.35); Player.addShake(0.15);
+        SFX.play('thud', null, { vol: 0.5 });
+      }
+      I.flash.material.opacity = I.t < 0.12 ? I.t / 0.12 : Math.max(0, 1 - (I.t - 0.12) / 5) ** 2;
+      I.flash.scale.setScalar(I.rw * lerp(0.25, 0.9, Math.min(1, I.t / 2)) / I.ps);
+      I.plume.material.uniforms.uT.value = I.t;
+      if (I.t > 60) this.clearImpact();
+    }
     // what circles this world (or, orbiting a moon, the world it belongs to): spheres and lumps hung round it in the
     // sky, lit by the same sun so they wax and wane, placed just off its limb as the ship sees it from its orbit
     // (each: kind moon / rock / planet, size and orbit in this world's radii, ang round the limb, off past it)
@@ -10295,6 +10561,30 @@ const Ship = (() => {
         mat.customProgramCacheKey = () => (harsh ? 'bodyHarsh' : 'bodySoft');
       };
       const a = (o.ra + o.rp) / 2, cam = new THREE.Vector3().copy(o.D).multiplyScalar(-a), lim = Math.asin(Math.min(0.99, R / a));
+      // A stream of big rocks going round the world near our own orbit (fewer round a moon or rock): each a little faster
+      // or slower than we are, so it drifts past the windshield, overtaking or falling behind and coming round again,
+      // tumbling slowly; a few pass close enough to fill it for a moment. Lit like everything else out here, and dark in
+      // the world's shadow
+      {
+        if (!this.driftGeos) this.driftGeos = [0, 1, 2, 3, 4].map((v) => {
+          const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, nz = new Noise2D(300 + v * 17), sq = [1.4, 1, 0.75, 1.2, 0.9][v];
+          for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + nz.fbm(x * 1.7 + v, y * 1.7 + z * 1.3, 4) * 0.6; p.setXYZ(i, x * k * sq, y * k * (2 - sq) * 0.7, z * k); }
+          g.computeVertexNormals(); return g;
+        });
+        const dr = new RNG(Math.round(a) * 31 + list.length * 7), small = list.some((b) => b.kind === 'planet'), n = small ? dr.int(10, 14) : dr.int(22, 30);
+        const mats = [0x7a746c, 0x6a5e52, 0x8a847a].map((c) => { const m = new THREE.MeshStandardMaterial({ map: TEX.get('moonmap'), color: c, roughness: 1, metalness: 0, fog: false, flatShading: true, normalMap: TEX.normal('moonmap', 3), normalScale: new THREE.Vector2(2.2, 2.2) }); shade(m, true, { value: new THREE.Vector4(0, 0, 0, 1) }); return m; });
+        this.drift = [];
+        for (let i = 0; i < n; i++) {
+          const size = dr.range(5, 18) * (dr.chance(0.2) ? 2.6 : 1);
+          // (how far in or out of our orbit it goes, and above or below it: never through where we are)
+          const close = dr.chance(0.25), ang = dr.range(0, TAU), off = close ? dr.range(45, 130) + size * 2 : dr.range(150, 0.16 * a);
+          const m = new THREE.Mesh(this.driftGeos[i % 5], mats[i % 3]); m.userData.shared = true;
+          m.scale.set(size * dr.range(0.8, 1.2), size * dr.range(0.8, 1.2), size * dr.range(0.8, 1.2)); m.rotation.set(dr.range(0, TAU), dr.range(0, TAU), 0); m.frustumCulled = false;
+          this.bodiesG.add(m);
+          // (most of them inside our orbit, between us and the world, where they cross the view)
+          this.drift.push({ m, dr: Math.abs(Math.cos(ang)) * off * (dr.chance(0.7) ? -1 : 1), h: Math.sin(ang) * off * 0.6, th0: dr.range(-Math.PI, Math.PI), w: dr.range(0.004, 0.018) * (dr.chance(0.5) ? 1 : -1), ax: V(dr.range(-1, 1), dr.range(-1, 1), dr.range(-1, 1)).normalize(), sp: dr.range(0.02, 0.1) });
+        }
+      }
       const u = new THREE.Vector3().crossVectors(o.D, new THREE.Vector3(0, 1, 0)).normalize(), v = new THREE.Vector3().crossVectors(u, o.D).normalize();
       const rr = new RNG(list.length * 977 + Math.round(a));
       for (const b of list) {
@@ -10332,7 +10622,7 @@ const Ship = (() => {
         // that world's moons, the other is far off, never in our moon's shadow)
         const sib = b.kind !== 'planet' && list.some((x) => x.kind === 'planet');
         m.userData.lift = { value: new THREE.Vector4(0, 0, 0, sib ? 0 : 1) };
-        m.userData.real = b.kind === 'planet' || sib ? 0 : b.orbit * R * near; m.userData.ringRock = ringRock;
+        m.userData.real = b.kind === 'planet' || sib ? 0 : b.orbit * R * near; m.userData.ringRock = ringRock; m.userData.key = b.key;
         shade(m.material, b.kind !== 'planet', m.userData.lift);
         m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
         this.bodiesG.add(m); this.casters.push(m);
@@ -10393,8 +10683,10 @@ const Ship = (() => {
       const t = tNow - (this.hold || 0);
       const a = (o.ra + o.rp) / 2, e = (o.ra - o.rp) / (o.ra + o.rp);
       const M = o.phase + t * TAU / o.period;
+      this.stepImpact(dt);
       let E = M; for (let i = 0; i < 5; i++) E = M + e * Math.sin(E);
       let dist = a * (1 - e * Math.cos(E));
+      const dOrb = dist;
       const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
       // arriving from a jump the world swells up out of the distance; landing, we fall toward it until it fills the
       // windows and slides beneath us (the horizon drops below the nose)
@@ -10433,6 +10725,8 @@ const Ship = (() => {
       // what circles the world, slowly going round it; where they are for the shadows they throw on it, and its on them
       if (this.bodyOrbits) {
         for (const bo of this.bodyOrbits) bo.m.position.copy(bo.base).applyAxisAngle(bo.axis, t * bo.speed);
+        // (the stream of rocks: each at its own height on our orbit, round from us by how far it's drifted)
+        if (this.drift) for (const d of this.drift) { d.m.position.copy(o.D).multiplyScalar(-(dOrb + d.dr)).addScaledVector(o.N, d.h).applyAxisAngle(o.N, d.th0 + t * d.w); d.m.rotateOnAxis(d.ax, d.sp * dt); }
         this.pgroup.updateMatrixWorld(true);
         this.planet.getWorldPosition(_occ); this.occU.value.set(_occ.x, _occ.y, _occ.z, R);
         // (each moon's shadows reckoned from where it really is: just where we see it, but out along our line of sight
@@ -11007,6 +11301,10 @@ const MON_DEFS = {
   hound: { name: 'Hollow Hound', hp: 5, zone: 'out', power: 2, radius: 0.7, height: 1.2 },
   // (its body fills a corridor; what it steers by is a small core, so it can squeeze through any doorway)
   slime: { name: 'The Seep', hp: 9999, zone: 'in', power: 3, radius: 0.55, height: 2.8 },
+  sister: { name: 'The Sisters', hp: 3, zone: 'in', power: 2, radius: 0.32, height: 1.75, radio: true },
+  bound: { name: 'The Bound', hp: 4, zone: 'in', power: 2, radius: 0.36, height: 1.8, radio: true },
+  // (never one of a site's own: what the core's alarm brings up from below; see G.hostCoreTaken)
+  executioner: { name: 'The Executioner', hp: 9999, zone: 'in', power: 4, radius: 0.55, height: 2.6, radio: true },
 };
 const BESTIARY = {
   crawler: 'Low, eyeless, mostly mouth. Once it notices you it charges in a straight line and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
@@ -11014,6 +11312,9 @@ const BESTIARY = {
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and drops onto the head of whoever passes beneath. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound alone. Walk, crouch, keep quiet. They will follow you into the ship if the hatch is open.',
+  sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
+  bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
+  executioner: 'Nobody has a body cam recording of it from the front. Pulling a core sets off the alarm, and sometimes the alarm brings it up from below: a great figure in an iron hood, dragging a blade longer than you are. You will hear it before you see it. It does not run, it does not stop, and nothing we have so much as marks it. When it lifts the blade, get out of reach. Then get out of the building.',
   slime: 'A wall of slime as wide as the corridor and as high as the ceiling. Slow, but it never stops, and nothing we have hurts it. It feels you through the floor. Left alone it settles across a corridor and waits. Shut a door on it: it cannot open doors, but it will seep under one, or through a barred window, a little at a time, and gather itself again on your side. Touching it burns. Do not let it back you into a dead end.',
 };
 
@@ -11033,6 +11334,14 @@ const MonModels = (() => {
     leg: () => M('leg', () => new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.6 })),
     sinew: () => M('sinew', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 })),
     claw: () => M('claw', () => new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.35, metalness: 0.1 })),
+    sisSkin: () => M('sisSkin', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x948884, roughness: 0.55 })),
+    smock: () => M('smock', () => new THREE.MeshStandardMaterial({ map: TEX.get('suitWorn'), color: 0xa89c88, roughness: 0.85 })),
+    dressing: () => M('dressing', () => new THREE.MeshStandardMaterial({ map: TEX.get('tape'), color: 0xd0c0a0, roughness: 0.9 })),
+    scalpel: () => M('scalpel', () => new THREE.MeshStandardMaterial({ map: TEX.get('rust'), color: 0xb0a090, roughness: 0.35, metalness: 0.75 })),
+    bound: () => M('bound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x9a7a6c, roughness: 0.3, metalness: 0.05 })),
+    iron: () => M('iron', () => new THREE.MeshStandardMaterial({ map: TEX.get('rust'), color: 0x9a7a62, roughness: 0.8, metalness: 0.5 })),
+    apron: () => M('apron', () => new THREE.MeshStandardMaterial({ map: TEX.get('suitWorn'), color: 0x4a3a32, roughness: 0.75 })),
+    deadSkin: () => M('deadSkin', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x8a8278, roughness: 0.6 })),
     // the Seep: a glossy jelly you can see into, heaving slowly all over, glowing a little at its edges where the light
     // comes through it (its colour in blotches of darker and paler, square-cut like everything else; which colour, a
     // new one every landing: see SLIME_COLORS)
@@ -11070,6 +11379,12 @@ const MonModels = (() => {
     mk(cap(r2, l2), m, b, 0, -l2 / 2, 0);
     const end = grp(b, 0, -l2, 0);
     return { a, b, end };
+  }
+  // a sphere gone lumpy and swollen (a head that's grown wrong, a sack of skin)
+  function lumpy(r, seed, k = 0.3, s = 16) {
+    const g = sph(r, s), p = g.attributes.position, nz = new Noise2D(seed);
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), f = 1 + nz.fbm(x / r * 1.3 + 4, y / r * 1.3 + z / r * 0.9, 3) * k; p.setXYZ(i, x * f, y * f, z * f); }
+    g.computeVertexNormals(); return g;
   }
   function teethRing(parent, r, n, len, inward = true) {
     const g = grp(parent);
@@ -11254,6 +11569,89 @@ const MonModels = (() => {
     // sagging, with things it has taken hanging inside it. It's built a metre each way and sized as it goes (see
     // anim_slime). The parts for passing a shut door: a thin sheet under it (or a rope of it through the window's bars,
     // dripping down the far side) and a mound gathering beyond, while the body this side drains away into the gap
+    // A Sister: a nurse from a ward that never closed. Thin, in a stained smock, its head a swollen faceless lump bound
+    // up in dirty dressings, lolling on a twisted neck, a nurse's cap still pinned to the mess of it; a rusted scalpel
+    // in one hand
+    sister() {
+      const root = new THREE.Group(), P = {};
+      const skin = mats.sisSkin(), cloth = mats.smock(), band = mats.dressing(), dark = mats.joint();
+      P.hips = grp(root, 0, 0.95, 0);
+      mk(sph(0.13, 12), cloth, P.hips).scale.set(1.25, 0.8, 0.9);
+      const skirt = mk(new THREE.CylinderGeometry(0.17, 0.26, 0.42, 12, 1, true), cloth, P.hips, 0, -0.16, 0); skirt.material.side = THREE.DoubleSide;
+      P.ll = limb(P.hips, -0.085, -0.05, 0, 0.05, 0.46, 0.04, 0.46, skin);
+      P.lr = limb(P.hips, 0.085, -0.05, 0, 0.05, 0.46, 0.04, 0.46, skin);
+      for (const L of [P.ll, P.lr]) { mk(sph(0.045, 8), skin, L.b); mk(new THREE.BoxGeometry(0.06, 0.05, 0.18), dark, L.end, 0, -0.02, 0.04); }
+      P.torso = grp(P.hips, 0, 0.05, 0);
+      mk(cap(0.12, 0.32, 10), cloth, P.torso, 0, 0.27, 0).scale.set(1.1, 1, 0.75);
+      mk(new THREE.TorusGeometry(0.075, 0.02, 5, 12), cloth, P.torso, 0, 0.5, 0, Math.PI / 2);
+      P.neck = grp(P.torso, 0, 0.52, 0.01);
+      mk(cap(0.035, 0.12, 6), skin, P.neck, 0, 0.07, 0);
+      P.head = grp(P.neck, 0, 0.16, 0);
+      mk(lumpy(0.15, 31 + Math.random() * 50, 0.35), skin, P.head, 0, 0.08, 0.01).scale.set(1.0, 1.15, 1.05);
+      for (let i = 0; i < 5; i++) { const b = mk(new THREE.TorusGeometry(0.15 - Math.abs(i - 2) * 0.014, 0.024, 5, 14), band, P.head, 0, -0.02 + i * 0.05, 0.01); b.rotation.set(Math.PI / 2 + (i - 2) * 0.2, 0.2 * i, 0.3 * (i % 2 ? 1 : -1)); }
+      mk(new THREE.BoxGeometry(0.14, 0.05, 0.08), band, P.head, 0.02, 0.25, -0.02, -0.3, 0, 0.2);
+      P.al = limb(P.torso, -0.17, 0.46, 0, 0.035, 0.3, 0.03, 0.3, skin);
+      P.ar = limb(P.torso, 0.17, 0.46, 0, 0.035, 0.3, 0.03, 0.3, skin);
+      for (const L of [P.al, P.ar]) { mk(sph(0.045, 8), cloth, L.a, 0, -0.02, 0); mk(new THREE.BoxGeometry(0.05, 0.08, 0.025), skin, L.end, 0, -0.04, 0); }
+      P.blade = mk(new THREE.BoxGeometry(0.012, 0.03, 0.26), mats.scalpel(), P.ar.end, 0, -0.07, 0.12);
+      root.userData.parts = P; return root;
+    },
+    // The Bound: a body bound up in its own skin, the arms grown in against it like a straitjacket, no head, only a
+    // ragged mouth at the top it retches through; on legs that bend wrong. Lying down, it's a body in a bag
+    bound() {
+      const root = new THREE.Group(), P = {};
+      const m = mats.bound(), gum = mats.gum(), sin = mats.sinew();
+      P.body = grp(root, 0, 0.9, 0);
+      P.ll = limb(P.body, -0.1, 0, 0, 0.06, 0.45, 0.05, 0.48, m);
+      P.lr = limb(P.body, 0.1, 0, 0, 0.06, 0.45, 0.05, 0.48, m);
+      for (const L of [P.ll, P.lr]) { mk(sph(0.06, 8), sin, L.b); mk(new THREE.BoxGeometry(0.08, 0.05, 0.2), m, L.end, 0, -0.02, 0.05); }
+      P.torso = grp(P.body, 0, 0.02, 0);
+      mk(lumpy(0.22, 77 + Math.random() * 50, 0.18), m, P.torso, 0, 0.42, 0).scale.set(0.95, 2.1, 0.8);
+      // the skin drawn tight round it in bands, the arms' outlines under it
+      for (let i = 0; i < 5; i++) mk(new THREE.TorusGeometry(0.2 - Math.abs(i - 2) * 0.02, 0.018, 5, 14), sin, P.torso, 0, 0.18 + i * 0.13, 0, Math.PI / 2 + (i % 2 ? 0.12 : -0.1));
+      for (const sx of [-1, 1]) mk(cap(0.05, 0.42, 8), m, P.torso, sx * 0.16, 0.48, 0.07, 0.15, 0, sx * 0.12);
+      P.mouth = grp(P.torso, 0, 0.88, 0.02);
+      mk(new THREE.TorusGeometry(0.075, 0.03, 6, 12), gum, P.mouth, 0, 0, 0, Math.PI / 2);
+      mk(new THREE.CircleGeometry(0.07, 12), mats.void(), P.mouth, 0, 0.005, 0, -Math.PI / 2);
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; mk(new THREE.ConeGeometry(0.02, 0.09, 4), sin, P.mouth, Math.cos(a) * 0.08, 0.03, Math.sin(a) * 0.08, Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); }
+      P.head = P.mouth;
+      root.userData.parts = P; return root;
+    },
+    // The Executioner: a huge grey figure, bare to the waist over a butcher's long leather apron, its head shut up in
+    // a tall riveted iron hood with chains hanging off it, dragging a blade longer than a man
+    executioner() {
+      const root = new THREE.Group(), P = {};
+      const skin = mats.deadSkin(), iron = mats.iron(), apron = mats.apron(), dark = mats.joint();
+      P.hips = grp(root, 0, 1.25, 0);
+      mk(sph(0.28, 14), skin, P.hips).scale.set(1.1, 0.7, 0.85);
+      mk(new THREE.BoxGeometry(0.62, 1.15, 0.06), apron, P.hips, 0, -0.5, 0.24);
+      mk(new THREE.BoxGeometry(0.62, 1.1, 0.05), apron, P.hips, 0, -0.5, -0.22);
+      P.ll = limb(P.hips, -0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
+      P.lr = limb(P.hips, 0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
+      for (const L of [P.ll, P.lr]) mk(new THREE.BoxGeometry(0.16, 0.1, 0.32), dark, L.end, 0, -0.03, 0.06);
+      P.torso = grp(P.hips, 0, 0.08, 0);
+      mk(lumpy(0.3, 11, 0.12), skin, P.torso, 0, 0.42, 0).scale.set(1.25, 1.3, 0.85);
+      mk(sph(0.24, 12), skin, P.torso, 0, 0.12, 0.02).scale.set(1.15, 0.9, 0.9);
+      P.neck = grp(P.torso, 0, 0.8, 0);
+      mk(cap(0.1, 0.1, 8), skin, P.neck, 0, 0.05, 0);
+      P.head = grp(P.neck, 0, 0.12, 0);
+      // the hood: a tall iron box tapering up, riveted along its seams, a slit for nothing to look out of
+      const hood = mk(new THREE.CylinderGeometry(0.16, 0.34, 0.95, 6, 1), iron, P.head, 0, 0.42, -0.04); hood.rotation.y = Math.PI / 6; hood.scale.set(1, 1, 1.15);
+      mk(new THREE.BoxGeometry(0.5, 0.06, 0.5), iron, P.head, 0, -0.03, -0.04);
+      for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU; mk(sph(0.018, 6), dark, P.head, Math.cos(a) * 0.29, 0.04, Math.sin(a) * 0.33 - 0.04); }
+      mk(new THREE.BoxGeometry(0.02, 0.32, 0.02), mats.void(), P.head, 0, 0.4, 0.27).rotation.x = -0.17;
+      for (const [x, z, l] of [[-0.22, 0.12, 0.5], [0.2, 0.1, 0.35], [0.05, 0.24, 0.6], [-0.1, -0.25, 0.45]]) for (let k = 0; k < l / 0.06; k++) mk(new THREE.TorusGeometry(0.022, 0.006, 4, 8), dark, P.head, x, -0.06 - k * 0.055, z, 0, k % 2 ? Math.PI / 2 : 0, 0);
+      P.al = limb(P.torso, -0.42, 0.66, 0, 0.09, 0.55, 0.075, 0.55, skin);
+      P.ar = limb(P.torso, 0.42, 0.66, 0, 0.09, 0.55, 0.075, 0.55, skin);
+      for (const L of [P.al, P.ar]) { mk(sph(0.11, 10), skin, L.a); mk(sph(0.08, 8), skin, L.end, 0, -0.05, 0).scale.set(1, 1.3, 0.8); }
+      // the blade: a great flat slab of rusted iron, hung from the right fist, its tip dragging
+      P.blade = grp(P.ar.end, 0, -0.08, 0);
+      mk(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 6), dark, P.blade, 0, 0, 0, Math.PI / 2, 0, 0);
+      const bl = mk(new THREE.BoxGeometry(0.05, 0.36, 1.9), iron, P.blade, 0, -0.06, 1.12); bl.scale.set(1, 1, 1);
+      mk(new THREE.BoxGeometry(0.02, 0.1, 1.9), iron, P.blade, 0, -0.25, 1.12);
+      P.tip = grp(P.blade, 0, -0.2, 2.05);
+      root.userData.parts = P; return root;
+    },
     slime() {
       const root = new THREE.Group(), P = {}, m = mats.slime();
       // (a rounded box: a sphere pushed out toward its corners, sitting on the floor)
@@ -11290,7 +11688,7 @@ class Monster {
   constructor(game, id, type, x, y, z) {
     this.g = game; this.id = id; this.type = type; this.def = MON_DEFS[type];
     this.pos = new THREE.Vector3(x, y, z); this.ry = Math.random() * TAU;
-    this.state = type === 'leech' ? 'crawl' : type === 'hound' ? 'wander' : type === 'pale' ? 'lurk' : 'roam';
+    this.state = type === 'leech' ? 'crawl' : type === 'hound' ? 'wander' : type === 'pale' ? 'lurk' : type === 'sister' ? 'stand' : type === 'bound' ? 'lie' : type === 'executioner' ? 'walk' : 'roam';
     this.st = 0; this.hp = this.def.hp; this.extra = -1;
     this.target = null; this.goal = null; this.path = null; this.pathT = 0; this.pathGoal = null;
     this.stun = 0; this.atk = 0; this.anger = 0; this.stare = 0; this.seenCd = 0; this.speedNow = 0; this.grip = 100; this.dmgAcc = 0;
@@ -11595,6 +11993,151 @@ class Monster {
       default: this.setState('lurk');
     }
   }
+  // The Sisters: blind, and drawn to light: a beam turned on one, a lamp carried past it, any light at all right up
+  // against it. Noise only makes them turn their heads. Once one's drawn, the others near it come too, jerking along,
+  // stopping, jerking on. Put the light out and keep still and they lose you, and stand where they stopped, twitching.
+  // Close enough to touch, they find you anyway
+  ai_sister(dt) {
+    const fac = this.g.fac;
+    this.scanT -= dt;
+    if (this.scanT <= 0) {
+      this.scanT = 0.2;
+      const head = { x: this.pos.x, y: this.pos.y + 1.5, z: this.pos.z };
+      let lit = null;
+      for (const p of this.playersIn()) {
+        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), lamp = this.g.carriesLight(p);
+        if (d > 30 || Math.abs(p.pos.y - this.pos.y) > 3) continue;
+        if ((p.flash && this.g.canSee(p, head, p.flash === 2 ? 30 : 21, 0.93)) || (lamp && d < 11 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) || (d < 1.7)) { lit = p; break; }
+      }
+      if (lit) {
+        if (this.state !== 'drawn') {
+          this.setState('drawn');
+          // (and the rest of the ward with it)
+          for (const o of this.g.monsters.values()) if (o !== this && o.type === 'sister' && !o.dead && o.state !== 'drawn' && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 16) { o.target = lit.id; o.lastKnown = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y }; o.setState('drawn'); }
+        }
+        this.target = lit.id; this.lastKnown = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y }; this.lastLit = 0;
+      }
+    }
+    this.lastLit = (this.lastLit || 0) + dt;
+    switch (this.state) {
+      case 'drawn': {
+        const tgt = this.target != null ? this.g.players.get(this.target) : null;
+        if (!tgt || !tgt.alive || tgt.zone !== 'in' || !this.lastKnown) { this.setState('stand'); this.target = null; break; }
+        this.extra = tgt.id;
+        // (jerking along: a lurch, a stop, a lurch)
+        const go = Math.sin(this.st * 6.3 + this.id) > -0.35 ? 1 : 0.1;
+        const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 3.7 * go, dt, { gy: this.lastKnown.y });
+        const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
+        if (d < 1.35 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && this.atk <= 0) {
+          this.atk = 1.3; const n = Math.max(d, 0.3);
+          this.g.emitSound('sister_slash', this.center(), { vol: 1 });
+          this.g.hurtPlayer(tgt.id, 30, 'sister', (tgt.pos.x - this.pos.x) / n * 3, (tgt.pos.z - this.pos.z) / n * 3);
+        }
+        // lost the light: on to where it was last, then stand there
+        if (this.lastLit > 1.5 && rem < 1) { this.setState('stand'); this.target = null; this.extra = -1; }
+        if (this.lastLit > 14) { this.setState('stand'); this.target = null; this.extra = -1; }
+        break;
+      }
+      default: {
+        if (this.state !== 'stand') this.setState('stand');
+        this.extra = -1;
+        // now and then a few steps somewhere, slowly
+        if (!this.goal && this.st > 10 + (this.id % 7) * 2) { this.goal = this.randomGoal(2, 8); this.st = 0; }
+        if (this.goal) { if (this.moveTo(this.goal.x, this.goal.z, 0.8, dt) < 0.6 || this.st > 12) { this.goal = null; this.st = 0; } }
+        else this.speedNow = 0;
+      }
+    }
+  }
+  // The Bound: lies still where it fell until someone's near enough to touch it, then gets up and comes for them,
+  // lurching, swaying, retching up a caustic mist at whoever keeps out of its reach. Loses you, and it goes and lies
+  // down again somewhere
+  ai_bound(dt) {
+    const fac = this.g.fac;
+    this.cool -= dt;
+    let tgt = this.target != null ? this.g.players.get(this.target) : null;
+    if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
+    switch (this.state) {
+      case 'rise': {
+        this.speedNow = 0;
+        if (tgt) this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 2, dt);
+        if (this.st > 1.5) this.setState(tgt ? 'lurch' : 'shamble');
+        break;
+      }
+      case 'lurch': {
+        if (!tgt) { this.setState('shamble'); this.goal = this.randomGoal(4, 14); break; }
+        this.track(tgt, 18, -0.3, 5, 10, dt);
+        if (this.memory <= 0) { this.target = null; this.extra = -1; this.setState('shamble'); this.goal = this.randomGoal(4, 14); break; }
+        this.extra = tgt.id;
+        const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
+        this.moveTo(this.lastKnown.x, this.lastKnown.z, 2.8 * (0.55 + 0.45 * Math.abs(Math.sin(this.st * 2.6))), dt, { gy: this.lastKnown.y, turn: 5 });
+        if (d < 1.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && this.atk <= 0) {
+          this.atk = 1.6; const n = Math.max(d, 0.3);
+          this.g.emitSound('bound_slam', this.center(), { vol: 1 });
+          this.g.hurtPlayer(tgt.id, 22, 'bound', (tgt.pos.x - this.pos.x) / n * 7, (tgt.pos.z - this.pos.z) / n * 7);
+        }
+        if (this.aware && d > 3 && d < 9 && this.cool <= 0 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('spit'); this.spitAt = { x: tgt.pos.x, y: tgt.pos.y, z: tgt.pos.z }; this.spat = false; }
+        break;
+      }
+      case 'spit': {
+        this.speedNow = 0;
+        this.turnTo(Math.atan2(this.spitAt.x - this.pos.x, this.spitAt.z - this.pos.z), 4, dt);
+        if (this.st > 0.9 && !this.spat) {
+          this.spat = true; this.cool = 6 + Math.random() * 3;
+          const f = this.forward();
+          this.g.emit({ e: 'mist', x: +this.spitAt.x.toFixed(2), y: +this.spitAt.y.toFixed(2), z: +this.spitAt.z.toFixed(2), fx: +(this.pos.x + f.x * 0.2).toFixed(2), fy: +(this.pos.y + 1.75).toFixed(2), fz: +(this.pos.z + f.z * 0.2).toFixed(2) });
+        }
+        if (this.st > 1.7) this.setState(tgt ? 'lurch' : 'shamble');
+        break;
+      }
+      case 'shamble': {
+        this.extra = -1;
+        if (!this.goal) this.goal = this.randomGoal(5, 18);
+        const p = this.detect(14, 0.1, 3);
+        if (p) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('lurch'); break; }
+        if (this.moveTo(this.goal.x, this.goal.z, 1.3, dt) < 0.8 || this.st > 25) { this.goal = null; this.setState('lie'); }
+        break;
+      }
+      default: {
+        // lying there like a body
+        if (this.state !== 'lie') this.setState('lie');
+        this.speedNow = 0; this.extra = -1;
+        const p = this.nearestPlayer(2.6);
+        if (p && Math.abs(p.pos.y - this.pos.y) < 1.5) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('rise'); this.g.emitSound('bound_rise', this.center(), { vol: 1.2 }); }
+        else if (this.st > 60 + (this.id % 5) * 10) this.setState('shamble');
+      }
+    }
+  }
+  // The Executioner: no senses to speak of, and it needs none: it walks toward the nearest of you, wherever you are in
+  // the building, never hurrying, never stopping; up close it lifts the blade (slowly: there's a moment to get out of
+  // reach) and brings it down
+  ai_executioner(dt) {
+    const fac = this.g.fac;
+    let tgt = null, bd = Infinity;
+    for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) + Math.abs(p.pos.y - this.pos.y) * 6; if (d < bd) { bd = d; tgt = p; } }
+    if (!tgt) { if (this.state !== 'swing') { this.setState('stand'); this.speedNow = 0; this.extra = -1; } }
+    if (this.state === 'swing') {
+      this.speedNow = 0;
+      if (tgt && this.st < 1.05) this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 1.4, dt);
+      if (this.st >= 1.05 && !this.struck) {
+        this.struck = true;
+        const f = this.forward(); let hit = false;
+        for (const p of this.playersIn()) {
+          const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
+        }
+        this.g.emitSound(hit ? 'blade_flesh' : 'blade_floor', new THREE.Vector3(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2), { vol: 1.3, ref: 6 });
+        this.g.addNoise(this.pos, 30, 'in', null);
+      }
+      if (this.st > 2.5) { this.struck = false; this.setState(tgt ? 'walk' : 'stand'); }
+      return;
+    }
+    if (!tgt) return;
+    if (this.state !== 'walk') this.setState('walk');
+    this.extra = tgt.id;
+    this.moveTo(tgt.pos.x, tgt.pos.z, 2.2, dt, { gy: tgt.pos.y, turn: 3 });
+    const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
+    if (d < 2.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('swing'); this.g.emitSound('blade_lift', this.center(), { vol: 1.2, ref: 5 }); }
+  }
   hiddenSpot(tgt) {
     const fac = this.g.fac;
     let best = null, bs = -Infinity;
@@ -11832,7 +12375,7 @@ class Monster {
     if (this.dead) return;
     // (a blow just sinks into it: it shudders, and stops a moment)
     if (this.type === 'slime') { this.g.emitSound('squelch', this.center(), {}); this.stun = Math.max(this.stun, 0.8); return; }
-    if (this.type === 'mannequin') { this.g.emitSound('hit_metal', this.pos, {}); return; }
+    if (this.type === 'mannequin' || this.type === 'executioner') { this.g.emitSound('hit_metal', this.type === 'executioner' ? this.center() : this.pos, {}); return; }
     this.hp -= dmg;
     this.g.emitSound('hit_flesh', this.center(), {});
     if (this.type === 'leech' && this.state === 'attached') this.detach();
@@ -11842,6 +12385,10 @@ class Monster {
     if (this.type === 'crawler') { this.target = fromPid; this.extra = fromPid; this.setState('spot'); }
     if (this.type === 'pale') { this.anger += 2; this.target = fromPid; this.fleeGoal = this.hiddenSpot(this.g.players.get(fromPid)); this.setState(this.anger >= 4 ? 'chase' : 'flee'); }
     if (this.type === 'hound') { const p = this.g.players.get(fromPid); if (p) { this.lunge = { x: p.pos.x, z: p.pos.z }; this.setState('lunge'); } }
+    if (this.type === 'sister' || this.type === 'bound') {
+      const p = this.g.players.get(fromPid); this.target = fromPid; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.lastLit = 0;
+      this.setState(this.type === 'sister' ? 'drawn' : this.state === 'lie' ? 'rise' : 'lurch');
+    }
   }
   serialize() { return [this.id, this.type, +this.pos.x.toFixed(2), +this.pos.y.toFixed(2), +this.pos.z.toFixed(2), +this.ry.toFixed(2), this.state, this.extra, this.stun > 0 ? 1 : 0]; }
   applySnap(a, now) {
@@ -11868,13 +12415,13 @@ class Monster {
     v.t += dt;
     this.mesh.position.copy(this.rpos);
     this.mesh.rotation.y = this.rry;
-    if (v.lastState !== this.state) { this.onStateChange(v.lastState, this.state, localPlayer); v.lastState = this.state; }
+    if (v.lastState !== this.state) { this.onStateChange(v.lastState, this.state, localPlayer); v.lastState = this.state; v.sT = 0; } else v.sT = (v.sT || 0) + dt;
     if (this.dead) { v.deathT = (v.deathT || 0) + dt; v.tw = this.twitchK(); }
     this['anim_' + this.type](dt, v, localPlayer);
     if (this.dead) this.presentDeath(v);
     // footsteps
     v.stepAcc += Math.hypot(this.rpos.x - prevX, this.rpos.z - prevZ);
-    const stride = { crawler: 1.1, pale: 1.4, mannequin: 0.5, leech: 99, hound: 1.6 }[this.type];
+    const stride = { crawler: 1.1, pale: 1.4, mannequin: 0.5, leech: 99, hound: 1.6, sister: 0.55, bound: 0.8, executioner: 1.25 }[this.type];
     if (v.stepAcc > stride && v.speed > 0.4) {
       v.stepAcc = 0;
       const ln = localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z);
@@ -11882,6 +12429,18 @@ class Monster {
       else if (this.type === 'pale') { if (v.speed > 3 || ln < 5) SFX.play('soft', this.rpos, { vol: v.speed > 5 ? 0.9 : 0.35 }); }
       else if (this.type === 'mannequin') SFX.play('ceramic', this.rpos, { vol: 1.1 });
       else if (this.type === 'hound') SFX.play('step', this.rpos, { surf: 'dirt', vol: 0.9, pitch: 0.6 });
+      else if (this.type === 'sister') SFX.play('heel', this.rpos, { vol: 0.8 });
+      else if (this.type === 'bound') SFX.play('soft', this.rpos, { vol: 0.7 });
+      else if (this.type === 'executioner') { SFX.play('heavy_step', this.rpos, { vol: 1.3, ref: 5 }); if (localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z) < 9) Player.addShake(0.08); }
+    }
+    // the Executioner's blade, dragging along the floor behind it the whole way, throwing sparks off the concrete
+    if (this.type === 'executioner') {
+      const P = this.P; P.tip.getWorldPosition(_sl);
+      if (!this.glow && this.g.lightSources) { this.glow = { x: 0, y: 0, z: 0, color: 0xff8a3a, power: 0, state: 'on', zone: 'in', range: 4, lit: 1 }; this.g.lightSources.push(this.glow); }
+      const drag = this.state === 'walk' && v.speed > 0.3;
+      if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.35 ? 0.25 + Math.random() * 0.5 : 0; }
+      v.dragT = (v.dragT || 0) - dt;
+      if (drag && v.dragT <= 0) { v.dragT = 0.5 + Math.random() * 0.25; SFX.play('blade_drag', _sl.clone(), { vol: 1.1, ref: 5, rev: 0.8 }); }
     }
     // ambient creature sounds
     v.sfx -= dt;
@@ -11892,6 +12451,10 @@ class Monster {
       if (this.type === 'pale' && ln < 7 && this.extra === (localPlayer && localPlayer.id) && this.state === 'stalk') { SFX.play('breath', this.headPos(), { vol: 0.6, ref: 1 }); v.sfx = 3 + Math.random() * 3; }
       if (this.type === 'leech' && this.state === 'wait' && ln < 6) { SFX.play('chitter', this.rpos, { vol: 0.5 }); v.sfx = 2 + Math.random() * 3; }
       if (this.type === 'hound' && (this.state === 'wander' || this.state === 'sniff')) SFX.play(Math.random() < 0.5 ? 'sniff' : 'hound_growl', this.center(), { vol: 0.6 });
+      if (this.type === 'sister') { SFX.play(Math.random() < 0.6 ? 'sister_twitch' : 'sister_breath', this.headPos(), { vol: 0.8, ref: 2.5 }); v.sfx = 2 + Math.random() * 4; }
+      if (this.type === 'bound' && this.state !== 'lie') { SFX.play('bound_groan', this.headPos(), { vol: 0.9, ref: 3 }); v.sfx = 3 + Math.random() * 4; }
+      if (this.type === 'bound' && this.state === 'lie' && ln < 6) { SFX.play('bound_breath', this.center(), { vol: 0.35, ref: 1.5 }); v.sfx = 5 + Math.random() * 6; }
+      if (this.type === 'executioner') { SFX.play('hood_rattle', this.headPos(), { vol: 0.8, ref: 4 }); v.sfx = 3 + Math.random() * 4; }
     }
   }
   onStateChange(from, to, lp) {
@@ -11899,13 +12462,15 @@ class Monster {
     if (this.type === 'leech' && to === 'attached') SFX.play('squelch', this.rpos, { vol: 1 });
     if (this.type === 'slime' && to === 'hunt') SFX.play('slime_gurgle', this.center(), { vol: 1.3, ref: 5 });
     if (this.type === 'leech' && from === 'attached') SFX.play('chitter', this.rpos, { vol: 1 });
+    if (this.type === 'sister' && to === 'drawn') SFX.play('sister_twitch', this.headPos(), { vol: 1.3, ref: 3 });
+    if (this.type === 'bound' && to === 'spit') SFX.play('bound_retch', this.headPos(), { vol: 1.3, ref: 4 });
     if (to === 'dead') { SFX.play('crunch', this.center(), { vol: 0.9 }); this.onDeath(); }
   }
   // Dying, as everyone sees it: a last rattle, the body going down (falling, not snapping into a pose), a few
   // twitches that die away, the colour draining out of it, and a dark pool spreading out underneath.
   onDeath() {
     const v = this.vis; v.deathT = 0;
-    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9 }[this.type] || 1 });
+    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9, sister: 1.4, bound: 0.75 }[this.type] || 1 });
     // its own copies of its materials, so only this one goes grey
     const seen = new Map(); this.deadMats = [];
     this.mesh.traverse((o) => {
@@ -11916,7 +12481,7 @@ class Monster {
     });
     const inside = this.def.zone === 'in', grp = inside ? this.g.fac && this.g.fac.group : this.g.ext && this.g.ext.group;
     if (grp) {
-      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7 }[this.type] || 1.2;
+      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
       const gy = inside ? this.g.fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5) : this.g.ext.height(this.rpos.x, this.rpos.z);
       this.pool = new THREE.Mesh(new THREE.CircleGeometry(r, 22), new THREE.MeshStandardMaterial({ map: TEX.get('puff'), color: this.type === 'leech' ? 0x26380c : 0x4a0707, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.12, metalness: 0.3 }));
       this.pool.rotation.set(-Math.PI / 2, 0, Math.random() * TAU); this.pool.position.set(this.rpos.x, gy + 0.012, this.rpos.z); this.pool.scale.setScalar(0.05);
@@ -11996,6 +12561,79 @@ class Monster {
       P.ll.a.rotation.x = lerp(P.ll.a.rotation.x, 0.1, f); P.lr.a.rotation.x = lerp(P.lr.a.rotation.x, -0.25 + tw * 0.5, f); P.ll.b.rotation.x = 0.15 * f; P.lr.b.rotation.x = 0.5 * f;
       P.head.rotation.set(0, 0.5 * f, 0.7 * f + tw * 0.2); P.mouth.scale.y = 5;
     }
+  }
+  // a Sister: jerky, the limbs snapping from one pose to the next rather than moving through them; the head lolling
+  // and wrenching round on its neck; the scalpel arm raised when it's after someone, and slashing when it's close
+  anim_sister(dt, v) {
+    const P = this.P, t = v.t, s = v.speed, drawn = this.state === 'drawn';
+    const q = (x, n) => Math.round(x * n) / n;
+    const ph = q(t * (2 + s * 1.5), 3), g = Math.min(1, s / 2.5), sw = Math.sin(ph * 2.6) * 0.55 * g;
+    P.ll.a.rotation.x = sw; P.lr.a.rotation.x = -sw; P.ll.b.rotation.x = 0.1 + Math.max(0, -sw) * 0.9; P.lr.b.rotation.x = 0.1 + Math.max(0, sw) * 0.9;
+    P.ll.a.rotation.z = 0.08; P.lr.a.rotation.z = -0.08;
+    P.hips.position.y = 0.95 + Math.abs(Math.sin(ph * 2.6)) * 0.03 * g;
+    P.torso.rotation.x = damp(P.torso.rotation.x, drawn ? 0.25 : 0.12, 5, dt);
+    // twitches: now and then a joint snaps somewhere else and holds there
+    if (Math.random() < dt * (drawn ? 4 : 1.4)) v.tw2 = { h: (Math.random() - 0.5) * 1.6, n: (Math.random() - 0.5) * 0.9, s: (Math.random() - 0.5) * 0.6, k: 1 };
+    const T = v.tw2 || { h: 0, n: 0, s: 0, k: 0 }; T.k = Math.max(0, T.k - dt * 1.8);
+    P.neck.rotation.set(0.25 + T.n * T.k, 0, 0.5 + Math.sin(t * 0.4) * 0.15 + T.h * T.k);
+    P.head.rotation.set(Math.sin(t * 0.7) * 0.1, T.h * T.k * 0.6, 0.2);
+    P.torso.rotation.z = T.s * T.k;
+    const slash = drawn && v.sT % 1.3 < 0.3 && s < 1.5 ? Math.sin((v.sT % 1.3) / 0.3 * Math.PI) : 0;
+    P.ar.a.rotation.x = damp(P.ar.a.rotation.x, drawn ? -1.9 + slash * 2.2 : -0.1 + sw * 0.2, 14, dt); P.ar.b.rotation.x = drawn ? -0.6 : -0.15;
+    P.al.a.rotation.x = -sw * 0.3 + (drawn ? -0.4 : 0); P.al.b.rotation.x = -0.3; P.al.a.rotation.z = -0.1; P.ar.a.rotation.z = 0.15;
+    if (this.dead) {
+      // down on its knees, then forward onto its face
+      const f = this.deadK(), tw = v.tw;
+      this.mesh.rotation.x = Math.PI / 2 * f; this.mesh.position.y = this.rpos.y + 0.12 * f;
+      P.ll.a.rotation.x = lerp(P.ll.a.rotation.x, -0.4, f); P.lr.a.rotation.x = lerp(P.lr.a.rotation.x, -0.2 + tw, f);
+      P.ll.b.rotation.x = 1.2 * f; P.lr.b.rotation.x = 1.0 * f;
+      P.al.a.rotation.set(-2.6 * f, 0, -0.3); P.ar.a.rotation.set(-2.4 * f + tw * 0.4, 0, 0.4); P.neck.rotation.set(0.6 * f, 0, 0.9 * f);
+    }
+  }
+  // the Bound: lying flat on its back like a body; getting up all at once from the waist, as if pulled; lurching on
+  // its wrong-bent legs, swaying from side to side; rearing back to retch, and pitching forward to spew it out
+  anim_bound(dt, v) {
+    const P = this.P, t = v.t, s = v.speed, st = this.state;
+    const lie = st === 'lie' ? 1 : st === 'rise' ? 1 - sstep(0.1, 1.3, v.sT) : 0;
+    v.lie = v.lie == null ? lie : damp(v.lie, lie, st === 'rise' ? 30 : 4, dt);
+    this.mesh.rotation.x = -Math.PI / 2 * v.lie; this.mesh.position.y = this.rpos.y + 0.18 * v.lie;
+    const g = Math.min(1, s / 2.5), ph = t * (2.2 + s * 1.6), sw = Math.sin(ph) * 0.6 * g;
+    P.ll.a.rotation.x = sw * (1 - v.lie); P.lr.a.rotation.x = -sw * (1 - v.lie);
+    P.ll.b.rotation.x = (-0.35 - Math.max(0, sw) * 0.6) * (1 - v.lie); P.lr.b.rotation.x = (-0.35 - Math.max(0, -sw) * 0.6) * (1 - v.lie);
+    P.torso.rotation.z = Math.sin(ph * 0.5) * 0.25 * g + Math.sin(t * 0.8) * 0.04;
+    const rear = st === 'spit' ? (v.sT < 0.9 ? -0.5 * sstep(0, 0.9, v.sT) : lerp(-0.5, 0.6, sstep(0.9, 1.05, v.sT)) * (1 - sstep(1.2, 1.7, v.sT))) : 0;
+    P.torso.rotation.x = damp(P.torso.rotation.x, rear + (st === 'lurch' ? 0.12 : 0) + (st === 'lie' ? Math.sin(t * 0.6) * 0.01 : 0), 12, dt);
+    P.mouth.scale.setScalar(st === 'spit' && v.sT > 0.8 && v.sT < 1.3 ? 1.5 : 1 + Math.sin(t * 3) * 0.05);
+    if (this.dead) {
+      const f = this.deadK(), tw = v.tw;
+      this.mesh.rotation.x = -Math.PI / 2 * Math.max(f, v.lie); this.mesh.position.y = this.rpos.y + 0.18 * f;
+      P.ll.a.rotation.x = 0.2 * f + tw * 0.5; P.lr.a.rotation.x = -0.3 * f; P.ll.b.rotation.x = -0.6 * f; P.lr.b.rotation.x = -0.2 * f;
+      P.torso.rotation.set(0, 0, 0.3 * f + tw * 0.2);
+    }
+  }
+  // the Executioner: a slow heavy walk, the blade hung from its right fist trailing along the floor; lifting it back
+  // and up over its shoulder (slowly), and bringing it down all at once
+  anim_executioner(dt, v) {
+    const P = this.P, t = v.t, s = v.speed;
+    const g = Math.min(1, s / 2), ph = t * (1.6 + s * 0.9), sw = Math.sin(ph) * 0.45 * g;
+    P.ll.a.rotation.x = sw; P.lr.a.rotation.x = -sw; P.ll.b.rotation.x = 0.1 + Math.max(0, -Math.sin(ph)) * 0.6 * g; P.lr.b.rotation.x = 0.1 + Math.max(0, Math.sin(ph)) * 0.6 * g;
+    P.hips.position.y = 1.25 - Math.abs(Math.cos(ph)) * 0.05 * g;
+    P.hips.rotation.z = Math.sin(ph) * 0.05 * g;
+    P.torso.rotation.y = Math.sin(ph) * 0.08 * g;
+    P.neck.rotation.x = 0.25 + Math.sin(t * 0.5) * 0.04;
+    P.al.a.rotation.set(-sw * 0.6, 0, -0.15); P.al.b.rotation.x = -0.25;
+    let ax, bx, bl;
+    if (this.state === 'swing') {
+      const u = v.sT;
+      // up and back over the shoulder, held there, then down
+      const up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = 1 - sstep(1.6, 2.4, u);
+      ax = lerp(lerp(0.25, -2.9, up), 0.6, down) * back + 0.25 * (1 - back);
+      bx = lerp(-0.4, -0.2, up); bl = lerp(lerp(0.35, -0.6, up), 1.3, down) * back + 0.35 * (1 - back);
+      P.torso.rotation.x = lerp(-0.15 * up, 0.35, down) * back;
+    } else { ax = 0.25 + sw * 0.2; bx = -0.1; bl = 0.35 + Math.sin(t * 7) * 0.01 * g; P.torso.rotation.x = damp(P.torso.rotation.x, 0.08, 4, dt); }
+    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx;
+    // (the blade's pitch: its tip down on the floor behind, while it drags)
+    P.blade.rotation.x = bl + 2.3;
   }
   anim_mannequin(dt, v) {
     const P = this.P;
@@ -12159,7 +12797,8 @@ class Monster {
 <script type="text/x-gs" data-file="pods">
 'use strict';
 // Supply pods: on the ground, whatever you order comes down out of the sky in a battered capsule that slams in a
-// little way from the ship, leaves a smoking crater, and has to be cracked open to get at the goods.
+// little way from the ship, leaves a smoking crater, and has to be cracked open to get at the goods. (And meteors,
+// below: the other thing that comes down out of the sky.)
 //
 // Each pod is driven by one clock, so every crewmate sees the same fall. It starts negative:
 //   -WAIT-GLINT .. -GLINT   nothing yet (the order is on its way)
@@ -12396,6 +13035,7 @@ const Pods = (() => {
     },
     update(dt) {
       const ext = G.ext; if (!ext) return;
+      this.meteors.update(dt);
       const gAt = (x, z) => ext.height(x, z);
       for (const pod of list) {
         pod.t += dt;
@@ -12458,13 +13098,90 @@ const Pods = (() => {
       }
     },
     get(id) { return list.find((p) => p.id === id); },
+    // On the airless moons and rocks, once in a while, a swarm of meteoroids comes down out of the black sky. There's no
+    // air to burn them or slow them, so there's no fireball coming in: just a glint of sunlight on rock streaking down
+    // an instant before it hits. Each impact is a white flash, a cone of ejecta thrown out on long, slow arcs in the
+    // light gravity (nothing billows: every grain flies on its own and falls), the ground jumping underfoot, and a fresh
+    // crater ringed with bright spray. Each strike runs on its own clock, t: how long until it hits.
+    meteors: {
+      list: [], fx: null,
+      // (built when a site on an airless moon goes up, so it's compiled with the rest before anyone sees it)
+      prepare() {
+        if (this.fx) return;
+        const fx = this.fx = { ejecta: particles(1800, 0x9a968e, false, 120), rocks: particles(140, 0x4a4640, false, 95), skim: particles(240, 0x9a968e, false, 260), flash: [], line: [] };
+        for (const k of ['ejecta', 'rocks', 'skim']) R.scene.add(fx[k].pts);
+        for (let i = 0; i < 4; i++) {
+          const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: new THREE.Color(3, 2.9, 2.7), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+          R.scene.add(f); fx.flash.push(f);
+          const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V(0, -500, 0), V(0, -500, 0)]), new THREE.LineBasicMaterial({ color: new THREE.Color(2.6, 2.5, 2.3), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+          l.frustumCulled = false; R.scene.add(l); fx.line.push(l);
+        }
+      },
+      // a swarm on its way (everyone): e.list: [{ x, z, r (crater radius), d (its depth), t (seconds till it hits), dir }]
+      spawn(e) {
+        if (!G.ext) return;
+        this.prepare();
+        for (const m of e.list) {
+          const gy = G.ext.height(m.x, m.z), el = m.el != null ? m.el + (Math.random() - 0.5) * 0.1 : 0.9 + Math.random() * 0.35, L = 900;
+          this.list.push(Object.assign({}, m, { gy, from: V(m.x + Math.cos(m.dir) * Math.cos(el) * L, gy + Math.sin(el) * L, m.z + Math.sin(m.dir) * Math.cos(el) * L), hit: false, ft: 0 }));
+        }
+      },
+      impact(s) {
+        s.hit = true;
+        const ext = G.ext, fx = this.fx;
+        ext.addCrater(s.x, s.z, s.r, s.d, true);
+        const at = V(s.x, ext.height(s.x, s.z) + 0.3, s.z), k = s.r / 5;
+        const f = fx.flash.find((o) => o.material.opacity <= 0) || fx.flash[0]; f.position.copy(at).y += s.r * 0.4; f.scale.setScalar(s.r * 9); s.flash = f; s.ft = 0.3;
+        const L = ext.lighting(G.round ? G.round.time : 720), day = 0.3 + 0.7 * (1 - L.night), base = ext.biome.ground.trail;
+        for (const sys of [fx.ejecta, fx.skim]) sys.pts.material.uniforms.uCol.value.setRGB(Math.min(1, base[0] * 1.35) * day, Math.min(1, base[1] * 1.35) * day, Math.min(1, base[2] * 1.35) * day);
+        fx.rocks.pts.material.uniforms.uCol.value.setRGB(base[0] * 0.6 * day, base[1] * 0.6 * day, base[2] * 0.6 * day);
+        // the cone of ejecta, flung up and out and falling back slowly; chunks of rock; a sheet of dust skimming low
+        // (the curtain: a thin cone of it, every grain thrown at much the same angle, so it reads as a sheet)
+        const cone = rnd(0.7, 0.85);
+        for (let i = 0; i < 360 * k; i++) { const a = rnd(0, TAU), e = cone + rnd(-0.12, 0.12) + (Math.random() < 0.15 ? rnd(-0.3, 0.25) : 0), v = rnd(5, 22) * Math.sqrt(k); emit(fx.ejecta, { x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * Math.cos(e) * v, vy: Math.sin(e) * v, vz: Math.sin(a) * Math.cos(e) * v, life: rnd(5, 9), s0: rnd(0.15, 0.45), s1: rnd(0.5, 1.1), grav: 4, drag: 0, a0: 0.75 }); }
+        for (let i = 0; i < 26 * k; i++) { const a = rnd(0, TAU), e = rnd(0.4, 1.1), v = rnd(4, 13); emit(fx.rocks, { x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * Math.cos(e) * v, vy: Math.sin(e) * v, vz: Math.sin(a) * Math.cos(e) * v, life: rnd(4, 7), s0: rnd(0.25, 0.6), s1: 0.4, grav: 4, drag: 0 }); }
+        for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(8, 26); emit(fx.skim, { x: at.x, y: at.y - 0.1, z: at.z, vx: Math.cos(a) * v, vy: rnd(0.3, 1.6), vz: Math.sin(a) * v, life: rnd(2.5, 4.5), s0: 1.5, s1: 4, grav: 4, drag: 0, a0: 0.5 }); }
+        // with no air nothing carries the sound: you feel it come up through the ground (and the hull, aboard)
+        const cam = R.camera.position, d = cam.distanceTo(at), me = G.me();
+        SFX.play('thud', at, { vol: 1.4 * k + 0.6, ref: 30, occl: 0.6, delay: d / 2500 }); SFX.play('bang', at, { vol: 0.9 * k, ref: 25, occl: 0.85, delay: d / 2500 });
+        SFX.play('debris', at, { vol: 0.5, ref: 12, occl: 0.6, delay: 1.5 });
+        if (me && me.alive) { Player.addShake(clamp((1.6 - d / 70) * (0.5 + 0.5 * k), 0, 1.2)); if (me.zone === 'out' && d < 60) R.fx.flash = Math.max(R.fx.flash, clamp(0.5 - d / 120, 0, 0.5) * k); }
+        if (G.isHost) G.hostMeteorHit(s);
+      },
+      update(dt) {
+        const fx = this.fx; if (!fx || !G.ext) return;
+        const gAt = (x, z) => G.ext.height(x, z);
+        let n = 0;
+        for (const s of this.list) {
+          s.t -= dt;
+          // the glint coming in: sunlight on a rock, streaking down the last instant
+          if (!s.hit && s.t < 0.35) {
+            const l = s.line || (s.line = fx.line.find((o) => !o.userData.busy) || fx.line[0]); l.userData.busy = true;
+            const u = clamp(1 - s.t / 0.35, 0, 1), head = s.from.clone().lerp(V(s.x, s.gy, s.z), u), tail = s.from.clone().lerp(V(s.x, s.gy, s.z), Math.max(0, u - 0.12));
+            l.geometry.attributes.position.setXYZ(0, head.x, head.y, head.z); l.geometry.attributes.position.setXYZ(1, tail.x, tail.y, tail.z); l.geometry.attributes.position.needsUpdate = true;
+            l.material.opacity = 0.9;
+          }
+          if (!s.hit && s.t <= 0) { this.impact(s); if (s.line) { s.line.material.opacity = 0; s.line.userData.busy = false; } }
+          if (s.ft > 0) { s.ft -= dt; s.flash.material.opacity = Math.max(0, s.ft / 0.3); }
+          if (!s.hit || s.ft > 0) n++;
+        }
+        if (!n) this.list.length = 0;
+        stepParticles(fx.ejecta, dt, gAt); stepParticles(fx.rocks, dt, gAt); stepParticles(fx.skim, dt, gAt);
+      },
+      clear() {
+        this.list.length = 0;
+        if (this.fx) { for (const o of [this.fx.ejecta.pts, this.fx.rocks.pts, this.fx.skim.pts, ...this.fx.flash, ...this.fx.line]) if (o.parent) o.parent.remove(o); this.fx = null; }
+      },
+    },
     serialize() { return list.map((p) => ({ id: p.id, x: p.x, z: p.z, dir: p.dir, items: p.items, t: p.t, opened: p.opened })); },
     clear() {
       for (const p of list) { for (const o of [p.mesh, p.trail.pts, p.dirt.pts, p.dust.pts, p.fire.pts, p.smoke.pts, p.flash, p.head, p.lid, p.glint]) if (o && o.parent) o.parent.remove(o); }
       list.length = 0;
+      this.meteors.clear();
     },
   };
 })();
+const Meteors = Pods.meteors;
 
 </script>
 <script type="text/x-gs" data-file="crewcam">
@@ -13653,7 +14370,12 @@ const R = (() => {
   function flickerOf(src, t) {
     switch (src.state) {
       case 'off': return 0;
-      case 'emergency': return 0.55 + 0.45 * Math.sin(t * 2.2 + src.phase);
+      case 'emergency': {
+        if (!src.bad) return 0.55 + 0.45 * Math.sin(t * 2.2 + src.phase);
+        // (a failing red tube on the emergency circuit: catching and dropping out, now and then dead for a moment)
+        const n = Math.sin(t * 7.7 + src.phase) * Math.sin(t * 3.1 + src.phase * 1.3) + Math.sin(t * 0.29 + src.phase * 0.7) * 0.8;
+        return n > 0.1 ? (Math.random() < 0.08 ? 0.1 : 0.85 + Math.random() * 0.15) : (Math.random() < 0.18 ? 0.7 : 0.02);
+      }
       // (fire: always moving, never quite steady)
       case 'fire': return 0.72 + 0.2 * Math.sin(t * 13.1 + src.phase) * Math.sin(t * 7.3 + src.phase * 2.1) + Math.random() * 0.1;
       case 'flicker': {
@@ -16013,6 +16735,8 @@ for (const w in BODIES) {
   for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, giant: W.giant, r: b.kind === 'rock' ? 0.74 : 0.6, az: -1.2, el: 0.55 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
+// What came up from behind the siren: the Sisters keep to the wards, the Bound to wherever the dead were laid out
+for (const [k, w] of Object.entries({ agnes: { sister: 2, bound: 0.8 }, vigil: { sister: 1.8, bound: 0.6 }, relic: { bound: 1.6, sister: 0.6 }, kessler: { sister: 0.9, bound: 0.5 }, petri: { sister: 1, bound: 0.8 }, nadir: { bound: 0.8 }, hollow: { sister: 1, bound: 1.2 }, cinder: { bound: 1, sister: 0.6 }, pall: { bound: 1.6, sister: 0.8 }, tithe: { sister: 1.2 }, warden: { bound: 1, sister: 0.6 }, brinewell: { bound: 0.7 }, gloam: { sister: 0.8 } })) Object.assign(SITES[k].mon, w);
 // Where each moon and rock is today: how far out along its orbit (near: 1 its usual distance, under that closer in,
 // over it farther out), how far round its world (phase), and how far above or below the plane of the world's rings
 // (eps, an angle seen from the world: a rock inside them is right in it). Decided by the day and the world, so the view
@@ -16070,7 +16794,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 8;
+const PROTO = 10;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -16086,7 +16810,7 @@ const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0);
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
+const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -16320,7 +17044,9 @@ const G = {
     G.fac = b.fac; G.ext = b.ext;
     const fac = G.fac, ext = G.ext;
     G.siteShown = false;
-    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down)
+    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down; on an
+    // airless moon, what a meteor strike would need too)
+    if (b.ext.biome.airless) Meteors.prepare();
     R.precompile(R.scene, () => {});
     R.precompile(b.facG, () => R.precompile(b.extG, () => { if (G.fac !== fac) return; R.scene.add(b.facG); R.scene.add(b.extG); G.siteShown = true; }));
     G.fac.lamps.forEach((l) => (l.fac = true));
@@ -16329,7 +17055,7 @@ const G = {
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
   },
   teardownSite(full) {
-    G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke();
+    G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke(); G.mists = [];
     for (const m of G.monsters.values()) R.scene.remove(m.mesh);
     G.monsters.clear();
     const disposeGroup = (g) => { if (!g) return; R.scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); };
@@ -16351,6 +17077,7 @@ const G = {
     for (const p of G.players.values()) { const n = r.upgrades.belt ? 5 : 4; while (p.slots.length < n) p.slots.push(null); }
     if (G.jumping) return;   // (mid-jump: the new world appears when the ship drops out)
     const look = SITE_LOOK[r.route] || SITE_LOOK.ashgrove; G.ship.setPlanet(look.tint, look.atmo, look.airless, look.giant);
+    G.ship.setScars((r.scars || []).filter((s) => s.site === r.route));
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route), ringsToday(SITES[r.route].bonus || r.route, r)); }
@@ -16403,13 +17130,13 @@ const G = {
   bodiesAround(route) {
     const s = SITES[route]; if (!s) return [];
     const O = orbitsToday(s.bonus || route, G.run);
-    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near, ring: !!b.ring && !!SITE_LOOK[route].rings }));
+    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ key: b.key, kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near, ring: !!b.ring && !!SITE_LOOK[route].rings }));
     const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route), pm = bodyAt(me, O[route]), pa = me.ang + Math.PI * 0.8;
     // (the world: bigger the closer in we are today; the other one: where it really is from here, and how far)
     // (a ringed world, as big as it really looks from this far out, round in its rings with us: see Ship.setBodies)
     const ar = W.rings ? Math.asin(1 / (me.orbit * O[route].near)) : clamp(0.5 / O[route].near, 0.32, 0.75);
     return [{ kind: 'planet', size: W.rings ? 1 / me.size : Math.min(10, 1 / me.size), orbit: 0, ang: pa, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings, giant: W.giant, ar, me: { size: me.size, eps: O[route].eps, ring: !!me.ring } }]
-      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
+      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { key: b.key, kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
   },
   // Some days a facility beacon shows on one of the bodies circling the world the ship is at (or the one it belongs
   // to): a bonus site for that day only. Decided by the day, so every crewmate sees the same one
@@ -16449,7 +17176,7 @@ const G = {
   fullState() {
     return {
       v: PROTO, mode: G.mode, run: G.run, orbitT: G.orbitT || 60,
-      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken } : null,
+      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken, strikes: G.round.strikes || [], doom: G.round.doom || null } : null,
       players: [...G.players.values()].map(G.pinfo),
       items: [...G.items.values()].map(G.iinfo),
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
@@ -16470,7 +17197,10 @@ const G = {
     if (typeof s.orbitT === 'number') G.orbitT = s.orbitT;
     if (s.round) {
       G.prepareSite(s.round.seed, s.round.site, s.round.weather);
-      Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken });
+      Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken, doom: s.round.doom || undefined });
+      // (the craters today's meteors left)
+      for (const m of s.round.strikes || []) G.ext.addCrater(m.x, m.z, m.r, m.d, true);
+      if (s.round.coreTaken) G.startEmergency(true);
       s.doors.forEach((o, i) => { const d = G.fac.doors[i]; if (!d) return; if (o === 2) { G.fac.breakDoor(d); return; } d.open = !!o; d.dir = o === 3 ? -1 : 1; d.anim = o ? 1 : 0; G.fac.applyDoor(d); });
       (s.boxes || []).forEach((o, i) => { const c = G.fac.containers[i]; if (!c) return; c.open = !!o; c.anim = o ? 1 : 0; c.mesh.rotation.y = c.closedRy + c.swing * c.anim; });
       (s.blasts || []).forEach((o, i) => { const d = G.fac.blasts[i]; if (!d) return; d.open = !!o; d.anim = o ? 1 : 0; G.fac.applyBlast(d); });
@@ -16758,6 +17488,19 @@ const G = {
       SFX.play('engine', null, { dur: 3.6, vol: 1.1 });
     },
     // a supply pod on its way down, and one being cracked open
+    meteors(e) { Meteors.spawn(e); },
+    mist(e) { G.addMist(e); },
+    // something on its way in (G.round.doom: when it hits, by the site's clock, and where it is in the sky)
+    asteroid(e) { if (G.round) G.round.doom = { at: e.at, az: e.az, el: e.el }; },
+    // still on the surface when it hit: the sky goes white, and that's the end of the contract
+    doomed(e) {
+      if (G.round) G.round.lost = true;
+      G.seq = { kind: 'doomed', t: 0, data: e };
+      for (const p of G.players.values()) if (p.alive) { p.alive = false; (G.deathCause || (G.deathCause = {}))[p.id] = 'impact'; }
+      SFX.play('bang', null, { vol: 1.6 }); SFX.play('thud', null, { vol: 1.6 });
+    },
+    // and from orbit, having got away: it comes down on the moon we left (Ship.impact draws it)
+    impact(e) { G.ship.impact(e.site, G.run.route, e.lat, e.lon); },
     pod(e) {
       Pods.spawn(e);
       // (the Company calls it in over the radio, so whoever wants to can go out and watch it come down)
@@ -16825,11 +17568,10 @@ const G = {
       if (!G.round) return;
       G.round.power = e.on; if (e.perm) G.round.coreTaken = true;
       const me = G.me();
-      if (me && G.zoneOf(me) === 'in') {
-        SFX.play(e.on ? 'power_up' : 'power_down', null, { vol: 1 });
-        if (e.perm) { SFX.play('alarm', null, { vol: 0.8, delay: 1.2 }); HUD.notice('POWER FAILURE', 'Something down here just woke up.', true, 5); }
-      }
+      if (me && G.zoneOf(me) === 'in') SFX.play(e.on ? 'power_up' : 'power_down', null, { vol: 1 });
       if (G.fac) for (const l of G.fac.lamps) if (l.state !== 'emergency') G.fac.setLampVisual(l, e.on && l.state !== 'off' ? 1 : 0.04);
+      // (the core pulled: the dark, then the emergency circuit, and its alarm)
+      if (e.perm) G.startEmergency(false);
     },
     toast(e) { HUD.toast(e.text, 2.5); },
     jumpLever() { G.ship.pullJump(); SFX.play('lever', G.ship.jumpPos.clone(), { vol: 1 }); },
@@ -16955,7 +17697,8 @@ const G = {
     if (G.flight || G.seq || G.robot || G.jumping) return 'Jump drive busy.';
     const why = G.routeProblem(k); if (why) { delete run.course; G.emit({ e: 'run', run }); return why.charAt(0) + why.slice(1).toLowerCase(); }
     const hop = G.isHop(k);
-    if (!hop) run.credits -= SITES[k].cost;
+    // (a jump to another world leaves this one's fresh craters behind, and anything still on its way in to them)
+    if (!hop) { run.credits -= SITES[k].cost; run.scars = []; delete run.doom; }
     run.route = k; delete run.course;
     G.emit({ e: 'jumpLever' });
     G.emit({ e: hop ? 'hop' : 'jump', route: k });
@@ -17206,6 +17949,44 @@ const G = {
     if (p.zone === 'in' && G.fac) return G.fac.los(p.pos.x, p.pos.z, pos.x, pos.z, true);
     return true;
   },
+  // whether someone has a lamp lit in their hands or on their belt
+  carriesLight(p) { for (const it of G.items.values()) if (it.holder === p.id && it.on && ITEMS[it.type].lamp) return true; return false; },
+  // A Bound's mist: a cloud of something that eats through a suit, hanging where it landed and drifting apart over a few
+  // seconds. Everyone sees it; the host hurts whoever's in it
+  addMist(e) {
+    const grp = G.fac && G.fac.group; if (!grp) return;
+    const mist = { x: e.x, y: e.y, z: e.z, t: 0, puffs: [], hurtT: 0 };
+    for (let i = 0; i < 9; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('puff'), color: new THREE.Color(0.62, 0.66, 0.3), transparent: true, opacity: 0, depthWrite: false }));
+      const a = Math.random() * TAU, r = Math.random() * 1.1;
+      sp.userData.o = { x: Math.cos(a) * r, y: 0.3 + Math.random() * 1.4, z: Math.sin(a) * r, s: 1.2 + Math.random() * 1.2, d: Math.random() * 0.25 };
+      sp.position.set(e.fx, e.fy, e.fz); grp.add(sp); mist.puffs.push(sp);
+    }
+    mist.from = { x: e.fx, y: e.fy, z: e.fz };
+    (G.mists || (G.mists = [])).push(mist);
+    SFX.play('mist_hiss', new THREE.Vector3(e.x, e.y + 1, e.z), { vol: 1, ref: 3, delay: 0.3 });
+  },
+  stepMists(dt) {
+    if (!G.mists || !G.mists.length) return;
+    for (let i = G.mists.length - 1; i >= 0; i--) {
+      const m = G.mists[i]; m.t += dt;
+      // (flung from its mouth to where it lands, then blooming out and thinning away)
+      for (const sp of m.puffs) {
+        const o = sp.userData.o, u = clamp((m.t - o.d) / 0.35, 0, 1), k = sstep(0, 1, u), age = Math.max(0, m.t - 0.35 - o.d);
+        sp.position.set(lerp(m.from.x, m.x + o.x * (1 + age * 0.15), k), lerp(m.from.y, m.y + o.y + age * 0.08, k) + Math.sin(k * Math.PI) * 0.6, lerp(m.from.z, m.z + o.z * (1 + age * 0.15), k));
+        sp.scale.setScalar(lerp(0.25, o.s * (1 + age * 0.12), k));
+        sp.material.opacity = (u < 1 ? 0.5 : 0.62) * (1 - sstep(3.5, 6, m.t));
+      }
+      if (G.isHost && m.t > 0.4 && m.t < 5.5) {
+        m.hurtT -= dt;
+        if (m.hurtT <= 0) {
+          m.hurtT = 0.5;
+          for (const p of G.alivePlayers()) if (p.zone === 'in' && Math.hypot(p.pos.x - m.x, p.pos.z - m.z) < 2.0 && Math.abs(p.pos.y - m.y) < 1.5) G.hurtPlayer(p.id, 8, 'bound', 0, 0);
+        }
+      }
+      if (m.t > 6) { for (const sp of m.puffs) { if (sp.parent) sp.parent.remove(sp); sp.material.dispose(); } G.mists.splice(i, 1); }
+    }
+  },
   isLit(pos) {
     for (const p of G.alivePlayers()) {
       if (!p.flash) continue;
@@ -17306,6 +18087,40 @@ const G = {
       if (at) G.hostExplode(at, zone, b.id, b.pid);
     }
   },
+  // A meteoroid swarm: a handful of strikes over a dozen seconds, scattered over the ground round the site (some close
+  // to whoever's out in it), one of them big; and a fresh scar on the moon, seen from orbit until the ship leaves this
+  // world and its moons behind (run.scars)
+  // (k: how heavy, 0 a light shower of pebbles, 1 a heavy one with a big strike in it; dir, el: where in the sky it
+  // comes from, when it's debris off something on its way in)
+  hostMeteors(k = 0.5, dir, el) {
+    const ext = G.ext, list = [], out = G.alivePlayers().filter((p) => p.zone === 'out' && !G.playerAboard(p));
+    const n = 4 + Math.floor(Math.random() * 4 + k * 6), big = k > 0.45 ? Math.floor(Math.random() * n) : -1;
+    for (let tries = 0; list.length < n && tries < 120; tries++) {
+      const i = list.length, near = out.length && Math.random() < 0.4 ? out[Math.floor(Math.random() * out.length)].pos : null;
+      const a = Math.random() * TAU, dd = near ? 10 + Math.random() * 28 : 20 + Math.random() * 110, r = i === big ? 5 + Math.random() * 2 + k * 3 : lerp(0.6, 1.6, k) + Math.random() * lerp(0.8, 2.4, k);
+      const x = (near ? near.x : 0) + Math.cos(a) * dd, z = (near ? near.z : 0) + Math.sin(a) * dd, dc = Math.hypot(x, z);
+      // (not on the ship, the buildings or the trail)
+      if (dc < 18 + r || dc > 160 || Math.hypot(x - ext.center.x, z - ext.center.z) < 36 + r || Math.hypot(x - ext.fire.x, z - ext.fire.z) < 10 + r || ext.pathInfo(x, z).d < r + 2) continue;
+      list.push({ x: +x.toFixed(2), z: +z.toFixed(2), r: +r.toFixed(2), d: +(r * (0.28 + Math.random() * 0.1)).toFixed(2), t: +(i === 0 ? 1.5 : 1.5 + Math.random() * 11).toFixed(2), dir: +(dir != null ? dir + (Math.random() - 0.5) * 0.3 : Math.random() * TAU).toFixed(3), el: el != null ? el : undefined });
+    }
+    if (!list.length) return;
+    G.emit({ e: 'meteors', list });
+    if (big < 0) return;   // (a light shower leaves nothing you'd see from orbit)
+    const run = G.run; (run.scars || (run.scars = [])).push({ site: G.round.site, lat: +(Math.random() * 1.2 - 0.6).toFixed(3), lon: +(Math.random() * TAU).toFixed(3), r: +(0.02 + Math.random() * 0.015).toFixed(4) });
+    if (run.scars.length > 8) run.scars.shift();
+    G.emit({ e: 'run', run });
+  },
+  // a strike landing (host): anyone out in the open near it is thrown off their feet or killed; aboard, you're safe
+  hostMeteorHit(m) {
+    (G.round.strikes || (G.round.strikes = [])).push({ x: m.x, z: m.z, r: m.r, d: m.d });
+    for (const p of G.alivePlayers()) {
+      if (p.zone !== 'out' || G.playerAboard(p)) continue;
+      const d = Math.hypot(p.pos.x - m.x, p.pos.z - m.z), reach = m.r * 4; if (d > reach) continue;
+      const k = Math.pow(1 - d / reach, 1.3), dmg = d < m.r * 1.2 ? 200 : Math.round(150 * k); if (dmg < 3) continue;
+      const nn = Math.max(d, 0.5);
+      G.hurtPlayer(p.id, dmg, 'meteor', (p.pos.x - m.x) / nn * 14 * k, (p.pos.z - m.z) / nn * 14 * k);
+    }
+  },
   hostExplode(at, zone, id, pid) {
     G.emit({ e: 'boom', x: +at.x.toFixed(2), y: +at.y.toFixed(2), z: +at.z.toFixed(2), zone, id });
     G.addNoise(at, 45, zone, null);
@@ -17390,6 +18205,62 @@ const G = {
       const apex = roster.find((t) => ![...G.monsters.values()].some((m) => !m.dead && m.type === t)) || roster[0];
       G.hostSpawnInterior(apex, true);
     } });
+    // and sometimes the alarm brings up something worse, from as far down as the building goes (the more dangerous
+    // the site, the likelier)
+    if (Math.random() < Math.min(0.9, 0.35 + SITES[G.round.site].power * 0.05)) G.timers.push({ t: 20 + Math.random() * 15, fn: () => { if (G.mode === 'site' && ![...G.monsters.values()].some((m) => m.type === 'executioner')) G.hostSpawnInterior('executioner', true, 28); } });
+  },
+  // The core pulled: every light in the place dies, the emergency circuit's too, and there's nothing but your
+  // flashlight. A few seconds on, its main breaker slams home somewhere below and the red lamps come on a fitting at a
+  // time, outward from the core room, each with its own clunk: most of the ones that light are failing, a few burn
+  // steady, and many never come on at all (some try, once). Then the old alarm on the circuit starts up and doesn't
+  // stop. (Worked out from the round's seed, so every crewmate sees the same lamps lit; instant: someone joining after
+  // it happened just finds it so.)
+  startEmergency(instant) {
+    const fac = G.fac; if (!fac || fac.emerg) return;
+    const rr = new RNG((G.round.seed * 7 + 31337) >>> 0), core = fac.rooms.find((r) => r.type === 'core');
+    const cl = core ? fac.lamps.filter((l) => l.i >= core.i && l.i < core.i + core.w && l.j >= core.j && l.j < core.j + core.h) : [];
+    const c = cl[0] || fac.lamps[0] || { x: 0, y: 0, z: 0 }, reds = [0xff2a14, 0xff3b1e, 0xe8200f, 0xff4a22, 0xd81c10];
+    const E = fac.emerg = { t: instant ? 60 : 0, main: instant, next: 0, horns: [] };
+    for (const l of fac.lamps) {
+      const d = Math.hypot(l.x - c.x, l.z - c.z) + Math.abs(l.y - c.y) * 3, x = rr.next();
+      const kind = x < 0.42 ? (rr.chance(0.35) ? 'try' : null) : rr.chance(0.72) ? 'bad' : 'ok';
+      l.em = { at: 3.4 + d * 0.05 + rr.range(0, 0.9), kind, col: rr.pick(reds), dur: rr.range(0.08, 0.35) };
+      l.state = 'off'; fac.setLampVisual(l, 0.02);
+    }
+    // (the alarm's horns: a few of the fittings that light, spread through the building)
+    for (const l of fac.lamps) if ((l.em.kind === 'ok' || l.em.kind === 'bad') && E.horns.every((h) => Math.hypot(h.x - l.x, h.z - l.z) + Math.abs(h.y - l.y) * 4 > 26)) E.horns.push({ x: l.x, y: l.y, z: l.z });
+    if (!E.horns.length) E.horns.push({ x: c.x, y: c.y, z: c.z });
+    if (instant) G.stepEmergency(0);
+  },
+  stepEmergency(dt) {
+    const fac = G.fac, E = fac && fac.emerg; if (!E) return;
+    E.t += dt;
+    const me = G.me(), inside = !!me && G.zoneOf(me) === 'in', cam = R.camera.position, live = E.t < 40;
+    if (!E.main && E.t > 3.1) { E.main = true; if (inside) SFX.play('em_breaker', null, { vol: 1, rev: 1.1 }); }
+    for (const l of fac.lamps) {
+      const m = l.em; if (!m || m.done || E.t < m.at) continue;
+      if (!m.lit) {
+        m.lit = true;
+        if (m.kind) {
+          l.state = 'emergency'; l.color = m.col; l.bad = m.kind !== 'ok'; l.power = Math.min(l.power, 0.6); fac.setLampVisual(l, 0.85);
+          if (live && inside && Math.abs(l.x - cam.x) + Math.abs(l.z - cam.z) + Math.abs(l.y - cam.y) * 4 < 50) SFX.play('em_lamp', new THREE.Vector3(l.x, l.y, l.z), { vol: 0.9, ref: 3.5, rev: 0.9 });
+        }
+      }
+      if (m.kind !== 'try') m.done = true;
+      else if (E.t >= m.at + m.dur) { l.state = 'off'; fac.setLampVisual(l, 0.02); m.done = true; }
+    }
+    // the alarm, from whichever horn is nearest (through the walls, muffled, if it's round a corner); now and then it
+    // drops out altogether for a moment, then catches again
+    if (E.t > 3.8 && inside && G.mode === 'site') {
+      E.next -= dt;
+      if (E.next <= 0) {
+        let h = E.horns[0], hd = 1e18;
+        for (const o of E.horns) { const d = (o.x - cam.x) ** 2 + ((o.y - cam.y) * 3) ** 2 + (o.z - cam.z) ** 2; if (d < hd) { hd = d; h = o; } }
+        const gap = Math.random() < 0.12;
+        E.next = 2.0 + Math.random() * 0.5 + (gap ? 0.8 + Math.random() * 2 : 0);
+        if (!gap) SFX.play('em_alarm', new THREE.Vector3(h.x, h.y, h.z), { vol: 1.5, ref: 10, roll: 0.6, rev: 0.9 });
+      }
+    }
   },
   hostLand() {
     if (G.mode !== 'orbit') return;
@@ -17469,7 +18340,7 @@ const G = {
       if (n >= site.cap) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
-      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1 };
+      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2 };
       const w = {}; for (const k in site.mon) if ((counts[k] || 0) < lim[k]) w[k] = site.mon[k] * Math.pow(0.3, counts[k] || 0);
       // (the mannequins are kept down below: none in a facility that's all on one level)
       if (fac.levels < 2) delete w.mannequin;
@@ -17481,8 +18352,9 @@ const G = {
     const far = (x, z) => players.every((p) => Math.hypot(p.pos.x - x, p.pos.z - z) > minDist);
     // where: out of a vent for most things; a mannequin only somewhere on the lower levels; the Seep out in a
     // corridor (it's far too big for a vent)
-    const deep = type === 'mannequin', wide = type === 'slime';
-    if (deep && fac.levels < 2) return;
+    // (the Executioner, up from below: as deep as the building goes, and far too big for a vent)
+    const deep = (type === 'mannequin' || type === 'executioner') && fac.levels >= 2, wide = type === 'slime' || type === 'executioner';
+    if (type === 'mannequin' && fac.levels < 2) return;
     const lvOk = (x, z, y) => !deep || fac.levelAt(x, z, y) >= 1;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
@@ -17491,6 +18363,8 @@ const G = {
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
+    // (the Sisters come in twos and threes)
+    if (type === 'sister') for (let k = 0, n = R0.chance(0.35) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.8 + k * 0.9, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     if (spot.vent) G.emitSound('vent', new THREE.Vector3(spot.vent.x, spot.vent.y, spot.vent.z), { vol: 1.2, ref: 3 });
   },
   hostSpawnHound() {
@@ -17535,6 +18409,8 @@ const G = {
     const frac = r.total ? (collected - lost) / r.total : 0;
     let grade = allDead ? 'F' : frac >= 0.7 && !deaths.length ? 'S' : frac >= 0.5 ? 'A' : frac >= 0.3 ? 'B' : frac >= 0.15 ? 'C' : frac > 0 ? 'D' : 'F';
     if (deaths.length && grade === 'S') grade = 'A';
+    // (got away with it on its way in: it comes down while we watch from orbit, half a minute or so after we're up)
+    if (r.doom && !r.lost) run.doom = { site: r.site, t: Math.max(25, (r.doom.at - r.time) * SEC_PER_MIN) };
     const summary = { site: site.name, day: run.day - 1, collected: collected - lost, count: allDead ? 0 : collectedItems.length, total: r.total, lost, fine, deaths, allDead, grade, daysLeft: run.daysLeft };
     G.emit({ e: 'orbit', summary, run, keep });
   },
@@ -17735,6 +18611,66 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
+    // On an airless moon or rock the sky isn't empty. Some landings a meteoroid shower comes through (a light one, or a
+    // heavy one with a big strike in it), the survey office radioing a warning half a minute ahead. And now and then the
+    // shower is only the leading edge: debris shed by something much bigger on its way in. It shows as a new star, then
+    // a rock, swelling in the sky as the showers come thicker and heavier, until it hits. The crew has to be off the
+    // surface by then; whoever's left on it, ship and all, goes with the moon. (From orbit, you watch it hit.)
+    const R0 = G.round;
+    if (R0 && G.mode === 'site' && !G.flight && G.ext && G.ext.biome.airless && !R0.lost) {
+      if (R0.strikeAt === undefined) {
+        const roll = Math.random();
+        R0.strikeAt = roll < 0.15 && R0.time < 17 * 60 ? R0.time + 60 + Math.random() * 120 : roll < 0.45 ? R0.time + 90 + Math.random() * 330 : null;
+        R0.doomed = roll < 0.15 && R0.strikeAt != null;
+      }
+      if (R0.strikeAt != null) {
+        if (!R0.strikeWarned && R0.time > R0.strikeAt - 30) { R0.strikeWarned = true; G.emit({ e: 'chat', text: 'Mercy Survey: meteoroid swarm crossing your position. Impacts inside the minute. Get under cover.', sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (R0.time > R0.strikeAt) {
+          R0.strikeAt = null;
+          if (!R0.doomed) G.hostMeteors(Math.random());
+          else {
+            // (the first of it: then the radio works out where it came from)
+            const at = Math.min(23.5 * 60, R0.time + 200 + Math.random() * 60), az = Math.random() * TAU, el = 0.5 + Math.random() * 0.5;
+            G.emit({ e: 'asteroid', at: +at.toFixed(1), az: +az.toFixed(3), el: +el.toFixed(3) });
+            G.hostMeteors(0.25);
+            R0.showerT = 35; R0.doomWarn = 0;
+            G.timers.push({ t: 6, fn: () => G.emit({ e: 'chat', text: `Mercy Survey: that was debris, shed by something bigger. The parent body is on a collision course with ${SITES[R0.site].name}. Impact at ${fmtTime(at)}. Get off the surface before then.`, sys: true }) });
+          }
+        }
+      }
+      const D0 = R0.doom;
+      if (D0) {
+        const left = D0.at - R0.time;
+        // the showers coming thicker and heavier the closer it gets
+        R0.showerT -= dt;
+        if (R0.showerT <= 0 && left > 4) { const k = clamp(1 - left / 230, 0.25, 1); R0.showerT = lerp(32, 12, k) + Math.random() * 8; G.hostMeteors(k, D0.az, D0.el); }
+        // (the survey office counting it down over the radio, the ship's klaxon going with it)
+        if (R0.doomWarn < 1 && left < 60) { R0.doomWarn = 1; G.emit({ e: 'chat', text: `Mercy Survey: one hour to impact. Start loading up.`, sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (R0.doomWarn < 2 && left < 15) { R0.doomWarn = 2; G.emit({ e: 'chat', text: `Mercy Survey: fifteen minutes. Whoever is still down there, get to the ship. Now.`, sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (left <= 0) { R0.lost = true; G.emit({ e: 'doomed', site: R0.site }); Store.del(G.saveKey); return; }
+      }
+    }
+    // (and from orbit, having got away in time: it comes down on the moon we left)
+    const DR = G.run && G.run.doom;
+    if (DR && G.mode === 'orbit' && !G.seq && !G.jumping) {
+      DR.t -= dt;
+      if (DR.t <= 0) {
+        const run = G.run, at = G.ship.impactAt(DR.site, run.route);
+        delete run.doom;
+        G.emit({ e: 'run', run });
+        if (at) {
+          // (the rock falls in for 8 s; the scar is there once the flash has gone)
+          G.emit({ e: 'impact', site: DR.site, lat: at.lat, lon: at.lon });
+          G.timers.push({ t: 10, fn: () => {
+            const r2 = G.run; if (r2 !== run) return;
+            (run.scars || (run.scars = [])).push({ site: DR.site, lat: at.lat, lon: at.lon, r: 0.16 });
+            if (run.scars.length > 8) run.scars.shift();
+            G.emit({ e: 'run', run });
+            G.emit({ e: 'chat', text: `Mercy Survey: impact confirmed on ${SITES[DR.site].name}. Glad you weren't on it.`, sys: true });
+          } });
+        }
+      }
+    }
     // the hatch in flight: it shuts itself once the ship climbs too high, and opens itself after touchdown
     const f = G.flight;
     if (f && G.fp && G.ship.door.open && G.fp.y > FLY.doorAlt) G.emit({ e: 'hatch', open: false, auto: true });
@@ -17756,6 +18692,7 @@ const G = {
     }
     if (G.mode === 'site') {
       const r = G.round, site = SITES[r.site];
+      if (r.lost) return;
       r.time += dt / SEC_PER_MIN;
       if (!r.warn1 && r.time >= 21 * 60) { r.warn1 = true; G.emit({ e: 'notice', title: '9:00 PM', sub: '' }); }
       if (!r.warn2 && r.time >= 23 * 60) { r.warn2 = true; G.emit({ e: 'notice', title: '11:00 PM', sub: '', danger: true, alarm: true }); }
@@ -18360,6 +19297,7 @@ const G = {
     G.updateFlight(dt);
     G.updateDelivery(dt);
     Pods.update(dt);
+    G.stepEmergency(dt); G.stepMists(dt);
     // input not tied to the player body
     if (!HUD.blocking) {
       if (Input.hit('KeyT') || Input.hit('Enter')) HUD.openChat();
@@ -18553,6 +19491,18 @@ const G = {
         if (t > J.end) { S.arrive = 1; S.turn = 0; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
       }
       S.warp.material.uniforms.uT.value = t; pu.uT.value = t; tu.uT.value = t;
+    } else if (s.kind === 'doomed') {
+      // the light first, from everywhere at once, then the ground coming up through you
+      R.fx.white = s.t < 0.15 ? s.t / 0.15 : 1; Player.addShake(s.t < 3 ? 1.2 : 0);
+      if (s.t > 3.5 && !s.done) {
+        s.done = true;
+        const run = G.run;
+        HUD.summary(`<h2 style="color:var(--red)">LOST</h2><div class="sub">The ship was still on ${esc(SITES[s.data.site].name)} when it hit.</div>
+          <div class="row"><span>Quota cycles survived</span><span>${run.cycle - 1}</span></div>
+          <div class="row"><span>Days worked</span><span>${run.day - 1}</span></div>
+          <div class="row"><span>Total scrap sold</span><span>$${run.totalSold || 0}</span></div>
+          <div class="grade" style="color:var(--red)">X</div>`, 'RETURN TO MENU', () => G.quit());
+      }
     } else if (s.kind === 'fired') {
       if (s.t > 1.5 && !s.open) { s.open = true; G.ship.setDoor(true); }
       if (s.t > 2.5) { Player.addShake(0.8); const me = G.me(); me.pos.x = lerp(me.pos.x, -2.5, dt * 2); me.pos.z += dt * (s.t - 2.4) * 6; }
@@ -18774,7 +19724,7 @@ const G = {
     const me = G.me(); if (!me) return;
     const cam = R.camera.position, d = G.dir;
     // fear from visible creatures
-    let fear = 0, flicker = 0, chased = false, chaseK = 0;
+    let fear = 0, flicker = 0, chased = false, chaseK = 0, radioD = 99;
     const camDir = R.camera.getWorldDirection(new THREE.Vector3());
     for (const m of G.monsters.values()) {
       if (m.dead || m.def.zone !== G.zoneOf(me)) continue;
@@ -18786,8 +19736,9 @@ const G = {
       const flashOn = R.flash.intensity > 0 && camDir.dot(to) > 0.9 && dist < R.flash.distance;
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);
-      const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt';
-      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
+      const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt' || m.state === 'drawn' || m.state === 'lurch' || m.state === 'swing' || (m.type === 'executioner' && m.state === 'walk');
+      if (m.def.radio) radioD = Math.min(radioD, dist);
+      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound' || m.type === 'executioner')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
       if (visible) {
         fear = Math.max(fear, clamp(1 - dist / 22, 0, 1) + (threat ? 0.35 : 0.1));
         if (me.alive && G.now - (m.lastSting || -1e9) > 25000) { m.lastSting = G.now; SFX.play(dist < 5 ? 'stinger_hi' : 'stinger', null, { vol: 0.9, pitch: 0.85 + Math.random() * 0.3 }); }
@@ -18796,6 +19747,12 @@ const G = {
     }
     if (G.leechOn === me.id) fear = 1;
     if (me.alive && me.hp < 35) fear = Math.max(fear, 0.35);
+    // (and as any radio does near one of the things from behind the siren, a walkie you're carrying starts to hiss,
+    // in bursts that come quicker and longer the closer it is)
+    if (me.alive && radioD < 15 && me.slots.some((id) => id != null && G.items.get(id) && G.items.get(id).type === 'walkie')) {
+      d.radio = (d.radio || 0) - dt;
+      if (d.radio <= 0) { const k = 1 - radioD / 15; d.radio = lerp(1.1, 0.12, k) * (0.5 + Math.random()); SFX.play('static', null, { dur: 0.08 + Math.random() * 0.5 * k, vol: 0.4 + k * 1.1 }); }
+    }
     R.fx.fear = damp(R.fx.fear, me.alive ? clamp(fear, 0, 1) : 0, fear > R.fx.fear ? 3 : 0.4, dt);
     G.flicker = flicker + (R.fx.fear > 0.7 ? 0.01 : 0);
     // heartbeat: quickening with fear, and racing (over two hundred a minute) with something right behind you

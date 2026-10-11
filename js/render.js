@@ -442,7 +442,12 @@ const R = (() => {
   function flickerOf(src, t) {
     switch (src.state) {
       case 'off': return 0;
-      case 'emergency': return 0.55 + 0.45 * Math.sin(t * 2.2 + src.phase);
+      case 'emergency': {
+        if (!src.bad) return 0.55 + 0.45 * Math.sin(t * 2.2 + src.phase);
+        // (a failing red tube on the emergency circuit: catching and dropping out, now and then dead for a moment)
+        const n = Math.sin(t * 7.7 + src.phase) * Math.sin(t * 3.1 + src.phase * 1.3) + Math.sin(t * 0.29 + src.phase * 0.7) * 0.8;
+        return n > 0.1 ? (Math.random() < 0.08 ? 0.1 : 0.85 + Math.random() * 0.15) : (Math.random() < 0.18 ? 0.7 : 0.02);
+      }
       // (fire: always moving, never quite steady)
       case 'fire': return 0.72 + 0.2 * Math.sin(t * 13.1 + src.phase) * Math.sin(t * 7.3 + src.phase * 2.1) + Math.random() * 0.1;
       case 'flicker': {

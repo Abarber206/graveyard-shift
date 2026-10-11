@@ -113,6 +113,21 @@ Dead players can still listen in, but the living can't hear them. Sound you make
   - It's a different colour every landing.
   - It catches whatever light falls on it and throws it round the corridor in its own colour.
   - It leaves a glossy trail wherever it's been.
+- **The Sisters** keep to the wards (St. Agnes most of all). They come in twos and threes: faceless, twitching nurses with swollen, bandaged heads and rusted scalpels.
+  - They're blind, and go for light. Turn your flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking along, stopping, jerking on.
+  - Put the light out and keep still, and they lose you. They stand where they stopped, twitching. Right up close, they find you anyway.
+- **The Bound** look like bodies lying in the corridor, until you're close enough to touch one. Then it gets up: no arms, no face, just a ragged mouth at the top.
+  - It lurches after you on wrong-bent legs and retches a caustic mist at you from a few metres off. Keep out of the cloud; it eats through a suit.
+  - Walk wide round anything lying down.
+- **Pulling the core** kills the power, all of it. For a few seconds there's nothing but your flashlight.
+  - Then the emergency circuit's main breaker slams home somewhere below, and the red emergency lamps come on one fitting at a time, spreading out from the core room, each with its own clunk. Most of the ones that light are failing and flicker; a few burn steady; many never come on at all.
+  - Then the old alarm on the circuit starts up, a worn-out motor siren that sags, stalls and cuts out, and it doesn't stop until you're gone.
+  - It wakes the worst thing on the site. And sometimes the alarm brings up **the Executioner** from as deep as the building goes: a huge figure in a rusted iron hood, dragging a blade longer than you are. You hear the blade scraping along the floor long before you see it, sparks flying off it in the dark. It walks, never runs, toward the nearest of you, wherever you are, and nothing hurts it. When it lifts the blade, get out of reach.
+- A **walkie-talkie** in your pocket hisses with static near any of these three, in bursts that come quicker the closer it is.
+- **Meteors.** On the airless moons and rocks, some landings a meteoroid shower comes through: the survey office radios a warning half a minute ahead. Some showers are light (pebbles), some heavy, with a big strike in them. There's no air to burn them up: just a glint, a white flash, ejecta flung out on long slow arcs, the ground jumping under your feet, and a fresh crater ringed with bright rays. Out in the open near one, you're thrown off your feet, or killed.
+  - Now and then the shower is only the leading edge of something bigger on its way in. It shows as a new star in the black sky, then a rock, swelling hour by hour as the showers come thicker and heavier, and the radio gives you the impact time and counts it down.
+  - Be off the surface by then. If the ship is still down when it hits, everyone goes with the moon, and the contract ends there.
+  - Get away in time and you watch it hit from orbit: the rock falling in, a flash that lights the limb, a plume of molten rock and dust, and a great scar left on the moon. The fresh craters stay on it until you jump to another world.
 - Carry scrap back and drop it inside the ship. Most of it is junk worth a few dollars; a real find is rare. The ship **leaves at midnight**, and anyone not aboard is left behind. Pulling the lever with crew still outside warns you once; pull it again to leave them. Anyone it leaves behind, alive or dead, gets one last look: the view starts on them (or their body), flies the quickest way out of the facility and across the ground, faster the farther it has to come, and settles to watch the ship climb away into the sky without them.
 - Sell from orbit at the **terminal** (`SELL`). The Company pays more as the deadline gets closer (50% → 70% → 85% → 100%).
 - On the deadline, pull the lever to submit. Make the quota and a bigger one follows; miss it and you're terminated.
@@ -163,7 +178,7 @@ The terminal's `BESTIARY` command has notes on each creature. Short version: **l
 
 - `share/GraveyardShift.html`: the whole game in one file, for playing and sending to friends.
 - `share/web/index.html` and `share/GraveyardShift-web.zip`: the same file, packaged for web hosts.
-- `index.html`, `css/`, `js/`: the source. Everything (models, textures, sounds) is generated in code; there are no asset files.
+- `index.html`, `css/`, `js/`: the source. Everything (models, textures, sounds) is generated in code; there are no asset files. Every sound is worked out from how the real thing makes it, in several takes, and never plays quite the same way twice.
 - `Build.bat` + `build.ps1`: rebuild `share/` from the source.
 - `Play.bat` + `serve.ps1`: run the source through a local server.
 - `tools/build.mjs`, `tools/serve.mjs` (`npm run build`, `npm run serve`): the same two for Mac, Linux or a cloud machine with Node.js.

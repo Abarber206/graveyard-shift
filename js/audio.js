@@ -78,10 +78,11 @@ const SFX = (() => {
   const rnd = (a, b) => a + Math.random() * (b - a);
   // (one recipe sounding another goes through that one's level: LEVEL)
   const lv = (d, k) => { const g = ctx.createGain(); g.gain.value = LEVEL[k] ?? 1; g.connect(d); return g; };
-  // a take played into d at t
+  // a take played into d at t (never quite the same twice: each time a touch higher or lower, harder or softer, the
+  // way the real thing would be)
   function smp(d, t, buf, vol = 1, rate = 1) {
-    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
-    const g = ctx.createGain(); g.gain.value = vol; s.connect(g); g.connect(d); s.start(t); return s;
+    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate * (1 + (Math.random() - 0.5) * 0.05);
+    const g = ctx.createGain(); g.gain.value = vol * rnd(0.86, 1); s.connect(g); g.connect(d); s.start(t); return s;
   }
 
   // ---------- the physical models ----------
@@ -289,11 +290,20 @@ const SFX = (() => {
   }
   // the takes: worked out fresh the first n times a sound's wanted (or in the quiet after startup), then one of those.
   // sr: the rate to work it at (low, slow sounds need less)
-  const bank = {};
+  // Once it has its n, a sound goes on getting more takes in the background (up to MORE), so that over a night nothing
+  // comes round sounding the same twice
+  const bank = {}, MORE = 6, more = new Set();
   function toBuf(y) { const b = ctx.createBuffer(1, y.length, SR); b.getChannelData(0).set(norm(y, 0.9)); return b; }
   function take(key, n, make, sr = 32000) {
     const b = bank[key] || (bank[key] = []);
-    if (b.length >= n) return b[(Math.random() * b.length) | 0];
+    if (b.length >= n) {
+      if (n > 1 && b.length < MORE && !more.has(key)) {
+        more.add(key);
+        jobs.push(() => { const keep = SR; SR = sr; try { b.push(toBuf(make(b.length))); } finally { SR = keep; more.delete(key); } });
+        kick();
+      }
+      return b[(Math.random() * b.length) | 0];
+    }
     const keep = SR; SR = sr;
     try { b.push(toBuf(make(b.length))); } finally { SR = keep; }
     return b[b.length - 1];
@@ -707,6 +717,131 @@ const SFX = (() => {
       smp(d, t, take('spinup', 2, () => fade(add(buzz(1.8, (u) => 25 * Math.pow(120 / 25, u), (u) => Math.min(1, u * 1.5), [[240, 1, 0.03], [480, 0.6, 0.02], [130, 0.6, 0.05]], { duty: 0.2, jit: 0.01 }),
         buzz(0.8, () => 60, (u) => Math.min(1, u * 5) * (1 - u), [[120, 1, 0.05], [240, 0.5, 0.04], [360, 0.2, 0.03]], { duty: 0.4 }), 1, 0.4), (u) => Math.min(1, (1 - u) * 20)), 24000), 0.4);
     },
+    // ---- the things from behind the siren ----
+    // a Sister's shoes: a hard heel on concrete, ticking, one leg dragging a little
+    heel(d, t) { smp(d, t, take('heel', 6, () => add(struck({ modes: [1, 1.7, 2.9, 4.3], f0: rnd(650, 900), T: 0.03, hf: 2, tc: 0.0006, grit: 0.5, click: 0.5 }), grains(0.05, 8, 1500, 5000, 0.002), 0.004, 0.3)), 1); },
+    // its joints going: a knuckle-crack, then the cloth and the dressings rasping as it wrenches round
+    sister_twitch(d, t) {
+      smp(d, t, take('sister_twitch', 6, () => {
+        const y = arr(0.7), n = 1 + ((Math.random() * 3) | 0);
+        for (let i = 0; i < n; i++) add(y, struck({ modes: BAR, f0: rnd(1100, 2400), T: 0.015, hf: 1, tc: 0.0003, grit: 0.8, click: 0.8 }), i * rnd(0.03, 0.09), rnd(0.5, 1));
+        add(y, norm(bq(fade(noise(0.4), (u) => Math.sin(Math.PI * u) ** 2), 'bp', rnd(1800, 3200), 1.2)), rnd(0.05, 0.15), 0.25);
+        return y;
+      }), 1);
+    },
+    // breath through a wet mouth under the dressings: a slow rattle in, a gurgle out
+    sister_breath(d, t) {
+      smp(d, t, take('sister_breath', 4, () => add(voice(1.6, (u) => rnd(55, 70) * (1 - 0.15 * u), { jit: 0.2, shim: 0.6, sub: 0.6, breath: 1.4, open: 0.004, air: 0.3, amp: (u) => Math.sin(Math.PI * u) * (0.6 + 0.4 * Math.sin(u * 37)), mouth: [[380, 3, 1], [950, 5, 0.35], [2400, 6, 0.08]] }),
+        (() => { const y = arr(1.6); for (let i = 0; i < 9; i++) bubble(y, Math.round(rnd(0.6, 1.5) * SR), rnd(1.2, 3), rnd(0.1, 0.35)); return norm(y); })(), 0, 0.3), 24000), 1);
+    },
+    // the scalpel: a quick dry swish, the blade ticking off something
+    sister_slash(d, t) { nz(d, t, 0.16, 0.5, 'bandpass', 2400, 900, 1.6, 0.02); smp(d, t + 0.1, take('scalpel', 4, () => struck({ modes: plate(8, 6), f0: rnd(2600, 3400), T: 0.12, hf: 0.3, tc: 0.0002, click: 0.6 })), 0.4); },
+    // a Bound's voice: a moan from inside a sack of skin, low, through a mouth with no throat behind it
+    bound_groan(d, t) { smp(d, t, take('bound_groan', 5, () => growl(rnd(1.4, 2.2), rnd(48, 62), rnd(5, 9), [[rnd(260, 320), 3, 1], [rnd(600, 750), 4, 0.25]], { breath: 0.8, clip: 1.5 }), 22050), 1); },
+    bound_breath(d, t) { nz(d, t, 1.4, 0.12, 'lowpass', 400, 200, 0.7, 0.5); },
+    // ...heaving up what it spits: the gut clenching (a gulping rise), then a wet spray
+    bound_retch(d, t) {
+      smp(d, t, take('bound_retch', 4, () => {
+        const y = arr(1.6);
+        add(y, voice(0.85, (u) => rnd(70, 90) * (1 + u * 0.8), { jit: 0.25, shim: 0.7, sub: 0.5, breath: 1.2, open: 0.005, air: 0.25, amp: (u) => Math.min(1, u * 3) * (0.5 + 0.5 * Math.abs(Math.sin(u * 22))), mouth: [[420, 3, 1], [1100, 5, 0.4]], clip: 2 }), 0, 1);
+        add(y, norm(bq(fade(noise(0.6), (u) => Math.min(1, u * 30) * (1 - u) ** 1.5), 'bp', (u) => 2200 - u * 1200, 0.9)), 0.9, 0.8);
+        for (let i = 0; i < 14; i++) bubble(y, Math.round(rnd(0.9, 1.5) * SR), rnd(0.8, 2.5), rnd(0.1, 0.3));
+        return y;
+      }, 24000), 1);
+    },
+    // getting up: its skin stretching and creaking as it folds up off the floor, a wet slap of it finding its feet
+    bound_rise(d, t) {
+      smp(d, t, take('bound_rise', 3, () => add(fric(1.2, (u) => 30 + 60 * u, (u) => Math.sin(Math.PI * u), [[rnd(180, 240), 1, 0.05], [rnd(420, 520), 0.5, 0.03], [rnd(900, 1100), 0.25, 0.02]], 0.4),
+        struck({ modes: [1, 1.6, 2.3, 3.4], f0: rnd(70, 90), T: 0.12, hf: 2, tc: 0.012, grit: 0.4 }), 1.15, 0.8), 24000), 1);
+    },
+    bound_slam(d, t) { smp(d, t, bodyThud(), 1); smp(d, t + 0.01, lowThud(), 0.6); nz(d, t, 0.15, 0.4, 'lowpass', 700, 150, 1); },
+    // the Executioner. Its blade along the concrete: a great slab of iron catching and slipping (each slip ringing the
+    // whole length of it), grit grinding under its edge
+    blade_drag(d, t) {
+      smp(d, t, take('blade_drag', 6, () => add(fric(rnd(0.9, 1.3), (u) => rnd(28, 40) * (1 + 0.3 * Math.sin(u * 9)), (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 4) * (0.7 + 0.3 * Math.random()), plate(18, 5.5).map(([r, a]) => [r * rnd(150, 175), a, rnd(0.3, 0.8)]), 0.5),
+        grains(1.1, 90, 1500, 6000, 0.002), 0, 0.35), 24000), 1);
+    },
+    // ...lifted: dragging free with a scrape, the iron ringing as it comes up off the floor
+    blade_lift(d, t) { smp(d, t, take('blade_lift', 3, () => add(struck({ modes: plate(20, 5.5), f0: rnd(150, 170), T: 2.2, hf: 0.2, tc: 0.002, grit: 0.4, len: 2.6 }), fric(0.4, () => 60, (u) => 1 - u, [[rnd(900, 1300), 1, 0.05]], 0.5), 0, 0.5), 24000), 0.7); },
+    // ...and down: the floor taking the whole weight of it (concrete cracking, the iron ringing, chips flying)
+    blade_floor(d, t) {
+      nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2);
+      smp(d, t, take('blade_floor', 3, () => add(add(struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, grit: 0.5, click: 0.5, len: 3 }), struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(38, 46), T: 0.6, hf: 4, tc: 0.02, grit: 0.4 }), 0, 1), grains(0.5, 60, 900, 4000, 0.004), 0.01, 0.4), 24000), 1);
+    },
+    blade_flesh(d, t) { nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2); smp(d, t, bodyThud(), 1); smp(d, t + 0.02, lowThud(), 1); smp(d, t + 0.05, take('blade_floor', 3, () => struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, len: 3 }), 24000), 0.5); },
+    // its tread: a great weight coming down on bare feet, the chains on its hood swinging and clinking with it
+    heavy_step(d, t) {
+      smp(d, t, take('heavy_step', 5, () => {
+        const y = add(arr(0.9), struck({ modes: [1, 1.5, 2.2, 3.3], f0: rnd(42, 52), T: 0.3, hf: 3, tc: 0.025, grit: 0.4 }), 0, 1);
+        for (let i = 0; i < 4; i++) add(y, struck({ modes: [1, 2.76, 5.4], f0: rnd(1500, 2600), T: 0.08, hf: 0.5, tc: 0.0003, grit: 0.4 }), 0.08 + i * rnd(0.05, 0.12), rnd(0.1, 0.25));
+        return y;
+      }, 24000), 1);
+    },
+    // the hood shifting on its shoulders: iron grating on iron, the chains
+    hood_rattle(d, t) {
+      smp(d, t, take('hood_rattle', 4, () => {
+        const y = add(arr(1.2), fric(0.6, () => rnd(40, 70), (u) => Math.sin(Math.PI * u), plate(10, 1.2).map(([r, a]) => [r * rnd(220, 260), a, 0.4]), 0.6), 0, 0.6);
+        for (let i = 0; i < 7; i++) add(y, struck({ modes: [1, 2.76, 5.4], f0: rnd(1400, 2800), T: 0.07, hf: 0.5, tc: 0.0003 }), rnd(0.1, 0.9), rnd(0.1, 0.3));
+        return y;
+      }, 24000), 1);
+    },
+    // a Bound's mist eating through what it lands on
+    mist_hiss(d, t) { nz(d, t, 2.5, 0.25, 'highpass', 3000, 5000, 0.7, 0.1); nz(d, t, 2.5, 0.12, 'bandpass', 1200, 700, 2, 0.3); },
+    // Pulling the core: the emergency circuit's main breaker thrown somewhere below, a contactor the size of a door
+    // slamming home in its cabinet, the slam rolling off down every corridor; the fire shutter on the circuit dropping
+    // a slat at a time, quicker and quicker, into its stops; then the ballasts all over the building striking up at once
+    em_breaker(d, t, o) {
+      smp(d, t, take('em_breaker', 3, () => {
+        const y = arr(4.2);
+        add(y, struck({ modes: plate(22, 1.3), f0: rnd(48, 62), T: 2.8, hf: 0.25, tc: 0.004, grit: 0.4, glide: 0.015, click: 0.4, len: 3.2 }), 0, 1);
+        add(y, struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(30, 38), T: 1.2, hf: 4, tc: 0.03, grit: 0.3 }), 0, 0.9);
+        let at = rnd(0.15, 0.22), gap = rnd(0.09, 0.12);
+        for (let i = 0; i < 14; i++) { add(y, struck({ modes: plate(10, 3), f0: rnd(240, 330), T: 0.18, hf: 0.6, tc: 0.0015, grit: 0.5 }), at, 0.35 * rnd(0.6, 1)); at += gap; gap *= 0.86; }
+        add(y, struck({ modes: plate(16, 2.2), f0: rnd(110, 140), T: 1.0, hf: 0.4, tc: 0.003, grit: 0.4 }), at + 0.02, 0.7);
+        add(y, buzz(2.6, (u) => 100 * (1 + 0.01 * Math.sin(u * 30)), (u) => Math.min(1, u * 2.5) * (1 - u) ** 1.5, [[100, 1, 0.08], [200, 0.7, 0.06], [300, 0.4, 0.05], [1200, 0.15, 0.01]], { duty: 0.3, jit: 0.02, clip: 1.6 }), at + 0.1, 0.3);
+        return y;
+      }, 24000), 1, o.rate || 1);
+      nz(d, t, 0.5, 0.5, 'lowpass', 700, 80, 0.7);
+    },
+    // ...and each emergency fitting coming on as the circuit reaches it: its relay clacking over, the contactor seating
+    // with a thunk, the little shutter on its cage (if it has one) rattling up, and the ballast catching (after a try
+    // or two, some of them) with a buzz. Every fitting has worn its own way, so no two sound alike
+    em_lamp(d, t, o) {
+      smp(d, t, take('em_lamp', 12, () => {
+        const y = arr(1.8);
+        add(y, struck({ modes: plate(8, 1.6), f0: rnd(700, 1500), T: 0.06, hf: 0.8, tc: 0.0006, grit: 0.6, click: 0.6 }), 0, 0.5);
+        add(y, struck({ modes: plate(12, rnd(1.2, 2.4)), f0: rnd(90, 190), T: rnd(0.3, 0.8), hf: 0.5, tc: 0.002, grit: 0.4 }), rnd(0.005, 0.03), 0.8);
+        if (Math.random() < 0.6) {
+          let at = rnd(0.05, 0.1), gap = rnd(0.03, 0.06); const f0 = rnd(300, 600);
+          for (let i = 0, n = 3 + ((Math.random() * 6) | 0); i < n; i++) { add(y, struck({ modes: plate(8, 3), f0: f0 * rnd(0.95, 1.05), T: 0.08, hf: 0.7, tc: 0.001, grit: 0.5 }), at, 0.3); at += gap; gap *= rnd(0.8, 1.1); }
+        }
+        const tries = 1 + ((Math.random() * 3) | 0), fb = rnd(98, 122), ring = rnd(1800, 3200), clip = rnd(1.5, 3);
+        let at = rnd(0.12, 0.25);
+        for (let i = 0; i < tries; i++) {
+          const last = i === tries - 1, L = last ? rnd(0.5, 0.9) : rnd(0.04, 0.12);
+          add(y, buzz(L, () => fb, (u) => Math.min(1, u * 30) * (last ? (1 - u) ** 2 : 1), [[fb, 1, 0.05], [fb * 2, 0.8, 0.04], [fb * 4, 0.4, 0.02], [ring, 0.25, 0.006]], { duty: rnd(0.1, 0.3), jit: 0.02, clip }), at, 0.35);
+          at += L + rnd(0.04, 0.12);
+        }
+        return y;
+      }, 24000), 1, (o.rate || 1) * rnd(0.92, 1.08));
+    },
+    // the facility's own alarm on the emergency circuit: an old motor siren with its bearings gone, wailing up and
+    // sagging, its horn torn so the cone rattles, a bad contact cutting it in and out. It never quite gets going, and
+    // never stops
+    em_alarm(d, t, o) {
+      smp(d, t, take('em_alarm', 6, () => {
+        const dur = rnd(2.2, 2.7), dr = wander(8, 0.06), base = rnd(330, 420), top = base * rnd(1.6, 2.1);
+        // (where the contact cuts it: a few gaps, some dead, some only weak)
+        const cuts = Array.from({ length: 2 + ((Math.random() * 4) | 0) }, () => { const a = Math.random(); return [a, a + rnd(0.02, 0.12), Math.random() < 0.6 ? 0 : rnd(0.15, 0.4)]; });
+        const gate = (u) => { let k = 1; for (const [a, b, v] of cuts) if (u > a && u < b) k = Math.min(k, v); return k; };
+        const f = (u) => (base + (top - base) * Math.pow(Math.sin(Math.PI * Math.min(1, u * 1.15)), 0.8)) * (1 + dr(u)) * (1 - 0.15 * ramp(u, 0.8, 1));
+        const y = buzz(dur, f, (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 6) * gate(u) * (0.75 + 0.25 * Math.sin(u * 60)),
+          [[rnd(700, 820), 1, 0.02], [rnd(1250, 1450), 0.7, 0.012], [rnd(2100, 2500), 0.4, 0.008], [rnd(380, 450), 0.6, 0.03], [3400, 0.2, 0.005]], { duty: 0.12, jit: 0.02, shim: 0.3, clip: rnd(3, 5) });
+        add(y, fric(dur, (u) => f(u) * 0.5, (u) => Math.min(1, u * 8) * gate(u) * 0.6, [[rnd(1800, 2600), 1, 0.01], [rnd(3500, 4500), 0.5, 0.006]], 0.4), 0, 0.3);
+        for (const [a] of cuts) add(y, grains(0.06, 20, 2000, 7000, 0.002), a * dur, 0.25);
+        return bq(y, 'hp', 180);
+      }, 32000), 1, o.rate || 1);
+    },
     metal_bang(d, t) { smp(d, t, take('metal_bang', 3, () => struck({ modes: plate(26, 1.8), f0: rnd(170, 190), T: 2.4, hf: 0.2, tc: 0.0008, glide: 0.02, len: 2.6 }), 24000), 0.6); nz(d, t, 0.12, 0.6, 'lowpass', 1200, 200); },
     drip(d, t) { smp(d, t, take('drip', 5, () => bubble(arr(0.12), 0, rnd(1.6, 2.6))), 1); },
     whisper(d, t) {
@@ -873,7 +1008,8 @@ const SFX = (() => {
     err: 1.5, scan: 2, locker_open: 0.6, alarm: 0.62, power_down: 1.6, metal_bang: 1.4, drip: 0.17, knock: 1.3,
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,
     pin: 0.67, toy: 0.065, ring: 0.089, chime: 0.17, gong: 1.3, charge: 1.8, creak: 0.16, caw: 0.18, cricket: 0.034,
-    owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12
+    owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12,
+    em_breaker: 1.5, em_lamp: 0.5, em_alarm: 0.35, heel: 0.35, sister_twitch: 0.5, sister_breath: 0.6, bound_groan: 1.2, bound_retch: 1.1, bound_rise: 1, blade_drag: 0.8, blade_lift: 1, blade_floor: 1.4, heavy_step: 1.3, hood_rattle: 0.5
   };
 
   // ---------- routing ----------
@@ -1099,11 +1235,13 @@ const SFX = (() => {
   // The heavy takes (the music, the long drones) and a first take of everything else are worked out a piece at a time
   // just after startup, between frames, so as little as possible has to be made the moment it's first heard.
   const jobs = [];
+  let working = false;
   function work() {
     const t0 = performance.now();
     while (jobs.length && performance.now() - t0 < 10) { try { jobs.shift()(); } catch (e) { console.warn('sound prep', e); } }
-    if (jobs.length) setTimeout(work, 40);
+    if (jobs.length) setTimeout(work, 40); else working = false;
   }
+  function kick() { if (!working) { working = true; setTimeout(work, 40); } }
   // a take of several players, worked out a second of it at a time, one player after another, and laid together when
   // the last is done (made a loop, overlapping by xf, if xf)
   function ensemble(key, dur, xf, sr, players) {
@@ -1137,7 +1275,10 @@ const SFX = (() => {
     for (const surf of ['concrete', 'metal', 'dirt']) quiet('step', { surf });
     for (const mat of ['metal', 'tin', 'glass', 'porcelain', 'wood', 'bone', 'plastic']) quiet('drop', { mat, w: 1 });
     for (const k of Object.keys(S)) if (!['step', 'drop', 'run_far', 'stinger', 'stinger_hi', 'fired'].includes(k)) quiet(k);
-    setTimeout(work, 200);
+    // (every emergency fitting and every turn of the alarm its own: their takes worked out ahead, as they all come at once)
+    for (let i = 0; i < 11; i++) quiet('em_lamp');
+    for (let i = 0; i < 5; i++) quiet('em_alarm');
+    working = true; setTimeout(work, 200);
   }
   // the orbit chord joining in once its players are ready
   function padStart() { if (!loops.padSrc && pick('pad')) { loops.padSrc = loopSrc(pick('pad')); const g = ctx.createGain(); g.gain.value = 0.23; loops.padSrc.connect(g); g.connect(loops.padIn); } }

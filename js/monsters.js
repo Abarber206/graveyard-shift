@@ -8,6 +8,10 @@ const MON_DEFS = {
   hound: { name: 'Hollow Hound', hp: 5, zone: 'out', power: 2, radius: 0.7, height: 1.2 },
   // (its body fills a corridor; what it steers by is a small core, so it can squeeze through any doorway)
   slime: { name: 'The Seep', hp: 9999, zone: 'in', power: 3, radius: 0.55, height: 2.8 },
+  sister: { name: 'The Sisters', hp: 3, zone: 'in', power: 2, radius: 0.32, height: 1.75, radio: true },
+  bound: { name: 'The Bound', hp: 4, zone: 'in', power: 2, radius: 0.36, height: 1.8, radio: true },
+  // (never one of a site's own: what the core's alarm brings up from below; see G.hostCoreTaken)
+  executioner: { name: 'The Executioner', hp: 9999, zone: 'in', power: 4, radius: 0.55, height: 2.6, radio: true },
 };
 const BESTIARY = {
   crawler: 'Low, eyeless, mostly mouth. Once it notices you it charges in a straight line and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
@@ -15,6 +19,9 @@ const BESTIARY = {
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and drops onto the head of whoever passes beneath. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound alone. Walk, crouch, keep quiet. They will follow you into the ship if the hatch is open.',
+  sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
+  bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
+  executioner: 'Nobody has a body cam recording of it from the front. Pulling a core sets off the alarm, and sometimes the alarm brings it up from below: a great figure in an iron hood, dragging a blade longer than you are. You will hear it before you see it. It does not run, it does not stop, and nothing we have so much as marks it. When it lifts the blade, get out of reach. Then get out of the building.',
   slime: 'A wall of slime as wide as the corridor and as high as the ceiling. Slow, but it never stops, and nothing we have hurts it. It feels you through the floor. Left alone it settles across a corridor and waits. Shut a door on it: it cannot open doors, but it will seep under one, or through a barred window, a little at a time, and gather itself again on your side. Touching it burns. Do not let it back you into a dead end.',
 };
 
@@ -34,6 +41,14 @@ const MonModels = (() => {
     leg: () => M('leg', () => new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.6 })),
     sinew: () => M('sinew', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 })),
     claw: () => M('claw', () => new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.35, metalness: 0.1 })),
+    sisSkin: () => M('sisSkin', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x948884, roughness: 0.55 })),
+    smock: () => M('smock', () => new THREE.MeshStandardMaterial({ map: TEX.get('suitWorn'), color: 0xa89c88, roughness: 0.85 })),
+    dressing: () => M('dressing', () => new THREE.MeshStandardMaterial({ map: TEX.get('tape'), color: 0xd0c0a0, roughness: 0.9 })),
+    scalpel: () => M('scalpel', () => new THREE.MeshStandardMaterial({ map: TEX.get('rust'), color: 0xb0a090, roughness: 0.35, metalness: 0.75 })),
+    bound: () => M('bound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x9a7a6c, roughness: 0.3, metalness: 0.05 })),
+    iron: () => M('iron', () => new THREE.MeshStandardMaterial({ map: TEX.get('rust'), color: 0x9a7a62, roughness: 0.8, metalness: 0.5 })),
+    apron: () => M('apron', () => new THREE.MeshStandardMaterial({ map: TEX.get('suitWorn'), color: 0x4a3a32, roughness: 0.75 })),
+    deadSkin: () => M('deadSkin', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x8a8278, roughness: 0.6 })),
     // the Seep: a glossy jelly you can see into, heaving slowly all over, glowing a little at its edges where the light
     // comes through it (its colour in blotches of darker and paler, square-cut like everything else; which colour, a
     // new one every landing: see SLIME_COLORS)
@@ -71,6 +86,12 @@ const MonModels = (() => {
     mk(cap(r2, l2), m, b, 0, -l2 / 2, 0);
     const end = grp(b, 0, -l2, 0);
     return { a, b, end };
+  }
+  // a sphere gone lumpy and swollen (a head that's grown wrong, a sack of skin)
+  function lumpy(r, seed, k = 0.3, s = 16) {
+    const g = sph(r, s), p = g.attributes.position, nz = new Noise2D(seed);
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), f = 1 + nz.fbm(x / r * 1.3 + 4, y / r * 1.3 + z / r * 0.9, 3) * k; p.setXYZ(i, x * f, y * f, z * f); }
+    g.computeVertexNormals(); return g;
   }
   function teethRing(parent, r, n, len, inward = true) {
     const g = grp(parent);
@@ -255,6 +276,89 @@ const MonModels = (() => {
     // sagging, with things it has taken hanging inside it. It's built a metre each way and sized as it goes (see
     // anim_slime). The parts for passing a shut door: a thin sheet under it (or a rope of it through the window's bars,
     // dripping down the far side) and a mound gathering beyond, while the body this side drains away into the gap
+    // A Sister: a nurse from a ward that never closed. Thin, in a stained smock, its head a swollen faceless lump bound
+    // up in dirty dressings, lolling on a twisted neck, a nurse's cap still pinned to the mess of it; a rusted scalpel
+    // in one hand
+    sister() {
+      const root = new THREE.Group(), P = {};
+      const skin = mats.sisSkin(), cloth = mats.smock(), band = mats.dressing(), dark = mats.joint();
+      P.hips = grp(root, 0, 0.95, 0);
+      mk(sph(0.13, 12), cloth, P.hips).scale.set(1.25, 0.8, 0.9);
+      const skirt = mk(new THREE.CylinderGeometry(0.17, 0.26, 0.42, 12, 1, true), cloth, P.hips, 0, -0.16, 0); skirt.material.side = THREE.DoubleSide;
+      P.ll = limb(P.hips, -0.085, -0.05, 0, 0.05, 0.46, 0.04, 0.46, skin);
+      P.lr = limb(P.hips, 0.085, -0.05, 0, 0.05, 0.46, 0.04, 0.46, skin);
+      for (const L of [P.ll, P.lr]) { mk(sph(0.045, 8), skin, L.b); mk(new THREE.BoxGeometry(0.06, 0.05, 0.18), dark, L.end, 0, -0.02, 0.04); }
+      P.torso = grp(P.hips, 0, 0.05, 0);
+      mk(cap(0.12, 0.32, 10), cloth, P.torso, 0, 0.27, 0).scale.set(1.1, 1, 0.75);
+      mk(new THREE.TorusGeometry(0.075, 0.02, 5, 12), cloth, P.torso, 0, 0.5, 0, Math.PI / 2);
+      P.neck = grp(P.torso, 0, 0.52, 0.01);
+      mk(cap(0.035, 0.12, 6), skin, P.neck, 0, 0.07, 0);
+      P.head = grp(P.neck, 0, 0.16, 0);
+      mk(lumpy(0.15, 31 + Math.random() * 50, 0.35), skin, P.head, 0, 0.08, 0.01).scale.set(1.0, 1.15, 1.05);
+      for (let i = 0; i < 5; i++) { const b = mk(new THREE.TorusGeometry(0.15 - Math.abs(i - 2) * 0.014, 0.024, 5, 14), band, P.head, 0, -0.02 + i * 0.05, 0.01); b.rotation.set(Math.PI / 2 + (i - 2) * 0.2, 0.2 * i, 0.3 * (i % 2 ? 1 : -1)); }
+      mk(new THREE.BoxGeometry(0.14, 0.05, 0.08), band, P.head, 0.02, 0.25, -0.02, -0.3, 0, 0.2);
+      P.al = limb(P.torso, -0.17, 0.46, 0, 0.035, 0.3, 0.03, 0.3, skin);
+      P.ar = limb(P.torso, 0.17, 0.46, 0, 0.035, 0.3, 0.03, 0.3, skin);
+      for (const L of [P.al, P.ar]) { mk(sph(0.045, 8), cloth, L.a, 0, -0.02, 0); mk(new THREE.BoxGeometry(0.05, 0.08, 0.025), skin, L.end, 0, -0.04, 0); }
+      P.blade = mk(new THREE.BoxGeometry(0.012, 0.03, 0.26), mats.scalpel(), P.ar.end, 0, -0.07, 0.12);
+      root.userData.parts = P; return root;
+    },
+    // The Bound: a body bound up in its own skin, the arms grown in against it like a straitjacket, no head, only a
+    // ragged mouth at the top it retches through; on legs that bend wrong. Lying down, it's a body in a bag
+    bound() {
+      const root = new THREE.Group(), P = {};
+      const m = mats.bound(), gum = mats.gum(), sin = mats.sinew();
+      P.body = grp(root, 0, 0.9, 0);
+      P.ll = limb(P.body, -0.1, 0, 0, 0.06, 0.45, 0.05, 0.48, m);
+      P.lr = limb(P.body, 0.1, 0, 0, 0.06, 0.45, 0.05, 0.48, m);
+      for (const L of [P.ll, P.lr]) { mk(sph(0.06, 8), sin, L.b); mk(new THREE.BoxGeometry(0.08, 0.05, 0.2), m, L.end, 0, -0.02, 0.05); }
+      P.torso = grp(P.body, 0, 0.02, 0);
+      mk(lumpy(0.22, 77 + Math.random() * 50, 0.18), m, P.torso, 0, 0.42, 0).scale.set(0.95, 2.1, 0.8);
+      // the skin drawn tight round it in bands, the arms' outlines under it
+      for (let i = 0; i < 5; i++) mk(new THREE.TorusGeometry(0.2 - Math.abs(i - 2) * 0.02, 0.018, 5, 14), sin, P.torso, 0, 0.18 + i * 0.13, 0, Math.PI / 2 + (i % 2 ? 0.12 : -0.1));
+      for (const sx of [-1, 1]) mk(cap(0.05, 0.42, 8), m, P.torso, sx * 0.16, 0.48, 0.07, 0.15, 0, sx * 0.12);
+      P.mouth = grp(P.torso, 0, 0.88, 0.02);
+      mk(new THREE.TorusGeometry(0.075, 0.03, 6, 12), gum, P.mouth, 0, 0, 0, Math.PI / 2);
+      mk(new THREE.CircleGeometry(0.07, 12), mats.void(), P.mouth, 0, 0.005, 0, -Math.PI / 2);
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; mk(new THREE.ConeGeometry(0.02, 0.09, 4), sin, P.mouth, Math.cos(a) * 0.08, 0.03, Math.sin(a) * 0.08, Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); }
+      P.head = P.mouth;
+      root.userData.parts = P; return root;
+    },
+    // The Executioner: a huge grey figure, bare to the waist over a butcher's long leather apron, its head shut up in
+    // a tall riveted iron hood with chains hanging off it, dragging a blade longer than a man
+    executioner() {
+      const root = new THREE.Group(), P = {};
+      const skin = mats.deadSkin(), iron = mats.iron(), apron = mats.apron(), dark = mats.joint();
+      P.hips = grp(root, 0, 1.25, 0);
+      mk(sph(0.28, 14), skin, P.hips).scale.set(1.1, 0.7, 0.85);
+      mk(new THREE.BoxGeometry(0.62, 1.15, 0.06), apron, P.hips, 0, -0.5, 0.24);
+      mk(new THREE.BoxGeometry(0.62, 1.1, 0.05), apron, P.hips, 0, -0.5, -0.22);
+      P.ll = limb(P.hips, -0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
+      P.lr = limb(P.hips, 0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
+      for (const L of [P.ll, P.lr]) mk(new THREE.BoxGeometry(0.16, 0.1, 0.32), dark, L.end, 0, -0.03, 0.06);
+      P.torso = grp(P.hips, 0, 0.08, 0);
+      mk(lumpy(0.3, 11, 0.12), skin, P.torso, 0, 0.42, 0).scale.set(1.25, 1.3, 0.85);
+      mk(sph(0.24, 12), skin, P.torso, 0, 0.12, 0.02).scale.set(1.15, 0.9, 0.9);
+      P.neck = grp(P.torso, 0, 0.8, 0);
+      mk(cap(0.1, 0.1, 8), skin, P.neck, 0, 0.05, 0);
+      P.head = grp(P.neck, 0, 0.12, 0);
+      // the hood: a tall iron box tapering up, riveted along its seams, a slit for nothing to look out of
+      const hood = mk(new THREE.CylinderGeometry(0.16, 0.34, 0.95, 6, 1), iron, P.head, 0, 0.42, -0.04); hood.rotation.y = Math.PI / 6; hood.scale.set(1, 1, 1.15);
+      mk(new THREE.BoxGeometry(0.5, 0.06, 0.5), iron, P.head, 0, -0.03, -0.04);
+      for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU; mk(sph(0.018, 6), dark, P.head, Math.cos(a) * 0.29, 0.04, Math.sin(a) * 0.33 - 0.04); }
+      mk(new THREE.BoxGeometry(0.02, 0.32, 0.02), mats.void(), P.head, 0, 0.4, 0.27).rotation.x = -0.17;
+      for (const [x, z, l] of [[-0.22, 0.12, 0.5], [0.2, 0.1, 0.35], [0.05, 0.24, 0.6], [-0.1, -0.25, 0.45]]) for (let k = 0; k < l / 0.06; k++) mk(new THREE.TorusGeometry(0.022, 0.006, 4, 8), dark, P.head, x, -0.06 - k * 0.055, z, 0, k % 2 ? Math.PI / 2 : 0, 0);
+      P.al = limb(P.torso, -0.42, 0.66, 0, 0.09, 0.55, 0.075, 0.55, skin);
+      P.ar = limb(P.torso, 0.42, 0.66, 0, 0.09, 0.55, 0.075, 0.55, skin);
+      for (const L of [P.al, P.ar]) { mk(sph(0.11, 10), skin, L.a); mk(sph(0.08, 8), skin, L.end, 0, -0.05, 0).scale.set(1, 1.3, 0.8); }
+      // the blade: a great flat slab of rusted iron, hung from the right fist, its tip dragging
+      P.blade = grp(P.ar.end, 0, -0.08, 0);
+      mk(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 6), dark, P.blade, 0, 0, 0, Math.PI / 2, 0, 0);
+      const bl = mk(new THREE.BoxGeometry(0.05, 0.36, 1.9), iron, P.blade, 0, -0.06, 1.12); bl.scale.set(1, 1, 1);
+      mk(new THREE.BoxGeometry(0.02, 0.1, 1.9), iron, P.blade, 0, -0.25, 1.12);
+      P.tip = grp(P.blade, 0, -0.2, 2.05);
+      root.userData.parts = P; return root;
+    },
     slime() {
       const root = new THREE.Group(), P = {}, m = mats.slime();
       // (a rounded box: a sphere pushed out toward its corners, sitting on the floor)
@@ -291,7 +395,7 @@ class Monster {
   constructor(game, id, type, x, y, z) {
     this.g = game; this.id = id; this.type = type; this.def = MON_DEFS[type];
     this.pos = new THREE.Vector3(x, y, z); this.ry = Math.random() * TAU;
-    this.state = type === 'leech' ? 'crawl' : type === 'hound' ? 'wander' : type === 'pale' ? 'lurk' : 'roam';
+    this.state = type === 'leech' ? 'crawl' : type === 'hound' ? 'wander' : type === 'pale' ? 'lurk' : type === 'sister' ? 'stand' : type === 'bound' ? 'lie' : type === 'executioner' ? 'walk' : 'roam';
     this.st = 0; this.hp = this.def.hp; this.extra = -1;
     this.target = null; this.goal = null; this.path = null; this.pathT = 0; this.pathGoal = null;
     this.stun = 0; this.atk = 0; this.anger = 0; this.stare = 0; this.seenCd = 0; this.speedNow = 0; this.grip = 100; this.dmgAcc = 0;
@@ -596,6 +700,151 @@ class Monster {
       default: this.setState('lurk');
     }
   }
+  // The Sisters: blind, and drawn to light: a beam turned on one, a lamp carried past it, any light at all right up
+  // against it. Noise only makes them turn their heads. Once one's drawn, the others near it come too, jerking along,
+  // stopping, jerking on. Put the light out and keep still and they lose you, and stand where they stopped, twitching.
+  // Close enough to touch, they find you anyway
+  ai_sister(dt) {
+    const fac = this.g.fac;
+    this.scanT -= dt;
+    if (this.scanT <= 0) {
+      this.scanT = 0.2;
+      const head = { x: this.pos.x, y: this.pos.y + 1.5, z: this.pos.z };
+      let lit = null;
+      for (const p of this.playersIn()) {
+        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), lamp = this.g.carriesLight(p);
+        if (d > 30 || Math.abs(p.pos.y - this.pos.y) > 3) continue;
+        if ((p.flash && this.g.canSee(p, head, p.flash === 2 ? 30 : 21, 0.93)) || (lamp && d < 11 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) || (d < 1.7)) { lit = p; break; }
+      }
+      if (lit) {
+        if (this.state !== 'drawn') {
+          this.setState('drawn');
+          // (and the rest of the ward with it)
+          for (const o of this.g.monsters.values()) if (o !== this && o.type === 'sister' && !o.dead && o.state !== 'drawn' && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 16) { o.target = lit.id; o.lastKnown = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y }; o.setState('drawn'); }
+        }
+        this.target = lit.id; this.lastKnown = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y }; this.lastLit = 0;
+      }
+    }
+    this.lastLit = (this.lastLit || 0) + dt;
+    switch (this.state) {
+      case 'drawn': {
+        const tgt = this.target != null ? this.g.players.get(this.target) : null;
+        if (!tgt || !tgt.alive || tgt.zone !== 'in' || !this.lastKnown) { this.setState('stand'); this.target = null; break; }
+        this.extra = tgt.id;
+        // (jerking along: a lurch, a stop, a lurch)
+        const go = Math.sin(this.st * 6.3 + this.id) > -0.35 ? 1 : 0.1;
+        const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 3.7 * go, dt, { gy: this.lastKnown.y });
+        const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
+        if (d < 1.35 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && this.atk <= 0) {
+          this.atk = 1.3; const n = Math.max(d, 0.3);
+          this.g.emitSound('sister_slash', this.center(), { vol: 1 });
+          this.g.hurtPlayer(tgt.id, 30, 'sister', (tgt.pos.x - this.pos.x) / n * 3, (tgt.pos.z - this.pos.z) / n * 3);
+        }
+        // lost the light: on to where it was last, then stand there
+        if (this.lastLit > 1.5 && rem < 1) { this.setState('stand'); this.target = null; this.extra = -1; }
+        if (this.lastLit > 14) { this.setState('stand'); this.target = null; this.extra = -1; }
+        break;
+      }
+      default: {
+        if (this.state !== 'stand') this.setState('stand');
+        this.extra = -1;
+        // now and then a few steps somewhere, slowly
+        if (!this.goal && this.st > 10 + (this.id % 7) * 2) { this.goal = this.randomGoal(2, 8); this.st = 0; }
+        if (this.goal) { if (this.moveTo(this.goal.x, this.goal.z, 0.8, dt) < 0.6 || this.st > 12) { this.goal = null; this.st = 0; } }
+        else this.speedNow = 0;
+      }
+    }
+  }
+  // The Bound: lies still where it fell until someone's near enough to touch it, then gets up and comes for them,
+  // lurching, swaying, retching up a caustic mist at whoever keeps out of its reach. Loses you, and it goes and lies
+  // down again somewhere
+  ai_bound(dt) {
+    const fac = this.g.fac;
+    this.cool -= dt;
+    let tgt = this.target != null ? this.g.players.get(this.target) : null;
+    if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
+    switch (this.state) {
+      case 'rise': {
+        this.speedNow = 0;
+        if (tgt) this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 2, dt);
+        if (this.st > 1.5) this.setState(tgt ? 'lurch' : 'shamble');
+        break;
+      }
+      case 'lurch': {
+        if (!tgt) { this.setState('shamble'); this.goal = this.randomGoal(4, 14); break; }
+        this.track(tgt, 18, -0.3, 5, 10, dt);
+        if (this.memory <= 0) { this.target = null; this.extra = -1; this.setState('shamble'); this.goal = this.randomGoal(4, 14); break; }
+        this.extra = tgt.id;
+        const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
+        this.moveTo(this.lastKnown.x, this.lastKnown.z, 2.8 * (0.55 + 0.45 * Math.abs(Math.sin(this.st * 2.6))), dt, { gy: this.lastKnown.y, turn: 5 });
+        if (d < 1.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && this.atk <= 0) {
+          this.atk = 1.6; const n = Math.max(d, 0.3);
+          this.g.emitSound('bound_slam', this.center(), { vol: 1 });
+          this.g.hurtPlayer(tgt.id, 22, 'bound', (tgt.pos.x - this.pos.x) / n * 7, (tgt.pos.z - this.pos.z) / n * 7);
+        }
+        if (this.aware && d > 3 && d < 9 && this.cool <= 0 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('spit'); this.spitAt = { x: tgt.pos.x, y: tgt.pos.y, z: tgt.pos.z }; this.spat = false; }
+        break;
+      }
+      case 'spit': {
+        this.speedNow = 0;
+        this.turnTo(Math.atan2(this.spitAt.x - this.pos.x, this.spitAt.z - this.pos.z), 4, dt);
+        if (this.st > 0.9 && !this.spat) {
+          this.spat = true; this.cool = 6 + Math.random() * 3;
+          const f = this.forward();
+          this.g.emit({ e: 'mist', x: +this.spitAt.x.toFixed(2), y: +this.spitAt.y.toFixed(2), z: +this.spitAt.z.toFixed(2), fx: +(this.pos.x + f.x * 0.2).toFixed(2), fy: +(this.pos.y + 1.75).toFixed(2), fz: +(this.pos.z + f.z * 0.2).toFixed(2) });
+        }
+        if (this.st > 1.7) this.setState(tgt ? 'lurch' : 'shamble');
+        break;
+      }
+      case 'shamble': {
+        this.extra = -1;
+        if (!this.goal) this.goal = this.randomGoal(5, 18);
+        const p = this.detect(14, 0.1, 3);
+        if (p) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('lurch'); break; }
+        if (this.moveTo(this.goal.x, this.goal.z, 1.3, dt) < 0.8 || this.st > 25) { this.goal = null; this.setState('lie'); }
+        break;
+      }
+      default: {
+        // lying there like a body
+        if (this.state !== 'lie') this.setState('lie');
+        this.speedNow = 0; this.extra = -1;
+        const p = this.nearestPlayer(2.6);
+        if (p && Math.abs(p.pos.y - this.pos.y) < 1.5) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('rise'); this.g.emitSound('bound_rise', this.center(), { vol: 1.2 }); }
+        else if (this.st > 60 + (this.id % 5) * 10) this.setState('shamble');
+      }
+    }
+  }
+  // The Executioner: no senses to speak of, and it needs none: it walks toward the nearest of you, wherever you are in
+  // the building, never hurrying, never stopping; up close it lifts the blade (slowly: there's a moment to get out of
+  // reach) and brings it down
+  ai_executioner(dt) {
+    const fac = this.g.fac;
+    let tgt = null, bd = Infinity;
+    for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) + Math.abs(p.pos.y - this.pos.y) * 6; if (d < bd) { bd = d; tgt = p; } }
+    if (!tgt) { if (this.state !== 'swing') { this.setState('stand'); this.speedNow = 0; this.extra = -1; } }
+    if (this.state === 'swing') {
+      this.speedNow = 0;
+      if (tgt && this.st < 1.05) this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 1.4, dt);
+      if (this.st >= 1.05 && !this.struck) {
+        this.struck = true;
+        const f = this.forward(); let hit = false;
+        for (const p of this.playersIn()) {
+          const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
+        }
+        this.g.emitSound(hit ? 'blade_flesh' : 'blade_floor', new THREE.Vector3(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2), { vol: 1.3, ref: 6 });
+        this.g.addNoise(this.pos, 30, 'in', null);
+      }
+      if (this.st > 2.5) { this.struck = false; this.setState(tgt ? 'walk' : 'stand'); }
+      return;
+    }
+    if (!tgt) return;
+    if (this.state !== 'walk') this.setState('walk');
+    this.extra = tgt.id;
+    this.moveTo(tgt.pos.x, tgt.pos.z, 2.2, dt, { gy: tgt.pos.y, turn: 3 });
+    const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
+    if (d < 2.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('swing'); this.g.emitSound('blade_lift', this.center(), { vol: 1.2, ref: 5 }); }
+  }
   hiddenSpot(tgt) {
     const fac = this.g.fac;
     let best = null, bs = -Infinity;
@@ -833,7 +1082,7 @@ class Monster {
     if (this.dead) return;
     // (a blow just sinks into it: it shudders, and stops a moment)
     if (this.type === 'slime') { this.g.emitSound('squelch', this.center(), {}); this.stun = Math.max(this.stun, 0.8); return; }
-    if (this.type === 'mannequin') { this.g.emitSound('hit_metal', this.pos, {}); return; }
+    if (this.type === 'mannequin' || this.type === 'executioner') { this.g.emitSound('hit_metal', this.type === 'executioner' ? this.center() : this.pos, {}); return; }
     this.hp -= dmg;
     this.g.emitSound('hit_flesh', this.center(), {});
     if (this.type === 'leech' && this.state === 'attached') this.detach();
@@ -843,6 +1092,10 @@ class Monster {
     if (this.type === 'crawler') { this.target = fromPid; this.extra = fromPid; this.setState('spot'); }
     if (this.type === 'pale') { this.anger += 2; this.target = fromPid; this.fleeGoal = this.hiddenSpot(this.g.players.get(fromPid)); this.setState(this.anger >= 4 ? 'chase' : 'flee'); }
     if (this.type === 'hound') { const p = this.g.players.get(fromPid); if (p) { this.lunge = { x: p.pos.x, z: p.pos.z }; this.setState('lunge'); } }
+    if (this.type === 'sister' || this.type === 'bound') {
+      const p = this.g.players.get(fromPid); this.target = fromPid; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.lastLit = 0;
+      this.setState(this.type === 'sister' ? 'drawn' : this.state === 'lie' ? 'rise' : 'lurch');
+    }
   }
   serialize() { return [this.id, this.type, +this.pos.x.toFixed(2), +this.pos.y.toFixed(2), +this.pos.z.toFixed(2), +this.ry.toFixed(2), this.state, this.extra, this.stun > 0 ? 1 : 0]; }
   applySnap(a, now) {
@@ -869,13 +1122,13 @@ class Monster {
     v.t += dt;
     this.mesh.position.copy(this.rpos);
     this.mesh.rotation.y = this.rry;
-    if (v.lastState !== this.state) { this.onStateChange(v.lastState, this.state, localPlayer); v.lastState = this.state; }
+    if (v.lastState !== this.state) { this.onStateChange(v.lastState, this.state, localPlayer); v.lastState = this.state; v.sT = 0; } else v.sT = (v.sT || 0) + dt;
     if (this.dead) { v.deathT = (v.deathT || 0) + dt; v.tw = this.twitchK(); }
     this['anim_' + this.type](dt, v, localPlayer);
     if (this.dead) this.presentDeath(v);
     // footsteps
     v.stepAcc += Math.hypot(this.rpos.x - prevX, this.rpos.z - prevZ);
-    const stride = { crawler: 1.1, pale: 1.4, mannequin: 0.5, leech: 99, hound: 1.6 }[this.type];
+    const stride = { crawler: 1.1, pale: 1.4, mannequin: 0.5, leech: 99, hound: 1.6, sister: 0.55, bound: 0.8, executioner: 1.25 }[this.type];
     if (v.stepAcc > stride && v.speed > 0.4) {
       v.stepAcc = 0;
       const ln = localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z);
@@ -883,6 +1136,18 @@ class Monster {
       else if (this.type === 'pale') { if (v.speed > 3 || ln < 5) SFX.play('soft', this.rpos, { vol: v.speed > 5 ? 0.9 : 0.35 }); }
       else if (this.type === 'mannequin') SFX.play('ceramic', this.rpos, { vol: 1.1 });
       else if (this.type === 'hound') SFX.play('step', this.rpos, { surf: 'dirt', vol: 0.9, pitch: 0.6 });
+      else if (this.type === 'sister') SFX.play('heel', this.rpos, { vol: 0.8 });
+      else if (this.type === 'bound') SFX.play('soft', this.rpos, { vol: 0.7 });
+      else if (this.type === 'executioner') { SFX.play('heavy_step', this.rpos, { vol: 1.3, ref: 5 }); if (localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z) < 9) Player.addShake(0.08); }
+    }
+    // the Executioner's blade, dragging along the floor behind it the whole way, throwing sparks off the concrete
+    if (this.type === 'executioner') {
+      const P = this.P; P.tip.getWorldPosition(_sl);
+      if (!this.glow && this.g.lightSources) { this.glow = { x: 0, y: 0, z: 0, color: 0xff8a3a, power: 0, state: 'on', zone: 'in', range: 4, lit: 1 }; this.g.lightSources.push(this.glow); }
+      const drag = this.state === 'walk' && v.speed > 0.3;
+      if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.35 ? 0.25 + Math.random() * 0.5 : 0; }
+      v.dragT = (v.dragT || 0) - dt;
+      if (drag && v.dragT <= 0) { v.dragT = 0.5 + Math.random() * 0.25; SFX.play('blade_drag', _sl.clone(), { vol: 1.1, ref: 5, rev: 0.8 }); }
     }
     // ambient creature sounds
     v.sfx -= dt;
@@ -893,6 +1158,10 @@ class Monster {
       if (this.type === 'pale' && ln < 7 && this.extra === (localPlayer && localPlayer.id) && this.state === 'stalk') { SFX.play('breath', this.headPos(), { vol: 0.6, ref: 1 }); v.sfx = 3 + Math.random() * 3; }
       if (this.type === 'leech' && this.state === 'wait' && ln < 6) { SFX.play('chitter', this.rpos, { vol: 0.5 }); v.sfx = 2 + Math.random() * 3; }
       if (this.type === 'hound' && (this.state === 'wander' || this.state === 'sniff')) SFX.play(Math.random() < 0.5 ? 'sniff' : 'hound_growl', this.center(), { vol: 0.6 });
+      if (this.type === 'sister') { SFX.play(Math.random() < 0.6 ? 'sister_twitch' : 'sister_breath', this.headPos(), { vol: 0.8, ref: 2.5 }); v.sfx = 2 + Math.random() * 4; }
+      if (this.type === 'bound' && this.state !== 'lie') { SFX.play('bound_groan', this.headPos(), { vol: 0.9, ref: 3 }); v.sfx = 3 + Math.random() * 4; }
+      if (this.type === 'bound' && this.state === 'lie' && ln < 6) { SFX.play('bound_breath', this.center(), { vol: 0.35, ref: 1.5 }); v.sfx = 5 + Math.random() * 6; }
+      if (this.type === 'executioner') { SFX.play('hood_rattle', this.headPos(), { vol: 0.8, ref: 4 }); v.sfx = 3 + Math.random() * 4; }
     }
   }
   onStateChange(from, to, lp) {
@@ -900,13 +1169,15 @@ class Monster {
     if (this.type === 'leech' && to === 'attached') SFX.play('squelch', this.rpos, { vol: 1 });
     if (this.type === 'slime' && to === 'hunt') SFX.play('slime_gurgle', this.center(), { vol: 1.3, ref: 5 });
     if (this.type === 'leech' && from === 'attached') SFX.play('chitter', this.rpos, { vol: 1 });
+    if (this.type === 'sister' && to === 'drawn') SFX.play('sister_twitch', this.headPos(), { vol: 1.3, ref: 3 });
+    if (this.type === 'bound' && to === 'spit') SFX.play('bound_retch', this.headPos(), { vol: 1.3, ref: 4 });
     if (to === 'dead') { SFX.play('crunch', this.center(), { vol: 0.9 }); this.onDeath(); }
   }
   // Dying, as everyone sees it: a last rattle, the body going down (falling, not snapping into a pose), a few
   // twitches that die away, the colour draining out of it, and a dark pool spreading out underneath.
   onDeath() {
     const v = this.vis; v.deathT = 0;
-    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9 }[this.type] || 1 });
+    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9, sister: 1.4, bound: 0.75 }[this.type] || 1 });
     // its own copies of its materials, so only this one goes grey
     const seen = new Map(); this.deadMats = [];
     this.mesh.traverse((o) => {
@@ -917,7 +1188,7 @@ class Monster {
     });
     const inside = this.def.zone === 'in', grp = inside ? this.g.fac && this.g.fac.group : this.g.ext && this.g.ext.group;
     if (grp) {
-      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7 }[this.type] || 1.2;
+      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
       const gy = inside ? this.g.fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5) : this.g.ext.height(this.rpos.x, this.rpos.z);
       this.pool = new THREE.Mesh(new THREE.CircleGeometry(r, 22), new THREE.MeshStandardMaterial({ map: TEX.get('puff'), color: this.type === 'leech' ? 0x26380c : 0x4a0707, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.12, metalness: 0.3 }));
       this.pool.rotation.set(-Math.PI / 2, 0, Math.random() * TAU); this.pool.position.set(this.rpos.x, gy + 0.012, this.rpos.z); this.pool.scale.setScalar(0.05);
@@ -997,6 +1268,79 @@ class Monster {
       P.ll.a.rotation.x = lerp(P.ll.a.rotation.x, 0.1, f); P.lr.a.rotation.x = lerp(P.lr.a.rotation.x, -0.25 + tw * 0.5, f); P.ll.b.rotation.x = 0.15 * f; P.lr.b.rotation.x = 0.5 * f;
       P.head.rotation.set(0, 0.5 * f, 0.7 * f + tw * 0.2); P.mouth.scale.y = 5;
     }
+  }
+  // a Sister: jerky, the limbs snapping from one pose to the next rather than moving through them; the head lolling
+  // and wrenching round on its neck; the scalpel arm raised when it's after someone, and slashing when it's close
+  anim_sister(dt, v) {
+    const P = this.P, t = v.t, s = v.speed, drawn = this.state === 'drawn';
+    const q = (x, n) => Math.round(x * n) / n;
+    const ph = q(t * (2 + s * 1.5), 3), g = Math.min(1, s / 2.5), sw = Math.sin(ph * 2.6) * 0.55 * g;
+    P.ll.a.rotation.x = sw; P.lr.a.rotation.x = -sw; P.ll.b.rotation.x = 0.1 + Math.max(0, -sw) * 0.9; P.lr.b.rotation.x = 0.1 + Math.max(0, sw) * 0.9;
+    P.ll.a.rotation.z = 0.08; P.lr.a.rotation.z = -0.08;
+    P.hips.position.y = 0.95 + Math.abs(Math.sin(ph * 2.6)) * 0.03 * g;
+    P.torso.rotation.x = damp(P.torso.rotation.x, drawn ? 0.25 : 0.12, 5, dt);
+    // twitches: now and then a joint snaps somewhere else and holds there
+    if (Math.random() < dt * (drawn ? 4 : 1.4)) v.tw2 = { h: (Math.random() - 0.5) * 1.6, n: (Math.random() - 0.5) * 0.9, s: (Math.random() - 0.5) * 0.6, k: 1 };
+    const T = v.tw2 || { h: 0, n: 0, s: 0, k: 0 }; T.k = Math.max(0, T.k - dt * 1.8);
+    P.neck.rotation.set(0.25 + T.n * T.k, 0, 0.5 + Math.sin(t * 0.4) * 0.15 + T.h * T.k);
+    P.head.rotation.set(Math.sin(t * 0.7) * 0.1, T.h * T.k * 0.6, 0.2);
+    P.torso.rotation.z = T.s * T.k;
+    const slash = drawn && v.sT % 1.3 < 0.3 && s < 1.5 ? Math.sin((v.sT % 1.3) / 0.3 * Math.PI) : 0;
+    P.ar.a.rotation.x = damp(P.ar.a.rotation.x, drawn ? -1.9 + slash * 2.2 : -0.1 + sw * 0.2, 14, dt); P.ar.b.rotation.x = drawn ? -0.6 : -0.15;
+    P.al.a.rotation.x = -sw * 0.3 + (drawn ? -0.4 : 0); P.al.b.rotation.x = -0.3; P.al.a.rotation.z = -0.1; P.ar.a.rotation.z = 0.15;
+    if (this.dead) {
+      // down on its knees, then forward onto its face
+      const f = this.deadK(), tw = v.tw;
+      this.mesh.rotation.x = Math.PI / 2 * f; this.mesh.position.y = this.rpos.y + 0.12 * f;
+      P.ll.a.rotation.x = lerp(P.ll.a.rotation.x, -0.4, f); P.lr.a.rotation.x = lerp(P.lr.a.rotation.x, -0.2 + tw, f);
+      P.ll.b.rotation.x = 1.2 * f; P.lr.b.rotation.x = 1.0 * f;
+      P.al.a.rotation.set(-2.6 * f, 0, -0.3); P.ar.a.rotation.set(-2.4 * f + tw * 0.4, 0, 0.4); P.neck.rotation.set(0.6 * f, 0, 0.9 * f);
+    }
+  }
+  // the Bound: lying flat on its back like a body; getting up all at once from the waist, as if pulled; lurching on
+  // its wrong-bent legs, swaying from side to side; rearing back to retch, and pitching forward to spew it out
+  anim_bound(dt, v) {
+    const P = this.P, t = v.t, s = v.speed, st = this.state;
+    const lie = st === 'lie' ? 1 : st === 'rise' ? 1 - sstep(0.1, 1.3, v.sT) : 0;
+    v.lie = v.lie == null ? lie : damp(v.lie, lie, st === 'rise' ? 30 : 4, dt);
+    this.mesh.rotation.x = -Math.PI / 2 * v.lie; this.mesh.position.y = this.rpos.y + 0.18 * v.lie;
+    const g = Math.min(1, s / 2.5), ph = t * (2.2 + s * 1.6), sw = Math.sin(ph) * 0.6 * g;
+    P.ll.a.rotation.x = sw * (1 - v.lie); P.lr.a.rotation.x = -sw * (1 - v.lie);
+    P.ll.b.rotation.x = (-0.35 - Math.max(0, sw) * 0.6) * (1 - v.lie); P.lr.b.rotation.x = (-0.35 - Math.max(0, -sw) * 0.6) * (1 - v.lie);
+    P.torso.rotation.z = Math.sin(ph * 0.5) * 0.25 * g + Math.sin(t * 0.8) * 0.04;
+    const rear = st === 'spit' ? (v.sT < 0.9 ? -0.5 * sstep(0, 0.9, v.sT) : lerp(-0.5, 0.6, sstep(0.9, 1.05, v.sT)) * (1 - sstep(1.2, 1.7, v.sT))) : 0;
+    P.torso.rotation.x = damp(P.torso.rotation.x, rear + (st === 'lurch' ? 0.12 : 0) + (st === 'lie' ? Math.sin(t * 0.6) * 0.01 : 0), 12, dt);
+    P.mouth.scale.setScalar(st === 'spit' && v.sT > 0.8 && v.sT < 1.3 ? 1.5 : 1 + Math.sin(t * 3) * 0.05);
+    if (this.dead) {
+      const f = this.deadK(), tw = v.tw;
+      this.mesh.rotation.x = -Math.PI / 2 * Math.max(f, v.lie); this.mesh.position.y = this.rpos.y + 0.18 * f;
+      P.ll.a.rotation.x = 0.2 * f + tw * 0.5; P.lr.a.rotation.x = -0.3 * f; P.ll.b.rotation.x = -0.6 * f; P.lr.b.rotation.x = -0.2 * f;
+      P.torso.rotation.set(0, 0, 0.3 * f + tw * 0.2);
+    }
+  }
+  // the Executioner: a slow heavy walk, the blade hung from its right fist trailing along the floor; lifting it back
+  // and up over its shoulder (slowly), and bringing it down all at once
+  anim_executioner(dt, v) {
+    const P = this.P, t = v.t, s = v.speed;
+    const g = Math.min(1, s / 2), ph = t * (1.6 + s * 0.9), sw = Math.sin(ph) * 0.45 * g;
+    P.ll.a.rotation.x = sw; P.lr.a.rotation.x = -sw; P.ll.b.rotation.x = 0.1 + Math.max(0, -Math.sin(ph)) * 0.6 * g; P.lr.b.rotation.x = 0.1 + Math.max(0, Math.sin(ph)) * 0.6 * g;
+    P.hips.position.y = 1.25 - Math.abs(Math.cos(ph)) * 0.05 * g;
+    P.hips.rotation.z = Math.sin(ph) * 0.05 * g;
+    P.torso.rotation.y = Math.sin(ph) * 0.08 * g;
+    P.neck.rotation.x = 0.25 + Math.sin(t * 0.5) * 0.04;
+    P.al.a.rotation.set(-sw * 0.6, 0, -0.15); P.al.b.rotation.x = -0.25;
+    let ax, bx, bl;
+    if (this.state === 'swing') {
+      const u = v.sT;
+      // up and back over the shoulder, held there, then down
+      const up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = 1 - sstep(1.6, 2.4, u);
+      ax = lerp(lerp(0.25, -2.9, up), 0.6, down) * back + 0.25 * (1 - back);
+      bx = lerp(-0.4, -0.2, up); bl = lerp(lerp(0.35, -0.6, up), 1.3, down) * back + 0.35 * (1 - back);
+      P.torso.rotation.x = lerp(-0.15 * up, 0.35, down) * back;
+    } else { ax = 0.25 + sw * 0.2; bx = -0.1; bl = 0.35 + Math.sin(t * 7) * 0.01 * g; P.torso.rotation.x = damp(P.torso.rotation.x, 0.08, 4, dt); }
+    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx;
+    // (the blade's pitch: its tip down on the floor behind, while it drags)
+    P.blade.rotation.x = bl + 2.3;
   }
   anim_mannequin(dt, v) {
     const P = this.P;

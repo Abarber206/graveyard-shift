@@ -157,6 +157,8 @@ for (const w in BODIES) {
   for (const b of BODIES[w]) SITES[b.key].sky = [{ kind: 'planet', tint: W.tint, atmo: W.atmo, rings: W.rings, giant: W.giant, r: b.kind === 'rock' ? 0.74 : 0.6, az: -1.2, el: 0.55 }]
     .concat(BODIES[w].filter((o) => o !== b).map((o) => ({ kind: o.kind, tint: o.tint, r: Math.min(0.06, o.size / Math.max(1, Math.abs(o.orbit - b.orbit))), az: o.ang * 1.3 + 4.0, el: 0.28 })));
 }
+// What came up from behind the siren: the Sisters keep to the wards, the Bound to wherever the dead were laid out
+for (const [k, w] of Object.entries({ agnes: { sister: 2, bound: 0.8 }, vigil: { sister: 1.8, bound: 0.6 }, relic: { bound: 1.6, sister: 0.6 }, kessler: { sister: 0.9, bound: 0.5 }, petri: { sister: 1, bound: 0.8 }, nadir: { bound: 0.8 }, hollow: { sister: 1, bound: 1.2 }, cinder: { bound: 1, sister: 0.6 }, pall: { bound: 1.6, sister: 0.8 }, tithe: { sister: 1.2 }, warden: { bound: 1, sister: 0.6 }, brinewell: { bound: 0.7 }, gloam: { sister: 0.8 } })) Object.assign(SITES[k].mon, w);
 // Where each moon and rock is today: how far out along its orbit (near: 1 its usual distance, under that closer in,
 // over it farther out), how far round its world (phase), and how far above or below the plane of the world's rings
 // (eps, an angle seen from the world: a rock inside them is right in it). Decided by the day and the world, so the view
@@ -214,7 +216,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 8;
+const PROTO = 10;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -230,7 +232,7 @@ const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0);
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
+const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -464,7 +466,9 @@ const G = {
     G.fac = b.fac; G.ext = b.ext;
     const fac = G.fac, ext = G.ext;
     G.siteShown = false;
-    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down)
+    // (the ship's jets, dust and smoke are compiled again now, under the light they'll be seen in on the way down; on an
+    // airless moon, what a meteor strike would need too)
+    if (b.ext.biome.airless) Meteors.prepare();
     R.precompile(R.scene, () => {});
     R.precompile(b.facG, () => R.precompile(b.extG, () => { if (G.fac !== fac) return; R.scene.add(b.facG); R.scene.add(b.extG); G.siteShown = true; }));
     G.fac.lamps.forEach((l) => (l.fac = true));
@@ -473,7 +477,7 @@ const G = {
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
   },
   teardownSite(full) {
-    G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke();
+    G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke(); G.mists = [];
     for (const m of G.monsters.values()) R.scene.remove(m.mesh);
     G.monsters.clear();
     const disposeGroup = (g) => { if (!g) return; R.scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); };
@@ -495,6 +499,7 @@ const G = {
     for (const p of G.players.values()) { const n = r.upgrades.belt ? 5 : 4; while (p.slots.length < n) p.slots.push(null); }
     if (G.jumping) return;   // (mid-jump: the new world appears when the ship drops out)
     const look = SITE_LOOK[r.route] || SITE_LOOK.ashgrove; G.ship.setPlanet(look.tint, look.atmo, look.airless, look.giant);
+    G.ship.setScars((r.scars || []).filter((s) => s.site === r.route));
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
     if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route), ringsToday(SITES[r.route].bonus || r.route, r)); }
@@ -547,13 +552,13 @@ const G = {
   bodiesAround(route) {
     const s = SITES[route]; if (!s) return [];
     const O = orbitsToday(s.bonus || route, G.run);
-    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near, ring: !!b.ring && !!SITE_LOOK[route].rings }));
+    if (!s.bonus) return (BODIES[route] || []).map((b) => ({ key: b.key, kind: b.kind, size: b.size, orbit: b.orbit, ang: b.ang + 0.6 * Math.sin(O[b.key].phase), off: b.off, tint: b.tint, near: O[b.key].near, ring: !!b.ring && !!SITE_LOOK[route].rings }));
     const W = SITE_LOOK[s.bonus], me = BODIES[s.bonus].find((b) => b.key === route), pm = bodyAt(me, O[route]), pa = me.ang + Math.PI * 0.8;
     // (the world: bigger the closer in we are today; the other one: where it really is from here, and how far)
     // (a ringed world, as big as it really looks from this far out, round in its rings with us: see Ship.setBodies)
     const ar = W.rings ? Math.asin(1 / (me.orbit * O[route].near)) : clamp(0.5 / O[route].near, 0.32, 0.75);
     return [{ kind: 'planet', size: W.rings ? 1 / me.size : Math.min(10, 1 / me.size), orbit: 0, ang: pa, off: 0.12, tint: W.tint, atmo: W.atmo, rings: W.rings, giant: W.giant, ar, me: { size: me.size, eps: O[route].eps, ring: !!me.ring } }]
-      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
+      .concat(BODIES[s.bonus].filter((b) => b !== me).map((b) => { const po = bodyAt(b, O[b.key]); return { key: b.key, kind: b.kind, size: b.size / me.size * 0.6, orbit: Math.max(3, Math.hypot(po.x - pm.x, po.z - pm.z) / me.size * 0.3), near: 1, ang: pa + turnFrom(pm, po), off: b.off, tint: b.tint }; }));
   },
   // Some days a facility beacon shows on one of the bodies circling the world the ship is at (or the one it belongs
   // to): a bonus site for that day only. Decided by the day, so every crewmate sees the same one
@@ -593,7 +598,7 @@ const G = {
   fullState() {
     return {
       v: PROTO, mode: G.mode, run: G.run, orbitT: G.orbitT || 60,
-      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken } : null,
+      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken, strikes: G.round.strikes || [], doom: G.round.doom || null } : null,
       players: [...G.players.values()].map(G.pinfo),
       items: [...G.items.values()].map(G.iinfo),
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
@@ -614,7 +619,10 @@ const G = {
     if (typeof s.orbitT === 'number') G.orbitT = s.orbitT;
     if (s.round) {
       G.prepareSite(s.round.seed, s.round.site, s.round.weather);
-      Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken });
+      Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken, doom: s.round.doom || undefined });
+      // (the craters today's meteors left)
+      for (const m of s.round.strikes || []) G.ext.addCrater(m.x, m.z, m.r, m.d, true);
+      if (s.round.coreTaken) G.startEmergency(true);
       s.doors.forEach((o, i) => { const d = G.fac.doors[i]; if (!d) return; if (o === 2) { G.fac.breakDoor(d); return; } d.open = !!o; d.dir = o === 3 ? -1 : 1; d.anim = o ? 1 : 0; G.fac.applyDoor(d); });
       (s.boxes || []).forEach((o, i) => { const c = G.fac.containers[i]; if (!c) return; c.open = !!o; c.anim = o ? 1 : 0; c.mesh.rotation.y = c.closedRy + c.swing * c.anim; });
       (s.blasts || []).forEach((o, i) => { const d = G.fac.blasts[i]; if (!d) return; d.open = !!o; d.anim = o ? 1 : 0; G.fac.applyBlast(d); });
@@ -902,6 +910,19 @@ const G = {
       SFX.play('engine', null, { dur: 3.6, vol: 1.1 });
     },
     // a supply pod on its way down, and one being cracked open
+    meteors(e) { Meteors.spawn(e); },
+    mist(e) { G.addMist(e); },
+    // something on its way in (G.round.doom: when it hits, by the site's clock, and where it is in the sky)
+    asteroid(e) { if (G.round) G.round.doom = { at: e.at, az: e.az, el: e.el }; },
+    // still on the surface when it hit: the sky goes white, and that's the end of the contract
+    doomed(e) {
+      if (G.round) G.round.lost = true;
+      G.seq = { kind: 'doomed', t: 0, data: e };
+      for (const p of G.players.values()) if (p.alive) { p.alive = false; (G.deathCause || (G.deathCause = {}))[p.id] = 'impact'; }
+      SFX.play('bang', null, { vol: 1.6 }); SFX.play('thud', null, { vol: 1.6 });
+    },
+    // and from orbit, having got away: it comes down on the moon we left (Ship.impact draws it)
+    impact(e) { G.ship.impact(e.site, G.run.route, e.lat, e.lon); },
     pod(e) {
       Pods.spawn(e);
       // (the Company calls it in over the radio, so whoever wants to can go out and watch it come down)
@@ -969,11 +990,10 @@ const G = {
       if (!G.round) return;
       G.round.power = e.on; if (e.perm) G.round.coreTaken = true;
       const me = G.me();
-      if (me && G.zoneOf(me) === 'in') {
-        SFX.play(e.on ? 'power_up' : 'power_down', null, { vol: 1 });
-        if (e.perm) { SFX.play('alarm', null, { vol: 0.8, delay: 1.2 }); HUD.notice('POWER FAILURE', 'Something down here just woke up.', true, 5); }
-      }
+      if (me && G.zoneOf(me) === 'in') SFX.play(e.on ? 'power_up' : 'power_down', null, { vol: 1 });
       if (G.fac) for (const l of G.fac.lamps) if (l.state !== 'emergency') G.fac.setLampVisual(l, e.on && l.state !== 'off' ? 1 : 0.04);
+      // (the core pulled: the dark, then the emergency circuit, and its alarm)
+      if (e.perm) G.startEmergency(false);
     },
     toast(e) { HUD.toast(e.text, 2.5); },
     jumpLever() { G.ship.pullJump(); SFX.play('lever', G.ship.jumpPos.clone(), { vol: 1 }); },
@@ -1099,7 +1119,8 @@ const G = {
     if (G.flight || G.seq || G.robot || G.jumping) return 'Jump drive busy.';
     const why = G.routeProblem(k); if (why) { delete run.course; G.emit({ e: 'run', run }); return why.charAt(0) + why.slice(1).toLowerCase(); }
     const hop = G.isHop(k);
-    if (!hop) run.credits -= SITES[k].cost;
+    // (a jump to another world leaves this one's fresh craters behind, and anything still on its way in to them)
+    if (!hop) { run.credits -= SITES[k].cost; run.scars = []; delete run.doom; }
     run.route = k; delete run.course;
     G.emit({ e: 'jumpLever' });
     G.emit({ e: hop ? 'hop' : 'jump', route: k });
@@ -1350,6 +1371,44 @@ const G = {
     if (p.zone === 'in' && G.fac) return G.fac.los(p.pos.x, p.pos.z, pos.x, pos.z, true);
     return true;
   },
+  // whether someone has a lamp lit in their hands or on their belt
+  carriesLight(p) { for (const it of G.items.values()) if (it.holder === p.id && it.on && ITEMS[it.type].lamp) return true; return false; },
+  // A Bound's mist: a cloud of something that eats through a suit, hanging where it landed and drifting apart over a few
+  // seconds. Everyone sees it; the host hurts whoever's in it
+  addMist(e) {
+    const grp = G.fac && G.fac.group; if (!grp) return;
+    const mist = { x: e.x, y: e.y, z: e.z, t: 0, puffs: [], hurtT: 0 };
+    for (let i = 0; i < 9; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('puff'), color: new THREE.Color(0.62, 0.66, 0.3), transparent: true, opacity: 0, depthWrite: false }));
+      const a = Math.random() * TAU, r = Math.random() * 1.1;
+      sp.userData.o = { x: Math.cos(a) * r, y: 0.3 + Math.random() * 1.4, z: Math.sin(a) * r, s: 1.2 + Math.random() * 1.2, d: Math.random() * 0.25 };
+      sp.position.set(e.fx, e.fy, e.fz); grp.add(sp); mist.puffs.push(sp);
+    }
+    mist.from = { x: e.fx, y: e.fy, z: e.fz };
+    (G.mists || (G.mists = [])).push(mist);
+    SFX.play('mist_hiss', new THREE.Vector3(e.x, e.y + 1, e.z), { vol: 1, ref: 3, delay: 0.3 });
+  },
+  stepMists(dt) {
+    if (!G.mists || !G.mists.length) return;
+    for (let i = G.mists.length - 1; i >= 0; i--) {
+      const m = G.mists[i]; m.t += dt;
+      // (flung from its mouth to where it lands, then blooming out and thinning away)
+      for (const sp of m.puffs) {
+        const o = sp.userData.o, u = clamp((m.t - o.d) / 0.35, 0, 1), k = sstep(0, 1, u), age = Math.max(0, m.t - 0.35 - o.d);
+        sp.position.set(lerp(m.from.x, m.x + o.x * (1 + age * 0.15), k), lerp(m.from.y, m.y + o.y + age * 0.08, k) + Math.sin(k * Math.PI) * 0.6, lerp(m.from.z, m.z + o.z * (1 + age * 0.15), k));
+        sp.scale.setScalar(lerp(0.25, o.s * (1 + age * 0.12), k));
+        sp.material.opacity = (u < 1 ? 0.5 : 0.62) * (1 - sstep(3.5, 6, m.t));
+      }
+      if (G.isHost && m.t > 0.4 && m.t < 5.5) {
+        m.hurtT -= dt;
+        if (m.hurtT <= 0) {
+          m.hurtT = 0.5;
+          for (const p of G.alivePlayers()) if (p.zone === 'in' && Math.hypot(p.pos.x - m.x, p.pos.z - m.z) < 2.0 && Math.abs(p.pos.y - m.y) < 1.5) G.hurtPlayer(p.id, 8, 'bound', 0, 0);
+        }
+      }
+      if (m.t > 6) { for (const sp of m.puffs) { if (sp.parent) sp.parent.remove(sp); sp.material.dispose(); } G.mists.splice(i, 1); }
+    }
+  },
   isLit(pos) {
     for (const p of G.alivePlayers()) {
       if (!p.flash) continue;
@@ -1450,6 +1509,40 @@ const G = {
       if (at) G.hostExplode(at, zone, b.id, b.pid);
     }
   },
+  // A meteoroid swarm: a handful of strikes over a dozen seconds, scattered over the ground round the site (some close
+  // to whoever's out in it), one of them big; and a fresh scar on the moon, seen from orbit until the ship leaves this
+  // world and its moons behind (run.scars)
+  // (k: how heavy, 0 a light shower of pebbles, 1 a heavy one with a big strike in it; dir, el: where in the sky it
+  // comes from, when it's debris off something on its way in)
+  hostMeteors(k = 0.5, dir, el) {
+    const ext = G.ext, list = [], out = G.alivePlayers().filter((p) => p.zone === 'out' && !G.playerAboard(p));
+    const n = 4 + Math.floor(Math.random() * 4 + k * 6), big = k > 0.45 ? Math.floor(Math.random() * n) : -1;
+    for (let tries = 0; list.length < n && tries < 120; tries++) {
+      const i = list.length, near = out.length && Math.random() < 0.4 ? out[Math.floor(Math.random() * out.length)].pos : null;
+      const a = Math.random() * TAU, dd = near ? 10 + Math.random() * 28 : 20 + Math.random() * 110, r = i === big ? 5 + Math.random() * 2 + k * 3 : lerp(0.6, 1.6, k) + Math.random() * lerp(0.8, 2.4, k);
+      const x = (near ? near.x : 0) + Math.cos(a) * dd, z = (near ? near.z : 0) + Math.sin(a) * dd, dc = Math.hypot(x, z);
+      // (not on the ship, the buildings or the trail)
+      if (dc < 18 + r || dc > 160 || Math.hypot(x - ext.center.x, z - ext.center.z) < 36 + r || Math.hypot(x - ext.fire.x, z - ext.fire.z) < 10 + r || ext.pathInfo(x, z).d < r + 2) continue;
+      list.push({ x: +x.toFixed(2), z: +z.toFixed(2), r: +r.toFixed(2), d: +(r * (0.28 + Math.random() * 0.1)).toFixed(2), t: +(i === 0 ? 1.5 : 1.5 + Math.random() * 11).toFixed(2), dir: +(dir != null ? dir + (Math.random() - 0.5) * 0.3 : Math.random() * TAU).toFixed(3), el: el != null ? el : undefined });
+    }
+    if (!list.length) return;
+    G.emit({ e: 'meteors', list });
+    if (big < 0) return;   // (a light shower leaves nothing you'd see from orbit)
+    const run = G.run; (run.scars || (run.scars = [])).push({ site: G.round.site, lat: +(Math.random() * 1.2 - 0.6).toFixed(3), lon: +(Math.random() * TAU).toFixed(3), r: +(0.02 + Math.random() * 0.015).toFixed(4) });
+    if (run.scars.length > 8) run.scars.shift();
+    G.emit({ e: 'run', run });
+  },
+  // a strike landing (host): anyone out in the open near it is thrown off their feet or killed; aboard, you're safe
+  hostMeteorHit(m) {
+    (G.round.strikes || (G.round.strikes = [])).push({ x: m.x, z: m.z, r: m.r, d: m.d });
+    for (const p of G.alivePlayers()) {
+      if (p.zone !== 'out' || G.playerAboard(p)) continue;
+      const d = Math.hypot(p.pos.x - m.x, p.pos.z - m.z), reach = m.r * 4; if (d > reach) continue;
+      const k = Math.pow(1 - d / reach, 1.3), dmg = d < m.r * 1.2 ? 200 : Math.round(150 * k); if (dmg < 3) continue;
+      const nn = Math.max(d, 0.5);
+      G.hurtPlayer(p.id, dmg, 'meteor', (p.pos.x - m.x) / nn * 14 * k, (p.pos.z - m.z) / nn * 14 * k);
+    }
+  },
   hostExplode(at, zone, id, pid) {
     G.emit({ e: 'boom', x: +at.x.toFixed(2), y: +at.y.toFixed(2), z: +at.z.toFixed(2), zone, id });
     G.addNoise(at, 45, zone, null);
@@ -1534,6 +1627,62 @@ const G = {
       const apex = roster.find((t) => ![...G.monsters.values()].some((m) => !m.dead && m.type === t)) || roster[0];
       G.hostSpawnInterior(apex, true);
     } });
+    // and sometimes the alarm brings up something worse, from as far down as the building goes (the more dangerous
+    // the site, the likelier)
+    if (Math.random() < Math.min(0.9, 0.35 + SITES[G.round.site].power * 0.05)) G.timers.push({ t: 20 + Math.random() * 15, fn: () => { if (G.mode === 'site' && ![...G.monsters.values()].some((m) => m.type === 'executioner')) G.hostSpawnInterior('executioner', true, 28); } });
+  },
+  // The core pulled: every light in the place dies, the emergency circuit's too, and there's nothing but your
+  // flashlight. A few seconds on, its main breaker slams home somewhere below and the red lamps come on a fitting at a
+  // time, outward from the core room, each with its own clunk: most of the ones that light are failing, a few burn
+  // steady, and many never come on at all (some try, once). Then the old alarm on the circuit starts up and doesn't
+  // stop. (Worked out from the round's seed, so every crewmate sees the same lamps lit; instant: someone joining after
+  // it happened just finds it so.)
+  startEmergency(instant) {
+    const fac = G.fac; if (!fac || fac.emerg) return;
+    const rr = new RNG((G.round.seed * 7 + 31337) >>> 0), core = fac.rooms.find((r) => r.type === 'core');
+    const cl = core ? fac.lamps.filter((l) => l.i >= core.i && l.i < core.i + core.w && l.j >= core.j && l.j < core.j + core.h) : [];
+    const c = cl[0] || fac.lamps[0] || { x: 0, y: 0, z: 0 }, reds = [0xff2a14, 0xff3b1e, 0xe8200f, 0xff4a22, 0xd81c10];
+    const E = fac.emerg = { t: instant ? 60 : 0, main: instant, next: 0, horns: [] };
+    for (const l of fac.lamps) {
+      const d = Math.hypot(l.x - c.x, l.z - c.z) + Math.abs(l.y - c.y) * 3, x = rr.next();
+      const kind = x < 0.42 ? (rr.chance(0.35) ? 'try' : null) : rr.chance(0.72) ? 'bad' : 'ok';
+      l.em = { at: 3.4 + d * 0.05 + rr.range(0, 0.9), kind, col: rr.pick(reds), dur: rr.range(0.08, 0.35) };
+      l.state = 'off'; fac.setLampVisual(l, 0.02);
+    }
+    // (the alarm's horns: a few of the fittings that light, spread through the building)
+    for (const l of fac.lamps) if ((l.em.kind === 'ok' || l.em.kind === 'bad') && E.horns.every((h) => Math.hypot(h.x - l.x, h.z - l.z) + Math.abs(h.y - l.y) * 4 > 26)) E.horns.push({ x: l.x, y: l.y, z: l.z });
+    if (!E.horns.length) E.horns.push({ x: c.x, y: c.y, z: c.z });
+    if (instant) G.stepEmergency(0);
+  },
+  stepEmergency(dt) {
+    const fac = G.fac, E = fac && fac.emerg; if (!E) return;
+    E.t += dt;
+    const me = G.me(), inside = !!me && G.zoneOf(me) === 'in', cam = R.camera.position, live = E.t < 40;
+    if (!E.main && E.t > 3.1) { E.main = true; if (inside) SFX.play('em_breaker', null, { vol: 1, rev: 1.1 }); }
+    for (const l of fac.lamps) {
+      const m = l.em; if (!m || m.done || E.t < m.at) continue;
+      if (!m.lit) {
+        m.lit = true;
+        if (m.kind) {
+          l.state = 'emergency'; l.color = m.col; l.bad = m.kind !== 'ok'; l.power = Math.min(l.power, 0.6); fac.setLampVisual(l, 0.85);
+          if (live && inside && Math.abs(l.x - cam.x) + Math.abs(l.z - cam.z) + Math.abs(l.y - cam.y) * 4 < 50) SFX.play('em_lamp', new THREE.Vector3(l.x, l.y, l.z), { vol: 0.9, ref: 3.5, rev: 0.9 });
+        }
+      }
+      if (m.kind !== 'try') m.done = true;
+      else if (E.t >= m.at + m.dur) { l.state = 'off'; fac.setLampVisual(l, 0.02); m.done = true; }
+    }
+    // the alarm, from whichever horn is nearest (through the walls, muffled, if it's round a corner); now and then it
+    // drops out altogether for a moment, then catches again
+    if (E.t > 3.8 && inside && G.mode === 'site') {
+      E.next -= dt;
+      if (E.next <= 0) {
+        let h = E.horns[0], hd = 1e18;
+        for (const o of E.horns) { const d = (o.x - cam.x) ** 2 + ((o.y - cam.y) * 3) ** 2 + (o.z - cam.z) ** 2; if (d < hd) { hd = d; h = o; } }
+        const gap = Math.random() < 0.12;
+        E.next = 2.0 + Math.random() * 0.5 + (gap ? 0.8 + Math.random() * 2 : 0);
+        if (!gap) SFX.play('em_alarm', new THREE.Vector3(h.x, h.y, h.z), { vol: 1.5, ref: 10, roll: 0.6, rev: 0.9 });
+      }
+    }
   },
   hostLand() {
     if (G.mode !== 'orbit') return;
@@ -1613,7 +1762,7 @@ const G = {
       if (n >= site.cap) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
-      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1 };
+      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2 };
       const w = {}; for (const k in site.mon) if ((counts[k] || 0) < lim[k]) w[k] = site.mon[k] * Math.pow(0.3, counts[k] || 0);
       // (the mannequins are kept down below: none in a facility that's all on one level)
       if (fac.levels < 2) delete w.mannequin;
@@ -1625,8 +1774,9 @@ const G = {
     const far = (x, z) => players.every((p) => Math.hypot(p.pos.x - x, p.pos.z - z) > minDist);
     // where: out of a vent for most things; a mannequin only somewhere on the lower levels; the Seep out in a
     // corridor (it's far too big for a vent)
-    const deep = type === 'mannequin', wide = type === 'slime';
-    if (deep && fac.levels < 2) return;
+    // (the Executioner, up from below: as deep as the building goes, and far too big for a vent)
+    const deep = (type === 'mannequin' || type === 'executioner') && fac.levels >= 2, wide = type === 'slime' || type === 'executioner';
+    if (type === 'mannequin' && fac.levels < 2) return;
     const lvOk = (x, z, y) => !deep || fac.levelAt(x, z, y) >= 1;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
@@ -1635,6 +1785,8 @@ const G = {
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
+    // (the Sisters come in twos and threes)
+    if (type === 'sister') for (let k = 0, n = R0.chance(0.35) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.8 + k * 0.9, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     if (spot.vent) G.emitSound('vent', new THREE.Vector3(spot.vent.x, spot.vent.y, spot.vent.z), { vol: 1.2, ref: 3 });
   },
   hostSpawnHound() {
@@ -1679,6 +1831,8 @@ const G = {
     const frac = r.total ? (collected - lost) / r.total : 0;
     let grade = allDead ? 'F' : frac >= 0.7 && !deaths.length ? 'S' : frac >= 0.5 ? 'A' : frac >= 0.3 ? 'B' : frac >= 0.15 ? 'C' : frac > 0 ? 'D' : 'F';
     if (deaths.length && grade === 'S') grade = 'A';
+    // (got away with it on its way in: it comes down while we watch from orbit, half a minute or so after we're up)
+    if (r.doom && !r.lost) run.doom = { site: r.site, t: Math.max(25, (r.doom.at - r.time) * SEC_PER_MIN) };
     const summary = { site: site.name, day: run.day - 1, collected: collected - lost, count: allDead ? 0 : collectedItems.length, total: r.total, lost, fine, deaths, allDead, grade, daysLeft: run.daysLeft };
     G.emit({ e: 'orbit', summary, run, keep });
   },
@@ -1879,6 +2033,66 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
+    // On an airless moon or rock the sky isn't empty. Some landings a meteoroid shower comes through (a light one, or a
+    // heavy one with a big strike in it), the survey office radioing a warning half a minute ahead. And now and then the
+    // shower is only the leading edge: debris shed by something much bigger on its way in. It shows as a new star, then
+    // a rock, swelling in the sky as the showers come thicker and heavier, until it hits. The crew has to be off the
+    // surface by then; whoever's left on it, ship and all, goes with the moon. (From orbit, you watch it hit.)
+    const R0 = G.round;
+    if (R0 && G.mode === 'site' && !G.flight && G.ext && G.ext.biome.airless && !R0.lost) {
+      if (R0.strikeAt === undefined) {
+        const roll = Math.random();
+        R0.strikeAt = roll < 0.15 && R0.time < 17 * 60 ? R0.time + 60 + Math.random() * 120 : roll < 0.45 ? R0.time + 90 + Math.random() * 330 : null;
+        R0.doomed = roll < 0.15 && R0.strikeAt != null;
+      }
+      if (R0.strikeAt != null) {
+        if (!R0.strikeWarned && R0.time > R0.strikeAt - 30) { R0.strikeWarned = true; G.emit({ e: 'chat', text: 'Mercy Survey: meteoroid swarm crossing your position. Impacts inside the minute. Get under cover.', sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (R0.time > R0.strikeAt) {
+          R0.strikeAt = null;
+          if (!R0.doomed) G.hostMeteors(Math.random());
+          else {
+            // (the first of it: then the radio works out where it came from)
+            const at = Math.min(23.5 * 60, R0.time + 200 + Math.random() * 60), az = Math.random() * TAU, el = 0.5 + Math.random() * 0.5;
+            G.emit({ e: 'asteroid', at: +at.toFixed(1), az: +az.toFixed(3), el: +el.toFixed(3) });
+            G.hostMeteors(0.25);
+            R0.showerT = 35; R0.doomWarn = 0;
+            G.timers.push({ t: 6, fn: () => G.emit({ e: 'chat', text: `Mercy Survey: that was debris, shed by something bigger. The parent body is on a collision course with ${SITES[R0.site].name}. Impact at ${fmtTime(at)}. Get off the surface before then.`, sys: true }) });
+          }
+        }
+      }
+      const D0 = R0.doom;
+      if (D0) {
+        const left = D0.at - R0.time;
+        // the showers coming thicker and heavier the closer it gets
+        R0.showerT -= dt;
+        if (R0.showerT <= 0 && left > 4) { const k = clamp(1 - left / 230, 0.25, 1); R0.showerT = lerp(32, 12, k) + Math.random() * 8; G.hostMeteors(k, D0.az, D0.el); }
+        // (the survey office counting it down over the radio, the ship's klaxon going with it)
+        if (R0.doomWarn < 1 && left < 60) { R0.doomWarn = 1; G.emit({ e: 'chat', text: `Mercy Survey: one hour to impact. Start loading up.`, sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (R0.doomWarn < 2 && left < 15) { R0.doomWarn = 2; G.emit({ e: 'chat', text: `Mercy Survey: fifteen minutes. Whoever is still down there, get to the ship. Now.`, sys: true }); G.emitSound('alarm', G.ship.leverPos, {}); }
+        if (left <= 0) { R0.lost = true; G.emit({ e: 'doomed', site: R0.site }); Store.del(G.saveKey); return; }
+      }
+    }
+    // (and from orbit, having got away in time: it comes down on the moon we left)
+    const DR = G.run && G.run.doom;
+    if (DR && G.mode === 'orbit' && !G.seq && !G.jumping) {
+      DR.t -= dt;
+      if (DR.t <= 0) {
+        const run = G.run, at = G.ship.impactAt(DR.site, run.route);
+        delete run.doom;
+        G.emit({ e: 'run', run });
+        if (at) {
+          // (the rock falls in for 8 s; the scar is there once the flash has gone)
+          G.emit({ e: 'impact', site: DR.site, lat: at.lat, lon: at.lon });
+          G.timers.push({ t: 10, fn: () => {
+            const r2 = G.run; if (r2 !== run) return;
+            (run.scars || (run.scars = [])).push({ site: DR.site, lat: at.lat, lon: at.lon, r: 0.16 });
+            if (run.scars.length > 8) run.scars.shift();
+            G.emit({ e: 'run', run });
+            G.emit({ e: 'chat', text: `Mercy Survey: impact confirmed on ${SITES[DR.site].name}. Glad you weren't on it.`, sys: true });
+          } });
+        }
+      }
+    }
     // the hatch in flight: it shuts itself once the ship climbs too high, and opens itself after touchdown
     const f = G.flight;
     if (f && G.fp && G.ship.door.open && G.fp.y > FLY.doorAlt) G.emit({ e: 'hatch', open: false, auto: true });
@@ -1900,6 +2114,7 @@ const G = {
     }
     if (G.mode === 'site') {
       const r = G.round, site = SITES[r.site];
+      if (r.lost) return;
       r.time += dt / SEC_PER_MIN;
       if (!r.warn1 && r.time >= 21 * 60) { r.warn1 = true; G.emit({ e: 'notice', title: '9:00 PM', sub: '' }); }
       if (!r.warn2 && r.time >= 23 * 60) { r.warn2 = true; G.emit({ e: 'notice', title: '11:00 PM', sub: '', danger: true, alarm: true }); }
@@ -2504,6 +2719,7 @@ const G = {
     G.updateFlight(dt);
     G.updateDelivery(dt);
     Pods.update(dt);
+    G.stepEmergency(dt); G.stepMists(dt);
     // input not tied to the player body
     if (!HUD.blocking) {
       if (Input.hit('KeyT') || Input.hit('Enter')) HUD.openChat();
@@ -2697,6 +2913,18 @@ const G = {
         if (t > J.end) { S.arrive = 1; S.turn = 0; S.warp.visible = false; S.stars.material.uniforms.uFade.value = 1; G.fovAdd = 0; G.seq = null; R.fx.warp = 0; S.portal.visible = false; }
       }
       S.warp.material.uniforms.uT.value = t; pu.uT.value = t; tu.uT.value = t;
+    } else if (s.kind === 'doomed') {
+      // the light first, from everywhere at once, then the ground coming up through you
+      R.fx.white = s.t < 0.15 ? s.t / 0.15 : 1; Player.addShake(s.t < 3 ? 1.2 : 0);
+      if (s.t > 3.5 && !s.done) {
+        s.done = true;
+        const run = G.run;
+        HUD.summary(`<h2 style="color:var(--red)">LOST</h2><div class="sub">The ship was still on ${esc(SITES[s.data.site].name)} when it hit.</div>
+          <div class="row"><span>Quota cycles survived</span><span>${run.cycle - 1}</span></div>
+          <div class="row"><span>Days worked</span><span>${run.day - 1}</span></div>
+          <div class="row"><span>Total scrap sold</span><span>$${run.totalSold || 0}</span></div>
+          <div class="grade" style="color:var(--red)">X</div>`, 'RETURN TO MENU', () => G.quit());
+      }
     } else if (s.kind === 'fired') {
       if (s.t > 1.5 && !s.open) { s.open = true; G.ship.setDoor(true); }
       if (s.t > 2.5) { Player.addShake(0.8); const me = G.me(); me.pos.x = lerp(me.pos.x, -2.5, dt * 2); me.pos.z += dt * (s.t - 2.4) * 6; }
@@ -2918,7 +3146,7 @@ const G = {
     const me = G.me(); if (!me) return;
     const cam = R.camera.position, d = G.dir;
     // fear from visible creatures
-    let fear = 0, flicker = 0, chased = false, chaseK = 0;
+    let fear = 0, flicker = 0, chased = false, chaseK = 0, radioD = 99;
     const camDir = R.camera.getWorldDirection(new THREE.Vector3());
     for (const m of G.monsters.values()) {
       if (m.dead || m.def.zone !== G.zoneOf(me)) continue;
@@ -2930,8 +3158,9 @@ const G = {
       const flashOn = R.flash.intensity > 0 && camDir.dot(to) > 0.9 && dist < R.flash.distance;
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);
-      const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt';
-      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
+      const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt' || m.state === 'drawn' || m.state === 'lurch' || m.state === 'swing' || (m.type === 'executioner' && m.state === 'walk');
+      if (m.def.radio) radioD = Math.min(radioD, dist);
+      if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound' || m.type === 'executioner')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
       if (visible) {
         fear = Math.max(fear, clamp(1 - dist / 22, 0, 1) + (threat ? 0.35 : 0.1));
         if (me.alive && G.now - (m.lastSting || -1e9) > 25000) { m.lastSting = G.now; SFX.play(dist < 5 ? 'stinger_hi' : 'stinger', null, { vol: 0.9, pitch: 0.85 + Math.random() * 0.3 }); }
@@ -2940,6 +3169,12 @@ const G = {
     }
     if (G.leechOn === me.id) fear = 1;
     if (me.alive && me.hp < 35) fear = Math.max(fear, 0.35);
+    // (and as any radio does near one of the things from behind the siren, a walkie you're carrying starts to hiss,
+    // in bursts that come quicker and longer the closer it is)
+    if (me.alive && radioD < 15 && me.slots.some((id) => id != null && G.items.get(id) && G.items.get(id).type === 'walkie')) {
+      d.radio = (d.radio || 0) - dt;
+      if (d.radio <= 0) { const k = 1 - radioD / 15; d.radio = lerp(1.1, 0.12, k) * (0.5 + Math.random()); SFX.play('static', null, { dur: 0.08 + Math.random() * 0.5 * k, vol: 0.4 + k * 1.1 }); }
+    }
     R.fx.fear = damp(R.fx.fear, me.alive ? clamp(fear, 0, 1) : 0, fear > R.fx.fear ? 3 : 0.4, dt);
     G.flicker = flicker + (R.fx.fear > 0.7 ? 0.01 : 0);
     // heartbeat: quickening with fear, and racing (over two hundred a minute) with something right behind you

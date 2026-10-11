@@ -14768,7 +14768,7 @@ const G = {
   },
   fullState() {
     return {
-      v: PROTO, mode: G.mode, run: G.run,
+      v: PROTO, mode: G.mode, run: G.run, orbitT: G.orbitT || 60,
       round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken } : null,
       players: [...G.players.values()].map(G.pinfo),
       items: [...G.items.values()].map(G.iinfo),
@@ -14787,6 +14787,7 @@ const G = {
   },
   applyFullState(s) {
     G.run = s.run;
+    if (typeof s.orbitT === 'number') G.orbitT = s.orbitT;
     if (s.round) {
       G.prepareSite(s.round.seed, s.round.site, s.round.weather);
       Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken });
@@ -14891,7 +14892,9 @@ const G = {
         ps.push([p.id, +p.pos.x.toFixed(2), +p.pos.y.toFixed(2), +p.pos.z.toFixed(2), +p.yaw.toFixed(3), +p.pitch.toFixed(2), f, p.sel]);
       }
       const ms = []; for (const m of G.monsters.values()) ms.push(m.serialize());
-      const snap = { t: 'snap', tm: G.round ? G.round.time : 0, p: ps, m: ms };
+      // (tm: the time of day down on the site; ot: how far round its orbit the ship is, which sets where the sun, the
+      // world and its moons are and how the light falls, so everyone aboard sees the same sky)
+      const snap = { t: 'snap', tm: G.round ? G.round.time : 0, ot: +(G.orbitT || 60).toFixed(2), p: ps, m: ms };
       if (Rover.owned && Rover.state.carrier == null) snap.rv = Rover.netPose();
       Net.broadcast(snap);
     } else if (me) {
@@ -14902,6 +14905,8 @@ const G = {
   },
   applySnap(m) {
     if (G.round && typeof m.tm === 'number') G.round.time = m.tm;
+    // (the host's orbit clock: eased onto when close, jumped to when far out, after a pause or on joining)
+    if (typeof m.ot === 'number') G.orbitT = Math.abs(m.ot - (G.orbitT || 0)) > 2 ? m.ot : G.orbitT + (m.ot - G.orbitT) * 0.2;
     for (const a of m.p) {
       if (a[0] === G.localId) continue;
       const p = G.players.get(a[0]); if (!p) continue;

@@ -1356,10 +1356,10 @@ const SFX = (() => {
     blade_lift(d, t) { smp(d, t, take('blade_lift', 3, () => add(struck({ modes: plate(20, 5.5), f0: rnd(150, 170), T: 2.2, hf: 0.2, tc: 0.002, grit: 0.4, len: 2.6 }), fric(0.4, () => 60, (u) => 1 - u, [[rnd(900, 1300), 1, 0.05]], 0.5), 0, 0.5), 24000), 0.7); },
     // ...and down: the floor taking the whole weight of it (concrete cracking, the iron ringing, chips flying)
     blade_floor(d, t) {
-      nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2);
+      nz(d, Math.max(0, t - 0.25), 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2);
       smp(d, t, take('blade_floor', 3, () => add(add(struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, grit: 0.5, click: 0.5, len: 3 }), struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(38, 46), T: 0.6, hf: 4, tc: 0.02, grit: 0.4 }), 0, 1), grains(0.5, 60, 900, 4000, 0.004), 0.01, 0.4), 24000), 1);
     },
-    blade_flesh(d, t) { nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2); smp(d, t, bodyThud(), 1); smp(d, t + 0.02, lowThud(), 1); smp(d, t + 0.05, take('blade_floor', 3, () => struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, len: 3 }), 24000), 0.5); },
+    blade_flesh(d, t) { nz(d, Math.max(0, t - 0.25), 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2); smp(d, t, bodyThud(), 1); smp(d, t + 0.02, lowThud(), 1); smp(d, t + 0.05, take('blade_floor', 3, () => struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, len: 3 }), 24000), 0.5); },
     // its tread: a great weight coming down on bare feet, the chains on its hood swinging and clinking with it
     heavy_step(d, t) {
       smp(d, t, take('heavy_step', 5, () => {
@@ -1600,7 +1600,7 @@ const SFX = (() => {
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,
     pin: 0.67, toy: 0.065, ring: 0.089, chime: 0.17, gong: 1.3, charge: 1.8, creak: 0.16, caw: 0.18, cricket: 0.034,
     owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12,
-    em_breaker: 1.5, em_lamp: 0.5, em_alarm: 0.35, heel: 0.35, sister_twitch: 0.5, sister_breath: 0.6, bound_groan: 1.2, bound_retch: 1.1, bound_rise: 1, blade_drag: 0.8, blade_lift: 1, blade_floor: 1.4, heavy_step: 1.3, hood_rattle: 0.5
+    em_breaker: 1.5, em_lamp: 0.5, em_alarm: 0.35, heel: 0.9, sister_twitch: 1.2, sister_slash: 1.5, sister_breath: 0.6, bound_groan: 0.65, bound_retch: 0.75, bound_rise: 1, blade_drag: 0.8, blade_lift: 1, blade_floor: 1.4, heavy_step: 1.3, hood_rattle: 0.5
   };
 
   // ---------- routing ----------
@@ -11624,8 +11624,8 @@ const MonModels = (() => {
       const skin = mats.deadSkin(), iron = mats.iron(), apron = mats.apron(), dark = mats.joint();
       P.hips = grp(root, 0, 1.25, 0);
       mk(sph(0.28, 14), skin, P.hips).scale.set(1.1, 0.7, 0.85);
-      mk(new THREE.BoxGeometry(0.62, 1.15, 0.06), apron, P.hips, 0, -0.5, 0.24);
-      mk(new THREE.BoxGeometry(0.62, 1.1, 0.05), apron, P.hips, 0, -0.5, -0.22);
+      const skirt = mk(new THREE.CylinderGeometry(0.3, 0.4, 1.15, 12, 1, true), apron, P.hips, 0, -0.52, 0); skirt.scale.set(1.1, 1, 0.85); skirt.material.side = THREE.DoubleSide;
+      mk(new THREE.TorusGeometry(0.3, 0.035, 5, 14), dark, P.hips, 0, 0.04, 0, Math.PI / 2).scale.set(1.1, 0.85, 1);
       P.ll = limb(P.hips, -0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
       P.lr = limb(P.hips, 0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
       for (const L of [P.ll, P.lr]) mk(new THREE.BoxGeometry(0.16, 0.1, 0.32), dark, L.end, 0, -0.03, 0.06);
@@ -12438,7 +12438,7 @@ class Monster {
       const P = this.P; P.tip.getWorldPosition(_sl);
       if (!this.glow && this.g.lightSources) { this.glow = { x: 0, y: 0, z: 0, color: 0xff8a3a, power: 0, state: 'on', zone: 'in', range: 4, lit: 1 }; this.g.lightSources.push(this.glow); }
       const drag = this.state === 'walk' && v.speed > 0.3;
-      if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.35 ? 0.25 + Math.random() * 0.5 : 0; }
+      if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.3 ? 0.12 + Math.random() * 0.3 : 0; }
       v.dragT = (v.dragT || 0) - dt;
       if (drag && v.dragT <= 0) { v.dragT = 0.5 + Math.random() * 0.25; SFX.play('blade_drag', _sl.clone(), { vol: 1.1, ref: 5, rev: 0.8 }); }
     }
@@ -12622,18 +12622,17 @@ class Monster {
     P.torso.rotation.y = Math.sin(ph) * 0.08 * g;
     P.neck.rotation.x = 0.25 + Math.sin(t * 0.5) * 0.04;
     P.al.a.rotation.set(-sw * 0.6, 0, -0.15); P.al.b.rotation.x = -0.25;
-    let ax, bx, bl;
+    // (three poses, worked out so the blade's tip is where it should be: dragging on the floor behind it; lifted back
+    // over its shoulder, under a corridor's ceiling; and brought down on the floor out in front, as far as it reaches)
+    const DRAG = [0.25 + sw * 0.2, -0.1, 0.04 - sw * 0.1, 0.08], UP = [-2.2, -1.6, -1.5, -0.15], DOWN = [-1.0, -0.2, -1.0, 0.35];
+    let k = DRAG;
     if (this.state === 'swing') {
-      const u = v.sT;
-      // up and back over the shoulder, held there, then down
-      const up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = 1 - sstep(1.6, 2.4, u);
-      ax = lerp(lerp(0.25, -2.9, up), 0.6, down) * back + 0.25 * (1 - back);
-      bx = lerp(-0.4, -0.2, up); bl = lerp(lerp(0.35, -0.6, up), 1.3, down) * back + 0.35 * (1 - back);
-      P.torso.rotation.x = lerp(-0.15 * up, 0.35, down) * back;
-    } else { ax = 0.25 + sw * 0.2; bx = -0.1; bl = 0.35 + Math.sin(t * 7) * 0.01 * g; P.torso.rotation.x = damp(P.torso.rotation.x, 0.08, 4, dt); }
-    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx;
-    // (the blade's pitch: its tip down on the floor behind, while it drags)
-    P.blade.rotation.x = bl + 2.3;
+      const u = v.sT, up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = sstep(1.6, 2.4, u);
+      k = DRAG.map((d, i) => { const a = lerp(lerp(d, UP[i], up), DOWN[i], down); return lerp(a, d, back); });
+    }
+    const [ax, bx, bl, tx] = k;
+    P.torso.rotation.x = damp(P.torso.rotation.x, tx, this.state === 'swing' ? 30 : 4, dt);
+    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx; P.blade.rotation.x = bl + 2.3;
   }
   anim_mannequin(dt, v) {
     const P = this.P;

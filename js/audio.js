@@ -765,10 +765,10 @@ const SFX = (() => {
     blade_lift(d, t) { smp(d, t, take('blade_lift', 3, () => add(struck({ modes: plate(20, 5.5), f0: rnd(150, 170), T: 2.2, hf: 0.2, tc: 0.002, grit: 0.4, len: 2.6 }), fric(0.4, () => 60, (u) => 1 - u, [[rnd(900, 1300), 1, 0.05]], 0.5), 0, 0.5), 24000), 0.7); },
     // ...and down: the floor taking the whole weight of it (concrete cracking, the iron ringing, chips flying)
     blade_floor(d, t) {
-      nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2);
+      nz(d, Math.max(0, t - 0.25), 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2);
       smp(d, t, take('blade_floor', 3, () => add(add(struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, grit: 0.5, click: 0.5, len: 3 }), struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(38, 46), T: 0.6, hf: 4, tc: 0.02, grit: 0.4 }), 0, 1), grains(0.5, 60, 900, 4000, 0.004), 0.01, 0.4), 24000), 1);
     },
-    blade_flesh(d, t) { nz(d, t - 0.25, 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2); smp(d, t, bodyThud(), 1); smp(d, t + 0.02, lowThud(), 1); smp(d, t + 0.05, take('blade_floor', 3, () => struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, len: 3 }), 24000), 0.5); },
+    blade_flesh(d, t) { nz(d, Math.max(0, t - 0.25), 0.3, 0.5, 'bandpass', 300, 900, 1.2, 0.2); smp(d, t, bodyThud(), 1); smp(d, t + 0.02, lowThud(), 1); smp(d, t + 0.05, take('blade_floor', 3, () => struck({ modes: plate(24, 5.5), f0: rnd(140, 165), T: 2.6, hf: 0.15, tc: 0.0015, len: 3 }), 24000), 0.5); },
     // its tread: a great weight coming down on bare feet, the chains on its hood swinging and clinking with it
     heavy_step(d, t) {
       smp(d, t, take('heavy_step', 5, () => {
@@ -1009,7 +1009,7 @@ const SFX = (() => {
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,
     pin: 0.67, toy: 0.065, ring: 0.089, chime: 0.17, gong: 1.3, charge: 1.8, creak: 0.16, caw: 0.18, cricket: 0.034,
     owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12,
-    em_breaker: 1.5, em_lamp: 0.5, em_alarm: 0.35, heel: 0.35, sister_twitch: 0.5, sister_breath: 0.6, bound_groan: 1.2, bound_retch: 1.1, bound_rise: 1, blade_drag: 0.8, blade_lift: 1, blade_floor: 1.4, heavy_step: 1.3, hood_rattle: 0.5
+    em_breaker: 1.5, em_lamp: 0.5, em_alarm: 0.35, heel: 0.9, sister_twitch: 1.2, sister_slash: 1.5, sister_breath: 0.6, bound_groan: 0.65, bound_retch: 0.75, bound_rise: 1, blade_drag: 0.8, blade_lift: 1, blade_floor: 1.4, heavy_step: 1.3, hood_rattle: 0.5
   };
 
   // ---------- routing ----------

@@ -331,8 +331,8 @@ const MonModels = (() => {
       const skin = mats.deadSkin(), iron = mats.iron(), apron = mats.apron(), dark = mats.joint();
       P.hips = grp(root, 0, 1.25, 0);
       mk(sph(0.28, 14), skin, P.hips).scale.set(1.1, 0.7, 0.85);
-      mk(new THREE.BoxGeometry(0.62, 1.15, 0.06), apron, P.hips, 0, -0.5, 0.24);
-      mk(new THREE.BoxGeometry(0.62, 1.1, 0.05), apron, P.hips, 0, -0.5, -0.22);
+      const skirt = mk(new THREE.CylinderGeometry(0.3, 0.4, 1.15, 12, 1, true), apron, P.hips, 0, -0.52, 0); skirt.scale.set(1.1, 1, 0.85); skirt.material.side = THREE.DoubleSide;
+      mk(new THREE.TorusGeometry(0.3, 0.035, 5, 14), dark, P.hips, 0, 0.04, 0, Math.PI / 2).scale.set(1.1, 0.85, 1);
       P.ll = limb(P.hips, -0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
       P.lr = limb(P.hips, 0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
       for (const L of [P.ll, P.lr]) mk(new THREE.BoxGeometry(0.16, 0.1, 0.32), dark, L.end, 0, -0.03, 0.06);
@@ -1145,7 +1145,7 @@ class Monster {
       const P = this.P; P.tip.getWorldPosition(_sl);
       if (!this.glow && this.g.lightSources) { this.glow = { x: 0, y: 0, z: 0, color: 0xff8a3a, power: 0, state: 'on', zone: 'in', range: 4, lit: 1 }; this.g.lightSources.push(this.glow); }
       const drag = this.state === 'walk' && v.speed > 0.3;
-      if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.35 ? 0.25 + Math.random() * 0.5 : 0; }
+      if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.3 ? 0.12 + Math.random() * 0.3 : 0; }
       v.dragT = (v.dragT || 0) - dt;
       if (drag && v.dragT <= 0) { v.dragT = 0.5 + Math.random() * 0.25; SFX.play('blade_drag', _sl.clone(), { vol: 1.1, ref: 5, rev: 0.8 }); }
     }
@@ -1329,18 +1329,17 @@ class Monster {
     P.torso.rotation.y = Math.sin(ph) * 0.08 * g;
     P.neck.rotation.x = 0.25 + Math.sin(t * 0.5) * 0.04;
     P.al.a.rotation.set(-sw * 0.6, 0, -0.15); P.al.b.rotation.x = -0.25;
-    let ax, bx, bl;
+    // (three poses, worked out so the blade's tip is where it should be: dragging on the floor behind it; lifted back
+    // over its shoulder, under a corridor's ceiling; and brought down on the floor out in front, as far as it reaches)
+    const DRAG = [0.25 + sw * 0.2, -0.1, 0.04 - sw * 0.1, 0.08], UP = [-2.2, -1.6, -1.5, -0.15], DOWN = [-1.0, -0.2, -1.0, 0.35];
+    let k = DRAG;
     if (this.state === 'swing') {
-      const u = v.sT;
-      // up and back over the shoulder, held there, then down
-      const up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = 1 - sstep(1.6, 2.4, u);
-      ax = lerp(lerp(0.25, -2.9, up), 0.6, down) * back + 0.25 * (1 - back);
-      bx = lerp(-0.4, -0.2, up); bl = lerp(lerp(0.35, -0.6, up), 1.3, down) * back + 0.35 * (1 - back);
-      P.torso.rotation.x = lerp(-0.15 * up, 0.35, down) * back;
-    } else { ax = 0.25 + sw * 0.2; bx = -0.1; bl = 0.35 + Math.sin(t * 7) * 0.01 * g; P.torso.rotation.x = damp(P.torso.rotation.x, 0.08, 4, dt); }
-    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx;
-    // (the blade's pitch: its tip down on the floor behind, while it drags)
-    P.blade.rotation.x = bl + 2.3;
+      const u = v.sT, up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = sstep(1.6, 2.4, u);
+      k = DRAG.map((d, i) => { const a = lerp(lerp(d, UP[i], up), DOWN[i], down); return lerp(a, d, back); });
+    }
+    const [ax, bx, bl, tx] = k;
+    P.torso.rotation.x = damp(P.torso.rotation.x, tx, this.state === 'swing' ? 30 : 4, dt);
+    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx; P.blade.rotation.x = bl + 2.3;
   }
   anim_mannequin(dt, v) {
     const P = this.P;

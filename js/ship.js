@@ -759,6 +759,9 @@ const Ship = (() => {
         this.pc('green', 0.045, 0.045, 0.26, tx - 0.5, ty + 0.13, tz - 0.14, 0, 0, 0, 14); this.pc('black', 0.048, 0.048, 0.055, tx - 0.5, ty + 0.285, tz - 0.14, 0, 0, 0, 14);
         for (const [dx, dz, r] of [[0.02, 0.08, 0.3], [0.06, 0.05, 1.1]]) this.pb('white', 0.022, 0.022, 0.022, tx + 0.2 + dx, ty + 0.011, tz + dz, 0, r, 0);
         this.col(1.75, 3.35, 3.4, 4.0); this.col(1.9, 3.2, 2.64, 3.26);
+        // room on the bench for two, facing the table (hemmed in by it, so getting up you slide out the end or round it)
+        this.seats = this.seats || [];
+        for (const [x, ex, ez] of [[2.15, 1.45, 3.0], [2.95, 3.0, 2.3]]) this.seats.push({ x, z: bz, y: 0.5, yaw: 0, eye: V(x, 1.18, bz + 0.05), exit: { x: ex, z: ez } });
       }
       // floor marking
       const mk = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.4), new THREE.MeshBasicMaterial({ map: TEX.sign('SCRAP\nSTORAGE', { w: 256, h: 180, size: 30, bg: 'rgba(0,0,0,0)', fg: 'rgba(210,170,40,.55)', dirty: false }), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));

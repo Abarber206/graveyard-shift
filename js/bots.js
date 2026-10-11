@@ -27,7 +27,7 @@ const Bots = (() => {
   const weight = (p) => p.slots.reduce((s, id) => { const it = id != null && G.items.get(id); return s + (it ? ITEMS[it.type].weight || 0 : 0); }, 0);
   function fresh() {
     return { state: 'aboard', route: null, ri: 0, path: null, pathT: 0, pathGoal: null, target: null, box: null, goal: null, known: new Set(), boxes: new Set(), skip: new Set(), seen: new Set(),
-      scanT: 0, cells: null, lastFind: G.now, mv: 0, trying: false, progT: 0, stuck: 0, side: null, dodge: null, watch: null, key: null, bestD: 0, bestT: 0, routeId: 0, flee: null, threatT: 0, recall: false, done: false, waitUntil: 0, mashT: 0, hatch: null, gateT: 0, dropT: 0, spots: null, saidT: -1e9, late: false };
+      scanT: 0, cells: null, lastFind: G.now, mv: 0, trying: false, progT: 0, stuck: 0, side: null, dodge: null, watch: null, key: null, bestD: 0, bestT: 0, routeId: 0, flee: null, threatT: 0, recall: false, done: false, waitUntil: 0, mashT: 0, hatch: null, gateT: 0, dropT: 0, spots: null, saidT: -1e9, late: false, seat: null, sat: false, noSeat: new Set() };
   }
   const brain = (p) => { let b = brains.get(p.id); if (!b) { b = fresh(); brains.set(p.id, b); } return b; };
   // how long (ms) it has gone without getting any closer to what it's after (key: what that is)
@@ -57,7 +57,7 @@ const Bots = (() => {
   B.restore = () => { for (const s of (G.run && G.run.bots) || []) if (G.players.size < MAX_CREW) B.spawn(s.name, s.color); };
   B.reset = () => brains.clear();
   // back in orbit: everyone is aboard again, with a fresh night ahead
-  B.newDay = () => { for (const [id, b] of brains) { const n = fresh(); n.recall = b.recall; brains.set(id, n); } };
+  B.newDay = () => { for (const [id, b] of brains) { const n = fresh(); n.recall = b.recall; n.seat = b.seat; n.sat = b.sat; brains.set(id, n); } };
 
   // ---------------- chat commands ----------------
   const HELP = ['Crew bot commands:', '/add bot [how many]: call bots aboard (up to 6 crew in all)', '/remove bot [how many | all]: send bots away',
@@ -433,8 +433,8 @@ const Bots = (() => {
     }
     const site = (G.mode === 'site' || G.mode === 'leaving') && G.round && G.ext;
     const aboard = G.inShip(p);
-    // in orbit, coming down or lifting off: aboard, it stands by
-    if (!site || (G.flight && aboard)) { b.state = aboard || !site ? 'aboard' : b.state; standBy(p, b, dt); return; }
+    // in orbit, coming down or lifting off: aboard, it sits tight
+    if (!site || (G.flight && aboard)) { b.state = aboard || !site ? 'aboard' : b.state; if (aboard) sitDown(p, b, dt); else standBy(p, b, dt); return; }
     const t = G.round.time, leaving = G.mode === 'leaving';
     const recall = b.recall || leaving || t >= 22 * 60 || !humansAlive();
     if (recall && !b.recall && !b.late && !aboard) { b.late = true; say(p, b, leaving ? 'Wait for me!' : !humansAlive() ? 'Heading back to the ship.' : 'Getting late. Heading back.', 0); }
@@ -479,8 +479,9 @@ const Bots = (() => {
       case 'aboard': {
         if (!aboard && !onShip(p) && !onRamp(p)) { b.state = 'home'; setRoute(b, homeRoute(p)); break; }
         const go = !recall && !b.done && G.now > b.waitUntil && p.hp >= 80 && !G.flight && t < 21.5 * 60 && G.mode === 'site';
-        if (go) { b.state = 'out'; setRoute(b, outRoute(p)); b.late = false; break; }
-        standBy(p, b, dt);
+        if (go) { standUp(p, b); b.state = 'out'; setRoute(b, outRoute(p)); b.late = false; break; }
+        // (done for the night, or called back: it takes a seat for the trip home)
+        if (recall || b.done) sitDown(p, b, dt); else standBy(p, b, dt);
         break;
       }
       case 'out': {
@@ -572,8 +573,35 @@ const Bots = (() => {
       default: b.state = 'aboard';
     }
   }
+  // Aboard with nowhere to be (in orbit, ready for the jump or the dive, and waiting to lift off): it finds a seat, the
+  // bench or a jump seat in the bay (the cockpit's are left for the crew), walks over and sits down until there's work.
+  // (b.seat: the one it's making for, or sitting in once b.sat)
+  const taken = (i, p) => [...G.players.values()].some((q) => q !== p && q.alive && (q.seat === i || (q.bot && brain(q).seat === i)));
+  function sitDown(p, b, dt) {
+    const S = G.ship.seats;
+    if (b.sat) { const s = S[b.seat]; p.pos.set(s.x, 0, s.z); p.yaw = s.yaw; return; }
+    if (G.flight || G.mode === 'landing') return;
+    if (b.seat == null || taken(b.seat, p)) {
+      b.seat = null; let bd = Infinity;
+      S.forEach((s, i) => { if (s.x > 4 || taken(i, p) || b.noSeat.has(i)) return; const d = Math.hypot(s.exit.x - p.pos.x, s.exit.z - p.pos.z); if (d < bd) { bd = d; b.seat = i; } });
+      if (b.seat == null) { standBy(p, b, dt); return; }
+    }
+    const s = S[b.seat], d = Math.hypot(s.exit.x - p.pos.x, s.exit.z - p.pos.z);
+    if (d > 0.35) {
+      if (slow(b, 'seat' + b.seat, d) < 6000) step(p, b, s.exit.x, s.exit.z, WALK, dt);
+      else { b.noSeat.add(b.seat); b.seat = null; b.key = null; }
+      return;
+    }
+    b.sat = true; b.key = null; p.pos.set(s.x, 0, s.z); p.yaw = s.yaw; p.pitch = 0;
+  }
+  // up out of it, stepping out where anyone would
+  function standUp(p, b) {
+    if (b.sat) { const s = G.ship.seats[b.seat]; p.pos.set(s.exit.x, 0, s.exit.z); }
+    b.sat = false; b.seat = null;
+  }
   // standing by aboard: back to its own spot in the bay, out of everyone's way
   function standBy(p, b, dt) {
+    if (b.sat) standUp(p, b);
     if (G.flight || !G.inShip(p) || G.mode === 'landing') return;
     const idx = [...G.players.keys()].indexOf(p.id), x = 1 + (idx % 3) * 1.1, z = 0.6 + Math.floor(idx / 3) * 1.0;
     const d = Math.hypot(x - p.pos.x, z - p.pos.z);
@@ -610,8 +638,10 @@ const Bots = (() => {
       if (!p.bot) continue;
       const b = brain(p);
       think(p, b, dt);
-      p.crouch = false; p.seat = null; p.air = false; p.radio = false; p.talking = false;
-      p.flags = (p.sprint ? 2 : 0) | (p.moving ? 4 : 0) | (p.flash ? 8 : 0) | (p.zone === 'in' ? 128 : 0);
+      if (!p.alive || !G.inShip(p)) { b.sat = false; if (!p.alive) b.seat = null; }
+      p.crouch = false; p.seat = b.sat ? b.seat : null; p.air = false; p.radio = false; p.talking = false;
+      if (b.sat) p.moving = false;
+      p.flags = (p.sprint ? 2 : 0) | (p.moving ? 4 : 0) | (p.flash ? 8 : 0) | (p.zone === 'in' ? 128 : 0) | ((p.seat != null ? p.seat + 1 : 0) << 8);
       p.buf.push({ t: G.now, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch }); if (p.buf.length > 12) p.buf.shift();
     }
   };

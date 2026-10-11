@@ -2625,7 +2625,7 @@ const G = {
     if (inSpace) {
       G.orbitT = (G.orbitT || 60) + dt;
       const sd = G.ship.orbit(dt, G.orbitT);
-      G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
+      R.fx.sun = 0; G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
       // falling close over the surface, the backdrop's near plane comes in so the ground below is never clipped
       R.setBgNear(clamp(G.ship.alt * 0.35, 0.5, 20));
       // up here everyone is shut in the cabin, so its air is clear when the ship comes down into the cloud
@@ -2654,7 +2654,7 @@ const G = {
       R.fx.exposure = 1.0;
       if (G.ext) G.ext.group.visible = false;
     } else if (zone === 'in') {
-      R.fx.peek = 0;
+      R.fx.peek = 0; R.fx.sun = 0;
       // each level down the air is thicker and what little light there is bounces off nothing
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
@@ -2666,6 +2666,8 @@ const G = {
       G.ext.group.visible = true;
       const L = G.ext.lighting(G.round.time);
       G.sunPeek(L.peek || 0, L.sunDir);
+      // (no air: the sun glares as it does from space, as long as it is up and nothing is across it)
+      R.fx.sun = G.ext.biome.airless ? clamp(L.sun / 5, 0, 1) : 0; R.fx.sunDir.copy(L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
       // height fog that pools in the hollows and glows toward the sun
       R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);

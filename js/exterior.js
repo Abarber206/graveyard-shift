@@ -1457,13 +1457,13 @@ const Exterior = (() => {
       this.skyMat = new THREE.ShaderMaterial({
         uniforms: {
           top: U(new THREE.Color(0x10141a)), hor: U(new THREE.Color(0x30343a)), fogCol: U(new THREE.Color(0x30343a)), scatter: U(new THREE.Color(0, 0, 0)),
-          sunDir: U(new THREE.Vector3(0, 1, 0)), sunCol: U(new THREE.Color(0, 0, 0)), moonDir: U(new THREE.Vector3(-0.5, 0.6, -0.6).normalize()),
+          sunDir: U(new THREE.Vector3(0, 1, 0)), sunCol: U(new THREE.Color(0, 0, 0)), uCore: U(new THREE.Color(0, 0, 0)), moonDir: U(new THREE.Vector3(-0.5, 0.6, -0.6).normalize()),
           cloudLit: U(new THREE.Color(0.6, 0.6, 0.6)), cloudDark: U(new THREE.Color(0.3, 0.3, 0.3)),
           uTime: U(0), cover: U(0.5), haze: U(0.5), night: U(0), seed: U((this.seed % 1000) * 0.137), inCloud: U(0),
         },
         vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
         fragmentShader: `
-          uniform vec3 top, hor, fogCol, scatter, sunDir, sunCol, moonDir, cloudLit, cloudDark;
+          uniform vec3 top, hor, fogCol, scatter, sunDir, sunCol, uCore, moonDir, cloudLit, cloudDark;
           uniform float uTime, cover, haze, night, seed, inCloud;
           varying vec3 vP;
           float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -1477,6 +1477,9 @@ const Exterior = (() => {
             c += sunCol * (pow(sd, 7.0) * 0.3 + pow(sd, 90.0) * 0.8) + vec3(0.5, 0.56, 0.7) * pow(md, 60.0) * 0.12 * night;
             float disc = smoothstep(0.99935, 0.9997, sd);
             c += sunCol * disc * 3.0;
+            // (with no air to soften it, the sun is a small white disc as blinding as it is from space: bright enough for
+            // the glare round it, which shows only while the disc itself can be seen)
+            c += uCore * smoothstep(0.99972, 0.99982, sd);
             // a thin high layer of wisps, streaked out and drifting its own way (the deck below passes in front of it)
             if (h > 0.0) {
               vec2 q2 = d.xz / (h + 0.35) * 0.55 + vec2(-uTime * 0.0012, uTime * 0.0004) + seed * 1.7;
@@ -1695,6 +1698,7 @@ const Exterior = (() => {
         const su = this.skyMat.uniforms;
         su.top.value.copy(L.top); su.hor.value.copy(L.hor); su.fogCol.value.copy(L.fog); su.scatter.value.copy(L.scatter);
         su.sunDir.value.copy(L.sunDir); su.sunCol.value.copy(L.sunColor).multiplyScalar(L.sunGlow);
+        su.uCore.value.setRGB(34, 31, 27).multiplyScalar(this.biome.airless ? clamp(L.sun / 5, 0, 1) : 0);
         su.cloudLit.value.copy(L.cloudLit); su.cloudDark.value.copy(L.cloudDark);
         su.uTime.value = t * gusty; su.cover.value = L.cover; su.haze.value = L.haze; su.night.value = L.night;
         this.updateSkyBodies(L, t);

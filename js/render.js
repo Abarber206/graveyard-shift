@@ -2,7 +2,7 @@
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2() };
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2(), sun: 0, sunDir: new THREE.Vector3(0, 1, 0) };
   let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
@@ -417,7 +417,15 @@ const R = (() => {
       const bg = scene.background; scene.background = null;
       renderer.render(scene, camera);
       scene.background = bg;
-    } else renderer.render(scene, camera);
+    } else {
+      renderer.render(scene, camera);
+      // (on the ground with no air, the sun in the sky glares the same way, while its disc can be seen)
+      if (fx.sun > 0) {
+        camera.getWorldPosition(_sv).addScaledVector(fx.sunDir, 100).project(camera);
+        const x = _sv.x * 0.5 + 0.5, y = _sv.y * 0.5 + 0.5;
+        if (_sv.z < 1 && x > 0.002 && x < 0.998 && y > 0.002 && y < 0.998) { u.uSun.value = fx.sun; u.uSunUV.value.set(x, y); }
+      }
+    }
     renderer.clearDepth();
     renderer.render(vmScene, vmCamera);
     // bloom: bright pass into A, then blur A -> B -> A twice with a widening kernel

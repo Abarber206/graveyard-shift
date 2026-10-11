@@ -6229,13 +6229,13 @@ const Exterior = (() => {
       this.skyMat = new THREE.ShaderMaterial({
         uniforms: {
           top: U(new THREE.Color(0x10141a)), hor: U(new THREE.Color(0x30343a)), fogCol: U(new THREE.Color(0x30343a)), scatter: U(new THREE.Color(0, 0, 0)),
-          sunDir: U(new THREE.Vector3(0, 1, 0)), sunCol: U(new THREE.Color(0, 0, 0)), moonDir: U(new THREE.Vector3(-0.5, 0.6, -0.6).normalize()),
+          sunDir: U(new THREE.Vector3(0, 1, 0)), sunCol: U(new THREE.Color(0, 0, 0)), uCore: U(new THREE.Color(0, 0, 0)), moonDir: U(new THREE.Vector3(-0.5, 0.6, -0.6).normalize()),
           cloudLit: U(new THREE.Color(0.6, 0.6, 0.6)), cloudDark: U(new THREE.Color(0.3, 0.3, 0.3)),
           uTime: U(0), cover: U(0.5), haze: U(0.5), night: U(0), seed: U((this.seed % 1000) * 0.137), inCloud: U(0),
         },
         vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
         fragmentShader: `
-          uniform vec3 top, hor, fogCol, scatter, sunDir, sunCol, moonDir, cloudLit, cloudDark;
+          uniform vec3 top, hor, fogCol, scatter, sunDir, sunCol, uCore, moonDir, cloudLit, cloudDark;
           uniform float uTime, cover, haze, night, seed, inCloud;
           varying vec3 vP;
           float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -6249,6 +6249,9 @@ const Exterior = (() => {
             c += sunCol * (pow(sd, 7.0) * 0.3 + pow(sd, 90.0) * 0.8) + vec3(0.5, 0.56, 0.7) * pow(md, 60.0) * 0.12 * night;
             float disc = smoothstep(0.99935, 0.9997, sd);
             c += sunCol * disc * 3.0;
+            // (with no air to soften it, the sun is a small white disc as blinding as it is from space: bright enough for
+            // the glare round it, which shows only while the disc itself can be seen)
+            c += uCore * smoothstep(0.99972, 0.99982, sd);
             // a thin high layer of wisps, streaked out and drifting its own way (the deck below passes in front of it)
             if (h > 0.0) {
               vec2 q2 = d.xz / (h + 0.35) * 0.55 + vec2(-uTime * 0.0012, uTime * 0.0004) + seed * 1.7;
@@ -6467,6 +6470,7 @@ const Exterior = (() => {
         const su = this.skyMat.uniforms;
         su.top.value.copy(L.top); su.hor.value.copy(L.hor); su.fogCol.value.copy(L.fog); su.scatter.value.copy(L.scatter);
         su.sunDir.value.copy(L.sunDir); su.sunCol.value.copy(L.sunColor).multiplyScalar(L.sunGlow);
+        su.uCore.value.setRGB(34, 31, 27).multiplyScalar(this.biome.airless ? clamp(L.sun / 5, 0, 1) : 0);
         su.cloudLit.value.copy(L.cloudLit); su.cloudDark.value.copy(L.cloudDark);
         su.uTime.value = t * gusty; su.cover.value = L.cover; su.haze.value = L.haze; su.night.value = L.night;
         this.updateSkyBodies(L, t);
@@ -11545,7 +11549,7 @@ const Voice = (() => {
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2() };
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2(), sun: 0, sunDir: new THREE.Vector3(0, 1, 0) };
   let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
@@ -11960,7 +11964,15 @@ const R = (() => {
       const bg = scene.background; scene.background = null;
       renderer.render(scene, camera);
       scene.background = bg;
-    } else renderer.render(scene, camera);
+    } else {
+      renderer.render(scene, camera);
+      // (on the ground with no air, the sun in the sky glares the same way, while its disc can be seen)
+      if (fx.sun > 0) {
+        camera.getWorldPosition(_sv).addScaledVector(fx.sunDir, 100).project(camera);
+        const x = _sv.x * 0.5 + 0.5, y = _sv.y * 0.5 + 0.5;
+        if (_sv.z < 1 && x > 0.002 && x < 0.998 && y > 0.002 && y < 0.998) { u.uSun.value = fx.sun; u.uSunUV.value.set(x, y); }
+      }
+    }
     renderer.clearDepth();
     renderer.render(vmScene, vmCamera);
     // bloom: bright pass into A, then blur A -> B -> A twice with a widening kernel
@@ -16550,7 +16562,7 @@ const G = {
     if (inSpace) {
       G.orbitT = (G.orbitT || 60) + dt;
       const sd = G.ship.orbit(dt, G.orbitT);
-      G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
+      R.fx.sun = 0; G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
       // falling close over the surface, the backdrop's near plane comes in so the ground below is never clipped
       R.setBgNear(clamp(G.ship.alt * 0.35, 0.5, 20));
       // up here everyone is shut in the cabin, so its air is clear when the ship comes down into the cloud
@@ -16579,7 +16591,7 @@ const G = {
       R.fx.exposure = 1.0;
       if (G.ext) G.ext.group.visible = false;
     } else if (zone === 'in') {
-      R.fx.peek = 0;
+      R.fx.peek = 0; R.fx.sun = 0;
       // each level down the air is thicker and what little light there is bounces off nothing
       const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
@@ -16591,6 +16603,8 @@ const G = {
       G.ext.group.visible = true;
       const L = G.ext.lighting(G.round.time);
       G.sunPeek(L.peek || 0, L.sunDir);
+      // (no air: the sun glares as it does from space, as long as it is up and nothing is across it)
+      R.fx.sun = G.ext.biome.airless ? clamp(L.sun / 5, 0, 1) : 0; R.fx.sunDir.copy(L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
       // height fog that pools in the hollows and glows toward the sun
       R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);
@@ -16801,7 +16815,7 @@ const MenuScene = (() => {
       R.sun.castShadow = false; R.camera.far = 700; R.camera.updateProjectionMatrix(); R.setFog(null);
       for (let i = -1; i < 2; i++) R.setGlow(i, null);
       R.remote.forEach((s, i) => { s.intensity = 0; R.setBeam(i, s, false); });
-      R.fx.health = 1; R.fx.leech = 0; R.fx.damage = 0;
+      R.fx.health = 1; R.fx.leech = 0; R.fx.damage = 0; R.fx.sun = 0;
     },
     leave() {
       if (!active) return;

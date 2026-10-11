@@ -1819,5 +1819,7 @@ const Facility = (() => {
     }
   }
   function mat4(x, y, z, ry = 0, rx = 0, rz = 0) { return mat(x, y, z, rx, ry, rz); }
+  // (a doorway's size, for anything that has to squeeze through one)
+  Fac.DW = DW; Fac.DH = DH;
   return Fac;
 })();

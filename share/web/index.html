@@ -788,6 +788,28 @@ const SFX = (() => {
     },
     leech_drop(d, t) { osc(d, 'sine', 95, 38, t, 0.25, 0.9); nz(d, t, 0.2, 0.7, 'lowpass', 500, 150, 1); nz(d, t + 0.05, 0.3, 0.4, 'bandpass', 500, 1500, 6); },
     squelch(d, t) { for (let i = 0; i < 3; i++) nz(d, t + i * 0.11, 0.09, 0.45, 'bandpass', rnd(350, 900), 200, 5); },
+    // the Seep: a heavy, wet slither as it drags itself along...
+    slime_slosh(d, t) {
+      nz(d, t, 0.6, 0.55, 'lowpass', 420, 140, 1.2, 0.12, brownBuf);
+      for (let i = 0; i < 3; i++) nz(d, t + 0.05 + i * rnd(0.08, 0.15), 0.12, 0.28, 'bandpass', rnd(380, 820), 200, 5, 0.01);
+      osc(d, 'sine', rnd(110, 150), 55, t + 0.12, 0.3, 0.25, 0.02);
+    },
+    // ...bubbles welling up through it and bursting...
+    slime_gurgle(d, t) {
+      for (let i = 0, tt = t; i < 7; i++, tt += rnd(0.06, 0.17)) { osc(d, 'sine', rnd(85, 230), rnd(45, 110), tt, rnd(0.05, 0.13), 0.3, 0.008); nz(d, tt, 0.04, 0.12, 'bandpass', rnd(600, 1400), null, 6, 0.004); }
+      nz(d, t, 1.1, 0.3, 'lowpass', 260, 110, 1, 0.25, brownBuf);
+    },
+    // ...a thin wet hiss as it starts to work its way through the gap under a door...
+    slime_seep(d, t) { nz(d, t, 1.4, 0.22, 'bandpass', 1900, 900, 2.5, 0.25); nz(d, t, 1.2, 0.3, 'lowpass', 380, 160, 1, 0.3, brownBuf); },
+    // ...dribbling and dripping on the other side all the while...
+    slime_drip(d, t) { for (let i = 0; i < 4; i++) { const tt = t + i * rnd(0.09, 0.22); osc(d, 'sine', rnd(700, 1300), rnd(350, 600), tt, 0.05, 0.12, 0.003); nz(d, tt, 0.05, 0.1, 'bandpass', 1600, null, 4, 0.003); } nz(d, t, 0.6, 0.12, 'bandpass', 1300, 800, 2, 0.1); },
+    // ...the sizzle of it burning whoever it reaches...
+    slime_burn(d, t) { nz(d, t, 0.4, 0.5, 'highpass', 2800, 5200, 0.7, 0.01); nz(d, t, 0.25, 0.35, 'bandpass', 650, 300, 3, 0.01); },
+    // ...and the gulp of it taking them whole
+    slime_gulp(d, t) {
+      nz(d, t, 0.5, 0.8, 'lowpass', 700, 120, 1.5, 0.02, brownBuf); osc(d, 'sine', 160, 38, t, 0.55, 0.9, 0.01);
+      for (let i = 0; i < 5; i++) osc(d, 'sine', rnd(70, 160), rnd(40, 80), t + 0.25 + i * rnd(0.08, 0.16), 0.1, 0.35, 0.008);
+    },
     chitter(d, t) { for (let i = 0; i < 12; i++) { nz(d, t + i * 0.032, 0.014, 0.35, 'bandpass', rnd(2600, 4400), null, 9, 0.001); osc(d, 'sine', rnd(2000, 3200), 1500, t + i * 0.032, 0.012, 0.03, 0.001); } },
     hound_growl(d, t) {
       const lp = filt(d, 'lowpass', 380, 1.5);
@@ -4779,6 +4801,8 @@ const Facility = (() => {
     }
   }
   function mat4(x, y, z, ry = 0, rx = 0, rz = 0) { return mat(x, y, z, rx, ry, rz); }
+  // (a doorway's size, for anything that has to squeeze through one)
+  Fac.DW = DW; Fac.DH = DH;
   return Fac;
 })();
 
@@ -9604,6 +9628,8 @@ const MON_DEFS = {
   mannequin: { name: 'Mannequin', hp: 9999, zone: 'in', power: 2, radius: 0.35, height: 1.7 },
   leech: { name: 'Ceiling Leech', hp: 2, zone: 'in', power: 1, radius: 0.3, height: 0.3 },
   hound: { name: 'Hollow Hound', hp: 5, zone: 'out', power: 2, radius: 0.7, height: 1.2 },
+  // (its body fills a corridor; what it steers by is a small core, so it can squeeze through any doorway)
+  slime: { name: 'The Seep', hp: 9999, zone: 'in', power: 3, radius: 0.55, height: 2.8 },
 };
 const BESTIARY = {
   crawler: 'Low, eyeless, mostly mouth. Once it notices you it charges in a straight line and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
@@ -9611,6 +9637,7 @@ const BESTIARY = {
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and drops onto the head of whoever passes beneath. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound alone. Walk, crouch, keep quiet. They will follow you into the ship if the hatch is open.',
+  slime: 'A wall of slime as wide as the corridor and as high as the ceiling. Slow, but it never stops, and nothing we have hurts it. It feels you through the floor. Left alone it settles across a corridor and waits. Shut a door on it: it cannot open doors, but it will seep under one, or through a barred window, a little at a time, and gather itself again on your side. Touching it burns. Do not let it back you into a dead end.',
 };
 
 const MonModels = (() => {
@@ -9629,6 +9656,30 @@ const MonModels = (() => {
     leg: () => M('leg', () => new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.6 })),
     sinew: () => M('sinew', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 })),
     claw: () => M('claw', () => new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.35, metalness: 0.1 })),
+    // the Seep: a glossy jelly you can see into, heaving slowly all over, glowing a little at its edges where the light
+    // comes through it (its colour in blotches of darker and paler, square-cut like everything else; which colour, a
+    // new one every landing: see SLIME_COLORS)
+    slime: () => M('slime', () => {
+      const m = new THREE.MeshStandardMaterial({ color: 0x6a7a26, roughness: 0.08, metalness: 0.05, emissive: 0x0a1404, transparent: true, opacity: 0.66 });
+      const U = { uT: { value: 0 }, uHeave: { value: 1 } }; m.userData.U = U;
+      m.onBeforeCompile = (sh) => {
+        Object.assign(sh.uniforms, U);
+        sh.vertexShader = 'uniform float uT, uHeave; varying vec3 vSP;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+          vSP = position;
+          float wob = sin(position.x * 9.0 + uT * 1.7) * sin(position.y * 7.0 - uT * 1.3) * sin(position.z * 8.0 + uT * 2.1)
+            + 0.5 * sin(position.x * 23.0 - uT * 3.1 + position.y * 11.0);
+          transformed += normal * wob * 0.035 * uHeave;
+          transformed.y -= (1.0 - abs(position.x) * 2.0) * smoothstep(0.6, 1.0, position.y) * 0.04 * (1.0 + sin(uT * 0.9));`);
+        sh.fragmentShader = 'varying vec3 vSP;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+          { vec3 c = floor(vSP * vec3(14.0, 16.0, 10.0)); float n = fract(sin(dot(c, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+            diffuseColor.rgb *= 0.72 + 0.5 * n; }`).replace('#include <opaque_fragment>', `
+          { float fr = pow(1.0 - clamp(abs(dot(normalize(normal), normalize(vViewPosition))), 0.0, 1.0), 2.5);
+            outgoingLight += diffuseColor.rgb * fr * 0.55; diffuseColor.a = mix(diffuseColor.a, 0.92, fr); }
+          #include <opaque_fragment>`);
+      };
+      m.customProgramCacheKey = () => 'slime';
+      return m;
+    }),
   };
   const cap = (r, l, s = 8) => new THREE.CapsuleGeometry(r, l, 4, s);
   const sph = (r, s = 12) => new THREE.SphereGeometry(r, s, Math.max(6, Math.floor(s * 0.75)));
@@ -9822,11 +9873,42 @@ const MonModels = (() => {
       }
       root.userData.parts = P; return root;
     },
+    // The Seep: a wall of jelly the width of a corridor and the height of its ceiling, its edges rounded, heaving and
+    // sagging, with things it has taken hanging inside it. It's built a metre each way and sized as it goes (see
+    // anim_slime). The parts for passing a shut door: a thin sheet under it (or a rope of it through the window's bars,
+    // dripping down the far side) and a mound gathering beyond, while the body this side drains away into the gap
+    slime() {
+      const root = new THREE.Group(), P = {}, m = mats.slime();
+      // (a rounded box: a sphere pushed out toward its corners, sitting on the floor)
+      const blob = () => {
+        const g = new THREE.SphereGeometry(0.5, 36, 26), p = g.attributes.position, f = (c) => Math.sign(c) * Math.pow(Math.min(1, Math.abs(c) * 2), 0.42) * 0.5;
+        for (let i = 0; i < p.count; i++) p.setXYZ(i, f(p.getX(i)), f(p.getY(i)), f(p.getZ(i)));
+        g.computeVertexNormals(); return g.translate(0, 0.5, 0);
+      };
+      const geo = blob(), cube = () => new THREE.BoxGeometry(1, 1, 1, 4, 4, 2);
+      P.body = mk(geo, m, root);
+      // what it has taken: bones, a skull, a length of pipe, a work glove, turning slowly inside it
+      const bone = mats.tooth(), dark = mats.joint();
+      P.inner = grp(P.body, 0, 0, 0);
+      for (const [x, y, z, rx, rz] of [[-0.22, 0.32, 0.05, 0.4, 1.2], [0.18, 0.55, -0.1, -0.8, 0.3], [0.05, 0.22, 0.12, 1.4, -0.5]]) mk(cap(0.012, 0.09, 6), bone, P.inner, x, y, z, rx, 0, rz);
+      mk(sph(0.03, 8), bone, P.inner, 0.28, 0.7, 0.05);
+      mk(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 6), dark, P.inner, -0.3, 0.62, -0.05, 0.3, 0, 1.1);
+      mk(new THREE.BoxGeometry(0.035, 0.05, 0.015), dark, P.inner, 0.1, 0.85, 0.1, 0.5, 0.4, 0);
+      P.sheet = mk(cube().translate(0, 0.5, 0), m, root); P.stream = mk(cube(), m, root); P.drip = mk(cube().translate(0, 0.5, 0), m, root);
+      P.far = mk(geo, m, root);
+      for (const k of ['sheet', 'stream', 'drip', 'far']) P[k].visible = false;
+      P.U = m.userData.U;
+      root.userData.parts = P; return root;
+    },
   };
-  return { build(type) { const g = B[type](); g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } }); return g; } };
+  // the Seep's colour: one of these, a new one every landing (all of them alike on a site, and the same for every
+  // crewmate, picked from the landing's seed)
+  const SLIME_COLORS = [0x6a7a26, 0x8a1c22, 0x5a2a8a, 0xb07a1a, 0x1f8a80, 0xc8c0a8, 0x2a3f7a, 0x9a3a6a, 0x5aa02a];
+  const tintSlime = (seed) => { const m = mats.slime(), c = SLIME_COLORS[new RNG((seed || 1) ^ 0x5eed).int(0, SLIME_COLORS.length - 1)]; m.color.setHex(c); m.emissive.setHex(c).multiplyScalar(0.16); };
+  return { tintSlime, build(type) { const g = B[type](); g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } }); return g; } };
 })();
 
-const _dp = new THREE.Vector3();
+const _dp = new THREE.Vector3(), _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3();
 class Monster {
   constructor(game, id, type, x, y, z) {
     this.g = game; this.id = id; this.type = type; this.def = MON_DEFS[type];
@@ -9841,6 +9923,7 @@ class Monster {
     this.mesh.position.copy(this.pos);
     this.rpos = this.pos.clone(); this.rry = this.ry; this.buf = []; this.vis = { speed: 0, stepAcc: 0, t: Math.random() * 10, sfx: 2 + Math.random() * 4, lastState: this.state, pose: -999 };
     if (type === 'mannequin') this.extra = Math.floor(Math.random() * 1e6);
+    if (type === 'slime') { MonModels.tintSlime(game.round && game.round.seed); this.swallowed = []; }
   }
   get dead() { return this.state === 'dead'; }
   forward() { return { x: Math.sin(this.ry), z: Math.cos(this.ry) }; }
@@ -9896,8 +9979,9 @@ class Monster {
     let tx = wp.x, tz = wp.z;
     if (di || dj) {
       const ti = di ? ci + di : ci, tj = di ? cj : cj + dj;
+      // (opts.doors false: it can't open one, and only notes the shut door it's come up against)
       const door = fac.closedDoorBetween(ci, cj, ti, tj);
-      if (door && Math.hypot(door.x - this.pos.x, door.z - this.pos.z) < 1.8) this.g.monsterOpenDoor(this, door);
+      if (door && Math.hypot(door.x - this.pos.x, door.z - this.pos.z) < 1.8) { if (opts.doors === false) this.doorAhead = door; else this.g.monsterOpenDoor(this, door); }
       // line up square with a doorway before going through it, or it catches on the jamb (or behind the open leaf)
       const d = fac.doorBetween(ci, cj, ti, tj);
       if (d) {
@@ -10303,8 +10387,74 @@ class Monster {
     // stuck detection
     if (this.speedNow < 0.3 && (this.state === 'wander' || this.state === 'investigate')) { this.stuckT += dt; if (this.stuckT > 1.5) { this.goal = this.randomGoal(8, 20); this.stuckT = 0; } } else this.stuckT = 0;
   }
+  // The Seep: it feels for crewmates through the floor (anyone near enough on its own level, through walls, or a noise
+  // it picks up) and comes after them slowly, without ever stopping; with nobody about it creeps off down a corridor and
+  // settles across it, a wall in the way, until something comes near. It never opens a door. At a shut one it seeps
+  // through, under it or through the bars of its window, a little at a time, and gathers itself on the other side (all
+  // at once if somebody opens the door on it). extra: who it's after, or while seeping the door's id plus how far through
+  ai_slime(dt) {
+    const fac = this.g.fac;
+    if (this.state === 'seep') {
+      const d = fac.doors[this.door];
+      if (!d) { this.setState('creep'); this.extra = -1; return; }
+      this.seepK = Math.min(1, this.seepK + dt / (d.open || d.broken ? 0.9 : d.pane === 'bars' ? 7 : 11));
+      this.extra = d.id + Math.min(0.999, this.seepK); this.speedNow = 0;
+      if (this.seepK >= 1) {
+        const s = this.seepSide;
+        this.pos.x = d.x + d.nx * s * 1.3; this.pos.z = d.z + d.nz * s * 1.3; this.pos.y = fac.floorY(this.pos.x, this.pos.z, d.y + 0.5);
+        this.ry = Math.atan2(d.nx * s, d.nz * s); this.path = null; this.door = null; this.extra = -1;
+        this.setState(this.target != null ? 'hunt' : 'creep');
+      }
+      this.engulf();
+      return;
+    }
+    let tgt = this.target != null ? this.g.players.get(this.target) : null;
+    if (tgt && (!tgt.alive || tgt.zone !== 'in' || Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z) > 34)) { tgt = null; this.target = null; }
+    if (!tgt) { const p = this.nearestPlayer(22); if (p && Math.abs(p.pos.y - this.pos.y) < 3) { tgt = p; this.target = p.id; } }
+    this.doorAhead = null;
+    if (tgt) {
+      this.setState('hunt'); this.extra = tgt.id;
+      this.moveTo(tgt.pos.x, tgt.pos.z, 1.25, dt, { doors: false, turn: 2.5, gy: tgt.pos.y });
+    } else {
+      this.extra = -1;
+      const n = this.hearNoise(0.8);
+      if (n) { this.goal = { x: n.x, z: n.z }; this.setState('creep'); }
+      if (this.state === 'block') this.speedNow = 0;
+      else {
+        this.setState('creep');
+        if (!this.goal || this.st > 45) { this.goal = this.randomGoal(8, 30, (p) => fac.grid[fac.idx(p.i, p.j)] === 1); this.st = 0; }
+        if (this.moveTo(this.goal.x, this.goal.z, 0.8, dt, { doors: false, turn: 2 }) < 1) { this.goal = null; this.setState('block'); this.blockT = 35 + Math.random() * 55; }
+      }
+      if (this.state === 'block' && this.st > this.blockT) this.setState('creep');
+    }
+    // up against a shut door: through it, a little at a time
+    const d = this.doorAhead;
+    if (d && !d.open && !d.broken) {
+      const along = (this.pos.x - d.x) * d.nx + (this.pos.z - d.z) * d.nz;
+      if (Math.abs(along) < 1.6) {
+        this.door = d.id; this.seepSide = -Math.sign(along) || 1; this.seepK = 0; this.setState('seep'); this.extra = d.id;
+        this.g.emitSound('slime_seep', new THREE.Vector3(d.x, d.y + 0.3, d.z), { vol: 1.1, ref: 4 });
+      }
+    }
+    this.engulf();
+  }
+  // whoever it reaches is shoved on ahead of it and burned; backed into a corner, swallowed
+  engulf() {
+    if (this.atk > 0) return;
+    const f = this.forward(), sx = f.z, sz = -f.x;
+    for (const p of this.playersIn()) {
+      const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, along = dx * f.x + dz * f.z, lat = dx * sx + dz * sz;
+      if (Math.abs(p.pos.y - this.pos.y) > 2.5 || along < -0.95 || along > 1.25 || Math.abs(lat) > 1.45) continue;
+      this.atk = 0.3;
+      this.g.emitSound('slime_burn', p.pos, { vol: 1 });
+      if (p.hp <= 9) this.g.killPlayer(p.id, 'slime', this.id);
+      else this.g.hurtPlayer(p.id, 9, 'slime', f.x * 5, f.z * 5);
+    }
+  }
   onHit(dmg, fromPid) {
     if (this.dead) return;
+    // (a blow just sinks into it: it shudders, and stops a moment)
+    if (this.type === 'slime') { this.g.emitSound('squelch', this.center(), {}); this.stun = Math.max(this.stun, 0.8); return; }
     if (this.type === 'mannequin') { this.g.emitSound('hit_metal', this.pos, {}); return; }
     this.hp -= dmg;
     this.g.emitSound('hit_flesh', this.center(), {});
@@ -10370,6 +10520,7 @@ class Monster {
   onStateChange(from, to, lp) {
     if (this.type === 'crawler' && to === 'spot') SFX.play('crawler_screech', this.center(), { vol: 1.5, ref: 3 });
     if (this.type === 'leech' && to === 'attached') SFX.play('squelch', this.rpos, { vol: 1 });
+    if (this.type === 'slime' && to === 'hunt') SFX.play('slime_gurgle', this.center(), { vol: 1.3, ref: 5 });
     if (this.type === 'leech' && from === 'attached') SFX.play('chitter', this.rpos, { vol: 1 });
     if (to === 'dead') { SFX.play('crunch', this.center(), { vol: 0.9 }); this.onDeath(); }
   }
@@ -10511,6 +10662,96 @@ class Monster {
       this.mesh.rotation.x = Math.PI * f; this.mesh.position.y = this.rpos.y + 0.12 * f;
       P.segs.forEach((s, i) => { s.position.x = 0; s.scale.y = lerp(0.75, 0.55, f); s.position.y = Math.sin((i / 6) * Math.PI) * 0.07 * f; });
       P.legs.forEach((l, i) => { l.rotation.x = 1.3 * f + v.tw * (i % 2 ? 1 : -1); });
+    }
+  }
+  // The Seep, as everyone sees it: a jelly filling the corridor from wall to wall and up to the ceiling (squeezing down
+  // to the size of a doorway to go through an open one), heaving all over and wobbling as it gets going or stops. At a
+  // shut door the body this side drains away into it while a sheet of it slides under (or a rope of it pours through
+  // the window's bars and drips down the far side) and a mound gathers on the other side, swelling into the whole of it.
+  // Those it has swallowed hang inside it, turning slowly; it can't take them through a door, and leaves them there
+  anim_slime(dt, v, lp) {
+    const P = this.P, fac = this.g.fac; if (!fac) return;
+    const U = P.U; U.uT.value = performance.now() / 1000;
+    const moving = v.speed > 0.15;
+    // (the jelly wobbles when it sets off or stops: a spring that's kicked by every change in its speed)
+    v.jv = (v.jv || 0) + ((v.speed - (v.lastSp || 0)) * 2.2 - (v.jy || 0) * 38 - (v.jv || 0) * 3.2) * dt; v.jy = (v.jy || 0) + v.jv * dt; v.lastSp = v.speed;
+    const jig = clamp(v.jy, -0.12, 0.12);
+    U.uHeave.value = damp(U.uHeave.value, this.state === 'hunt' ? 1.6 : moving ? 1.25 : 0.8, 2, dt);
+    const H = clamp(fac.ceilAt(this.rpos.x, this.rpos.z) - 0.06, 2.2, 3.4), W0 = 2.74, D0 = 1.7, DW = Facility.DW, DH = Facility.DH;
+    // the nearest doorway, looked for now and then
+    if ((v.doorT = (v.doorT || 0) - dt) <= 0) {
+      v.doorT = 0.25; v.nd = null; let bd = 2.4;
+      for (const d of fac.doors) { if (Math.abs(d.y - this.rpos.y) > 2) continue; const dd = Math.hypot(d.x - this.rpos.x, d.z - this.rpos.z); if (dd < bd) { bd = dd; v.nd = d; } }
+    }
+    const seepD = this.state === 'seep' && this.extra >= 0 ? fac.doors[Math.floor(this.extra)] : null;
+    for (const k of ['sheet', 'stream', 'drip', 'far']) P[k].visible = false;
+    if (!seepD) {
+      let w = W0, h = H;
+      if (v.nd && !v.nd.broken) { const nd = v.nd, dn = Math.abs((this.rpos.x - nd.x) * nd.nx + (this.rpos.z - nd.z) * nd.nz), k = sstep(0.3, 1.9, dn); w = lerp(DW - 0.12, W0, k); h = lerp(DH - 0.04, H, k); }
+      const s = P.body.scale;
+      P.body.position.set(0, 0, 0); P.body.rotation.y = 0;
+      s.set(damp(s.x, w, 5, dt) * (1 - jig * 0.5), damp(s.y, h, 5, dt) * (1 + jig), D0 * (1 - jig * 0.6));
+      v.seepFrom = null;
+    } else {
+      // through a shut door: k how far, the far side's direction (fx, fz) the way it's going
+      const d = seepD, k = this.extra - Math.floor(this.extra);
+      if (!v.seepFrom) v.seepFrom = Math.sign((d.x - this.rpos.x) * d.nx + (d.z - this.rpos.z) * d.nz) || 1;
+      const s = v.seepFrom, fx = d.nx * s, fz = d.nz * s, bars = d.pane === 'bars', yaw = Math.atan2(fx, fz) - this.rry;
+      this.mesh.updateMatrixWorld(true);
+      const place = (o, x, y, z, sx, sy, sz) => { o.position.copy(this.mesh.worldToLocal(_sl.set(x, y, z))); o.rotation.set(0, yaw, 0); o.scale.set(sx, sy, sz); o.visible = true; };
+      const nearD = Math.max(0.1, D0 * (1 - k)), farD = Math.max(0.1, D0 * k);
+      place(P.body, d.x - fx * (0.08 + nearD / 2), d.y, d.z - fz * (0.08 + nearD / 2), W0 * (1 - 0.3 * k), H * (1 - 0.75 * k), nearD);
+      place(P.far, d.x + fx * (0.08 + farD / 2), d.y, d.z + fz * (0.08 + farD / 2), lerp(0.7, W0, k), H * Math.pow(k, 0.75) + 0.04, farD);
+      const flow = sstep(0.01, 0.06, k) * (1 - sstep(0.94, 1, k));
+      if (flow > 0) {
+        if (bars) {
+          const py = (Pane.y0 + Pane.y1) / 2;
+          place(P.stream, d.x, d.y + py, d.z, Pane.W * 0.8, 0.22 * flow, 0.5);
+          place(P.drip, d.x + fx * 0.32, d.y, d.z + fz * 0.32, 0.24 * flow, py, 0.18);
+        } else place(P.sheet, d.x, d.y, d.z, DW - 0.25, 0.05 * flow + 0.01, 0.62);
+      }
+    }
+    // light: the jelly gathers whatever light falls on it (a flashlight on it, a lamp near it) and throws it back round
+    // the corridor in its own colour, glowing through; in the dark, only the faintest glow of its own
+    const mat = P.body.material, cen = this.center();
+    if ((v.litT = (v.litT || 0) - dt) <= 0) { v.litT = 0.2; v.litTo = this.g.isLit(cen) ? 1 : 0; }
+    v.lit = damp(v.lit || 0, v.litTo || 0, 3, dt);
+    if (!this.glow && this.g.lightSources) { this.glow = { x: 0, y: 0, z: 0, color: 0, power: 0.15, state: 'on', zone: 'in', range: 9, lit: 1 }; this.g.lightSources.push(this.glow); }
+    if (this.glow) { const g = this.glow; g.x = cen.x; g.y = cen.y; g.z = cen.z; g.color = mat.color.getHex(); g.power = 0.12 + 0.8 * v.lit; }
+    mat.emissive.copy(mat.color).multiplyScalar(0.14 + 0.6 * v.lit);
+    // a glossy wet trail where it's been, a sheet across the floor in its colour, faintly aglow like the rest of it (so
+    // in the dark you can see where it's gone), slowly drying away
+    const tm = Monster.trailMat || (Monster.trailMat = new THREE.MeshStandardMaterial({ map: TEX.get('puff'), roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    const tg = Monster.trailGeo || (Monster.trailGeo = new THREE.CircleGeometry(0.5, 16));
+    v.trailAcc = (v.trailAcc || 0) + (v.tx != null ? Math.hypot(this.rpos.x - v.tx, this.rpos.z - v.tz) : 0); v.tx = this.rpos.x; v.tz = this.rpos.z;
+    if (v.trailAcc > 0.7 && !seepD && fac.group) {
+      v.trailAcc = 0;
+      const m = tm.clone(); m.color.copy(mat.color); m.emissive.copy(mat.color).multiplyScalar(0.22);
+      const patch = new THREE.Mesh(tg, m), fy = fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5);
+      patch.rotation.set(-Math.PI / 2, 0, -this.rry); patch.scale.set(P.body.scale.x * 0.92, 1.5, 1); patch.position.set(this.rpos.x, fy + 0.012, this.rpos.z);
+      fac.group.add(patch); (this.trail || (this.trail = [])).push({ o: patch, t: 0 });
+      if (this.trail.length > 70) { const old = this.trail.shift(); old.o.parent && old.o.parent.remove(old.o); old.o.material.dispose(); }
+    }
+    if (this.trail) for (const tp of this.trail) { tp.t += dt; tp.o.material.opacity = 0.6 * (1 - sstep(40, 130, tp.t)); }
+    // what it's taken: drawn in from where they fell, then held inside, turning, carried along; left at a door
+    if (this.swallowed && this.swallowed.length) {
+      this.mesh.updateMatrixWorld(true);
+      for (let i = this.swallowed.length - 1; i >= 0; i--) {
+        const b = this.swallowed[i];
+        if (seepD) { const fy = fac.floorY(b.body.root.position.x, b.body.root.position.z, b.body.root.position.y + 0.5); b.body.root.position.y = fy; b.body.root.rotation.x = 0; b.body.root.rotation.z = 0; this.swallowed.splice(i, 1); continue; }
+        b.k = Math.min(1, b.k + dt / 1.6);
+        const to = this.mesh.localToWorld(_sl.set(b.lx, b.ly, 0)), r = b.body.root;
+        r.position.lerp(to, b.k < 1 ? sstep(0, 1, b.k) * 0.15 : 0.2);
+        b.spin += dt * 0.12; r.rotation.set(0.35 * Math.sin(b.spin * 0.7) + b.tilt * sstep(0, 1, b.k), b.yaw + b.spin, 0.25 * Math.cos(b.spin));
+      }
+    }
+    // its sounds: a wet slither as it moves, a gurgle now and then, a thin trickle all the while it's coming through
+    if ((v.slosh = (v.slosh || 0) - dt) <= 0) {
+      v.slosh = seepD ? 0.7 + Math.random() * 0.5 : 1.1 + Math.random() * 0.8;
+      const ln = lp ? Math.hypot(lp.pos.x - this.rpos.x, lp.pos.z - this.rpos.z) : 99;
+      if (seepD) SFX.play('slime_drip', _sl2.set(seepD.x, seepD.y + 0.2, seepD.z), { vol: 0.9, ref: 3 });
+      else if (moving) SFX.play('slime_slosh', this.center(), { vol: 1, ref: 4 });
+      else if (ln < 18 && Math.random() < 0.35) SFX.play('slime_gurgle', this.center(), { vol: 0.8, ref: 4 });
     }
   }
   anim_hound(dt, v) {
@@ -14013,15 +14254,15 @@ const SITE_LOOK = {
 };
 const SITES = {
   // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once
-  ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: [2], scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { mannequin: 2, crawler: 1.2, leech: 1 }, desc: 'Abandoned textile mill. Shallow. A good place to learn. Mind the dress forms.' },
-  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: [2], scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, mannequin: 0.6 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
-  kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: [3], scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6 }, desc: 'Research annex. Something got out. Something stayed.' },
-  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: [2], scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, mannequin: 0.8 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
+  ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: [2], scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'Abandoned textile mill. Shallow. A good place to learn.' },
+  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: [2], scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, slime: 0.5 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
+  kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: [3], scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6, slime: 1.3 }, desc: 'Research annex. Something got out. Something stayed.' },
+  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: [2], scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, slime: 1 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
   agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: [3], scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
-  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: [2, 1], scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
-  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: [2, 1], scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
+  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: [2, 1], scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
+  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: [2, 1], scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
   saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: [2, 1], scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
-  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: [2, 1], scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
+  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: [2, 1], scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
   vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: [2, 1], scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
 };
 // (inside, each world's dark has its own faint cast: the colour of the murk the fog fades into)
@@ -14076,22 +14317,22 @@ const BODIES = {
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
 // surface, nothing hunting outside, better pay for the risk
 Object.assign(SITES, {
-  wick: { name: 'Wick', code: 'A-I', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'moon', lowG: true, size: 28, stairs: [2], scrap: [15, 20], mult: 1.5, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, mannequin: 1.2, leech: 0.8 }, desc: 'A survey outpost that stopped answering.' },
+  wick: { name: 'Wick', code: 'A-I', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'moon', lowG: true, size: 28, stairs: [2], scrap: [15, 20], mult: 1.5, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1 }, desc: 'A survey outpost that stopped answering.' },
   tallow: { name: 'Tallow', code: 'A-R', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [12, 16], mult: 1.6, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1, leech: 1.6 }, desc: 'A mining claim bored into it. Tight tunnels.' },
-  petri: { name: 'Petri', code: 'K-I', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'moon', lowG: true, size: 32, stairs: [3], scrap: [18, 24], mult: 1.9, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, pale: 0.9, crawler: 1.2 }, desc: 'The quarantine overflow site. Sealed from the outside.' },
-  swab: { name: 'Swab', code: 'K-R', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'rock', lowG: true, size: 26, stairs: [], scrap: [14, 19], mult: 2.0, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1 }, desc: 'A sample store. Whatever they kept here is still kept.' },
+  petri: { name: 'Petri', code: 'K-I', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'moon', lowG: true, size: 32, stairs: [3], scrap: [18, 24], mult: 1.9, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, pale: 0.9, crawler: 1.2, slime: 1.4 }, desc: 'The quarantine overflow site. Sealed from the outside.' },
+  swab: { name: 'Swab', code: 'K-R', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'rock', lowG: true, size: 26, stairs: [], scrap: [14, 19], mult: 2.0, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: 'A sample store. Whatever they kept here is still kept.' },
   grit: { name: 'Grit', code: '7-I', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4, mannequin: 0.6 }, desc: "The pumping company's refinery. Red dust in everything." },
   mote: { name: 'Mote', code: '7-R', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1.2, pale: 0.8 }, desc: 'An ore crusher, still running.' },
   cinder: { name: 'Cinder', code: '0-I', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [32, 40], mult: 2.6, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, mannequin: 1.5, crawler: 1.4, leech: 1 }, desc: 'The signal from below the Hollow is louder here.' },
   clinker: { name: 'Clinker', code: '0-R', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [26, 33], mult: 2.8, power: 9, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, crawler: 1.4, mannequin: 1 }, desc: 'Burnt out. Something tunnels through it.' },
   sprig: { name: 'Sprig', code: '5-I', risk: 'LOW', cost: 0, bonus: 'verdigris', biome: 'moon', lowG: true, size: 26, stairs: [2], scrap: [13, 18], mult: 1.4, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.6, crawler: 1.2 }, desc: 'A seed vault, sealed against the end of the world. Something got in anyway.' },
-  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: [], scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'A compost works bored into the rock. Mind the smell.' },
-  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4, mannequin: 0.8 }, desc: 'An ice-core drilling station. The cores are missing.' },
+  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: [], scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2, slime: 1 }, desc: 'A compost works bored into the rock. Mind the smell.' },
+  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4 }, desc: 'An ice-core drilling station. The cores are missing.' },
   floe: { name: 'Floe', code: '22-R', risk: 'HIGH', cost: 0, bonus: 'rimefall', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [18, 24], mult: 1.8, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, pale: 1 }, desc: "An ice hauler's camp out in the rings, cutting blocks from them." },
   vigil: { name: 'Vigil', code: '40-I', risk: 'MEDIUM', cost: 0, bonus: 'agnes', biome: 'moon', lowG: true, size: 30, stairs: [3], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 2, pale: 1 }, desc: "The sanatorium's isolation ward. Built a long way off, on purpose." },
-  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, leech: 1.2 }, desc: 'An ossuary. They ran out of room on the moor.' },
+  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.2, pale: 1 }, desc: 'An ossuary. They ran out of room on the moor.' },
   ballast: { name: 'Ballast', code: '56-I', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, crawler: 1.4, pale: 0.8 }, desc: "A breaker's yard, where they cut up the ships too big to land." },
-  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1 }, desc: "A salvage tender's base, grown over with something." },
+  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: "A salvage tender's base, grown over with something." },
   cask: { name: 'Cask', code: '19-I', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4 }, desc: 'Brine evaporators under glass. The glass is cracked.' },
   grain: { name: 'Grain', code: '19-R', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [21, 27], mult: 2.3, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, pale: 1.2 }, desc: 'A salt mine in a rock out in the rings.' },
   flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
@@ -14162,7 +14403,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 7;
+const PROTO = 8;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -14177,7 +14418,7 @@ const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
+const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -14861,11 +15102,14 @@ const G = {
       const pos = new THREE.Vector3(e.x, e.y, e.z);
       const mon = e.mon != null ? G.monsters.get(e.mon) : null;
       if (e.cause === 'pale') SFX.play('neck_snap', pos.clone().setY(pos.y + 1.5), { vol: 1.3 });
+      else if (e.cause === 'slime') SFX.play('slime_gulp', pos.clone().setY(pos.y + 1), { vol: 1.3 });
       else if (e.cause !== 'left') SFX.play('crunch', pos.clone().setY(pos.y + 1), { vol: 1.2 });
       if (e.cause !== 'left') {
         const body = new Avatar(p.name, p.color); body.setDead(e.pid * 7 + Math.floor(e.x * 10));
         body.root.position.copy(pos); body.root.rotation.y = p.yaw; R.scene.add(body.root); G.corpses.push(body);
         if (e.cause === 'pale') G.timers.push({ t: 1.6, fn: () => { body.root.visible = false; } });
+        // (the Seep swallows them whole: the body is drawn up into it and hangs there, carried along)
+        if (e.cause === 'slime' && mon && mon.swallowed) mon.swallowed.push({ body, k: 0, lx: (Math.random() - 0.5) * 0.9, ly: 0.7 + Math.random() * 0.45, tilt: 0.5 + Math.random() * 0.6, yaw: p.yaw, spin: Math.random() * TAU });
       }
       if (p.avatar) p.avatar.root.visible = false;
       if (p.id === G.localId && G.sendoff) {
@@ -14885,7 +15129,7 @@ const G = {
     },
     sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); },
     monSpawn(e) { G.spawnMonster(e); },
-    monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); G.monsters.delete(e.id); } },
+    monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
     leech(e) {
       G.leechOn = e.pid;
       if (e.pid === G.localId) { SFX.play('squelch', null, { vol: 1.2 }); SFX.play('stinger_hi', null, { vol: 0.9 }); HUD.struggle(true); Player.addShake(0.6); }
@@ -15524,18 +15768,25 @@ const G = {
       if (n >= site.cap) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
-      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1 };
+      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1 };
       const w = {}; for (const k in site.mon) if ((counts[k] || 0) < lim[k]) w[k] = site.mon[k] * Math.pow(0.3, counts[k] || 0);
+      // (the mannequins are kept down below: none in a facility that's all on one level)
+      if (fac.levels < 2) delete w.mannequin;
       if (!Object.keys(w).length) return;
       type = R0.weighted(w);
       if (!force && power + MON_DEFS[type].power > site.power) return;
     }
     const players = G.alivePlayers().filter((p) => p.zone === 'in');
     const far = (x, z) => players.every((p) => Math.hypot(p.pos.x - x, p.pos.z - z) > minDist);
+    // where: out of a vent for most things; a mannequin only somewhere on the lower levels; the Seep out in a
+    // corridor (it's far too big for a vent)
+    const deep = type === 'mannequin', wide = type === 'slime';
+    if (deep && fac.levels < 2) return;
+    const lvOk = (x, z, y) => !deep || fac.levelAt(x, z, y) >= 1;
     let spot = null;
-    const vents = R0.shuffle(fac.vents.slice());
-    for (const v of vents) if (far(v.x, v.z)) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
-    if (!spot) { const p = fac.randomWalkable(R0, (q) => far(q.x, q.z)); if (p) spot = { x: p.x, z: p.z }; }
+    const vents = wide ? [] : R0.shuffle(fac.vents.slice());
+    for (const v of vents) if (far(v.x, v.z) && lvOk(v.x, v.z, v.y)) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
+    if (!spot) { const p = fac.randomWalkable(R0, (q) => far(q.x, q.z) && (!deep || fac.lvl[fac.idx(q.i, q.j)] >= 1) && (!wide || fac.grid[fac.idx(q.i, q.j)] === 1)); if (p) spot = { x: p.x, z: p.z }; }
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
@@ -15678,14 +15929,14 @@ const G = {
       }
       case 'sites': case 'moons':
         L('SALVAGE SITES', 'hi');
-        for (const k in SITES) { const s = SITES[k]; if (s.bonus) continue; L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} ${s.cost ? 'ROUTE $' + s.cost : 'FREE'}${run.route === k ? '   << HERE' : run.course === k ? '   << COURSE' : ''}`, run.route === k || run.course === k ? 'hi' : '', 'route ' + k); L('     ' + s.desc, 'dim'); L('     SIGHTED: ' + Object.keys(s.mon).map((t) => MON_DEFS[t].name).join(', ') + '   ·   HOUNDS AFTER DARK', 'dim'); }
+        for (const k in SITES) { const s = SITES[k]; if (s.bonus) continue; L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} ${s.cost ? 'ROUTE $' + s.cost : 'FREE'}${run.route === k ? '   << HERE' : run.course === k ? '   << COURSE' : ''}`, run.route === k || run.course === k ? 'hi' : '', 'route ' + k); L('     ' + s.desc, 'dim'); }
         // (and today's beacon, if one of the bodies round here is showing one)
         { const sig = G.signal(run);
           if (sig) { const s = SITES[sig], home = SITES[s.bonus];
             L(''); L('BEACON  ·  TODAY ONLY', 'hi');
             L(`  ${s.name.padEnd(16)} RISK: ${s.risk.padEnd(8)} BONUS${run.route === sig ? '   << HERE' : run.course === sig ? '   << COURSE' : ''}`, run.route === sig || run.course === sig ? 'hi' : '', 'route ' + sig);
             L(`     ${s.biome === 'rock' ? 'A rock' : 'The moon'} off ${home.name}: a short hop from there. ${s.desc}`, 'dim');
-            L('     SIGHTED: ' + Object.keys(s.mon).map((t) => MON_DEFS[t].name).join(', ') + '   ·   NO AIR, LIGHT GRAVITY', 'dim');
+            L('     NO AIR, LIGHT GRAVITY', 'dim');
           } }
         break;
       // ROUTE plots a course; nothing moves until someone pulls the JUMP lever in the cockpit (G.hostEngage)

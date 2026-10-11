@@ -219,6 +219,28 @@ const SFX = (() => {
     },
     leech_drop(d, t) { osc(d, 'sine', 95, 38, t, 0.25, 0.9); nz(d, t, 0.2, 0.7, 'lowpass', 500, 150, 1); nz(d, t + 0.05, 0.3, 0.4, 'bandpass', 500, 1500, 6); },
     squelch(d, t) { for (let i = 0; i < 3; i++) nz(d, t + i * 0.11, 0.09, 0.45, 'bandpass', rnd(350, 900), 200, 5); },
+    // the Seep: a heavy, wet slither as it drags itself along...
+    slime_slosh(d, t) {
+      nz(d, t, 0.6, 0.55, 'lowpass', 420, 140, 1.2, 0.12, brownBuf);
+      for (let i = 0; i < 3; i++) nz(d, t + 0.05 + i * rnd(0.08, 0.15), 0.12, 0.28, 'bandpass', rnd(380, 820), 200, 5, 0.01);
+      osc(d, 'sine', rnd(110, 150), 55, t + 0.12, 0.3, 0.25, 0.02);
+    },
+    // ...bubbles welling up through it and bursting...
+    slime_gurgle(d, t) {
+      for (let i = 0, tt = t; i < 7; i++, tt += rnd(0.06, 0.17)) { osc(d, 'sine', rnd(85, 230), rnd(45, 110), tt, rnd(0.05, 0.13), 0.3, 0.008); nz(d, tt, 0.04, 0.12, 'bandpass', rnd(600, 1400), null, 6, 0.004); }
+      nz(d, t, 1.1, 0.3, 'lowpass', 260, 110, 1, 0.25, brownBuf);
+    },
+    // ...a thin wet hiss as it starts to work its way through the gap under a door...
+    slime_seep(d, t) { nz(d, t, 1.4, 0.22, 'bandpass', 1900, 900, 2.5, 0.25); nz(d, t, 1.2, 0.3, 'lowpass', 380, 160, 1, 0.3, brownBuf); },
+    // ...dribbling and dripping on the other side all the while...
+    slime_drip(d, t) { for (let i = 0; i < 4; i++) { const tt = t + i * rnd(0.09, 0.22); osc(d, 'sine', rnd(700, 1300), rnd(350, 600), tt, 0.05, 0.12, 0.003); nz(d, tt, 0.05, 0.1, 'bandpass', 1600, null, 4, 0.003); } nz(d, t, 0.6, 0.12, 'bandpass', 1300, 800, 2, 0.1); },
+    // ...the sizzle of it burning whoever it reaches...
+    slime_burn(d, t) { nz(d, t, 0.4, 0.5, 'highpass', 2800, 5200, 0.7, 0.01); nz(d, t, 0.25, 0.35, 'bandpass', 650, 300, 3, 0.01); },
+    // ...and the gulp of it taking them whole
+    slime_gulp(d, t) {
+      nz(d, t, 0.5, 0.8, 'lowpass', 700, 120, 1.5, 0.02, brownBuf); osc(d, 'sine', 160, 38, t, 0.55, 0.9, 0.01);
+      for (let i = 0; i < 5; i++) osc(d, 'sine', rnd(70, 160), rnd(40, 80), t + 0.25 + i * rnd(0.08, 0.16), 0.1, 0.35, 0.008);
+    },
     chitter(d, t) { for (let i = 0; i < 12; i++) { nz(d, t + i * 0.032, 0.014, 0.35, 'bandpass', rnd(2600, 4400), null, 9, 0.001); osc(d, 'sine', rnd(2000, 3200), 1500, t + i * 0.032, 0.012, 0.03, 0.001); } },
     hound_growl(d, t) {
       const lp = filt(d, 'lowpass', 380, 1.5);

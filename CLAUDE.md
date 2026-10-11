@@ -61,6 +61,15 @@ Keep that file current when gameplay changes.
     `MATS.rep` / `MATS.aged` keep it.
   - Item models are in `items.js` (`ItemMeshes`), creatures in `monsters.js` (`MonModels`), the crew robot in `avatar.js`.
   - The ship is built in `ship.js` (`pb`/`pc`/`ps`/`pt` push geometry into material buckets, which are merged).
+  - Sounds (`audio.js`) come from physical models, never bare oscillators (the user asked for nothing that sounds synth):
+    `struck` (modal resonances set going by a `blow`; mode sets `BAR`, `BELL`, `GLASS`, `DRUM`, `plate()`), `fric`
+    (stick-slip), `voice` / `growl` / `talk` (glottal pulses through formants), `buzz` (an armature slapping a diaphragm:
+    horns, klaxons, motors, fans, ballasts), `piezo`, `bubble`, and `bowing` (a bowed string, for all the music). They're
+    rendered into takes: `take(key, n, make, sr)` works out a fresh one the first n times, then picks among them; `smp`
+    plays one. `prepare()` queues the heavy ones (the orbit chord, the chase stems, the stingers, the ambience beds via
+    `bed()`) and a first take of every recipe as background jobs, a second of audio at a time. `LEVEL` sets each recipe's
+    loudness; `SFX.render(name, o)` renders one offline for checking levels. Noise through filters (`nz`) is fine for air,
+    hiss and rustle.
 - **Touch** (`touch.js`) drives the same `Input` the keyboard and mouse do (`Input.analog` for the stick). On a touch
   screen, `Input.lock()` / `unlock()` just mean playing / not playing. The hosted copy installs as an app
   (`manifest.webmanifest`, `sw.js`, `icons/`).

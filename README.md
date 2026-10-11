@@ -17,6 +17,9 @@ Single player, or online co-op with up to 6 players (room codes, no port forward
 You need an internet connection: the 3D engine, the fonts and the multiplayer matchmaking load from public CDNs.
 
 Use **headphones** and play in a **dark room**. All the audio is positional, and a lot of the danger is something you hear before you see it.
+There are no recordings and no synthesizer tones: every sound is worked out from how it's really made. Struck things ring the
+way their shape and material do, hinges and trees creak by sticking and slipping, creatures have throats and mouths, drips are
+bubbles, horns and klaxons are diaphragms being hammered, and the music is a section of bowed strings.
 
 ## On a phone or tablet
 

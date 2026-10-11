@@ -1,5 +1,5 @@
 'use strict';
-// Fully procedural audio: every sound in the game is synthesized here with WebAudio.
+// Fully procedural audio: every sound in the game is made here, from physical models (see 'the physical models').
 const SFX = (() => {
   let ctx = null, master, comp, muffle, sfxBus, ambBus, revIn, noiseBuf, brownBuf, ready = false;
   let envRev = 0.25, occlusionFn = null;
@@ -56,21 +56,13 @@ const SFX = (() => {
     return (curves[k] = c);
   }
 
-  // ---------- primitives ----------
+  // ---------- live primitives ----------
   function env(g, t, a, peak, dur) {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a);
     g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(dur, a + 0.01));
   }
-  function osc(d, type, f0, f1, t, dur, vol, a = 0.004, detune = 0) {
-    const o = ctx.createOscillator(); o.type = type;
-    o.frequency.setValueAtTime(f0, t);
-    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
-    if (detune) o.detune.value = detune;
-    const g = ctx.createGain(); env(g, t, a, vol, dur);
-    o.connect(g); g.connect(d); o.start(t); o.stop(t + dur + 0.05);
-    return o;
-  }
+  // noise through a filter: air, hiss, rustle, rush (and, through a very narrow band, the whistle of air through a gap)
   function nz(d, t, dur, vol, type = 'bandpass', f0 = 1000, f1 = null, q = 1, a = 0.003, buf = null) {
     const s = ctx.createBufferSource(); s.buffer = buf || noiseBuf; s.loop = true;
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(f0, t);
@@ -83,83 +75,326 @@ const SFX = (() => {
   }
   function shaper(d, k) { const w = ctx.createWaveShaper(); w.curve = distCurve(k); w.oversample = '2x'; w.connect(d); return w; }
   function filt(d, type, f, q = 1) { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.connect(d); return b; }
-  function vib(o, t, dur, rate, depth) {
-    const l = ctx.createOscillator(); l.frequency.value = rate; const g = ctx.createGain(); g.gain.value = depth;
-    l.connect(g); g.connect(o.frequency); l.start(t); l.stop(t + dur + 0.05);
-  }
   const rnd = (a, b) => a + Math.random() * (b - a);
+  // (one recipe sounding another goes through that one's level: LEVEL)
+  const lv = (d, k) => { const g = ctx.createGain(); g.gain.value = LEVEL[k] ?? 1; g.connect(d); return g; };
+  // a take played into d at t
+  function smp(d, t, buf, vol = 1, rate = 1) {
+    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
+    const g = ctx.createGain(); g.gain.value = vol; s.connect(g); g.connect(d); s.start(t); return s;
+  }
+
+  // ---------- the physical models ----------
+  // Nothing here is a bare tone. A struck thing rings in the modes its shape and what it's made of give it (a bar's, a
+  // plate's, a bell's, a drum skin's), set going by how hard and how briefly it was hit; a creak is wood or a hinge
+  // sticking and slipping; a voice is air puffed through a throat and shaped by a mouth; a fiddle is a string caught and
+  // let go by a bow; a horn or a buzzer is an armature slapping a diaphragm; a drip is a bubble ringing. Each is worked
+  // out sample by sample into a take, a few takes of each so no two are quite alike, and kept.
+  let SR = 48000;
+  const nS = (sec) => Math.max(1, Math.ceil(sec * SR)), wn = () => Math.random() * 2 - 1, arr = (sec) => new Float32Array(nS(sec));
+  const add = (y, x, at = 0, k = 1) => { const a = Math.round(at * SR); for (let i = Math.max(0, -a); i < x.length && a + i < y.length; i++) y[a + i] += x[i] * k; return y; };
+  const norm = (y, k = 1) => { let p = 1e-9; for (let i = 0; i < y.length; i++) p = Math.max(p, Math.abs(y[i])); for (let i = 0; i < y.length; i++) y[i] *= k / p; return y; };
+  const fade = (y, e) => { for (let i = 0; i < y.length; i++) y[i] *= e(i / y.length); return y; };
+  const noise = (sec) => { const a = arr(sec); for (let i = 0; i < a.length; i++) a[i] = wn(); return a; };
+  const ramp = (u, a, b) => clamp((u - a) / (b - a), 0, 1);
+  // (a pitch that drifts the way a voice does, never quite steady: a smooth random wander, depth either way)
+  const wander = (knots, depth) => { const k = Array.from({ length: knots + 1 }, () => rnd(-depth, depth)); return (u) => { const x = clamp(u, 0, 1) * knots, i = Math.min(knots - 1, Math.floor(x)), f = x - i, s = f * f * (3 - 2 * f); return k[i] + (k[i + 1] - k[i]) * s; }; };
+  // a filter run over x in place: lp / hp / bp, at f Hz or f(u) (u the fraction of the way through: retuned as it goes)
+  function bq(x, type, f, q = 0.707) {
+    let b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    const set = (fr) => {
+      const w = TAU * clamp(fr, 10, SR * 0.45) / SR, c = Math.cos(w), al = Math.sin(w) / (2 * q), A0 = 1 + al;
+      if (type === 'lp') { b1 = (1 - c) / A0; b0 = b2 = b1 / 2; } else if (type === 'hp') { b1 = -(1 + c) / A0; b0 = b2 = -b1 / 2; } else { b0 = al / A0; b1 = 0; b2 = -b0; }
+      a1 = -2 * c / A0; a2 = (1 - al) / A0;
+    };
+    const fn = typeof f === 'function'; set(fn ? f(0) : f);
+    for (let i = 0; i < x.length; i++) {
+      if (fn && (i & 31) === 0) set(f(i / x.length));
+      const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = x[i]; y2 = y1; y1 = v; x[i] = v;
+    }
+    return x;
+  }
+  // a bank of modes ([freq, amp, t60, glide]) rung by the drive x (from sample at on), added into y. Each is a resonance
+  // that rings on for t60 seconds once set going; glide: how far it sags in pitch as it rings down (a struck plate or a
+  // drum skin, its stretch easing off)
+  function modes(y, x, list, at = 0) {
+    for (const [f, a, t60, gl] of list) {
+      if (!(f > 20 && f < SR * 0.45) || !a) continue;
+      const r = Math.exp(-6.91 / (t60 * SR)), r2 = r * r, n = Math.min(y.length - at, Math.ceil(t60 * SR * 1.05) + x.length);
+      let w = TAU * f / SR, a1 = 2 * r * Math.cos(w), b = a * Math.sin(w), y1 = 0, y2 = 0;
+      for (let i = 0; i < n; i++) {
+        if (gl && (i & 63) === 0) { w = TAU * f * (1 - gl * Math.min(1, i / (t60 * SR))) / SR; a1 = 2 * r * Math.cos(w); b = a * Math.sin(w); }
+        const v = (i < x.length ? x[i] * b : 0) + a1 * y1 - r2 * y2; y2 = y1; y1 = v; y[at + i] += v;
+      }
+    }
+    return y;
+  }
+  // a blow: contact for tc seconds (hard things meet for an instant and ring everything; soft or heavy ones press for
+  // longer and only stir the low modes), with grit in it
+  function blow(tc, grit = 0.15) { const n = Math.max(2, Math.round(tc * SR)), x = new Float32Array(n); for (let i = 0; i < n; i++) x[i] = Math.sin(Math.PI * i / n) * (1 + grit * wn()); return x; }
+  // the shapes things ring in: a free bar's modes, a church bell's (hum, prime, tierce, quint, nominal...), a wine
+  // glass's, a drum skin's
+  const BAR = [1, 2.756, 5.404, 8.933, 13.34, 18.64], BELL = [0.5, 1, 1.183, 1.506, 2, 2.514, 2.662, 3.011, 4.166, 5.433, 6.796];
+  const GLASS = [1, 2.32, 4.25, 6.63, 9.38], DRUM = [1, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156, 3.501, 3.6, 4.06];
+  // ...and a plate's, panel's or sheet's first n ([ratio, how much it rings], for its aspect asp), struck somewhere
+  // along it, so some modes ring out and others hardly at all
+  function plate(n, asp = 1.4) {
+    const sx = rnd(0.12, 0.88), sy = rnd(0.12, 0.88), L = [];
+    for (let m = 1; m < 8; m++) for (let k = 1; k < 8; k++) L.push([(m * m + k * k * asp * asp) / (1 + asp * asp), 0.15 + Math.abs(Math.sin(m * Math.PI * sx) * Math.sin(k * Math.PI * sy))]);
+    return L.sort((a, b) => a[0] - b[0]).slice(0, n);
+  }
+  // something struck: its modes (ratios over its lowest, f0; or [ratio, amp]), how long the lowest rings (T; hf: how
+  // much sooner the high ones die, the material's damping), the blow (tc, grit), tilt (how much weaker the high modes
+  // start), glide, and click (the dry tick of the contact itself)
+  function struck(o) {
+    const y = arr(o.len || o.T * 1.1 + o.tc + 0.03), x = blow(o.tc, o.grit);
+    modes(y, x, o.modes.map((m) => {
+      const [r, a] = Array.isArray(m) ? m : [m, 1], f = o.f0 * r * (1 + wn() * (o.spread ?? 0.012));
+      return [f, a * rnd(0.6, 1.4) / Math.pow(r, o.tilt ?? 0.6), o.T / (1 + (o.hf ?? 1) * f / 1000), o.glide || 0];
+    }));
+    norm(y);
+    if (o.click) { const c = fade(noise(0.003), (u) => (1 - u) * (1 - u)); add(y, norm(bq(c, 'hp', 2500)), 0, o.click); }
+    return norm(y);
+  }
+  // grit: n tiny ticks scattered over dur (gravel underfoot, chitin, crumbs), each ringing at somewhere in f0..f1
+  function grains(dur, n, f0, f1, T = 0.004) {
+    const y = arr(dur + 0.03);
+    for (let i = 0; i < n; i++) { const f = rnd(f0, f1); modes(y, blow(rnd(0.00005, 0.0002), 0.6), [[f, rnd(0.3, 1), T * rnd(0.6, 1.4)], [f * rnd(1.4, 2.6), rnd(0.1, 0.5), T * 0.6]], Math.round(Math.pow(Math.random(), 1.3) * dur * SR)); }
+    return norm(y);
+  }
+  // stick and slip: something dragged against something else (a hinge, a trunk flexing, a hull settling) catching and
+  // letting go f(u) times a second, never quite evenly (jit), each slip ringing what it's part of (modes)
+  function fric(dur, f, amp, list, jit = 0.25) {
+    const N = nS(dur), x = new Float32Array(N);
+    for (let n = 0; n < N;) { const u = n / N, T = SR / (f(u) * (1 + wn() * jit)); x[n] = amp(u) * (0.5 + Math.random()); n += Math.max(1, Math.round(T)); }
+    return norm(modes(new Float32Array(N + nS(0.3)), x, list));
+  }
+  // a voice: air puffed through a throat f(u) times a second (each puff a little early or late: jit; louder or softer:
+  // shim; every other weaker by sub, for a rough, split voice; open: the longest it stays open; breath hissing through
+  // it), then shaped by the mouth, its resonances [freq or freq(u), q, gain] moving as it does; amp(u) how loud; air:
+  // breath on its own; clip: a throat strained past what it can do
+  function voice(dur, f, o) {
+    const N = nS(dur), s = new Float32Array(N);
+    for (let n = 0, k = 0; n < N; k++) {
+      const u = n / N, T = SR / (f(u) * (1 + wn() * (o.jit || 0.01))), a = o.amp(u) * (1 + wn() * (o.shim || 0.05)) * (k % 2 ? 1 - (o.sub || 0) : 1);
+      const Tp = Math.min(0.4 * T, (o.open || 1) * SR), Tn = Tp * 0.4; let prev = 0;
+      for (let i = 0; i < T && n + i < N; i++) {
+        const g = i < Tp ? 0.5 * (1 - Math.cos(Math.PI * i / Tp)) : i < Tp + Tn ? Math.cos(Math.PI * (i - Tp) / (2 * Tn)) : 0;
+        s[n + i] = a * ((g - prev) * Tp * 0.5 + g * wn() * (o.breath || 0)); prev = g;
+      }
+      n += Math.max(1, Math.round(T));
+    }
+    if (o.air) for (let i = 0; i < N; i++) s[i] += wn() * o.air * o.amp(i / N);
+    const y = new Float32Array(N);
+    for (const [fr, q, g] of o.mouth) add(y, bq(Float32Array.from(s), 'bp', fr, q), 0, g);
+    if (o.clip) { norm(y); for (let i = 0; i < N; i++) y[i] = Math.tanh(y[i] * o.clip); }
+    return norm(y);
+  }
+  // someone talking, too far off or too faint to make out: their pitch rising and falling, the mouth going from vowel to
+  // vowel a syllable at a time, now and then a pause
+  function talk(dur, f0 = rnd(100, 135)) {
+    const V = [[730, 1090], [270, 2290], [300, 870], [530, 1840], [640, 1190], [490, 1350], [660, 1720]], syl = [];
+    for (let a = 0; a < dur;) { const L = rnd(0.08, 0.17); syl.push({ a, L, v: V[(Math.random() * V.length) | 0], k: Math.random() < 0.15 ? 0 : rnd(0.6, 1) }); a += L; }
+    const at = (u) => { const s = u * dur; for (const q of syl) if (s < q.a + q.L) return q; return syl[syl.length - 1]; }, dr = wander(5, 0.12);
+    return voice(dur, (u) => f0 * (1 + dr(u)), { jit: 0.01, shim: 0.1, breath: 0.2, air: 0.03, amp: (u) => { const q = at(u); return q.k * Math.sqrt(Math.sin(Math.PI * clamp((u * dur - q.a) / q.L, 0, 1))); },
+      mouth: [[(u) => at(u).v[0], 5, 1], [(u) => at(u).v[1], 7, 0.6], [2500, 8, 0.2]] });
+  }
+  // a growl: a slack, low throat rattling (its pulses ragged, every other one weak), shaken by the folds fluttering
+  // above it flut times a second, through a near-closed mouth
+  function growl(dur, f0, flut, mouth, o = {}) {
+    const fl = rnd(0.85, 1.15) * flut, dr = wander(6, 0.08);
+    return voice(dur, (u) => f0 * (1 + dr(u)) * (1 + 0.12 * Math.sin(TAU * fl * u * dur)), Object.assign({ jit: 0.15, shim: 0.5, sub: 0.5, breath: 0.6, open: 0.006, air: 0.08,
+      amp: (u) => Math.min(1, u * 5) * Math.min(1, (1 - u) * 4) * (0.75 + 0.25 * Math.sin(TAU * fl * u * dur)), mouth }, o));
+  }
+  // an armature slapping a diaphragm f(u) times a second (a klaxon, a horn, a ballast, a transformer's core, a motor's
+  // gears, a fan's blades shoving the air), each slap ringing what it's mounted in (modes); amp(u) how hard; duty how
+  // long each slap lasts, of its cycle; clip: the diaphragm hitting its stops
+  function buzz(dur, f, amp, list, o = {}) {
+    const N = nS(dur), x = new Float32Array(N);
+    for (let n = 0; n < N;) {
+      const u = n / N, T = SR / (f(u) * (1 + wn() * (o.jit ?? 0.003))), w = Math.max(2, Math.round(T * (o.duty ?? 0.15))), a = amp(u) * (1 + wn() * (o.shim ?? 0.05));
+      for (let i = 0; i < w && n + i < N; i++) x[n + i] += a * Math.sin(Math.PI * i / w);
+      n += Math.max(1, Math.round(T));
+    }
+    const y = modes(new Float32Array(N + nS(0.1)), x, list);
+    if (o.clip) { norm(y); for (let i = 0; i < y.length; i++) y[i] = Math.tanh(y[i] * o.clip); }
+    return norm(y);
+  }
+  // a piezo buzzer: the little disc pushed and pulled f(u) times a second, stiff below its resonance and ringing at it
+  function piezo(dur, f) {
+    const N = nS(dur), x = new Float32Array(N); let ph = 0;
+    for (let i = 0; i < N; i++) { ph += f(i / N) / SR; x[i] = (ph % 1 < 0.5 ? 1 : -1) * Math.min(1, i / (SR * 0.003)) * Math.min(1, (N - i) / (SR * 0.004)); }
+    const y = bq(Float32Array.from(x), 'lp', 3100, 5); add(y, bq(x, 'bp', 5900, 8), 0, 0.3);
+    return norm(bq(y, 'hp', 350));
+  }
+  // a bubble (Minnaert's): r mm across, it rings at about 3.3/r kHz, rising in pitch as it nears the surface, and dies
+  // fast (a drip into a puddle, a gurgle, a glug)
+  function bubble(y, at, r, k = 1) {
+    const f0 = 3260 / r, d = 0.043 * f0 + 0.0014 * Math.pow(f0, 1.5), n = Math.min(y.length - at, Math.ceil(6 / d * SR)); let ph = 0;
+    for (let i = 0; i < n; i++) { const t = i / SR; ph += TAU * f0 * (1 + 0.1 * d * t) / SR; y[at + i] += k * Math.sin(ph) * Math.exp(-d * t) * Math.min(1, i / 24); }
+    return y;
+  }
+  // a bowed string (Smith and Cook's model, as in the STK): the bow drags the string along with it until it slips (the
+  // grip falling away as it slides faster), the kink running to the bridge and the nut and back; f(u) the note, bow(u)
+  // how fast the bow moves (its sign which way), beta how near the bridge it's bowed (near: glassy and scratchy), press
+  // how lightly (lower bites harder), rosin the grain of the hair; then the wooden body it's all strung on
+  const BODY = [[1, 1.5667, 0.3133, -0.5509, -0.3925], [1, -1.9537, 0.9542, -1.6357, 0.8697], [1, -1.6683, 0.8852, -1.7674, 0.8735], [1, -1.8585, 0.9653, -1.8498, 0.9516], [1, -1.9299, 0.9621, -1.9354, 0.959], [1, -1.98, 0.9888, -1.9867, 0.9923]];
+  // (played a stretch at a time: run(n) works out the next n samples into y, so a long one can be spread over several
+  // moments in the background; bowed() plays it straight through)
+  function bowing(dur, f, bow, o = {}) {
+    const sr = SR, N = nS(dur), y = new Float32Array(N), M = Math.ceil(sr / 28) + 4, nut = new Float32Array(M), br = new Float32Array(M);
+    const p = 0.75 - 0.2 * 22050 / sr, slope = o.press ?? 3, beta = o.beta ?? 0.127, ros = o.rosin ?? 0.03, z = BODY.map(() => [0, 0, 0, 0]);
+    const tap = (b, w, d) => { let q = w - d; while (q < 0) q += M; const i = q | 0, fr = q - i; return b[i] * (1 - fr) + b[(i + 1) % M] * fr; };
+    let w = 0, lp = 0, i = 0;
+    return { y, done: () => i >= N, run(n) {
+      for (const end = Math.min(N, i + n); i < end; i++) {
+        const u = i / N, L = sr / f(u) - 4, bo = tap(br, w, Math.max(1, L * beta)), no = tap(nut, w, Math.max(1, L * (1 - beta)));
+        lp = 0.95 * (1 - p) * bo + p * lp;
+        const bR = -lp, nR = -no, dv = bow(u) * (1 + ros * wn()) - (bR + nR);
+        const g = Math.min(0.98, Math.max(0.01, Math.pow(Math.abs(dv * slope) + 0.75, -4))), nv = dv * g;
+        nut[w] = bR + nv; br[w] = nR + nv; w = (w + 1) % M;
+        let v = bo;
+        for (let k = 0; k < BODY.length; k++) { const c = BODY[k], q = z[k], out = c[0] * v + c[1] * q[0] + c[2] * q[1] - c[3] * q[2] - c[4] * q[3]; q[1] = q[0]; q[0] = v; q[3] = q[2]; q[2] = out; v = out; }
+        y[i] = v;
+      }
+      return this;
+    } };
+  }
+  const bowed = (dur, f, bow, o) => bowing(dur, f, bow, o).run(Infinity).y;
+  // a section of strings, a player to each note: dug in hard (bow(u), the same for all) and left to ring, each a little
+  // out of tune and time with the rest, sliding by slide over it, with a slow vibrato. section() gives its players (each
+  // a bowing; at: how late it comes in), strings() plays them all at once
+  const section = (notes, o) => notes.map((f0) => (dur) => {
+    const ph = rnd(0, TAU), vr = rnd(4.8, 6.4), det = 1 + wn() * 0.005, k = rnd(0.85, 1.15);
+    return Object.assign(bowing(dur, (u) => f0 * det * (1 + 0.006 * Math.sin(TAU * vr * u * dur + ph)) * (1 + (o.slide || 0) * u), (u) => o.bow(u) * k, { beta: (o.beta || 0.08) * rnd(0.85, 1.15), press: o.press || 3, rosin: 0.05 }), { at: rnd(0, 0.025) });
+  });
+  function strings(dur, notes, o) { const y = arr(dur); for (const pl of section(notes, o)) { const b = pl(dur).run(Infinity); add(y, b.y, b.at); } return y; }
+  // the stingers' sections: a sour cluster from the cellos up, the bows biting hard then left to ring; and violins
+  // screeching up near the bridge, sliding sharp
+  const STING = { dur: 2.8, sr: 32000, notes: [1, 1.059, 1.414, 1.498, 2.12, 2.83, 4.24].map((r) => 98 * r), o: { bow: (u) => 0.26 * Math.exp(-u * 4.5) * Math.min(1, u * 150), beta: 0.06, press: 1.8, slide: -0.04 } };
+  const STING_HI = { dur: 1.9, sr: 44100, notes: [1380, 1460, 1550, 1645], o: { bow: (u) => 0.22 * Math.min(1, u * 60) * Math.min(1, (1 - u) * 5), beta: 0.035, press: 2.2, slide: 0.04 } };
+  // a big drum: its skin's modes, sagging in pitch as the blow's stretch goes out of them, struck with a soft beater
+  const drum = (f0, T) => struck({ modes: DRUM.map((r, i) => [r, [1, 0.6, 0.4, 0.3, 0.25, 0.2, 0.15, 0.12, 0.1, 0.08][i]]), f0, T, hf: 3, tc: 0.006, grit: 0.2, glide: 0.08, tilt: 0.2 });
+  // a blast's pressure wave: one huge, low shove (the ground and the air knocked in their lowest modes), then its
+  // rumble rolling back off everything round about
+  const boom = () => add(struck({ modes: [1, 1.4, 1.9, 2.6, 3.4], f0: rnd(26, 34), T: 1.4, hf: 6, tc: 0.03, grit: 0.3, len: 2.2 }), norm(bq(fade(noise(2.2), (u) => Math.min(1, u * 40) * Math.exp(-u * 4)), 'lp', (u) => 400 * Math.exp(-u * 2.5) + 40, 0.9)), 0, 0.7);
+  // a fan: its blades shoving the air bpf times a second, never quite evenly, through the ducts' resonances, with the
+  // rush of the air itself
+  const fan = (dur, bpf, list) => add(buzz(dur, (u) => bpf * (1 + 0.004 * Math.sin(u * 40)), (u) => 0.8 + 0.2 * Math.sin(u * 23), list, { duty: 0.35, jit: 0.01, shim: 0.15 }), norm(bq(noise(dur + 0.1), 'lp', 300, 0.7)), 0, 0.35);
+  // ...made into a seamless loop: the last xf seconds laid in over the first
+  function looped(y, xf) {
+    const n = nS(xf), N = y.length - n, o = y.slice(0, N);
+    for (let i = 0; i < n; i++) { const k = i / n; o[i] = y[N + i] * Math.cos(k * Math.PI / 2) + y[i] * Math.sin(k * Math.PI / 2); }
+    return o;
+  }
+  // the takes: worked out fresh the first n times a sound's wanted (or in the quiet after startup), then one of those.
+  // sr: the rate to work it at (low, slow sounds need less)
+  const bank = {};
+  function toBuf(y) { const b = ctx.createBuffer(1, y.length, SR); b.getChannelData(0).set(norm(y, 0.9)); return b; }
+  function take(key, n, make, sr = 32000) {
+    const b = bank[key] || (bank[key] = []);
+    if (b.length >= n) return b[(Math.random() * b.length) | 0];
+    const keep = SR; SR = sr;
+    try { b.push(toBuf(make(b.length))); } finally { SR = keep; }
+    return b[b.length - 1];
+  }
+  // (some takes several recipes share)
+  const bodyThud = () => take('thud_body', 4, () => struck({ modes: [1, 1.5, 2.2, 3.3], f0: rnd(85, 105), T: 0.1, hf: 3, tc: 0.01, grit: 0.5 }));
+  const lowThud = () => take('thud_low', 3, () => struck({ modes: [1, 1.5, 2.3], f0: rnd(55, 65), T: 0.25, hf: 3, tc: 0.015, grit: 0.4 }));
+  const bassDrum = () => take('bassdrum', 3, () => drum(rnd(50, 58), 1.6), 24000);
+  const blast = () => take('boom', 3, boom, 24000);
 
   // ---------- sound recipes ----------
   const S = {
+    // a footstep: the heel, then the rest of the foot rolling down after it, and whatever's underfoot (a deck plate
+    // ringing; dirt and grit crunching; concrete's dry scuff)
     step(d, t, o) {
-      const p = (o.pitch || 1) * rnd(0.88, 1.12), surf = o.surf || 'concrete';
-      if (surf === 'metal') { nz(d, t, 0.07, 0.3, 'bandpass', 3000 * p, 1500 * p, 1.2); osc(d, 'triangle', 380 * p, 260 * p, t, 0.12, 0.07); osc(d, 'sine', 110 * p, 60, t, 0.08, 0.3); }
-      else if (surf === 'dirt') { nz(d, t, 0.14, 0.42, 'lowpass', 1200 * p, 250, 0.6, 0.012); osc(d, 'sine', 75 * p, 45, t, 0.09, 0.18); }
-      else { nz(d, t, 0.075, 0.42, 'bandpass', 1500 * p, 600, 0.8); osc(d, 'sine', 90 * p, 50, t, 0.08, 0.28); }
+      const surf = o.surf || 'concrete';
+      smp(d, t, take('step_' + surf, 6, () => {
+        const y = arr(0.3), toe = rnd(0.045, 0.085);
+        if (surf === 'metal') {
+          for (const [at, k] of [[0, 1], [toe, 0.55]]) add(y, struck({ modes: plate(14, 1.7), f0: rnd(150, 190), T: 0.22, hf: 0.5, tc: 0.0012, grit: 0.4 }), at, k);
+          add(y, grains(0.03, 6, 2500, 6000, 0.003), 0, 0.2);
+        } else if (surf === 'dirt') {
+          add(y, struck({ modes: [1, 1.8, 2.9], f0: rnd(70, 90), T: 0.06, hf: 3, tc: 0.012, grit: 0.6 }), 0, 0.6);
+          add(y, grains(0.12, 70, 900, 4500, 0.003), 0.004, 0.9);
+        } else {
+          for (const [at, k] of [[0, 1], [toe, 0.5]]) add(y, struck({ modes: [1, 1.7, 2.6, 3.9, 5.1], f0: rnd(85, 110), T: 0.05, hf: 3, tc: 0.004, grit: 0.5, click: 0.25 }), at, k);
+          add(y, grains(0.04, 10, 1500, 5000, 0.002), 0.002, 0.25);
+        }
+        return y;
+      }), 1, (o.pitch || 1) * rnd(0.94, 1.06));
     },
-    slap(d, t, o) { const p = (o.pitch || 1) * rnd(0.9, 1.1); nz(d, t, 0.07, 0.8, 'lowpass', 800 * p, 200, 0.8); osc(d, 'sine', 75 * p, 38, t, 0.12, 0.9); nz(d, t, 0.04, 0.3, 'bandpass', 1400 * p, null, 2); },
+    // a body landing hard: the thud of it, the skin slapping
+    slap(d, t, o) {
+      smp(d, t, take('slap', 4, () => add(struck({ modes: [1, 1.6, 2.3, 3.4], f0: rnd(70, 90), T: 0.12, hf: 2, tc: 0.012, grit: 0.4 }), norm(bq(fade(noise(0.04), (u) => (1 - u) ** 3), 'bp', 1400, 1.5)), 0, 0.4)), 1, (o.pitch || 1) * rnd(0.92, 1.08));
+    },
     soft(d, t, o) { const p = (o.pitch || 1) * rnd(0.9, 1.1); nz(d, t, 0.1, 0.25, 'lowpass', 600 * p, 200, 0.7, 0.02); },
-    click(d, t) { nz(d, t, 0.012, 0.45, 'highpass', 3200); nz(d, t + 0.004, 0.02, 0.25, 'bandpass', 2400, null, 6, 0.001); osc(d, 'sine', 1900, 1200, t, 0.02, 0.04, 0.001); },
-    pickup(d, t) { nz(d, t, 0.12, 0.25, 'bandpass', 2200, 900, 1.5, 0.01); osc(d, 'sine', 160, 90, t + 0.02, 0.1, 0.25); },
+    // a switch: the plastic snapping over, and its spring
+    click(d, t) {
+      smp(d, t, take('click', 4, () => add(add(arr(0.06), struck({ modes: plate(8, 1.2), f0: rnd(1800, 2600), T: 0.025, hf: 0.5, tc: 0.00008, grit: 0.3 })), struck({ modes: plate(8, 1.2), f0: rnd(2200, 3000), T: 0.02, hf: 0.5, tc: 0.00008 }), rnd(0.012, 0.02), 0.45)));
+    },
+    pickup(d, t) { nz(d, t, 0.12, 0.25, 'bandpass', 2200, 900, 1.5, 0.01); smp(d, t + 0.02, take('grab', 4, () => struck({ modes: [1, 1.9, 3.1], f0: rnd(120, 170), T: 0.06, hf: 3, tc: 0.008, grit: 0.5 })), 0.35); },
     // something dropped: it sounds like what it's made of (o.mat) and how heavy it is (o.w, kg). The floor taking its
     // weight, then the ring or knock or clink of the thing itself, and (if it's hard and not too heavy) a bounce or two
     drop(d, t, o) {
-      const w = o.w || 1, m = o.mat || (w > 4 ? 'metal' : 'wood'), hv = clamp(w / 12, 0, 1), p = rnd(0.92, 1.08);
-      const hit = (tt, k) => {
-        osc(d, 'sine', (110 - hv * 50) * p, 40, tt, 0.12 + hv * 0.12, (0.25 + hv * 0.5) * k, 0.002);
-        nz(d, tt, 0.06 + hv * 0.05, (0.2 + hv * 0.25) * k, 'lowpass', 1600 - hv * 900, 250, 0.7, 0.001);
-        if (m === 'metal' || m === 'tin') {
-          // struck metal: a bar's inharmonic modes ringing on (small, thin things higher and shorter)
-          const f0 = (m === 'tin' ? 900 : 260 + (1 - hv) * 420) * p, dur = m === 'tin' ? 0.35 : 0.6 + hv * 0.9;
-          [1, 2.76, 5.4, 8.93].forEach((r, i) => osc(d, 'sine', f0 * r, f0 * r * 0.997, tt, dur * (1 - i * 0.18), (0.11 / (i + 1)) * k, 0.001));
-          nz(d, tt, 0.03, 0.3 * k, 'highpass', 3500, null, 0.7, 0.0005);
-        } else if (m === 'glass' || m === 'porcelain') {
-          const f0 = (m === 'glass' ? 2400 : 1700) * p * (1.2 - hv * 0.4);
-          [1, 1.62, 2.41, 3.53].forEach((r, i) => osc(d, 'sine', f0 * r, f0 * r, tt, 0.18 - i * 0.03, (0.07 / (i + 1)) * k, 0.0005));
-          nz(d, tt, 0.02, 0.25 * k, 'highpass', 5000, null, 0.8, 0.0005);
-        } else if (m === 'wood' || m === 'bone') {
-          nz(d, tt, 0.05, 0.45 * k, 'bandpass', (m === 'bone' ? 1800 : 900) * p, null, 3, 0.001);
-          osc(d, 'sine', (m === 'bone' ? 700 : 240 + (1 - hv) * 160) * p, 0, tt, 0.08, 0.2 * k, 0.001);
-        } else if (m === 'plastic') {
-          nz(d, tt, 0.04, 0.4 * k, 'bandpass', 1500 * p, null, 2.5, 0.001);
-          osc(d, 'triangle', (520 + (1 - hv) * 300) * p, 0, tt, 0.05, 0.12 * k, 0.001);
-        } else nz(d, tt, 0.09, 0.3 * k, 'lowpass', 700, 200, 0.6, 0.004);
-      };
-      hit(t, 1);
-      if (m !== 'soft' && hv < 0.7) { const b1 = 0.09 + rnd(0, 0.06) * (1 - hv); hit(t + b1, 0.35); if (hv < 0.3) hit(t + b1 * 1.7, 0.14); }
+      const w = o.w || 1, m = o.mat || (w > 4 ? 'metal' : 'wood'), hv = clamp(w / 12, 0, 1), cls = hv < 0.15 ? 0 : hv < 0.5 ? 1 : 2;
+      smp(d, t, take('drop_' + m + cls, 3, () => {
+        const h = [0.08, 0.3, 0.8][cls], y = arr(m === 'metal' || m === 'glass' ? 2 : 1);
+        const hit = (at, k) => {
+          add(y, struck({ modes: [1, 1.7, 2.6, 3.8], f0: 110 - h * 50, T: 0.08 + h * 0.12, hf: 3, tc: 0.004 + h * 0.01, grit: 0.4 }), at, (0.4 + h * 0.6) * k);
+          const M = {
+            metal: { modes: plate(18, 1.6), f0: 260 + (1 - h) * 420, T: 0.6 + h * 0.9, hf: 0.25, tc: 0.00025 },
+            tin: { modes: plate(14, 1.3), f0: 900, T: 0.35, hf: 0.6, tc: 0.00015, glide: 0.02 },
+            glass: { modes: GLASS, f0: 2400 * (1.2 - h * 0.4), T: 0.5, hf: 0.1, tc: 0.00006 },
+            porcelain: { modes: [1, 1.62, 2.41, 3.53, 4.7], f0: 1700 * (1.2 - h * 0.4), T: 0.22, hf: 0.4, tc: 0.0001 },
+            wood: { modes: plate(12, 2.2), f0: 240 + (1 - h) * 160, T: 0.1, hf: 2.5, tc: 0.0007, grit: 0.3 },
+            bone: { modes: BAR, f0: 700, T: 0.06, hf: 2, tc: 0.0003 },
+            plastic: { modes: plate(10, 1.3), f0: 520 + (1 - h) * 300, T: 0.05, hf: 2, tc: 0.0005 },
+          }[m];
+          if (M) add(y, struck(Object.assign({ click: 0.3 }, M)), at, (m === 'wood' || m === 'plastic' || m === 'bone' ? 0.8 : 0.55) * k);
+        };
+        hit(0, 1);
+        if (m !== 'soft' && h < 0.7) { const b1 = 0.09 + rnd(0, 0.06) * (1 - h); hit(b1, 0.35); if (h < 0.3) hit(b1 * 1.7, 0.14); }
+        return y;
+      }), 0.45 + hv * 0.55, rnd(0.95, 1.05));
     },
+    // a door: the latch clacks, the hinges groan as it swings (sticking and slipping, rung through the door's panel)
     door_open(d, t) {
       nz(d, t, 0.03, 0.35, 'highpass', 2500);
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      for (let k = 0; k < 14; k++) o.frequency.setValueAtTime(55 + Math.random() * 45 + k * 3, t + 0.05 + k * 0.055);
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 7; bp.frequency.setValueAtTime(700, t); bp.frequency.linearRampToValueAtTime(1500, t + 0.8);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.5, t + 0.15); g.gain.linearRampToValueAtTime(0.35, t + 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
-      o.connect(bp); bp.connect(g); g.connect(d); o.start(t); o.stop(t + 1);
+      smp(d, t + 0.04, take('hinge', 4, () => { const f0 = rnd(55, 75); return fric(0.85, (u) => f0 * (1 + 0.6 * u + 0.15 * Math.sin(u * 9)), (u) => Math.min(1, u * 6) * (1 - u * 0.4), [[rnd(650, 760), 1, 0.06], [rnd(1350, 1600), 0.6, 0.04], [rnd(2300, 2700), 0.3, 0.03], [rnd(180, 230), 0.5, 0.1]], 0.3); }), 0.5);
     },
-    door_close(d, t) { S.door_open(d, t); osc(d, 'sine', 95, 42, t + 0.55, 0.22, 0.8); nz(d, t + 0.55, 0.15, 0.5, 'lowpass', 700, 150, 0.7); nz(d, t + 0.57, 0.03, 0.3, 'highpass', 2500); },
-    door_slam(d, t) { osc(d, 'sine', 90, 35, t, 0.35, 1); nz(d, t, 0.3, 0.8, 'lowpass', 1200, 150, 0.7); [233, 377, 610].forEach((f, i) => osc(d, 'sine', f, f * 0.98, t, 0.8 - i * 0.2, 0.1)); },
+    door_close(d, t) { S.door_open(lv(d, 'door_open'), t); smp(d, t + 0.55, take('door_shut', 3, () => struck({ modes: plate(12, 2.4), f0: rnd(85, 105), T: 0.25, hf: 2, tc: 0.003, grit: 0.3, click: 0.3 })), 0.85); nz(d, t + 0.57, 0.03, 0.3, 'highpass', 2500); },
+    door_slam(d, t) {
+      smp(d, t, take('door_slam', 3, () => add(struck({ modes: plate(16, 2.4), f0: rnd(80, 95), T: 0.45, hf: 1.5, tc: 0.004, grit: 0.4, click: 0.2 }), struck({ modes: [1, 1.62, 2.62], f0: rnd(225, 240), T: 0.8, hf: 0.3, tc: 0.0004 }), 0, 0.25)), 1.1);
+      nz(d, t, 0.3, 0.5, 'lowpass', 1200, 150, 0.7);
+    },
     swing(d, t) { nz(d, t, 0.25, 0.45, 'bandpass', 300, 1800, 2, 0.08); },
-    hit_flesh(d, t) { osc(d, 'sine', 120, 40, t, 0.18, 0.9); nz(d, t, 0.12, 0.6, 'lowpass', 900, 200, 1); nz(d, t + 0.02, 0.2, 0.3, 'bandpass', 500, 300, 3); },
-    hit_metal(d, t) { [310, 487, 822, 1260].forEach((f, i) => osc(d, 'sine', f, f * 0.98, t, 0.9 - i * 0.12, 0.25 / (i + 1))); nz(d, t, 0.05, 0.5, 'highpass', 2000); },
-    hurt(d, t) { osc(d, 'sine', 100, 40, t, 0.25, 0.9); nz(d, t, 0.2, 0.5, 'lowpass', 700, 150, 1); const w = shaper(d, 50); osc(w, 'sawtooth', 140, 70, t, 0.3, 0.18); },
-    crunch(d, t) { for (let i = 0; i < 7; i++) nz(d, t + i * 0.035 + Math.random() * 0.02, 0.05, 0.7, 'bandpass', 600 + Math.random() * 2200, null, 2); osc(d, 'sine', 80, 30, t, 0.5, 1); },
+    hit_flesh(d, t) { smp(d, t, bodyThud(), 0.9); nz(d, t, 0.12, 0.6, 'lowpass', 900, 200, 1); nz(d, t + 0.02, 0.2, 0.3, 'bandpass', 500, 300, 3); },
+    hit_metal(d, t) { smp(d, t, take('hit_metal', 4, () => struck({ modes: plate(20, 1.5), f0: rnd(290, 330), T: 0.9, hf: 0.25, tc: 0.0002, click: 0.3 })), 0.7); nz(d, t, 0.05, 0.5, 'highpass', 2000); },
+    // hurt: the blow landing, and the grunt it knocks out of you
+    hurt(d, t) {
+      smp(d, t, bodyThud(), 0.9); nz(d, t, 0.2, 0.5, 'lowpass', 700, 150, 1);
+      smp(d, t + 0.01, take('grunt', 4, () => { const f0 = rnd(120, 150); return voice(0.3, (u) => f0 * (1 - 0.45 * u), { jit: 0.04, shim: 0.25, breath: 0.5, open: 0.004, amp: (u) => Math.min(1, u * 25) * (1 - u) ** 1.5, mouth: [[rnd(560, 640), 5, 1], [rnd(1050, 1200), 6, 0.6], [2450, 8, 0.25]] }); }), 0.35);
+    },
+    crunch(d, t) { smp(d, t, take('crunch', 3, () => add(grains(0.28, 26, 500, 2800, 0.012), struck({ modes: [1, 1.6, 2.5], f0: 75, T: 0.15, hf: 3, tc: 0.02 }), 0, 0.8)), 1); },
     neck_snap(d, t) {
       nz(d, t, 0.02, 1, 'highpass', 2500); nz(d, t + 0.025, 0.035, 0.9, 'bandpass', 1800, null, 3);
       nz(d, t, 0.018, 0.85, 'bandpass', 2600, 900, 5, 0.001);
       for (let i = 0; i < 4; i++) nz(d, t + 0.07 + i * 0.03, 0.03, 0.6, 'bandpass', 900 + Math.random() * 900, null, 4);
-      osc(d, 'sine', 60, 30, t, 0.6, 0.8);
+      smp(d, t, lowThud(), 0.8);
     },
+    // the sting when something shows itself: a section of strings stabbing a sour cluster, the bows biting hard, then
+    // falling away; and a bass drum under it
     stinger(d, t, o) {
-      const base = 98 * (o.pitch || 1);
-      const lp = filt(d, 'lowpass', 6000); lp.frequency.setValueAtTime(6000, t); lp.frequency.exponentialRampToValueAtTime(380, t + 2.6);
-      [1, 1.059, 1.414, 1.498, 2.12, 2.83, 4.24].forEach((r) => osc(lp, 'sawtooth', base * r, base * r * 0.96, t, 2.8, 0.1, 0.008, (Math.random() - 0.5) * 25));
-      nz(d, t, 1.2, 0.45, 'highpass', 5000, 700, 0.5, 0.004);
-      osc(d, 'sine', 55, 28, t, 1.8, 1, 0.004);
+      smp(d, t, take('stinger', 2, () => strings(STING.dur, STING.notes, STING.o), STING.sr), 1, o.pitch || 1);
+      smp(d, t, bassDrum(), 0.9);
+      nz(d, t, 1.2, 0.3, 'highpass', 5000, 700, 0.5, 0.004);
     },
+    // ...and a higher one: violins screeching up near the bridge, sliding sharp
     stinger_hi(d, t) {
-      const bp = filt(d, 'bandpass', 1500, 1.5);
-      [1380, 1460, 1550, 1645].forEach((f) => { const o = osc(bp, 'sawtooth', f, f * 1.04, t, 1.9, 0.12, 0.02); vib(o, t, 1.9, rnd(5, 9), 25); });
-      osc(d, 'sine', 48, 30, t, 1.4, 0.8, 0.004);
+      smp(d, t, take('stinger_hi', 2, () => strings(STING_HI.dur, STING_HI.notes, STING_HI.o), STING_HI.sr), 0.9);
+      smp(d, t, bassDrum(), 0.6);
     },
     // something down the corridor has seen you: a wet, catching gasp; a rattle deep in its throat, creaking slow and
     // then faster as it draws itself up; and over it a strangled, tearing shriek that tails off into the dark
@@ -194,9 +429,6 @@ const SFX = (() => {
         }
         src.start(t0);
       };
-      const ramp = (u, a, b) => Math.min(1, Math.max(0, (u - a) / (b - a)));
-      // (a pitch that drifts the way a voice does, never quite steady: a smooth random wander, depth either way)
-      const wander = (knots, depth) => { const k = Array.from({ length: knots + 1 }, () => rnd(-depth, depth)); return (u) => { const x = u * knots, i = Math.min(knots - 1, Math.floor(x)), f = x - i, s = f * f * (3 - 2 * f); return k[i] + (k[i + 1] - k[i]) * s; }; };
       // the gasp, sucked in hard through the teeth, catching at the end
       nz(d, t, 0.3, 0.32, 'bandpass', 1100, 2500, 1.3, 0.22);
       nz(d, t + 0.04, 0.26, 0.14, 'highpass', 3600, null, 0.7, 0.2);
@@ -213,92 +445,81 @@ const SFX = (() => {
       // and the breath going out of it after, a ragged rasp
       nz(d, t + 2.05, 0.6, 0.12, 'bandpass', 900, 500, 1.6, 0.05);
       // and the jolt of it, felt more than heard
-      osc(d, 'sine', 64, 30, t + 0.82, 1.3, 0.3, 0.01);
+      smp(d, t + 0.82, bassDrum(), 0.6);
       nz(d, t + 0.82, 0.9, 0.3, 'lowpass', 260, 90, 0.7, 0.02, brownBuf);
     },
-    // lub-dub: two dull thumps through your own chest, the second softer, felt as much as heard
+    // lub-dub: the valves of your own heart shutting, heard through your chest: two dull thumps, the second softer and
+    // a little higher
     heartbeat(d, t, o) {
-      const g = o.gap || 0.22;
-      osc(d, 'sine', 64, 36, t, 0.16, 0.95, 0.004); nz(d, t, 0.09, 0.4, 'lowpass', 190, 60, 0.7, 0.004, brownBuf);
-      osc(d, 'sine', 58, 34, t + g, 0.17, 0.62, 0.004); nz(d, t + g, 0.09, 0.25, 'lowpass', 170, 60, 0.7, 0.004, brownBuf);
+      smp(d, t, take('lub', 3, () => bq(struck({ modes: [1, 1.45, 2.1, 2.9], f0: rnd(42, 50), T: 0.14, hf: 4, tc: 0.035, grit: 0.15 }), 'lp', 160, 0.7), 16000), 1);
+      smp(d, t + (o.gap || 0.22), take('dub', 3, () => bq(struck({ modes: [1, 1.5, 2.3], f0: rnd(55, 65), T: 0.1, hf: 4, tc: 0.022, grit: 0.15 }), 'lp', 190, 0.7), 16000), 0.65);
     },
     crawler_screech(d, t) {
-      const w = shaper(d, 30);
-      const bp = filt(w, 'bandpass', 1200, 2);
-      bp.frequency.setValueAtTime(1100, t); bp.frequency.linearRampToValueAtTime(2300, t + 0.35); bp.frequency.linearRampToValueAtTime(800, t + 1.3);
-      [620, 655, 930, 1310].forEach((f) => { const o = osc(bp, 'sawtooth', f, f * 0.7, t, 1.4, 0.3, 0.03); vib(o, t, 1.4, rnd(20, 32), f * 0.06); });
-      nz(w, t, 1.2, 0.35, 'bandpass', 3000, 1500, 1, 0.05);
+      smp(d, t, take('screech', 3, () => { const f0 = rnd(600, 660), wob = rnd(20, 32);
+        return voice(1.4, (u) => f0 * (1 - 0.3 * u) * (1 + 0.06 * Math.sin(TAU * wob * u * 1.4)), { jit: 0.06, shim: 0.4, sub: 0.4, breath: 0.7, amp: (u) => Math.min(1, u * 30) * (1 - u) ** 0.8, clip: 3,
+          mouth: [[(u) => (u < 0.25 ? 1100 + 4800 * u : Math.max(800, 2300 - 2200 * (u - 0.25))), 2, 1], [(u) => 3000 - 1500 * u, 3, 0.5], [4200, 6, 0.3]] }); }), 1);
     },
-    crawler_growl(d, t) {
-      const lp = filt(d, 'lowpass', 320, 2);
-      const o = osc(lp, 'sawtooth', 46, 40, t, 1.4, 0.7, 0.2); vib(o, t, 1.4, 19, 8);
-      nz(lp, t, 1.3, 0.5, 'lowpass', 400, null, 1, 0.2, brownBuf);
-    },
+    crawler_growl(d, t) { smp(d, t, take('cgrowl', 3, () => growl(1.4, rnd(42, 50), 19, [[300, 2, 1], [650, 3, 0.4], [1500, 4, 0.1]]), 16000), 1); },
     ceramic(d, t) {
-      osc(d, 'sine', rnd(2800, 4200), null, t, 0.03, 0.22);
-      nz(d, t, 0.05, 0.45, 'bandpass', rnd(2300, 4000), null, 4);
+      smp(d, t, take('ceramic', 4, () => struck({ modes: [1, 1.62, 2.41, 3.53, 4.7], f0: rnd(2600, 3600), T: 0.18, hf: 0.3, tc: 0.00007, click: 0.4 })), 1);
       nz(d, t + 0.03, 0.14, 0.22, 'bandpass', 900, 1700, 3, 0.02);
     },
     breath(d, t) { nz(d, t, 1.1, 0.25, 'bandpass', 700, 480, 1.3, 0.45); nz(d, t + 1.25, 1.3, 0.2, 'bandpass', 520, 340, 1.3, 0.3); },
     hiss(d, t) {
-      const w = shaper(d, 20);
-      nz(w, t, 1.4, 0.65, 'highpass', 2600, 4200, 0.7, 0.04);
-      const o = osc(w, 'sawtooth', 78, 58, t, 1.4, 0.3, 0.05); vib(o, t, 1.4, 31, 12);
+      nz(shaper(d, 20), t, 1.4, 0.65, 'highpass', 2600, 4200, 0.7, 0.04);
+      smp(d, t, take('hiss_rattle', 3, () => growl(1.4, rnd(70, 85), 31, [[600, 2, 1], [1800, 3, 0.5]], { breath: 1 }), 24000), 0.3);
     },
-    leech_drop(d, t) { osc(d, 'sine', 95, 38, t, 0.25, 0.9); nz(d, t, 0.2, 0.7, 'lowpass', 500, 150, 1); nz(d, t + 0.05, 0.3, 0.4, 'bandpass', 500, 1500, 6); },
+    leech_drop(d, t) { smp(d, t, bodyThud(), 0.9); nz(d, t, 0.2, 0.7, 'lowpass', 500, 150, 1); nz(d, t + 0.05, 0.3, 0.4, 'bandpass', 500, 1500, 6); },
     squelch(d, t) { for (let i = 0; i < 3; i++) nz(d, t + i * 0.11, 0.09, 0.45, 'bandpass', rnd(350, 900), 200, 5); },
-    // the Seep: a heavy, wet slither as it drags itself along...
+    // the Seep: a heavy, wet slither as it drags itself along (big bubbles glugging up through it)...
     slime_slosh(d, t) {
       nz(d, t, 0.6, 0.55, 'lowpass', 420, 140, 1.2, 0.12, brownBuf);
       for (let i = 0; i < 3; i++) nz(d, t + 0.05 + i * rnd(0.08, 0.15), 0.12, 0.28, 'bandpass', rnd(380, 820), 200, 5, 0.01);
-      osc(d, 'sine', rnd(110, 150), 55, t + 0.12, 0.3, 0.25, 0.02);
+      smp(d, t + 0.12, take('glug', 4, () => bubble(bubble(arr(0.5), 0, rnd(16, 26)), nS(rnd(0.05, 0.12)), rnd(20, 32), 0.6), 16000), 1);
     },
     // ...bubbles welling up through it and bursting...
     slime_gurgle(d, t) {
-      for (let i = 0, tt = t; i < 7; i++, tt += rnd(0.06, 0.17)) { osc(d, 'sine', rnd(85, 230), rnd(45, 110), tt, rnd(0.05, 0.13), 0.3, 0.008); nz(d, tt, 0.04, 0.12, 'bandpass', rnd(600, 1400), null, 6, 0.004); }
+      smp(d, t, take('gurgle', 4, () => { const y = arr(1.5); for (let i = 0, a = 0; i < 8; i++, a += rnd(0.06, 0.17)) bubble(y, nS(a), rnd(14, 38), rnd(0.5, 1)); return y; }, 16000), 1);
       nz(d, t, 1.1, 0.3, 'lowpass', 260, 110, 1, 0.25, brownBuf);
     },
     // ...a thin wet hiss as it starts to work its way through the gap under a door...
     slime_seep(d, t) { nz(d, t, 1.4, 0.22, 'bandpass', 1900, 900, 2.5, 0.25); nz(d, t, 1.2, 0.3, 'lowpass', 380, 160, 1, 0.3, brownBuf); },
     // ...dribbling and dripping on the other side all the while...
-    slime_drip(d, t) { for (let i = 0; i < 4; i++) { const tt = t + i * rnd(0.09, 0.22); osc(d, 'sine', rnd(700, 1300), rnd(350, 600), tt, 0.05, 0.12, 0.003); nz(d, tt, 0.05, 0.1, 'bandpass', 1600, null, 4, 0.003); } nz(d, t, 0.6, 0.12, 'bandpass', 1300, 800, 2, 0.1); },
+    slime_drip(d, t) {
+      smp(d, t, take('drips', 4, () => { const y = arr(1); for (let i = 0, a = 0; i < 4; i++, a += rnd(0.09, 0.22)) bubble(y, nS(a), rnd(2.5, 4.6), rnd(0.6, 1)); return y; }), 1);
+      nz(d, t, 0.6, 0.12, 'bandpass', 1300, 800, 2, 0.1);
+    },
     // ...the sizzle of it burning whoever it reaches...
     slime_burn(d, t) { nz(d, t, 0.4, 0.5, 'highpass', 2800, 5200, 0.7, 0.01); nz(d, t, 0.25, 0.35, 'bandpass', 650, 300, 3, 0.01); },
     // ...and the gulp of it taking them whole
     slime_gulp(d, t) {
-      nz(d, t, 0.5, 0.8, 'lowpass', 700, 120, 1.5, 0.02, brownBuf); osc(d, 'sine', 160, 38, t, 0.55, 0.9, 0.01);
-      for (let i = 0; i < 5; i++) osc(d, 'sine', rnd(70, 160), rnd(40, 80), t + 0.25 + i * rnd(0.08, 0.16), 0.1, 0.35, 0.008);
+      nz(d, t, 0.5, 0.8, 'lowpass', 700, 120, 1.5, 0.02, brownBuf);
+      smp(d, t, take('gulp_big', 3, () => { const y = add(arr(1.2), struck({ modes: [1, 1.5, 2.2], f0: rnd(60, 80), T: 0.35, hf: 3, tc: 0.03 })); for (let i = 0, a = 0.25; i < 5; i++, a += rnd(0.08, 0.16)) bubble(y, nS(a), rnd(20, 45), 0.7); return y; }, 16000), 1);
     },
-    chitter(d, t) { for (let i = 0; i < 12; i++) { nz(d, t + i * 0.032, 0.014, 0.35, 'bandpass', rnd(2600, 4400), null, 9, 0.001); osc(d, 'sine', rnd(2000, 3200), 1500, t + i * 0.032, 0.012, 0.03, 0.001); } },
-    hound_growl(d, t) {
-      const lp = filt(d, 'lowpass', 380, 1.5);
-      const o = osc(lp, 'sawtooth', 52, 46, t, 1.7, 0.75, 0.25); vib(o, t, 1.7, 22, 9);
-      nz(lp, t, 1.6, 0.4, 'lowpass', 320, null, 1, 0.3, brownBuf);
-    },
+    chitter(d, t) { smp(d, t, take('chitter', 4, () => { const y = arr(0.45); for (let i = 0; i < 12; i++) add(y, struck({ modes: plate(6, 1.1), f0: rnd(2000, 3400), T: 0.012, hf: 0.2, tc: 0.00005, grit: 0.5 }), i * 0.032 + rnd(0, 0.006), rnd(0.5, 1)); return y; }), 1); },
+    hound_growl(d, t) { smp(d, t, take('hgrowl', 3, () => growl(1.7, rnd(48, 56), 22, [[300, 2, 1], [700, 3, 0.35], [1400, 4, 0.1]]), 16000), 1); },
     hound_roar(d, t) {
-      const w = shaper(d, 40);
-      osc(w, 'sawtooth', 200, 80, t, 0.8, 0.5, 0.02); osc(w, 'sawtooth', 255, 95, t, 0.8, 0.4, 0.02);
-      nz(w, t, 0.8, 0.55, 'bandpass', 900, 380, 1.2, 0.02);
+      smp(d, t, take('roar', 3, () => { const f0 = rnd(190, 215); return voice(0.85, (u) => f0 * (1 - 0.6 * u), { jit: 0.08, shim: 0.4, sub: 0.35, breath: 0.8, air: 0.15, clip: 2.5, amp: (u) => Math.min(1, u * 12) * (1 - u) ** 0.7, mouth: [[(u) => 900 - 500 * u, 2.5, 1], [(u) => 1500 - 400 * u, 3, 0.6], [2600, 4, 0.35]] }); }), 1);
     },
     howl(d, t) {
-      const bp = filt(d, 'bandpass', 800, 1.8);
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(240, t); o.frequency.linearRampToValueAtTime(430, t + 0.9); o.frequency.linearRampToValueAtTime(350, t + 2.6); o.frequency.linearRampToValueAtTime(190, t + 3.6);
-      vib(o, t, 3.7, 5.5, 9);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.28, t + 0.5); g.gain.linearRampToValueAtTime(0.22, t + 2.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.7);
-      o.connect(g); g.connect(bp); o.start(t); o.stop(t + 3.8);
+      smp(d, t, take('howl', 3, () => { const k = rnd(0.9, 1.1), dr = wander(8, 0.025);
+        return voice(3.7, (u) => k * (u < 0.24 ? 240 + 190 * u / 0.24 : u < 0.7 ? 430 - 80 * (u - 0.24) / 0.46 : 350 - 160 * (u - 0.7) / 0.3) * (1 + dr(u)) * (1 + 0.02 * Math.sin(TAU * 5.5 * u * 3.7)), { jit: 0.01, shim: 0.08, breath: 0.35, air: 0.05, amp: (u) => Math.min(1, u * 7) * Math.min(1, (1 - u) * 5),
+          mouth: [[(u) => 380 + 320 * Math.sin(Math.PI * Math.min(1, u * 1.4)), 4, 1], [(u) => 850 + 300 * Math.sin(Math.PI * u), 5, 0.5], [2600, 8, 0.08]] }); }, 24000), 1);
     },
     sniff(d, t) { for (let i = 0; i < 3; i++) nz(d, t + i * 0.13, 0.08, 0.22, 'highpass', 2200, null, 0.8, 0.02); },
-    // pneumatic door: a valve cracks, air hisses out, the door glides on its rails with a thin whistle, seals with a puff
+    // pneumatic door: a valve cracks, air hisses out, the door glides on its rails with the air whistling past its
+    // seal, and seats with a thump
     ship_door(d, t) {
       nz(d, t, 0.05, 0.55, 'highpass', 2600, null, 0.7, 0.002);
       nz(d, t + 0.02, 0.95, 0.36, 'bandpass', 4300, 2500, 0.8, 0.012);
       nz(d, t + 0.05, 0.8, 0.12, 'highpass', 7200, 9500, 0.6, 0.06);
       nz(d, t + 0.1, 0.8, 0.12, 'bandpass', 950, 1500, 2.5, 0.18);
-      const w = osc(d, 'sine', 2950, 2650, t + 0.08, 0.65, 0.011, 0.12); vib(w, t + 0.08, 0.65, 5, 25);
-      osc(d, 'sine', 210, 120, t + 0.9, 0.1, 0.22, 0.002); nz(d, t + 0.9, 0.07, 0.25, 'lowpass', 1500, 400, 0.7, 0.002);
+      nz(d, t + 0.08, 0.65, 0.3, 'bandpass', 2950, 2650, 40, 0.12);
+      smp(d, t + 0.9, take('seal', 3, () => struck({ modes: plate(10, 2), f0: rnd(110, 130), T: 0.15, hf: 2, tc: 0.004, grit: 0.3 })), 0.3);
+      nz(d, t + 0.9, 0.07, 0.25, 'lowpass', 1500, 400, 0.7, 0.002);
       nz(d, t + 0.93, 0.3, 0.14, 'highpass', 3200, null, 0.7, 0.01);
     },
+    // the burn: the roar of it, and the deep throb of the combustion under it
     engine(d, t, o) {
       const dur = o.dur || 4;
       const lp = filt(d, 'lowpass', 200, 1);
@@ -306,23 +527,27 @@ const SFX = (() => {
       const s = ctx.createBufferSource(); s.buffer = brownBuf; s.loop = true;
       const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(1.2, t + dur * 0.3); g.gain.linearRampToValueAtTime(0.0001, t + dur);
       s.connect(g); g.connect(lp); s.start(t); s.stop(t + dur + 0.1);
-      const o2 = osc(filt(d, 'lowpass', 300), 'sawtooth', 38, 70, t, dur, 0.4, dur * 0.3); vib(o2, t, dur, 13, 3);
+      nz(d, t, dur, 0.6, 'lowpass', 55, 95, 5, dur * 0.3, brownBuf);
     },
     // snacks: a ring pull cracking and the fizz, a crinkling wrapper, then gulps or chewing
     can_open(d, t) {
-      nz(d, t, 0.012, 0.9, 'bandpass', 3800, null, 4, 0.0005); osc(d, 'sine', 2300, 1400, t, 0.03, 0.08, 0.001); nz(d, t, 0.04, 0.7, 'highpass', 3500);
+      nz(d, t, 0.012, 0.9, 'bandpass', 3800, null, 4, 0.0005); nz(d, t, 0.04, 0.7, 'highpass', 3500);
+      smp(d, t, take('tab', 3, () => struck({ modes: plate(8, 1.1), f0: rnd(2100, 2500), T: 0.06, hf: 0.3, tc: 0.0001 })), 0.12);
       nz(d, t + 0.03, 1.1, 0.22, 'highpass', 5200, 8000, 0.6, 0.02);
-      for (let i = 0; i < 3; i++) { osc(d, 'sine', rnd(150, 190), 80, t + 0.6 + i * 0.34, 0.13, 0.5, 0.02); nz(d, t + 0.6 + i * 0.34, 0.1, 0.25, 'lowpass', 600, 200, 1, 0.02); }
+      for (let i = 0; i < 3; i++) {
+        smp(d, t + 0.6 + i * 0.34, take('gulp', 4, () => bubble(add(arr(0.4), struck({ modes: [1, 1.6, 2.4], f0: rnd(150, 190), T: 0.07, hf: 3, tc: 0.015 })), nS(0.02), rnd(12, 18), 0.25), 16000), 0.5);
+        nz(d, t + 0.6 + i * 0.34, 0.1, 0.25, 'lowpass', 600, 200, 1, 0.02);
+      }
     },
     wrapper(d, t) {
       for (let i = 0; i < 9; i++) nz(d, t + i * 0.045 + Math.random() * 0.02, 0.05, 0.45, 'bandpass', rnd(3000, 6500), null, 1.5);
-      for (let i = 0; i < 4; i++) { nz(d, t + 0.55 + i * 0.22, 0.08, 0.55, 'bandpass', rnd(900, 1800), 500, 2); osc(d, 'sine', 110, 60, t + 0.55 + i * 0.22, 0.07, 0.3); }
+      for (let i = 0; i < 4; i++) { nz(d, t + 0.55 + i * 0.22, 0.08, 0.55, 'bandpass', rnd(900, 1800), 500, 2); smp(d, t + 0.55 + i * 0.22, take('chew', 4, () => struck({ modes: [1, 1.7, 2.6], f0: rnd(95, 125), T: 0.05, hf: 3, tc: 0.02, grit: 0.6 }), 16000), 0.3); }
     },
     // a gift: tape tearing, paper ripping away, the lid lifting off
     unwrap(d, t) {
       for (let i = 0; i < 5; i++) nz(d, t + i * 0.07 + Math.random() * 0.03, 0.09, 0.45, 'bandpass', rnd(1800, 4200), rnd(900, 2000), 1.2, 0.004);
       nz(d, t + 0.38, 0.3, 0.55, 'bandpass', 2600, 800, 0.9, 0.01);
-      nz(d, t + 0.72, 0.12, 0.35, 'lowpass', 900, 300, 1, 0.01); osc(d, 'sine', 180, 120, t + 0.72, 0.08, 0.2);
+      nz(d, t + 0.72, 0.12, 0.35, 'lowpass', 900, 300, 1, 0.01); smp(d, t + 0.72, take('card', 3, () => struck({ modes: plate(10, 1.6), f0: rnd(160, 200), T: 0.05, hf: 2, tc: 0.004, grit: 0.5 })), 0.25);
     },
     // a lit fuse: a spitting hiss, crackling
     fuse(d, t, o) {
@@ -330,47 +555,48 @@ const SFX = (() => {
       nz(d, t, dur, 0.28, 'bandpass', rnd(3200, 4200), rnd(2400, 3000), 1.1, 0.01);
       for (let i = 0; i < 6; i++) nz(d, t + Math.random() * dur, 0.015, 0.4, 'highpass', 3000, null, 0.7, 0.001);
     },
-    // a blast: the crack, the roar rolling off the walls, a deep thump, then debris pattering down
+    // a blast: the crack, the roar rolling off the walls, the pressure wave, then debris pattering down
     explosion(d, t) {
       nz(d, t, 0.18, 1.2, 'highpass', 1500, null, 0.6, 0.001);
       nz(d, t, 2.4, 1.4, 'lowpass', 4200, 90, 0.6, 0.003, brownBuf);
-      osc(d, 'sine', 70, 24, t, 1.6, 1.6, 0.002); osc(d, 'triangle', 45, 20, t, 1.1, 0.9, 0.002);
+      smp(d, t, blast(), 1.8);
       nz(shaper(d, 30), t, 0.6, 0.6, 'lowpass', 900, 200, 0.7, 0.002);
       S.debris(d, t + 0.25);
     },
     // a creature's last noise: a drawn-out rattle sinking away, a wet gurgle, the body hitting the floor
     death_rattle(d, t, o) {
-      const p = o.pitch || 1, w = shaper(d, 40);
-      const a = osc(w, 'sawtooth', 160 * p, 45 * p, t, 1.3, 0.22, 0.02); vib(a, t, 1.3, 23, 18 * p);
+      const p = o.pitch || 1;
+      smp(d, t, take('rattle', 3, () => voice(1.3, (u) => 160 * Math.pow(45 / 160, u) * (1 + 0.1 * Math.sin(TAU * 23 * u * 1.3)), { jit: 0.3, shim: 0.6, breath: 0.6, sub: 0.3, open: 0.004, air: 0.1, clip: 2, amp: (u) => Math.min(1, u * 15) * (1 - u) ** 0.6, mouth: [[(u) => 700 - 480 * u, 2.5, 1], [(u) => 1300 - 500 * u, 3, 0.4]] }), 24000), 0.5, p);
       nz(d, t, 1.4, 0.3, 'bandpass', 700 * p, 220 * p, 2.5, 0.05);
       for (let i = 0; i < 5; i++) nz(d, t + 0.5 + i * 0.13 + Math.random() * 0.05, 0.08, 0.3, 'bandpass', rnd(300, 700) * p, 200, 6);
-      osc(d, 'sine', 85, 34, t + 0.85, 0.4, 0.9); nz(d, t + 0.85, 0.3, 0.6, 'lowpass', 600, 120, 0.7, 0.004);
+      smp(d, t + 0.85, bodyThud(), 0.9); nz(d, t + 0.85, 0.3, 0.6, 'lowpass', 600, 120, 0.7, 0.004);
     },
-    // the jump drive: winding up (a climbing whine over a swelling hum), punching through, dropping out
+    // the jump drive winding up: a turbine spooling, its blades' whine climbing out of a swelling hum, the air drawn
+    // through it rushing higher
     warp_charge(d, t, o) {
-      const dur = o.dur || 2.2;
-      const a = osc(d, 'sine', 90, 900, t, dur, 0.12, dur * 0.85); vib(a, t, dur, 7, 6);
-      osc(d, 'sine', 45, 90, t, dur, 0.35, dur * 0.8);
+      const dur = Math.round((o.dur || 2.2) * 10) / 10;
+      smp(d, t, take('spool' + dur, 2, () => fade(add(buzz(dur, (u) => 90 * Math.pow(10, Math.pow(u, 1.4)), (u) => Math.pow(u, 0.6), [[220, 1, 0.02], [610, 0.8, 0.015], [1450, 0.6, 0.01], [3100, 0.4, 0.008]], { jit: 0.002, duty: 0.08 }),
+        buzz(dur, (u) => 45 * (1 + u), (u) => Math.min(1, u * 2), [[90, 1, 0.06], [180, 0.5, 0.04]], { duty: 0.3 }), 0, 0.6), (u) => Math.min(1, u * 1.2) * Math.min(1, (1 - u) * 40))), 0.4);
       const bp = filt(d, 'bandpass', 600, 3); bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(5000, t + dur);
       const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + dur); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.05);
       s.connect(g); g.connect(bp); s.start(t); s.stop(t + dur + 0.1);
     },
     warp_in(d, t) {
-      osc(d, 'sine', 70, 28, t, 1.4, 1.2, 0.004); nz(d, t, 1.2, 0.9, 'lowpass', 3000, 120, 0.6, 0.004, brownBuf);
-      nz(d, t, 0.6, 0.5, 'highpass', 6000, 1200, 0.5, 0.002); osc(d, 'sine', 2400, 180, t, 0.7, 0.08, 0.002);
+      smp(d, t, blast(), 1.4); nz(d, t, 1.2, 0.9, 'lowpass', 3000, 120, 0.6, 0.004, brownBuf);
+      nz(d, t, 0.6, 0.5, 'highpass', 6000, 1200, 0.5, 0.002); nz(d, t, 0.7, 0.3, 'bandpass', 2400, 180, 30, 0.002);
     },
     warp_out(d, t) {
-      nz(d, t, 0.8, 0.5, 'bandpass', 600, 4000, 1, 0.35); osc(d, 'sine', 150, 900, t, 0.5, 0.06, 0.3);
-      osc(d, 'sine', 60, 30, t + 0.55, 0.9, 1.1, 0.004); nz(d, t + 0.55, 0.5, 0.6, 'lowpass', 1500, 100, 0.6, 0.004, brownBuf);
+      nz(d, t, 0.8, 0.5, 'bandpass', 600, 4000, 1, 0.35); nz(d, t, 0.5, 0.25, 'bandpass', 150, 900, 30, 0.3);
+      smp(d, t + 0.55, blast(), 1.2); nz(d, t + 0.55, 0.5, 0.6, 'lowpass', 1500, 100, 0.6, 0.004, brownBuf);
     },
-    // a supply pod coming in: a falling shriek over a roar that builds right up to the impact
+    // a supply pod coming in: the shriek of the air tearing past it, falling, over a roar that builds right up to the impact
     pod_fall(d, t, o) {
       const dur = Math.max(0.5, o.dur || 3.5);
       const bp = filt(d, 'bandpass', 1800, 4); bp.frequency.setValueAtTime(2600, t); bp.frequency.exponentialRampToValueAtTime(480, t + dur);
       const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
       const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + dur * 0.92); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.04);
       s.connect(g); g.connect(bp); s.start(t, Math.random() * 2); s.stop(t + dur + 0.1);
-      osc(d, 'sine', 1900, 360, t, dur, 0.07, dur * 0.7);
+      nz(d, t, dur, 0.4, 'bandpass', 1900, 360, 35, dur * 0.7);
       const lp = filt(d, 'lowpass', 280, 0.7), s2 = ctx.createBufferSource(); s2.buffer = brownBuf; s2.loop = true;
       const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(1.3, t + dur); g2.gain.linearRampToValueAtTime(0.0001, t + dur + 0.06);
       s2.connect(g2); g2.connect(lp); s2.start(t); s2.stop(t + dur + 0.1);
@@ -386,19 +612,17 @@ const SFX = (() => {
       const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.75, t + (fill ? dur * 0.75 : 0.05)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       s.connect(g); g.connect(lp); s.start(t, Math.random() * 2); s.stop(t + dur + 0.1);
       nz(d, t, dur * 0.8, 0.1, 'bandpass', fill ? 1800 : 3400, fill ? 3600 : 1600, 3, 0.05);
-      if (!fill) { osc(d, 'sine', 90, 40, t, 0.4, 0.4, 0.003); nz(d, t, 0.06, 0.6, 'highpass', 2500, null, 0.7, 0.001); }
+      if (!fill) { smp(d, t, take('hatch_thump', 3, () => struck({ modes: plate(12, 1.8), f0: rnd(80, 100), T: 0.35, hf: 1.5, tc: 0.004, grit: 0.3 })), 0.45); nz(d, t, 0.06, 0.6, 'highpass', 2500, null, 0.7, 0.001); }
     },
-    // hydraulics: a rising motor whine with a hiss of fluid
+    // hydraulics: the pump's motor winding up under load (the whine of its gears), fluid hissing through the valves
     servo(d, t, o) {
-      const dur = o.dur || 1.5, p = o.pitch || 1;
-      const bp = filt(d, 'bandpass', 700 * p, 2.5);
-      const m = osc(bp, 'sawtooth', 150 * p, 210 * p, t, dur, 0.22, 0.12); vib(m, t, dur, 23, 4);
-      osc(d, 'triangle', 300 * p, 420 * p, t, dur, 0.04, 0.12);
+      const dur = Math.round((o.dur || 1.5) * 4) / 4;
+      smp(d, t, take('servo' + dur, 2, () => fade(buzz(dur, (u) => 150 * (1 + 0.4 * u) * (1 + 0.01 * Math.sin(TAU * 23 * u * dur)), () => 1, [[700, 1, 0.012], [1400, 0.4, 0.008], [300, 0.5, 0.02]], { duty: 0.2, jit: 0.006 }), (u) => Math.min(1, u * dur / 0.12) * Math.min(1, (1 - u) * dur / 0.1))), 0.25, o.pitch || 1);
       nz(d, t, dur, 0.12, 'bandpass', 2600, 1900, 1.5, 0.15);
     },
     // a glint far up in the sky: a soft glassy shimmer, more felt than heard
     glint(d, t) {
-      [2093, 2794, 3520].forEach((f, i) => osc(d, 'sine', f, f * 1.006, t + i * 0.035, 1.1 - i * 0.2, 0.022, 0.05));
+      smp(d, t, take('glint', 3, () => { const y = arr(1.4); for (let i = 0; i < 3; i++) add(y, struck({ modes: GLASS, f0: rnd(2000, 2200) * [1, 1.335, 1.68][i], T: 1.1 - i * 0.2, hf: 0.05, tc: 0.0015, grit: 0 }), i * 0.035, 0.5); return y; }), 1);
       nz(d, t, 0.8, 0.035, 'highpass', 6500, 9500, 0.6, 0.08);
     },
     // blast shutters running in their tracks: steel slats clattering against each other over a low grinding roll
@@ -406,69 +630,85 @@ const SFX = (() => {
       const dur = o.dur || 1;
       nz(d, t, dur, 0.35, 'lowpass', 380, 160, 0.8, 0.06, brownBuf);
       const n = Math.round(dur * 26);
-      for (let i = 0; i < n; i++) { const tt = t + (i / n) * dur + Math.random() * 0.02; nz(d, tt, 0.025, rnd(0.08, 0.2), 'bandpass', rnd(700, 1600), null, 3, 0.001); if (i % 3 === 0) osc(d, 'sine', rnd(180, 260), 120, tt, 0.05, 0.05, 0.002); }
+      for (let i = 0; i < n; i++) {
+        const tt = t + (i / n) * dur + Math.random() * 0.02;
+        nz(d, tt, 0.025, rnd(0.08, 0.2), 'bandpass', rnd(700, 1600), null, 3, 0.001);
+        if (i % 3 === 0) smp(d, tt, take('slat', 6, () => struck({ modes: plate(10, 3), f0: rnd(180, 300), T: 0.08, hf: 1, tc: 0.0006, grit: 0.4 })), 0.1);
+      }
     },
     // a heavy latch seating
-    clunk(d, t, o) { const p = o.pitch || 1; osc(d, 'sine', 120 * p, 55 * p, t, 0.22, 0.8); nz(d, t, 0.08, 0.5, 'lowpass', 1400 * p, 300, 0.8); [410, 655].forEach((f) => osc(d, 'sine', f * p, f * p * 0.98, t, 0.35, 0.06)); },
-    // touchdown: the whole ship's weight landing on its struts
+    clunk(d, t, o) {
+      const p = o.pitch || 1;
+      smp(d, t, take('clunk', 4, () => add(struck({ modes: plate(14, 1.5), f0: rnd(110, 130), T: 0.3, hf: 1, tc: 0.002, grit: 0.3, click: 0.3 }), struck({ modes: BAR, f0: rnd(400, 420), T: 0.35, hf: 0.3, tc: 0.0003 }), 0, 0.15)), 0.8, p);
+      nz(d, t, 0.08, 0.5, 'lowpass', 1400 * p, 300, 0.8);
+    },
+    // touchdown: the whole ship's weight landing on its struts, its hull ringing with it
     thud(d, t) {
-      osc(d, 'sine', 64, 30, t, 0.8, 1.3, 0.004); nz(d, t, 0.6, 1, 'lowpass', 600, 80, 0.7, 0.004, brownBuf);
-      [97, 151, 236, 352].forEach((f, i) => osc(d, 'sine', f, f * 0.97, t + 0.02, 1.6 - i * 0.25, 0.11));
+      smp(d, t, take('touchdown', 2, () => struck({ modes: plate(24, 2.2), f0: rnd(55, 66), T: 1.6, hf: 1.2, tc: 0.03, grit: 0.4, len: 2 }), 24000), 1.4);
+      nz(d, t, 0.6, 1, 'lowpass', 600, 80, 0.7, 0.004, brownBuf);
       nz(d, t + 0.05, 0.25, 0.35, 'bandpass', 1800, 700, 1.2);
     },
-    lever(d, t) { S.hit_metal(d, t); osc(d, 'sine', 70, 40, t, 0.3, 0.8); nz(d, t, 0.06, 0.4, 'bandpass', 1500, null, 2); },
+    // a big lever thrown: its ratchet clacking over, the linkage thumping home
+    lever(d, t) {
+      S.hit_metal(d, t);
+      smp(d, t, take('ratchet', 3, () => { const y = arr(0.4); for (let i = 0, a = 0; i < 5; i++, a += rnd(0.025, 0.04)) add(y, struck({ modes: plate(8, 1.2), f0: rnd(1100, 1500), T: 0.03, hf: 0.3, tc: 0.0001 }), a, rnd(0.4, 1)); return add(y, struck({ modes: plate(10, 1.6), f0: 70, T: 0.3, hf: 2, tc: 0.006 }), 0, 0.8); }), 0.8);
+      nz(d, t, 0.06, 0.4, 'bandpass', 1500, null, 2);
+    },
     key(d, t) { nz(d, t, 0.012, 0.12, 'highpass', 4000); },
-    // console tones: rounded electronic blips rather than chiptune squares
-    beep(d, t, o) { const f = o.f || 880; osc(d, 'sine', f, f * 0.995, t, 0.12, 0.09, 0.004); osc(d, 'sine', f * 2, f * 2, t, 0.06, 0.02, 0.003); },
-    err(d, t) { osc(d, 'sine', 330, 300, t, 0.18, 0.12, 0.004); osc(d, 'sine', 247, 220, t + 0.13, 0.24, 0.12, 0.004); nz(d, t, 0.05, 0.06, 'bandpass', 800, null, 3, 0.002); },
-    buy(d, t) { [[880, 0], [1320, 0.09]].forEach(([f, k]) => { osc(d, 'sine', f, f, t + k, 0.6, 0.08, 0.002); osc(d, 'sine', f * 2.76, f * 2.76, t + k, 0.25, 0.02, 0.002); }); },
-    sell(d, t) { nz(d, t, 0.08, 0.35, 'bandpass', 2500, null, 2); [2093, 2637, 3136, 4186].forEach((f) => osc(d, 'sine', f, null, t + 0.1, 1.3, 0.1)); },
-    // the scanner: a heavy sonar pulse out of a cheap, worn speaker. A sub thump, a low tone that sags and beats as it
-    // dies, a dirty rumble rolling outward with the wave, and the speaker crackling under it all.
+    // the consoles' buzzers: a little piezo disc in a grille
+    beep(d, t, o) { const f = Math.round((o.f || 880) / 10) * 10; smp(d, t, take('beep' + f, 2, () => piezo(0.12, () => f)), 0.1); },
+    err(d, t) {
+      smp(d, t, take('err', 2, () => add(add(arr(0.42), piezo(0.18, (u) => 330 - 30 * u)), piezo(0.24, (u) => 247 - 27 * u), 0.13)), 0.13);
+      nz(d, t, 0.05, 0.06, 'bandpass', 800, null, 3, 0.002);
+    },
+    buy(d, t) { smp(d, t, take('buy', 2, () => add(add(arr(0.4), fade(piezo(0.3, () => 880), (u) => Math.exp(-u * 4))), fade(piezo(0.3, () => 1320), (u) => Math.exp(-u * 4)), 0.09)), 0.12); },
+    // a sale: the drawer sliding, and the till's little bell
+    sell(d, t) { nz(d, t, 0.08, 0.35, 'bandpass', 2500, null, 2); smp(d, t + 0.1, take('ching', 3, () => struck({ modes: BELL, f0: rnd(2050, 2150), T: 1.3, hf: 0.05, tc: 0.0002, tilt: 0.3 })), 0.4); },
+    // the scanner: a heavy transducer thumped once, ringing out through a cheap, worn speaker: a low ring that sags and
+    // beats as it dies, a dirty rumble rolling outward with the wave, and the speaker crackling under it all
     scan(d, t) {
-      osc(d, 'sine', 72, 30, t, 0.7, 0.9, 0.004); nz(d, t, 0.35, 0.45, 'lowpass', 420, 70, 0.7, 0.004, brownBuf);
-      // the tone: two slightly detuned voices through a lowpassed overdrive, falling a little as it fades
-      const grit = filt(shaper(filt(d, 'lowpass', 900, 0.8), 6), 'lowpass', 1400, 0.7);
-      for (const [f, v] of [[146, 0.16], [148.6, 0.12]]) osc(grit, 'triangle', f, f * 0.88, t + 0.02, 2.4, v, 0.03);
-      osc(d, 'sine', 73, 64, t + 0.02, 2.6, 0.22, 0.05);
-      // the wave rolling out: a low rush whose band opens a little as it goes, never up into the bright range
+      smp(d, t, take('scan', 2, () => { const y = struck({ modes: [[1, 1], [1.018, 0.8], [0.5, 1.4], [2.01, 0.25], [3.03, 0.12]], f0: 146, T: 2.4, hf: 0.2, tc: 0.003, grit: 0.2, glide: 0.12, tilt: 0, spread: 0.002, len: 2.8 }); for (let i = 0; i < y.length; i++) y[i] = Math.tanh(y[i] * 3); return add(norm(y), struck({ modes: [1, 1.5], f0: 70, T: 0.5, hf: 3, tc: 0.012 }), 0, 0.9); }, 24000), 0.6);
+      nz(d, t, 0.35, 0.45, 'lowpass', 420, 70, 0.7, 0.004, brownBuf);
       nz(shaper(d, 3), t + 0.05, 1.6, 0.16, 'bandpass', 180, 620, 1.4, 0.25, brownBuf);
-      // the speaker: a few dry crackles in the tail
       for (let i = 0; i < 7; i++) nz(d, t + 0.1 + Math.pow(Math.random(), 1.4) * 1.6, 0.012, rnd(0.03, 0.08), 'bandpass', rnd(900, 1800), null, 1.5, 0.001);
     },
     // a find showing up as the wave reaches it: a muffled return knocking back off it, not a chirp
     ping(d, t, o) {
-      const f = o.f || 260;
-      osc(d, 'sine', f, f * 0.9, t, 0.35, 0.16, 0.006); osc(d, 'sine', f * 0.5, f * 0.46, t, 0.4, 0.14, 0.01);
+      const f = Math.round((o.f || 260) / 20) * 20;
+      smp(d, t, take('ping' + f, 2, () => struck({ modes: [[1, 1], [0.5, 0.9], [2.7, 0.2], [4.1, 0.08]], f0: f, T: 0.38, hf: 0.5, tc: 0.003, grit: 0.2, tilt: 0 })), 0.25);
       nz(d, t, 0.05, 0.06, 'bandpass', f * 3, null, 2.5, 0.002);
     },
-    // a steel locker: the latch clacks, the hinge complains, the thin door wobbles
+    // a steel locker: the latch clacks, the hinge squeals, the thin door wobbles
     locker_open(d, t) {
       nz(d, t, 0.02, 0.55, 'highpass', 2600); nz(d, t + 0.004, 0.02, 0.3, 'bandpass', 1500, null, 7, 0.001);
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(rnd(260, 340), t + 0.04); o.frequency.linearRampToValueAtTime(rnd(420, 620), t + 0.45);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0, t);
-      for (let tt = t + 0.04; tt < t + 0.45;) { const gl = rnd(0.012, 0.03); g.gain.setValueAtTime(rnd(0.05, 0.22), tt); g.gain.setValueAtTime(0, tt + gl * 0.5); tt += gl; }
-      o.connect(g); g.connect(filt(d, 'bandpass', 1300, 6)); o.start(t); o.stop(t + 0.5);
-      [430, 870, 1330].forEach((f, i) => osc(d, 'sine', f, f * 0.995, t + 0.05, 0.5 - i * 0.1, 0.05 / (i + 1), 0.002));
+      smp(d, t + 0.04, take('squeak', 4, () => { const f0 = rnd(260, 340), f1 = rnd(420, 620); return fric(0.42, (u) => f0 + (f1 - f0) * u, () => rnd(0.4, 1), [[rnd(1200, 1400), 1, 0.05], [rnd(2500, 2900), 0.4, 0.03]], 0.15); }), 0.35);
+      smp(d, t + 0.05, take('locker_wobble', 3, () => struck({ modes: plate(14, 2.6), f0: rnd(400, 460), T: 0.5, hf: 0.4, tc: 0.004, glide: 0.03 })), 0.12);
     },
     locker_close(d, t) {
-      osc(d, 'sine', 150, 60, t, 0.16, 0.7, 0.002); nz(d, t, 0.1, 0.5, 'lowpass', 1600, 300, 0.7, 0.002);
-      [510, 780, 1240].forEach((f, i) => osc(d, 'sine', f, f * 0.99, t, 0.7 - i * 0.15, 0.08 / (i + 1), 0.002));
+      smp(d, t, take('locker_shut', 3, () => struck({ modes: plate(18, 2.6), f0: rnd(140, 160), T: 0.7, hf: 0.5, tc: 0.002, grit: 0.3, glide: 0.04, click: 0.25 })), 0.85);
+      nz(d, t, 0.1, 0.5, 'lowpass', 1600, 300, 0.7, 0.002);
       nz(d, t + 0.05, 0.02, 0.4, 'highpass', 2600); nz(d, t + 0.054, 0.02, 0.25, 'bandpass', 1300, null, 7, 0.001);
     },
-    // a ship's klaxon: two detuned horn reeds through a metal bell, three blasts
+    // a ship's klaxon: a motor-driven rotor hammering a steel diaphragm, faster as it spins up, out of a flared horn;
+    // three blasts
     alarm(d, t) {
-      const w = shaper(filt(d, 'bandpass', 1050, 1.4), 6);
-      for (let i = 0; i < 3; i++) { const tt = t + i * 0.72, a = osc(w, 'sawtooth', 548, 590, tt, 0.52, 0.12, 0.03); osc(w, 'sawtooth', 553, 596, tt, 0.52, 0.1, 0.03); vib(a, tt, 0.52, 6, 7); }
+      const b = take('klaxon', 2, () => buzz(0.55, (u) => 520 + 75 * Math.min(1, u * 3), (u) => Math.min(1, u * 14) * Math.min(1, (1 - u) * 10), [[1050, 1, 0.012], [1700, 0.6, 0.01], [2600, 0.4, 0.008], [560, 0.6, 0.02], [3500, 0.25, 0.006]], { duty: 0.1, jit: 0.004, shim: 0.1, clip: 2.2 }));
+      for (let i = 0; i < 3; i++) smp(d, t + i * 0.72, b, 0.12);
     },
+    // the power going: the generator running down (its whine sinking and the hum with it), the main contactor dropping
+    // out with a slam that rings the cabinet
     power_down(d, t) {
-      osc(filt(d, 'lowpass', 600), 'sawtooth', 120, 18, t, 2.6, 0.5, 0.01);
-      osc(d, 'sine', 80, 30, t, 0.5, 0.9); nz(d, t, 0.3, 0.6, 'lowpass', 900, 100, 0.7);
-      [233, 377].forEach((f) => osc(d, 'sine', f, f, t, 1.2, 0.12));
+      smp(d, t, take('rundown', 2, () => add(add(buzz(2.6, (u) => 120 * Math.pow(18 / 120, u), (u) => (1 - u) ** 1.2, [[240, 1, 0.03], [480, 0.6, 0.02], [960, 0.3, 0.015], [130, 0.6, 0.05]], { duty: 0.2, jit: 0.01 }),
+        struck({ modes: plate(16, 1.4), f0: rnd(225, 240), T: 1.2, hf: 0.4, tc: 0.0015, click: 0.3 }), 0, 0.7), struck({ modes: [1, 1.6, 2.4], f0: 75, T: 0.4, hf: 2, tc: 0.012 }), 0, 0.8), 24000), 1);
+      nz(d, t, 0.3, 0.6, 'lowpass', 900, 100, 0.7);
     },
-    power_up(d, t) { osc(filt(d, 'lowpass', 900), 'sawtooth', 25, 120, t, 1.8, 0.35, 1.2); osc(d, 'sine', 60, 60, t + 1.5, 0.8, 0.2, 0.05); },
-    metal_bang(d, t) { [180, 263, 410, 690].forEach((f) => osc(d, 'sine', f, f * 0.99, t, 2.4, 0.2)); nz(d, t, 0.12, 0.6, 'lowpass', 1200, 200); },
-    drip(d, t) { osc(d, 'sine', rnd(1300, 2000), 500, t, 0.05, 0.15); },
+    // ...and coming back: the generator spinning up, then its transformer settling into a hum
+    power_up(d, t) {
+      smp(d, t, take('spinup', 2, () => fade(add(buzz(1.8, (u) => 25 * Math.pow(120 / 25, u), (u) => Math.min(1, u * 1.5), [[240, 1, 0.03], [480, 0.6, 0.02], [130, 0.6, 0.05]], { duty: 0.2, jit: 0.01 }),
+        buzz(0.8, () => 60, (u) => Math.min(1, u * 5) * (1 - u), [[120, 1, 0.05], [240, 0.5, 0.04], [360, 0.2, 0.03]], { duty: 0.4 }), 1, 0.4), (u) => Math.min(1, (1 - u) * 20)), 24000), 0.4);
+    },
+    metal_bang(d, t) { smp(d, t, take('metal_bang', 3, () => struck({ modes: plate(26, 1.8), f0: rnd(170, 190), T: 2.4, hf: 0.2, tc: 0.0008, glide: 0.02, len: 2.6 }), 24000), 0.6); nz(d, t, 0.12, 0.6, 'lowpass', 1200, 200); },
+    drip(d, t) { smp(d, t, take('drip', 5, () => bubble(arr(0.12), 0, rnd(1.6, 2.6))), 1); },
     whisper(d, t) {
       const dur = rnd(1.4, 2.4);
       const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
@@ -484,56 +724,59 @@ const SFX = (() => {
       g.gain.linearRampToValueAtTime(0, t + dur + 0.1);
       s.connect(b1); s.connect(b2); b1.connect(g); b2.connect(g); g.connect(d); s.start(t); s.stop(t + dur + 0.2);
     },
-    knock(d, t) { for (let i = 0; i < 3; i++) { osc(d, 'sine', 130, 70, t + i * 0.28, 0.1, 0.8); nz(d, t + i * 0.28, 0.05, 0.4, 'bandpass', 400, null, 2); } },
+    // knuckles on a door
+    knock(d, t) { for (let i = 0; i < 3; i++) { smp(d, t + i * 0.28, take('knuckle', 4, () => struck({ modes: plate(12, 2.2), f0: rnd(120, 145), T: 0.12, hf: 2, tc: 0.002, grit: 0.3, click: 0.15 })), 0.75); nz(d, t + i * 0.28, 0.05, 0.4, 'bandpass', 400, null, 2); } },
     groan(d, t) {
-      const lp = filt(d, 'lowpass', 260, 7);
-      const o = osc(lp, 'sawtooth', 46, 36, t, 3.2, 0.45, 0.8); vib(o, t, 3.2, 0.7, 3);
+      smp(d, t, take('groan', 3, () => { const dr = wander(6, 0.05); return voice(3.2, (u) => 46 * (1 - 0.22 * u) * (1 + dr(u)), { jit: 0.12, shim: 0.35, sub: 0.3, breath: 0.4, open: 0.006, air: 0.04, amp: (u) => Math.min(1, u * 3) * Math.min(1, (1 - u) * 3) * (0.8 + 0.2 * Math.sin(u * 4.4)), mouth: [[(u) => 420 + 80 * Math.sin(u * 3), 3, 1], [(u) => 780 + 120 * u, 4, 0.5], [2300, 6, 0.08]] }); }, 16000), 1);
       nz(d, t + 0.5, 1.5, 0.12, 'bandpass', 700, 400, 8, 0.4);
     },
     scream(d, t) {
-      const bp = filt(d, 'bandpass', 1100, 4);
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(650, t); o.frequency.linearRampToValueAtTime(1300, t + 0.3); o.frequency.linearRampToValueAtTime(880, t + 1.7);
-      vib(o, t, 1.8, 7, 30);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.35, t + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
-      o.connect(g); g.connect(bp); o.start(t); o.stop(t + 1.9);
+      smp(d, t, take('scream', 3, () => { const dr = wander(10, 0.03); return voice(1.8, (u) => (u < 0.17 ? 650 + 650 * u / 0.17 : 1300 - 420 * (u - 0.17) / 0.83) * (1 + dr(u)) * (1 + 0.025 * Math.sin(TAU * 7 * u * 1.8)), { jit: 0.02, shim: 0.2, breath: 0.4, air: 0.06, clip: 1.6, amp: (u) => Math.min(1, u * 12) * (1 - u) ** 1.2, mouth: [[1050, 4, 1], [1600, 5, 0.7], [2900, 6, 0.4], [3600, 8, 0.2]] }); }), 1);
     },
     run_far(d, t) { for (let i = 0; i < 8; i++) S.step(d, t + i * 0.27, { surf: 'concrete', pitch: 0.9 }); },
-    bell(d, t) { [1, 2.4, 3.9, 5.2].forEach((r, i) => osc(d, 'sine', 620 * r, null, t, 2.6 - i * 0.4, 0.25 / (i + 1))); },
+    bell(d, t) { smp(d, t, take('bell', 2, () => struck({ modes: BELL, f0: 620, T: 2.6, hf: 0.03, tc: 0.0004, tilt: 0.2, len: 3 }), 24000), 0.45); },
     // a match struck: the scrape along the box, the flare catching, then the soft roar of it settling to a flame
     match(d, t) {
       nz(d, t, 0.09, 0.5, 'bandpass', 2600, 4200, 1.2, 0.004); for (let i = 0; i < 5; i++) nz(d, t + 0.02 + i * 0.016, 0.012, 0.35, 'highpass', 3000, null, 0.7, 0.001);
       nz(d, t + 0.1, 0.35, 0.4, 'bandpass', 1400, 700, 0.6, 0.01); nz(d, t + 0.12, 0.9, 0.12, 'lowpass', 900, 400, 0.5, 0.1, brownBuf);
     },
-    // a valve radio warming up and hunting the dial: hiss swelling, whistles sliding past as it crosses stations, a
-    // snatch of a dance band from somewhere far off, then the static again
+    // a valve radio warming up and hunting the dial: hiss swelling, stations whistling past as it crosses them, a
+    // snatch of someone talking a long way off, then the static again
     radio_tune(d, t) {
       nz(d, t, 2.2, 0.16, 'bandpass', 1600, 2600, 0.5, 0.25);
-      for (const [k, f0, f1] of [[0.3, 2600, 900], [0.95, 1800, 3400], [1.5, 3000, 1200]]) osc(filt(d, 'bandpass', 1800, 1.2), 'sine', f0, f1, t + k, 0.35, 0.025, 0.05);
-      const band = filt(filt(d, 'bandpass', 900, 0.9), 'highpass', 300);
-      [392, 494, 587, 494].forEach((f, i) => { osc(band, 'square', f, f, t + 1.15 + i * 0.12, 0.13, 0.018, 0.01); osc(band, 'triangle', f / 2, f / 2, t + 1.15 + i * 0.12, 0.13, 0.02, 0.01); });
+      for (const [k, f0, f1] of [[0.3, 2600, 900], [0.95, 1800, 3400], [1.5, 3000, 1200]]) nz(d, t + k, 0.35, 0.3, 'bandpass', f0, f1, 30, 0.05);
+      smp(filt(filt(d, 'bandpass', 900, 0.9), 'highpass', 300), t + 1.1, take('radio_voice', 3, () => talk(0.65), 24000), 0.12);
     },
-    // an old flash gun: the shutter's click, the capacitor's rising whine, the bulb's pop
+    // an old flash gun: the shutter's click, its charging coil singing higher as the capacitor fills, the bulb's pop
     camflash(d, t) {
       nz(d, t, 0.015, 0.35, 'highpass', 3500, null, 0.8, 0.001); nz(d, t + 0.03, 0.02, 0.25, 'bandpass', 1800, null, 3, 0.001);
-      osc(d, 'sine', 1800, 7800, t + 0.06, 0.9, 0.018, 0.2);
-      nz(d, t + 1.0, 0.09, 0.45, 'bandpass', 2400, 600, 0.7, 0.002); osc(d, 'sine', 160, 60, t + 1.0, 0.12, 0.25, 0.002);
+      smp(d, t + 0.06, take('flash_whine', 2, () => fade(buzz(0.9, (u) => 1800 * Math.pow(7800 / 1800, Math.pow(u, 0.7)), () => 1, [[4000, 1, 0.004], [8000, 0.5, 0.003]], { duty: 0.3, jit: 0.002 }), (u) => Math.min(1, u * 6) * Math.min(1, (1 - u) * 15)), 44100), 0.02);
+      nz(d, t + 1.0, 0.09, 0.45, 'bandpass', 2400, 600, 0.7, 0.002);
+      smp(d, t + 1.0, take('pop', 3, () => struck({ modes: [1, 1.7, 2.5], f0: rnd(140, 180), T: 0.08, hf: 2, tc: 0.002, grit: 0.5 })), 0.25);
     },
     // a fire extinguisher's blast: a hard rush of gas through the horn, sputtering out
     spray(d, t) { nz(d, t, 1.3, 0.55, 'highpass', 2200, 3800, 0.6, 0.03); nz(d, t, 1.3, 0.3, 'bandpass', 700, 400, 0.8, 0.03, brownBuf); nz(d, t + 1.2, 0.25, 0.25, 'highpass', 3000, null, 0.6, 0.01); },
-    // a teddy bear's voice box: a tired, sagging groan through a tin reed
-    growler(d, t) { const o = osc(filt(d, 'lowpass', 1100, 2), 'sawtooth', 210, 120, t, 0.9, 0.12, 0.08); vib(o, t, 0.9, 7, 6); nz(d, t, 0.9, 0.04, 'bandpass', 800, 500, 2, 0.08); },
-    toot(d, t) { for (const k of [0, 0.17]) { osc(d, 'square', 1180, 1165, t + k, 0.12, 0.07, 0.004); osc(d, 'square', 1485, 1470, t + k, 0.12, 0.04, 0.004); } },
-    horn(d, t) { const w = shaper(d, 10); osc(w, 'sawtooth', 415, 410, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 421, 418, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 622, 615, t, 1.1, 0.22, 0.02); },
-    bang(d, t) { nz(d, t, 0.7, 1, 'lowpass', 8000, 250, 0.5, 0.002); osc(d, 'sine', 70, 28, t, 0.9, 1, 0.002); },
-    tinnitus(d, t) { osc(d, 'sine', 4100, 3950, t, 4.5, 0.06, 0.01); },
-    pin(d, t) { osc(d, 'triangle', 2600, 2400, t, 0.12, 0.08); nz(d, t, 0.03, 0.3, 'highpass', 3000); },
-    vent(d, t) { for (let i = 0; i < 16; i++) nz(d, t + i * 0.065 + Math.random() * 0.02, 0.04, 0.5, 'bandpass', rnd(1400, 3200), null, 3); osc(d, 'sine', 140, 80, t + 1, 0.2, 0.4); },
+    // a teddy bear's voice box: a weighted bellows sighing air past a tin reed, out through a little horn
+    growler(d, t) { smp(d, t, take('growler', 3, () => voice(0.9, (u) => 210 * Math.pow(120 / 210, u) * (1 + 0.03 * Math.sin(TAU * 7 * u * 0.9)), { jit: 0.01, shim: 0.1, breath: 0.25, open: 0.0015, amp: (u) => Math.min(1, u * 10) * (1 - u * 0.6) * Math.min(1, (1 - u) * 12), mouth: [[(u) => 800 - 300 * u, 3, 1], [1650, 5, 0.4], [3000, 6, 0.15]] })), 1); },
+    // a bulb horn squeezed twice: a brass reed buzzing in its little bell
+    toot(d, t) { const b = take('toot', 3, () => voice(0.14, (u) => 590 * (1 - 0.01 * u), { jit: 0.005, shim: 0.05, breath: 0.15, open: 0.0006, amp: (u) => Math.min(1, u * 30) * Math.min(1, (1 - u) * 20), mouth: [[1180, 6, 1], [1485, 7, 0.7], [2400, 5, 0.4]] })); smp(d, t, b, 1); smp(d, t + 0.17, b, 1); },
+    // a car horn: two electric diaphragm horns sounding together, a little rough
+    horn(d, t) { smp(d, t, take('horn', 2, () => { const y = arr(1.2); for (const [f, k] of [[415, 1], [421, 1], [622, 0.65]]) add(y, buzz(1.1, () => f, (u) => Math.min(1, u * 40) * Math.min(1, (1 - u) * 20), [[f * 2.4, 1, 0.01], [1800, 0.7, 0.008], [f, 0.6, 0.03]], { duty: 0.18, jit: 0.002 }), 0, k); norm(y); for (let i = 0; i < y.length; i++) y[i] = Math.tanh(y[i] * 1.5); return y; }), 1); },
+    bang(d, t) { nz(d, t, 0.7, 1, 'lowpass', 8000, 250, 0.5, 0.002); smp(d, t, blast(), 1); },
+    // your ears ringing after a blast
+    tinnitus(d, t) { nz(d, t, 4.5, 0.6, 'bandpass', 4100, 3950, 80, 0.01); },
+    // a grenade's pin pulled: the ring's thin ting, the spring clip
+    pin(d, t) { smp(d, t, take('pin', 3, () => struck({ modes: BAR, f0: rnd(2400, 2700), T: 0.15, hf: 0.2, tc: 0.0001, click: 0.4 })), 0.3); nz(d, t, 0.03, 0.3, 'highpass', 3000); },
+    // something crawling in the ducts: sheet metal popping and banging under its weight
+    vent(d, t) {
+      for (let i = 0; i < 16; i++) nz(d, t + i * 0.065 + Math.random() * 0.02, 0.04, 0.5, 'bandpass', rnd(1400, 3200), null, 3);
+      smp(d, t + 1, take('duct', 3, () => struck({ modes: plate(16, 3), f0: rnd(120, 160), T: 0.4, hf: 0.8, tc: 0.004, glide: 0.04 })), 0.4);
+    },
     static(d, t, o) { nz(d, t, o.dur || 0.3, 0.22, 'bandpass', 2200, null, 0.6, 0.01); },
     // a walkie-talkie: the hard plastic click of its talk button...
     radio_key(d, t) { nz(d, t, 0.008, 0.5, 'highpass', 2800, null, 0.8, 0.0008); nz(d, t + 0.006, 0.02, 0.22, 'bandpass', 1400, null, 4, 0.001); },
-    // ...a channel opening on someone: a burst of hiss as the squelch lifts, a little tone of the carrier under it...
-    squelch_on(d, t) { nz(d, t, 0.11, 0.42, 'bandpass', 3000, 1900, 0.8, 0.003); osc(d, 'square', 1050, 1050, t + 0.01, 0.05, 0.012, 0.002); },
+    // ...a channel opening on someone: a burst of hiss as the squelch lifts...
+    squelch_on(d, t) { nz(d, t, 0.11, 0.42, 'bandpass', 3000, 1900, 0.8, 0.003); },
     // ...and closing: the squelch tail, a rush of static cut off dead
     squelch_off(d, t) {
       const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const bp = filt(d, 'bandpass', 2600, 0.7);
@@ -545,11 +788,15 @@ const SFX = (() => {
       const bp = filt(d, 'bandpass', 1500, 1.2); const w = shaper(bp, 15);
       S.whisper(w, t + 0.4);
     },
-    // a wind-up tin music box
-    toy(d, t) { [523, 659, 784, 659, 1046, 988].forEach((f, i) => { osc(d, 'triangle', f, f, t + i * 0.13, 0.45, 0.05, 0.002); osc(d, 'sine', f * 3.01, f * 3.01, t + i * 0.13, 0.12, 0.012, 0.002); }); nz(d, t, 0.8, 0.02, 'bandpass', 3000, null, 3, 0.05); },
-    // a rotary phone's bells: a hammer trilling between two bells
-    ring(d, t) { for (let i = 0; i < 2; i++) for (let k = 0; k < 16; k++) { const tt = t + i * 0.55 + k * 0.025, f = k % 2 ? 1630 : 1720; osc(d, 'sine', f, f, tt, 0.09, 0.05, 0.001); osc(d, 'sine', f * 2.4, f * 2.4, tt, 0.04, 0.012, 0.001); } },
-    chime(d, t) { [523, 659, 784].forEach((f, i) => osc(d, 'sine', f, null, t + i * 0.18, 0.9, 0.1)); },
+    // a wind-up music box: the pins on its drum plucking the steel comb's teeth, the works ticking under it
+    toy(d, t) { smp(d, t, take('toy', 2, () => { const y = arr(1.4); [523, 659, 784, 659, 1046, 988].forEach((f, i) => add(y, struck({ modes: BAR, f0: f, T: 0.6, hf: 0.15, tc: 0.0002, spread: 0.002, tilt: 1 }), i * 0.13, 0.6)); return add(y, grains(0.8, 24, 2500, 4000, 0.004), 0, 0.12); }), 1); },
+    // a rotary phone's bells: a hammer trilling between two of them
+    ring(d, t) {
+      const b = take('ring', 2, () => { const y = arr(1); for (const [f0, off] of [[1630, 0], [1720, 0.025]]) { const x = new Float32Array(nS(0.42)); for (let k = 0; k < 8; k++) x[nS(off + k * 0.05)] = 1; modes(y, x, BELL.map((r) => [f0 * r * (1 + wn() * 0.003), 1 / Math.pow(r, 0.3), 0.6 / (1 + 0.05 * f0 * r / 1000)])); } return y; });
+      smp(d, t, b, 1); smp(d, t + 0.55, b, 1);
+    },
+    // a doorbell chime: felt hammers on three tuned tubes
+    chime(d, t) { smp(d, t, take('chime', 2, () => { const y = arr(1.5); [523, 659, 784].forEach((f, i) => add(y, struck({ modes: BAR, f0: f, T: 0.9, hf: 0.05, tc: 0.0015, spread: 0.002, tilt: 1.2 }), i * 0.18, 0.6)); return y; }), 1); },
     thunder(d, t) {
       nz(d, t, 0.25, 0.6, 'highpass', 1800, 600, 0.6, 0.003);
       const lp = filt(d, 'lowpass', 300, 0.7); lp.frequency.setValueAtTime(400, t); lp.frequency.exponentialRampToValueAtTime(70, t + 3.5);
@@ -559,55 +806,74 @@ const SFX = (() => {
       g.gain.exponentialRampToValueAtTime(0.0001, t + 3.8);
       s.connect(g); g.connect(lp); s.start(t); s.stop(t + 4);
     },
-    charge(d, t) { osc(d, 'sine', 220, 1400, t, 1.3, 0.08, 0.05); osc(d, 'sine', 440, 2800, t, 1.3, 0.02, 0.05); nz(d, t, 1.2, 0.05, 'bandpass', 2400, 5200, 2, 0.1); },
+    // the charging station taking a battery: its transformer humming up, the charger's coil singing higher as it fills
+    charge(d, t) {
+      smp(d, t, take('charge', 2, () => add(buzz(1.3, (u) => 220 * Math.pow(1400 / 220, u), (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 8), [[2000, 1, 0.006], [4200, 0.4, 0.004], [900, 0.4, 0.01]], { duty: 0.3 }),
+        buzz(1.3, () => 100, (u) => Math.min(1, u * 4) * Math.min(1, (1 - u) * 4), [[200, 1, 0.04], [300, 0.5, 0.03]], { duty: 0.45 }), 0, 0.4)), 0.08);
+      nz(d, t, 1.2, 0.05, 'bandpass', 2400, 5200, 2, 0.1);
+    },
     pant(d, t) { nz(d, t, 0.35, 0.12, 'bandpass', 900, 600, 1, 0.1); nz(d, t + 0.42, 0.4, 0.09, 'bandpass', 700, 500, 1, 0.1); },
-    gong(d, t) { [110, 220.5, 331, 447].forEach((f, i) => osc(d, 'sine', f, f, t, 3.5 - i * 0.5, 0.25 / (i + 1), 0.01)); },
-    fired(d, t) { S.alarm(d, t); S.ship_door(d, t + 1.6); nz(d, t + 2.5, 3, 0.8, 'lowpass', 3000, 200, 0.5, 0.05, brownBuf); },
+    gong(d, t) { smp(d, t, take('gong', 2, () => struck({ modes: DRUM.concat([4.6, 5.2, 5.9, 6.6]), f0: 110, T: 3.5, hf: 0.15, tc: 0.004, glide: 0.03, tilt: 0.3, len: 3.8 }), 24000), 0.5); },
+    fired(d, t) { S.alarm(lv(d, 'alarm'), t); S.ship_door(d, t + 1.6); nz(d, t + 2.5, 3, 0.8, 'lowpass', 3000, 200, 0.5, 0.05, brownBuf); },
     // ---- ambience one-shots ----
-    // a dead trunk flexing in the wind: stick-slip grains through resonant wood
+    // a dead trunk flexing in the wind: wood sticking and slipping against itself
     creak(d, t) {
-      const dur = rnd(0.7, 1.8), f0 = rnd(55, 120);
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * rnd(0.6, 1.5), t + dur);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0, t);
-      for (let tt = t; tt < t + dur;) { const gl = rnd(0.014, 0.045); g.gain.setValueAtTime(rnd(0.08, 0.5) * Math.sin(Math.PI * (tt - t) / dur), tt); g.gain.setValueAtTime(0, tt + gl * 0.55); tt += gl; }
-      o.connect(g); g.connect(filt(d, 'bandpass', rnd(420, 800), 7)); g.connect(filt(d, 'bandpass', rnd(1400, 2300), 9));
-      o.start(t); o.stop(t + dur + 0.05);
+      smp(d, t, take('creak', 5, () => { const dur = rnd(0.7, 1.8), f0 = rnd(55, 120), f1 = f0 * rnd(0.6, 1.5); return fric(dur, (u) => f0 + (f1 - f0) * u, (u) => Math.sin(Math.PI * u) * rnd(0.3, 1), [[rnd(420, 800), 1, 0.05], [rnd(1400, 2300), 0.6, 0.035], [rnd(200, 300), 0.5, 0.08]], 0.35); }, 24000), 1);
     },
     branch_snap(d, t) {
       nz(d, t, 0.03, 0.9, 'highpass', 1800); nz(d, t + 0.01, 0.07, 0.5, 'bandpass', 900, 450, 3);
       for (let i = 0; i < 4; i++) nz(d, t + 0.22 + i * 0.11 + Math.random() * 0.05, 0.05, 0.22, 'bandpass', rnd(400, 1300), null, 2);
-      osc(d, 'sine', 95, 50, t + 0.7, 0.14, 0.35); nz(d, t + 0.7, 0.12, 0.25, 'lowpass', 700, 200);
+      smp(d, t + 0.7, take('branch_land', 3, () => struck({ modes: plate(8, 3), f0: rnd(85, 110), T: 0.08, hf: 2, tc: 0.006, grit: 0.5 })), 0.35);
+      nz(d, t + 0.7, 0.12, 0.25, 'lowpass', 700, 200);
     },
+    // a crow: a harsh, rasping caw (its syrinx rattling), one to three of them
     caw(d, t, o) {
       const n = o.n || 1 + Math.floor(Math.random() * 3);
-      for (let i = 0; i < n; i++) {
-        const tt = t + i * rnd(0.38, 0.6), dur = rnd(0.2, 0.32), f = rnd(470, 620);
-        const bp = filt(shaper(d, 22), 'bandpass', rnd(1100, 1500), 2.5);
-        const os = ctx.createOscillator(); os.type = 'sawtooth';
-        os.frequency.setValueAtTime(f * 1.3, tt); os.frequency.exponentialRampToValueAtTime(f, tt + 0.05); os.frequency.exponentialRampToValueAtTime(f * 0.8, tt + dur);
-        vib(os, tt, dur, 36, 22);
-        const g = ctx.createGain(); env(g, tt, 0.015, 0.4, dur); os.connect(g); g.connect(bp); os.start(tt); os.stop(tt + dur + 0.05);
-        nz(bp, tt, dur, 0.12, 'bandpass', 1900, 1200, 2, 0.01);
-      }
+      for (let i = 0; i < n; i++) smp(d, t + i * rnd(0.38, 0.6), take('caw', 5, () => { const dur = rnd(0.2, 0.32), f = rnd(470, 620); return voice(dur, (u) => f * (u < 0.15 ? 1.3 - 2 * u : 1 - 0.25 * (u - 0.15)) * (1 + 0.06 * Math.sin(TAU * 36 * u * dur)), { jit: 0.05, shim: 0.35, sub: 0.3, breath: 0.6, open: 0.0007, clip: 3, amp: (u) => Math.min(1, u * 15) * Math.min(1, (1 - u) * 6), mouth: [[rnd(1100, 1500), 2.5, 1], [(u) => 1900 - 700 * u, 3, 0.5], [3200, 4, 0.2]] }); }), 1);
     },
-    cricket(d, t, o) { const f = o.f || rnd(4300, 5200), n = 3 + Math.floor(Math.random() * 2); for (let i = 0; i < n; i++) osc(d, 'sine', f, f * 0.985, t + i * 0.046, 0.028, 0.05, 0.003); },
-    owl(d, t) { const lp = filt(d, 'lowpass', 800); [[0, 0.42], [0.62, 0.3], [0.98, 0.55]].forEach(([k, l]) => osc(lp, 'sine', rnd(360, 390), 330, t + k, l, 0.22, 0.07)); },
-    // something huge and metal settling, a long way off
+    // a cricket: a file on one wing drawn across a scraper on the other, each tooth's tick ringing the wing at its note
+    cricket(d, t, o) {
+      const f = Math.round((o.f || rnd(4300, 5200)) / 300) * 300;
+      smp(d, t, take('cricket' + f, 3, () => { const y = arr(0.25), n = 3 + Math.floor(Math.random() * 2); for (let s = 0; s < n; s++) { const x = new Float32Array(nS(0.026)); for (let i = 0; i < x.length; i += Math.round(SR / f)) x[i] = Math.sin(Math.PI * i / x.length); modes(y, x, [[f, 1, 0.012], [f * 2, 0.15, 0.008]], nS(s * 0.046)); } return y; }, 44100), 1);
+    },
+    // an owl: soft, breathy hoots
+    owl(d, t) { smp(d, t, take('owl', 3, () => { const y = arr(1.6); for (const [k, l] of [[0, 0.42], [0.62, 0.3], [0.98, 0.55]]) { const f0 = rnd(360, 390); add(y, voice(l, (u) => f0 * (1 - 0.12 * u), { jit: 0.004, shim: 0.03, breath: 0.6, air: 0.1, amp: (u) => Math.min(1, u * 6) * Math.min(1, (1 - u) * 4), mouth: [[380, 6, 1], [700, 6, 0.15]] }), k); } return y; }, 16000), 1); },
+    // something huge and metal settling, a long way off: a structure dragging against itself, its great plates ringing
     far_groan(d, t) {
-      const dur = rnd(3, 5), f = rnd(36, 58), lp = filt(d, 'lowpass', 520, 1);
-      const o = osc(lp, 'sawtooth', f, f * rnd(0.82, 1.18), t, dur, 0.4, 1.1); vib(o, t, dur, 0.35, 2);
-      osc(filt(d, 'bandpass', rnd(280, 640), 14), 'sawtooth', f * 4, f * 4 * rnd(0.88, 1.12), t + 0.4, dur * 0.8, 0.14, 0.8);
-      [rnd(150, 260), rnd(390, 520)].forEach((ff) => osc(d, 'sine', ff, ff * 0.995, t + dur * 0.55, 2.6, 0.035, 0.01));
+      smp(d, t, take('far_groan', 3, () => { const dur = rnd(3, 5), f = rnd(36, 58), f1 = f * rnd(0.82, 1.18), b = rnd(70, 90); return bq(fric(dur, (u) => f + (f1 - f) * u + 2 * Math.sin(u * 7), (u) => Math.min(1, u * 3) * Math.min(1, (1 - u) * 2.5) * rnd(0.5, 1), plate(20, 2.4).map(([r, a]) => [b * r, a, 1.5 / (1 + r * 0.2)]), 0.3), 'lp', 900, 0.7); }, 16000), 1);
     },
-    pipe_tick(d, t) { const n = 2 + Math.floor(Math.random() * 4), f = rnd(1700, 3200); for (let i = 0; i < n; i++) { const tt = t + i * rnd(0.12, 0.5); osc(d, 'triangle', f * rnd(0.97, 1.03), null, tt, 0.05, 0.1, 0.001); osc(d, 'sine', f * 0.31, null, tt, 0.18, 0.04, 0.001); } },
-    scurry(d, t) { const n = 10 + Math.floor(Math.random() * 14); let tt = t; for (let i = 0; i < n; i++) { tt += rnd(0.025, 0.07); nz(d, tt, 0.02, 0.18, 'bandpass', rnd(2500, 5200), null, 3, 0.002); } if (Math.random() < 0.5) S.chitter(d, tt + 0.1); },
-    zap(d, t) { for (let k = 0; k < 7; k++) nz(d, t + rnd(0, 0.3), 0.012, 0.32, 'highpass', 2800, null, 0.7, 0.001); osc(filt(d, 'bandpass', 900, 2), 'sawtooth', 120, 120, t, 0.35, 0.06, 0.005); },
-    thump(d, t) { osc(d, 'sine', 50, 34, t, 0.4, 0.55, 0.01); nz(d, t, 0.32, 0.3, 'lowpass', 240, 70, 0.7, 0.01, brownBuf); nz(d, t + 0.05, 0.1, 0.06, 'bandpass', 900, null, 4, 0.002); },
-    plink(d, t) { osc(d, 'sine', rnd(2400, 4200), rnd(1500, 2500), t, 0.05, 0.08, 0.001); },
-    chirp(d, t) { const f = rnd(1200, 2600); osc(d, 'sine', f, f * 0.98, t, 0.08, 0.035, 0.003); if (Math.random() < 0.6) osc(d, 'sine', f * (Math.random() < 0.5 ? 1.5 : 0.75), null, t + 0.09, 0.08, 0.03, 0.003); },
+    // pipes ticking as they cool
+    pipe_tick(d, t) { const n = 2 + Math.floor(Math.random() * 4); for (let i = 0, tt = t; i < n; i++, tt += rnd(0.12, 0.5)) smp(d, tt, take('pipe_tick', 6, () => struck({ modes: BAR, f0: rnd(530, 990), T: 0.18, hf: 0.2, tc: 0.0001, tilt: 0.2 })), 1); },
+    scurry(d, t) { const n = 10 + Math.floor(Math.random() * 14); let tt = t; for (let i = 0; i < n; i++) { tt += rnd(0.025, 0.07); nz(d, tt, 0.02, 0.18, 'bandpass', rnd(2500, 5200), null, 3, 0.002); } if (Math.random() < 0.5) S.chitter(lv(d, 'chitter'), tt + 0.1); },
+    // a failing lamp: sparks crackling, its ballast buzzing as it arcs
+    zap(d, t) {
+      for (let k = 0; k < 7; k++) nz(d, t + rnd(0, 0.3), 0.012, 0.32, 'highpass', 2800, null, 0.7, 0.001);
+      smp(d, t, take('arc', 3, () => fade(buzz(0.35, () => 120, () => rnd(0.4, 1), [[900, 1, 0.006], [2100, 0.5, 0.004]], { duty: 0.08, jit: 0.02, shim: 0.6 }), (u) => Math.min(1, (1 - u) * 8))), 0.06);
+    },
+    // a pump somewhere in the walls, thumping
+    thump(d, t) {
+      smp(d, t, take('pump', 3, () => struck({ modes: [1, 1.5, 2.3, 3.1], f0: rnd(46, 54), T: 0.45, hf: 3, tc: 0.025, grit: 0.3 }), 16000), 0.55);
+      nz(d, t, 0.32, 0.3, 'lowpass', 240, 70, 0.7, 0.01, brownBuf); nz(d, t + 0.05, 0.1, 0.06, 'bandpass', 900, null, 4, 0.002);
+    },
+    // rain: a drop into a puddle
+    plink(d, t) { smp(d, t, take('plink', 6, () => bubble(arr(0.08), 0, rnd(0.8, 1.4))), 1); },
+    // a console's buzzer chirping
+    chirp(d, t) { smp(d, t, take('chirp', 4, () => { const f = rnd(1200, 2600), y = add(arr(0.2), piezo(0.08, () => f)); return Math.random() < 0.6 ? add(y, piezo(0.08, () => f * (Math.random() < 0.5 ? 1.5 : 0.75)), 0.09, 0.85) : y; }), 0.035); },
     hiss_valve(d, t) { nz(d, t, rnd(0.6, 1.3), 0.12, 'highpass', 3500, 5000, 0.6, 0.05); },
-    hull_tick(d, t) { osc(d, 'triangle', rnd(600, 1100), null, t, 0.08, 0.06, 0.001); nz(d, t, 0.05, 0.08, 'bandpass', 2200, null, 4, 0.001); },
+    // the hull ticking as it heats or cools
+    hull_tick(d, t) { smp(d, t, take('hull_tick', 6, () => struck({ modes: plate(10, 1.8), f0: rnd(600, 1100), T: 0.08, hf: 0.5, tc: 0.0002, click: 0.2 })), 1); nz(d, t, 0.05, 0.08, 'bandpass', 2200, null, 4, 0.001); },
+  };
+
+  // how loud each sound sits in the mix (where its takes need bringing up or down to sit where it always has)
+  const LEVEL = {
+    step: 0.31, run_far: 0.31, click: 0.53, pickup: 0.65, door_open: 0.35, crunch: 1.5, stinger: 1.7,
+    stinger_hi: 1.1, heartbeat: 0.54, crawler_screech: 0.41, crawler_growl: 1.5, ceramic: 0.23, slime_slosh: 0.27,
+    slime_gurgle: 0.22, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
+    can_open: 0.71, wrapper: 0.51, death_rattle: 1.4, warp_charge: 1.5, servo: 0.45, glint: 0.12, beep: 0.75,
+    err: 1.5, scan: 2, locker_open: 0.6, alarm: 0.62, power_down: 1.6, metal_bang: 1.4, drip: 0.17, knock: 1.3,
+    groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,
+    pin: 0.67, toy: 0.065, ring: 0.089, chime: 0.17, gong: 1.3, charge: 1.8, creak: 0.16, caw: 0.18, cricket: 0.034,
+    owl: 0.27, far_groan: 0.7, pipe_tick: 0.15, zap: 0.71, plink: 0.11, chirp: 0.6, hull_tick: 0.12
   };
 
   // ---------- routing ----------
@@ -642,18 +908,17 @@ const SFX = (() => {
   // ---------- ambience loops ----------
   function loopSrc(buf) { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * 2); return s; }
   function lfo(rate, depth, target) { const l = ctx.createOscillator(); l.frequency.value = rate; const g = ctx.createGain(); g.gain.value = depth; l.connect(g); g.connect(target); l.start(); return l; }
+  // a bed whose loop is worked out in the quiet after startup, joining in (into to) once it's ready
+  function bed(key, make, sr, to, then) { jobs.push(() => { const s = loopSrc(take(key, 1, make, sr)); s.connect(to); if (then) then(s); }); }
   function startAmbience() {
-    // facility interior: deep drone + air handling rumble + faint hiss
+    // facility interior: big fans somewhere in the walls, their blades thumping the air down the ducts, the rumble of
+    // the air handling, and a faint hiss
     {
       const g = ctx.createGain(); g.gain.value = 0; g.connect(ambBus);
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 150; lp.connect(g);
       const b = loopSrc(brownBuf); const bg = ctx.createGain(); bg.gain.value = 0.9; b.connect(bg); bg.connect(lp);
-      [41.2, 61.7, 82.9].forEach((f, i) => {
-        const o = ctx.createOscillator(); o.type = i === 2 ? 'triangle' : 'sine'; o.frequency.value = f;
-        lfo(0.03 + i * 0.017, 1.4, o.frequency);
-        const og = ctx.createGain(); og.gain.value = i === 2 ? 0.05 : 0.16; lfo(0.05 + i * 0.03, 0.06, og.gain);
-        o.connect(og); og.connect(g); o.start();
-      });
+      const fg = ctx.createGain(); fg.gain.value = 0.4; lfo(0.05, 0.06, fg.gain); fg.connect(g);
+      bed('fan_hall', () => looped(fan(9.5, 41.2, [[41.2, 1, 0.6], [61.7, 0.6, 0.5], [82.9, 0.35, 0.4], [124, 0.2, 0.3]]), 1), 8000, fg, (f) => lfo(0.03, 0.012, f.playbackRate));
       const h = loopSrc(noiseBuf); const hf = ctx.createBiquadFilter(); hf.type = 'bandpass'; hf.frequency.value = 5200; hf.Q.value = 0.8;
       const hg = ctx.createGain(); hg.gain.value = 0.012; h.connect(hf); hf.connect(hg); hg.connect(g);
       loops.interior = g;
@@ -698,32 +963,25 @@ const SFX = (() => {
       const t2g = ctx.createGain(); t2g.gain.value = 0.6; t2.connect(t2lp); t2lp.connect(t2g); t2g.connect(g);
       loops.hull = g;
     }
-    // fluorescent buzz near lit lamps
+    // fluorescent lamps' buzz: their ballasts' cores humming at twice the mains, the fittings rattling with it
     {
       const g = ctx.createGain(); g.gain.value = 0; g.connect(ambBus);
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 120;
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 1.4;
-      const og = ctx.createGain(); og.gain.value = 0.06; o.connect(bp); bp.connect(og); og.connect(g);
-      const o2 = ctx.createOscillator(); o2.frequency.value = 240; const og2 = ctx.createGain(); og2.gain.value = 0.05; o2.connect(og2); og2.connect(g);
-      o.start(); o2.start();
-      loops.buzz = g; loops.buzzTone = og;
+      const bg = ctx.createGain(); bg.gain.value = 0.09; bg.connect(g);
+      bed('ballast', () => looped(buzz(3.5, () => 120, () => 1, [[2600, 1, 0.006], [1300, 0.5, 0.01], [240, 0.9, 0.05], [5200, 0.3, 0.004]], { duty: 0.3, jit: 0.002, shim: 0.08 }), 0.5), 24000, bg);
+      loops.buzz = g;
     }
-    // orbit: a slow, cold chord that swells and thins
+    // orbit: a few cellos and violas holding a slow, cold chord, the bows changing now and then (worked out in the
+    // quiet after startup, and joining in once it's ready: see padStart)
     {
       const g = ctx.createGain(); g.gain.value = 0; g.connect(ambBus);
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 2; lfo(0.025, 320, lp.frequency); lp.connect(g);
-      [55, 82.41, 110, 130.81, 164.81, 246.94].forEach((f, i) => {
-        const o = ctx.createOscillator(); o.type = i % 2 ? 'triangle' : 'sawtooth'; o.frequency.value = f; o.detune.value = (Math.random() - 0.5) * 12;
-        lfo(0.04 + i * 0.013, 5, o.detune);
-        const og = ctx.createGain(); og.gain.value = 0.03; lfo(0.017 + i * 0.009, 0.026, og.gain);
-        o.connect(og); og.connect(lp); o.start();
-      });
-      loops.pad = g;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7; lfo(0.025, 500, lp.frequency); lp.connect(g);
+      loops.pad = g; loops.padIn = lp;
     }
-    // ship hum
+    // ship hum: the life support's fans
     {
       const g = ctx.createGain(); g.gain.value = 0; g.connect(ambBus);
-      [55, 110, 165].forEach((f, i) => { const o = ctx.createOscillator(); o.frequency.value = f; const og = ctx.createGain(); og.gain.value = [0.14, 0.05, 0.02][i]; o.connect(og); og.connect(g); o.start(); });
+      const fg = ctx.createGain(); fg.gain.value = 0.3; fg.connect(g);
+      bed('fan_ship', () => looped(fan(7.5, 55, [[55, 1, 0.5], [110, 0.4, 0.4], [165, 0.15, 0.3]]), 1), 8000, fg);
       const s = loopSrc(noiseBuf); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; const sg = ctx.createGain(); sg.gain.value = 0.18;
       s.connect(lp); lp.connect(sg); sg.connect(g);
       loops.ship = g;
@@ -735,10 +993,11 @@ const SFX = (() => {
       s.connect(lp); lp.connect(g);
       const h = loopSrc(noiseBuf), bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 0.6;
       const hg = ctx.createGain(); hg.gain.value = 0.0; lfo(17, 0.02, hg.gain); h.connect(bp); bp.connect(hg); hg.connect(g);
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 38; lfo(7.5, 1.6, o.frequency);
-      const olp = ctx.createBiquadFilter(); olp.type = 'lowpass'; olp.frequency.value = 160; const og = ctx.createGain(); og.gain.value = 0.3;
-      o.connect(olp); olp.connect(og); og.connect(g); o.start();
-      loops.thrust = g; loops.thrustLp = lp; loops.thrustHiss = hg; loops.thrustOsc = o;
+      // (and the burn's ragged throb, faster as the throttle opens: thrustRate)
+      const olp = ctx.createBiquadFilter(); olp.type = 'lowpass'; olp.frequency.value = 160; const og = ctx.createGain(); og.gain.value = 0.8;
+      olp.connect(og); og.connect(g);
+      bed('burn', () => looped(add(buzz(5, () => 38, () => rnd(0.3, 1), [[38, 1, 0.15], [76, 0.6, 0.1], [120, 0.3, 0.06]], { duty: 0.5, jit: 0.25, shim: 0.6 }), norm(bq(noise(5.1), 'lp', 200, 0.7)), 0, 0.5), 0.8), 8000, olp, (o) => { loops.thrustRate = o.playbackRate; });
+      loops.thrust = g; loops.thrustLp = lp; loops.thrustHiss = hg;
     }
     // wind tearing past an open hatch in flight
     {
@@ -752,8 +1011,7 @@ const SFX = (() => {
     // deep space
     {
       const g = ctx.createGain(); g.gain.value = 0; g.connect(ambBus);
-      const o = ctx.createOscillator(); o.frequency.value = 33; lfo(0.02, 2, o.frequency); const og = ctx.createGain(); og.gain.value = 0.25; o.connect(og); og.connect(g); o.start();
-      const s = loopSrc(brownBuf); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 90; s.connect(lp); lp.connect(g);
+      const s = loopSrc(brownBuf); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 90; lp.Q.value = 2; s.connect(lp); lp.connect(g);
       loops.space = g;
     }
   }
@@ -791,50 +1049,101 @@ const SFX = (() => {
   }
   const around = (c, r0, r1, y0 = 0, y1 = 0) => { const a = Math.random() * TAU, d = rnd(r0, r1); return new THREE.Vector3(c.x + Math.cos(a) * d, c.y + rnd(y0, y1), c.z + Math.sin(a) * d); };
   // ---------- the chase ----------
-  // When something's running you down the music comes in, the way it does in those films: high strings wailing in a
-  // tight, sour cluster, sliding about and shivering in a bowed tremolo, the bows scraping; a low, dark drone a
-  // semitone apart under them; and now and then a voice-like wail rising up out of it and falling away. It swells as
-  // the thing closes on you and dies away slowly once it's lost you.
-  const chase = { g: null, level: 0, voices: [], nextSlide: 0, nextWail: 0 };
+  // When something's running you down the music comes in, the way it does in those films: a few violins wailing in a
+  // tight, sour cluster up near the bridge, the bows shivering in a tremolo and the notes sliding about; under them two
+  // basses bowing a low drone a semitone apart; now and then a bow digging in and scraping; and now and then a voice
+  // rising up out of it and falling away. It swells as the thing closes on you (the violins winding higher) and dies
+  // away slowly once it's lost you. (The players are worked out in the quiet after startup; any not ready yet sit out.)
+  const chase = { g: null, level: 0, nextWail: 0, nextScrape: 0 };
+  // a violin up near the bridge, tremolo, its note sliding to somewhere new every second or two
+  function chaseViolin(dur, f0) {
+    const N = nS(dur), R = new Float32Array(N); let cur = 1, tgt = 1, next = 0, tau = 0.5;
+    for (let i = 0; i < N; i++) { if (i >= next) { next = i + nS(rnd(0.8, 2.2)); tgt = rnd(0.94, 1.08); tau = rnd(0.3, 0.9); } cur += (tgt - cur) / (tau * SR); R[i] = cur; }
+    const vr = rnd(5, 7), ph = rnd(0, TAU), tr = rnd(11.5, 13.5), tp = rnd(0, TAU), k = rnd(0.16, 0.22);
+    return bowing(dur, (u) => f0 * R[Math.min(N - 1, (u * N) | 0)] * (1 + 0.012 * Math.sin(TAU * vr * u * dur + ph)), (u) => k * Math.tanh(2.5 * Math.sin(TAU * tr * u * dur + tp)), { beta: rnd(0.035, 0.06), press: rnd(2.2, 3), rosin: 0.06 });
+  }
+  // a double bass, low over the fingerboard, the bow changing every few seconds
+  function chaseBass(dur, f0) {
+    const vr = rnd(4, 5), ph = rnd(0, TAU), bc = rnd(2.5, 3.5), off = rnd(0, bc);
+    return bowing(dur, (u) => f0 * (1 + 0.003 * Math.sin(TAU * vr * u * dur + ph)), (u) => { const s = ((u * dur + off) % bc) / bc; return 0.12 * (s < 0.5 ? 1 : -1) * Math.min(1, Math.min(s, Math.abs(s - 0.5), 1 - s) * bc * 8); }, { beta: 0.16, press: 3.5 });
+  }
+  // a voice, high and thin, rising out of it and falling away
+  const wail = () => { const a = rnd(420, 560), b = rnd(820, 1050), c = rnd(500, 650), dr = wander(8, 0.02);
+    return voice(3, (u) => (u < 0.55 ? a + (b - a) * Math.sin(u / 0.55 * Math.PI / 2) : b + (c - b) * (u - 0.55) / 0.45) * (1 + dr(u)) * (1 + 0.025 * Math.sin(TAU * 5.5 * u * 3)), { jit: 0.006, shim: 0.06, breath: 0.35, air: 0.04, amp: (u) => Math.min(1, u * 4) * Math.min(1, (1 - u) * 3),
+      mouth: [[(u) => 420 + 200 * Math.sin(Math.PI * u), 6, 1], [(u) => 850 + 250 * Math.sin(Math.PI * u), 7, 0.45], [2700, 8, 0.12]] }); };
+  // a bow dug in hard and dragged, the string crunching under it
+  const scrape = () => { const f0 = rnd(900, 1600), d = rnd(0.35, 0.7); return fade(bowed(d, (u) => f0 * (1 + 0.05 * u), (u) => 0.3 * Math.min(1, u * 20), { beta: 0.02, press: 0.9, rosin: 0.2 }), (u) => Math.min(1, u * 15) * Math.min(1, (1 - u) * 6)); };
   function chaseBuild() {
     const out = ctx.createGain(); out.gain.value = 0; out.connect(sfxBus); chase.g = out;
-    const trem = ctx.createGain(); trem.gain.value = 0.6; trem.connect(out);
-    { const l = ctx.createOscillator(); l.frequency.value = 12.5; const lg = ctx.createGain(); lg.gain.value = 0.35; l.connect(lg); lg.connect(trem.gain); l.start(); }
-    const bp = filt(trem, 'bandpass', 1800, 0.8);
-    chase.voices = [1180, 1250, 1325, 1405, 1490].map((f) => {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
-      const v = ctx.createOscillator(); v.frequency.value = rnd(5, 7); const vg = ctx.createGain(); vg.gain.value = f * 0.012; v.connect(vg); vg.connect(o.frequency); v.start();
-      const g = ctx.createGain(); g.gain.value = 0.05; o.connect(g); g.connect(bp); o.start(); return { o, f };
-    });
-    { const sc = ctx.createBufferSource(); sc.buffer = noiseBuf; sc.loop = true; const sf = ctx.createBiquadFilter(); sf.type = 'bandpass'; sf.frequency.value = 3200; sf.Q.value = 5; const sg = ctx.createGain(); sg.gain.value = 0.06; sc.connect(sf); sf.connect(sg); sg.connect(trem); sc.start(); chase.scrape = { f: sf, g: sg }; }
-    { const lp = filt(out, 'lowpass', 380, 0.7); [65.4, 69.3].forEach((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.06; o.connect(g); g.connect(lp); o.start(); }); }
-    { const f1 = filt(out, 'bandpass', 750, 6), f2 = filt(out, 'bandpass', 1150, 7), o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 600;
-      const g = ctx.createGain(); g.gain.value = 0; o.connect(g); g.connect(f1); g.connect(f2);
-      const v = ctx.createOscillator(); v.frequency.value = 5.5; const vg = ctx.createGain(); vg.gain.value = 14; v.connect(vg); vg.connect(o.frequency); v.start(); o.start(); chase.wail = { o, g }; }
+    chase.hi = ctx.createGain(); chase.hi.gain.value = 0.38; chase.hi.connect(out);
+    chase.lo = ctx.createGain(); chase.lo.gain.value = 0.25; chase.lo.connect(filt(out, 'lowpass', 600, 0.7));
   }
+  const pick = (key) => { const b = bank[key]; return b && b.length ? b[(Math.random() * b.length) | 0] : null; };
   // level: 0 (nothing after you) to 1 (it's right there); now: cut it at once (leaving the game)
   function chaseTick(dt, level, now) {
     if (!ready || ctx.state !== 'running') return;
     if (!chase.g) { if (level <= 0) return; chaseBuild(); }
+    if (!chase.sHi && pick('chase_hi')) { chase.sHi = loopSrc(pick('chase_hi')); chase.sHi.connect(chase.hi); }
+    if (!chase.sLo && pick('chase_lo')) { chase.sLo = loopSrc(pick('chase_lo')); chase.sLo.connect(chase.lo); }
     const t = ctx.currentTime;
     chase.level = now ? 0 : damp(chase.level, level, level > chase.level ? 1.4 : 0.3, dt);
     chase.g.gain.setTargetAtTime(Math.pow(chase.level, 1.3) * 0.55, t, now ? 0.01 : 0.1);
     if (chase.level < 0.01) return;
-    chase.nextSlide -= dt;
-    if (chase.nextSlide <= 0) {
-      chase.nextSlide = rnd(0.8, 2.2);
-      for (const v of chase.voices) v.o.frequency.setTargetAtTime(v.f * (1 + chase.level * 0.25) * rnd(0.94, 1.08), t, rnd(0.3, 0.9));
-      chase.scrape.f.frequency.setTargetAtTime(rnd(2200, 5200), t, 0.2); chase.scrape.g.gain.setTargetAtTime(rnd(0.02, 0.1), t, 0.1);
-    }
+    if (chase.sHi) chase.sHi.playbackRate.setTargetAtTime(1 + chase.level * 0.06, t, 0.6);
     chase.nextWail -= dt;
-    if (chase.nextWail <= 0) {
-      chase.nextWail = rnd(3, 7); const w = chase.wail;
-      w.o.frequency.setValueAtTime(rnd(420, 560), t); w.o.frequency.linearRampToValueAtTime(rnd(820, 1050), t + 1.6); w.o.frequency.linearRampToValueAtTime(rnd(500, 650), t + 2.8);
-      w.g.gain.setValueAtTime(0.0001, t); w.g.gain.linearRampToValueAtTime(0.09, t + 0.6); w.g.gain.linearRampToValueAtTime(0.0001, t + 2.9);
-    }
+    if (chase.nextWail <= 0) { chase.nextWail = rnd(3, 7); const b = pick('wail'); if (b) smp(chase.g, t, b, 0.12); }
+    chase.nextScrape -= dt;
+    if (chase.nextScrape <= 0) { chase.nextScrape = rnd(1.2, 3.5) / (0.4 + chase.level); const b = pick('scrape'); if (b) smp(chase.hi, t, b, rnd(0.2, 0.45)); }
   }
+  // ---------- worked out in the quiet ----------
+  // The heavy takes (the music, the long drones) and a first take of everything else are worked out a piece at a time
+  // just after startup, between frames, so as little as possible has to be made the moment it's first heard.
+  const jobs = [];
+  function work() {
+    const t0 = performance.now();
+    while (jobs.length && performance.now() - t0 < 10) { try { jobs.shift()(); } catch (e) { console.warn('sound prep', e); } }
+    if (jobs.length) setTimeout(work, 40);
+  }
+  // a take of several players, worked out a second of it at a time, one player after another, and laid together when
+  // the last is done (made a loop, overlapping by xf, if xf)
+  function ensemble(key, dur, xf, sr, players) {
+    let acc = null;
+    players.forEach((pl, i) => {
+      let b = null;
+      const job = () => {
+        const keep = SR; SR = sr;
+        try {
+          (b || (b = pl(dur + xf))).run(nS(1));
+          if (!b.done()) { jobs.unshift(job); return; }
+          add(acc || (acc = arr(dur + xf)), b.y, b.at || 0);
+          if (i === players.length - 1) (bank[key] || (bank[key] = [])).push(toBuf(xf ? looped(acc, xf) : acc));
+        } finally { SR = keep; }
+      };
+      jobs.push(job);
+    });
+  }
+  // the orbit chord's players: cellos and violas over the fingerboard, the bow swelling and easing through each stroke
+  const padPlayer = (f0) => (dur) => { const bc = rnd(3.5, 5.5), off = rnd(0, bc), vr = rnd(4, 5.5), ph = rnd(0, TAU);
+    return bowing(dur, (u) => f0 * (1 + 0.003 * Math.sin(TAU * vr * u * dur + ph)), (u) => { const s = ((u * dur + off) % bc) / bc; return 0.07 * (s < 0.5 ? 1 : -1) * Math.sqrt(Math.sin(Math.PI * ((s * 2) % 1))); }, { beta: 0.2, press: 3.5 }); };
+  function prepare() {
+    ensemble('pad', 12, 2, 24000, [55, 82.41, 110, 130.81, 164.81, 246.94].map(padPlayer));
+    ensemble('chase_hi', 9, 1.5, 44100, [1180, 1250, 1325, 1405, 1490].map((f) => (dur) => chaseViolin(dur, f)));
+    ensemble('chase_lo', 8, 1.5, 16000, [65.4, 69.3].map((f) => (dur) => chaseBass(dur, f)));
+    for (let i = 0; i < 3; i++) jobs.push(() => take('wail', 3, wail, 32000));
+    for (let i = 0; i < 4; i++) jobs.push(() => take('scrape', 4, scrape, 44100));
+    // (and a first take of every sound, played into nothing)
+    const sink = ctx.createGain(), quiet = (name, o = {}) => jobs.push(() => S[name](sink, ctx.currentTime, o));
+    for (let i = 0; i < 2; i++) { ensemble('stinger', STING.dur, 0, STING.sr, section(STING.notes, STING.o)); ensemble('stinger_hi', STING_HI.dur, 0, STING_HI.sr, section(STING_HI.notes, STING_HI.o)); }
+    for (const surf of ['concrete', 'metal', 'dirt']) quiet('step', { surf });
+    for (const mat of ['metal', 'tin', 'glass', 'porcelain', 'wood', 'bone', 'plastic']) quiet('drop', { mat, w: 1 });
+    for (const k of Object.keys(S)) if (!['step', 'drop', 'run_far', 'stinger', 'stinger_hi', 'fired'].includes(k)) quiet(k);
+    setTimeout(work, 200);
+  }
+  // the orbit chord joining in once its players are ready
+  function padStart() { if (!loops.padSrc && pick('pad')) { loops.padSrc = loopSrc(pick('pad')); const g = ctx.createGain(); g.gain.value = 0.23; loops.padSrc.connect(g); g.connect(loops.padIn); } }
   function ambience(dt, info) {
     if (!ready || SFX.held || ctx.state !== 'running') return;
+    if (!loops.padSrc) padStart();
     const e = curEnv, cam = info.cam, t = ctx.currentTime, play = (n, p, o) => SFX.play(n, p, o);
     // gusts wander between calm and strong; storms gust harder
     amb.gustT -= dt;
@@ -929,13 +1238,13 @@ const SFX = (() => {
       rooms.hall = space(makeIR(3.6, 2.3), 5200, 1);
       rooms.room = space(makeRoomIR(0.75), 7000, 0.9);
       rooms.open = space(makeOpenIR(2.2), 3200, 1.1);
-      ready = true;
-      startAmbience(); applyEnv();
+      SR = ctx.sampleRate; ready = true;
+      startAmbience(); applyEnv(); prepare();
     },
     play(name, pos = null, o = {}) {
       if (!ready) return;
       const fn = S[name]; if (!fn) { console.warn('no sound', name); return; }
-      try { fn(out(pos, o), ctx.currentTime + (o.delay || 0), o); } catch (e) { console.warn('sound error', name, e); }
+      try { const g = out(pos, o); g.gain.value *= LEVEL[name] ?? 1; fn(g, ctx.currentTime + (o.delay || 0), o); } catch (e) { console.warn('sound error', name, e); }
     },
     setEnv(e) { if (curEnv !== e) { curEnv = e; applyEnv(); } },
     ambience,
@@ -948,7 +1257,7 @@ const SFX = (() => {
       loops.thrust.gain.setTargetAtTime(level * (inside ? 0.75 : 1.1), t, 0.12);
       loops.thrustLp.frequency.setTargetAtTime(140 + level * (inside ? 420 : 1300), t, 0.15);
       loops.thrustHiss.gain.setTargetAtTime(level * (inside ? 0.03 : 0.16), t, 0.15);
-      loops.thrustOsc.frequency.setTargetAtTime(30 + level * 26, t, 0.25);
+      if (loops.thrustRate) loops.thrustRate.setTargetAtTime((30 + level * 26) / 38, t, 0.25);
       loops.gale.gain.setTargetAtTime(gale * 0.7, t, 0.25);
     },
     setMuffle(x) { if (ready) muffle.frequency.setTargetAtTime(lerp(20000, 320, clamp(x, 0, 1)), ctx.currentTime, 0.08); },
@@ -965,5 +1274,11 @@ const SFX = (() => {
       } else { l.setPosition(_v.x, _v.y, _v.z); l.setOrientation(_f.x, _f.y, _f.z, _u.x, _u.y, _u.z); }
     },
     setPannerPos,
+    // (one sound rendered offline, as it comes out before placing and reverb: for checking levels)
+    async render(name, o = {}, sec = 3) {
+      const live = ctx, off = new OfflineAudioContext(1, Math.ceil(sec * live.sampleRate), live.sampleRate);
+      ctx = off; try { const g = off.createGain(); g.gain.value = (o.vol ?? 1) * (LEVEL[name] ?? 1); g.connect(off.destination); S[name](g, 0.01, o); } finally { ctx = live; }
+      return (await off.startRendering()).getChannelData(0);
+    },
   };
 })();

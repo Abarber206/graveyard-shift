@@ -32,6 +32,22 @@ const ITEMS = {
   mask: { name: 'Porcelain Mask', kind: 'scrap', value: [30, 66], weight: 2 },
   jar: { name: 'Specimen Jar', kind: 'scrap', value: [40, 90], weight: 6, twoHanded: true },
   bolt: { name: 'Big Bolt', kind: 'scrap', value: [18, 38], weight: 4 },
+  // (more of what people left behind: office things, kitchen things, workshop things, and a few you'd rather not)
+  typewriter: { name: 'Typewriter', kind: 'scrap', value: [34, 76], weight: 9 },
+  radio: { name: 'Valve Radio', kind: 'scrap', value: [30, 68], weight: 6, noise: 'radio_tune', noiseR: 22 },
+  kettle: { name: 'Copper Kettle', kind: 'scrap', value: [14, 36], weight: 2 },
+  camera: { name: 'Box Camera', kind: 'scrap', value: [38, 88], weight: 2, noise: 'camflash', noiseR: 14 },
+  trophy: { name: 'Silver Trophy', kind: 'scrap', value: [42, 96], weight: 3 },
+  globe: { name: 'Desk Globe', kind: 'scrap', value: [32, 74], weight: 4 },
+  skull: { name: 'Ram Skull', kind: 'scrap', value: [22, 58], weight: 1.5 },
+  extinguisher: { name: 'Fire Extinguisher', kind: 'scrap', value: [12, 30], weight: 7, noise: 'spray', noiseR: 18 },
+  toolbox: { name: 'Toolbox', kind: 'scrap', value: [24, 54], weight: 8 },
+  meter: { name: 'Test Meter', kind: 'scrap', value: [26, 60], weight: 3 },
+  vase: { name: 'Painted Vase', kind: 'scrap', value: [48, 120], weight: 4 },
+  teddy: { name: 'Teddy Bear', kind: 'scrap', value: [8, 28], weight: 0.6, noise: 'growler', noiseR: 12 },
+  battery: { name: 'Car Battery', kind: 'scrap', value: [16, 40], weight: 12 },
+  circuit: { name: 'Circuit Board', kind: 'scrap', value: [16, 44], weight: 0.5 },
+  bottle: { name: 'Old Wine Bottle', kind: 'scrap', value: [12, 34], weight: 1.4 },
   core: { name: 'Reactor Core', kind: 'scrap', value: [190, 270], weight: 26, twoHanded: true, core: true },
   // gift boxes: worth a little as they are; open one (left click) and it might be cash, something better, a tool,
   // a snack... or, once in a while, something nobody should ever have wrapped
@@ -77,18 +93,20 @@ const UPGRADES = {
 
 const ItemMeshes = (() => {
   const mc = {};
-  const M = (k, o) => mc[k] || (mc[k] = new THREE.MeshStandardMaterial(o));
+  // (w: how it's worn, as MATS.wear; finer than on the ship's fittings, for something held up to your face)
+  const M = (k, o, w) => mc[k] || (mc[k] = w ? MATS.wear(new THREE.MeshStandardMaterial(o), Object.assign({ s: 3 }, w)) : new THREE.MeshStandardMaterial(o));
+  const PAINT = { kind: 'paint', k: [0.45, 0.4, 0.0008, 0.25], bare: 0x8a8e90 }, METAL = (bare) => ({ kind: 'metal', k: [0.4, 0.2, 0.0005], bare });
   const m = {
-    gold: () => M('gold', { color: 0xd4a640, metalness: 1, roughness: 0.32 }),
-    brass: () => M('brass', { color: 0xa88a45, metalness: 0.9, roughness: 0.4 }),
-    steel: () => M('steel', { color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }),
-    dsteel: () => M('dsteel', { color: 0x4a4e52, metalness: 0.8, roughness: 0.45 }),
-    black: () => M('black', { color: 0x161616, roughness: 0.6 }),
-    yellow: () => M('yellow', { color: 0xd6a21c, roughness: 0.55 }),
-    red: () => M('red', { color: 0x9a1d16, roughness: 0.5 }),
-    blue: () => M('blue', { color: 0x2c4a7a, roughness: 0.5 }),
-    green: () => M('green', { color: 0x3b5a35, roughness: 0.6 }),
-    cream: () => M('cream', { color: 0xd9cfb6, roughness: 0.4 }),
+    gold: () => M('gold', { color: 0xd4a640, metalness: 1, roughness: 0.32 }, METAL(0xf0d890)),
+    brass: () => M('brass', { color: 0xa88a45, metalness: 0.9, roughness: 0.4 }, METAL(0xd8c08a)),
+    steel: () => M('steel', { color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }, METAL(0xd0d4d6)),
+    dsteel: () => M('dsteel', { color: 0x4a4e52, metalness: 0.8, roughness: 0.45 }, METAL(0x9a9ea2)),
+    black: () => M('black', { color: 0x161616, roughness: 0.6 }, Object.assign({}, PAINT, { k: [0.55, 0.25, 0.0006, 0.7], bare: 0x505356 })),
+    yellow: () => M('yellow', { color: 0xd6a21c, roughness: 0.55 }, PAINT),
+    red: () => M('red', { color: 0x9a1d16, roughness: 0.5 }, PAINT),
+    blue: () => M('blue', { color: 0x2c4a7a, roughness: 0.5 }, PAINT),
+    green: () => M('green', { color: 0x3b5a35, roughness: 0.6 }, PAINT),
+    cream: () => M('cream', { color: 0xd9cfb6, roughness: 0.4 }, PAINT),
     porcelain: () => M('porc', { map: TEX.get('porcelain'), roughness: 0.25 }),
     wood: () => MATS.get('wood'),
     rust: () => MATS.get('rust'),
@@ -118,6 +136,9 @@ const ItemMeshes = (() => {
   }
   // a lathe from (radius, height) pairs
   const lathe = (pts, seg = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+  // a drawn texture, made once (key), drawn by draw(context, width, height)
+  const tx = (key, w, h, draw) => mc['tx:' + key] || (mc['tx:' + key] = (() => { const [cv, x] = TEX.canvas(w, h); draw(x, w, h); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; })());
+  const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
   // a green radar face: range rings, crosshairs, the sweep and a couple of blips
   function radarTex() {
     const [cv, x] = TEX.canvas(128, 128);
@@ -431,6 +452,252 @@ const ItemMeshes = (() => {
       fz.castShadow = false;
       const sp = add(g, sph(0.014, 6), M('spark', { color: 0xffd080, emissive: 0xffa040, emissiveIntensity: 5 }), 0.16, 0.13, 0); sp.name = 'spark';
     },
+    // a heavy black office typewriter: four banks of round keys in chrome rims stepping up to the platen, the space
+    // bar, the carriage with its knobs and return lever, and a page still in it, typed to the bottom (the same line,
+    // all the way down)
+    typewriter(g) {
+      const body = M('twBody', { color: 0x1a1b19, roughness: 0.32, metalness: 0.25 }, Object.assign({}, PAINT, { k: [0.5, 0.3, 0.0006, 0.6], bare: 0x5a5c5e })), key = m.cream(), chrome = m.steel(), rub = M('rubber', { color: 0x151515, roughness: 0.9 });
+      const page = M('twPage', { map: tx('page', 128, 160, (x, w, h) => {
+        x.fillStyle = '#e6dfca'; x.fillRect(0, 0, w, h); x.fillStyle = 'rgba(30,26,22,.85)'; x.font = '7px monospace';
+        ['NIGHT SHIFT LOG', 'DAY 41', ''].concat(new Array(14).fill('IT KNOWS THE DOOR CODES')).forEach((l, i) => x.fillText(l, 9, 14 + i * 8.5));
+        const r = new RNG(5); for (let i = 0; i < 24; i++) { x.fillStyle = `rgba(120,90,40,${r.range(0.04, 0.12)})`; x.fillRect(r.next() * w, r.next() * h, r.range(6, 20), r.range(4, 12)); }
+      }), roughness: 0.95, side: THREE.DoubleSide });
+      add(g, rbox(0.32, 0.05, 0.28, 0.012), body, 0, 0.025, 0);
+      add(g, rbox(0.3, 0.07, 0.15, 0.014), body, 0, 0.085, 0.055);
+      for (let r = 0; r < 4; r++) for (let c = 0; c < (r === 0 ? 9 : 11); c++) {
+        const x = -0.125 + c * 0.025 + (r % 2) * 0.008 + (r === 0 ? 0.025 : 0), z = -0.12 + r * 0.024, y = 0.058 + r * 0.011;
+        add(g, cyl(0.0013, 0.0013, 0.022, 4), chrome, x, y - 0.012, z);
+        add(g, cyl(0.0082, 0.0082, 0.004, 10), key, x, y, z);
+        add(g, new THREE.TorusGeometry(0.0084, 0.0013, 4, 10), chrome, x, y, z, Math.PI / 2);
+      }
+      add(g, rbox(0.17, 0.008, 0.016, 0.003), key, 0, 0.05, -0.142);
+      add(g, cyl(0.022, 0.022, 0.31, 16), rub, 0, 0.135, 0.105, 0, 0, Math.PI / 2);
+      for (const s of [-1, 1]) add(g, cyl(0.017, 0.017, 0.024, 14), body, s * 0.168, 0.135, 0.105, 0, 0, Math.PI / 2);
+      add(g, box(0.27, 0.008, 0.018), chrome, 0, 0.152, 0.08);
+      add(g, new THREE.PlaneGeometry(0.19, 0.22), page, 0, 0.235, 0.12, 0.2, Math.PI, 0).castShadow = false;
+      add(g, box(0.006, 0.006, 0.08), chrome, -0.2, 0.16, 0.07, 0, 0.6, 0.3);
+    },
+    // a valve radio in a walnut case with an arched top: cloth over the speaker behind wooden fretwork, a round tuning
+    // dial in a brass ring, two bakelite knobs (switch it on and it hunts through the static)
+    radio(g) {
+      const wood = M('walnut', { color: 0x5a3820, roughness: 0.42 }, { kind: 'paint', k: [0.5, 0.3, 0.0008, 0.3], bare: 0x8a6040, s: 3 }), cloth = M('grille', { color: 0x7a6440, roughness: 1 }, { kind: 'vinyl', k: [0.6, 0, 0.0008, 0.3], s: 4 }), bak = M('bakelite', { color: 0x0f0e0d, roughness: 0.22, metalness: 0.1 });
+      add(g, box(0.34, 0.2, 0.17), wood, 0, 0.112, 0);
+      { const arch = new THREE.CylinderGeometry(0.17, 0.17, 0.17, 28, 1, false, Math.PI / 2, Math.PI); arch.rotateX(Math.PI / 2); add(g, arch, wood, 0, 0.212, 0); }
+      add(g, box(0.25, 0.17, 0.004), cloth, 0, 0.225, -0.086);
+      for (let i = 0; i < 6; i++) add(g, box(0.012, 0.18, 0.008), wood, -0.1 + i * 0.04, 0.228, -0.09);
+      add(g, box(0.27, 0.012, 0.01), wood, 0, 0.145, -0.088);
+      add(g, cyl(0.036, 0.036, 0.006, 24), m.cream(), 0, 0.08, -0.087, Math.PI / 2);
+      add(g, box(0.002, 0.03, 0.002), m.red(), 0.008, 0.085, -0.091, 0, 0, -0.5);
+      add(g, new THREE.TorusGeometry(0.037, 0.004, 5, 24), m.brass(), 0, 0.08, -0.089);
+      for (const s of [-1, 1]) { add(g, cyl(0.02, 0.022, 0.02, 14), bak, s * 0.11, 0.075, -0.093, Math.PI / 2); add(g, box(0.003, 0.016, 0.004), m.cream(), s * 0.11, 0.082, -0.104); }
+      for (const [x, z] of [[-0.14, -0.06], [0.14, -0.06], [-0.14, 0.06], [0.14, 0.06]]) add(g, box(0.03, 0.012, 0.03), bak, x, 0.006, z);
+    },
+    // a copper kettle gone brown with handling: a squat belly, a lid with a black knob, the spout, a carry handle over
+    // the top with a wooden grip
+    kettle(g) {
+      const cu = M('copper', { color: 0xa8643a, metalness: 0.85, roughness: 0.38 }, METAL(0xf0b080));
+      add(g, lathe([[0.001, 0], [0.08, 0], [0.092, 0.012], [0.098, 0.05], [0.092, 0.09], [0.075, 0.115], [0.05, 0.13], [0.046, 0.136], [0.001, 0.138]], 24), cu, 0, 0, 0);
+      add(g, lathe([[0.001, 0.138], [0.045, 0.138], [0.04, 0.148], [0.012, 0.152], [0.001, 0.153]], 18), cu, 0, 0, 0);
+      add(g, sph(0.013, 10), m.black(), 0, 0.16, 0);
+      add(g, cyl(0.009, 0.02, 0.13, 10), cu, 0.105, 0.085, 0, 0, 0, -0.75);
+      add(g, new THREE.TorusGeometry(0.075, 0.007, 6, 16, Math.PI), m.dsteel(), 0, 0.12, 0);
+      add(g, cyl(0.013, 0.013, 0.07, 10), m.wood(), 0, 0.195, 0, 0, 0, Math.PI / 2);
+    },
+    // a box camera in cracked black leatherette with chrome trim: the lens out front, a viewfinder, the shutter button,
+    // and a flash gun clipped to its side with the bulb in a polished dish (fire it and it pops)
+    camera(g) {
+      const lea = M('leather', { color: 0x1a1816, roughness: 0.62 }, { kind: 'vinyl', k: [0.6, 0.1, 0.0008, 0.5], bare: 0x3a3632, s: 4 }), chrome = m.steel(), glass = M('camLens', { color: 0x0c1014, metalness: 0.7, roughness: 0.06 });
+      add(g, rbox(0.16, 0.1, 0.09, 0.008), lea, 0, 0.056, 0);
+      add(g, box(0.164, 0.016, 0.094), chrome, 0, 0.112, 0); add(g, box(0.164, 0.008, 0.094), chrome, 0, 0.004, 0);
+      add(g, cyl(0.034, 0.036, 0.05, 22), chrome, 0, 0.058, -0.065, Math.PI / 2);
+      add(g, cyl(0.03, 0.03, 0.02, 22), m.black(), 0, 0.058, -0.088, Math.PI / 2);
+      add(g, cyl(0.024, 0.024, 0.003, 22), glass, 0, 0.058, -0.098, Math.PI / 2);
+      add(g, box(0.042, 0.026, 0.05), chrome, -0.045, 0.132, -0.01); add(g, box(0.03, 0.016, 0.003), glass, -0.045, 0.132, -0.036);
+      add(g, cyl(0.007, 0.007, 0.012, 10), chrome, 0.05, 0.126, 0.02);
+      add(g, box(0.02, 0.06, 0.03), m.black(), 0.092, 0.084, 0);
+      add(g, new THREE.CylinderGeometry(0.04, 0.012, 0.03, 18, 1, true), M('reflDish', { color: 0xdedede, metalness: 1, roughness: 0.12, side: THREE.DoubleSide }), 0.1, 0.155, -0.01, -Math.PI / 2);
+      add(g, sph(0.011, 10), m.lens(), 0.1, 0.155, -0.006);
+      add(g, cyl(0.004, 0.004, 0.05, 6), chrome, 0.1, 0.12, 0);
+    },
+    // a silver loving cup on a wooden plinth: two looping handles, and a brass plate with the name rubbed off
+    trophy(g) {
+      const silver = M('silver', { color: 0xc4c8cc, metalness: 0.95, roughness: 0.22, side: THREE.DoubleSide }, METAL(0xf4f6f8));
+      add(g, box(0.12, 0.05, 0.12), m.wood(), 0, 0.025, 0); add(g, box(0.13, 0.008, 0.13), m.wood(), 0, 0.054, 0);
+      add(g, box(0.07, 0.022, 0.002), m.brass(), 0, 0.027, -0.061);
+      add(g, lathe([[0.001, 0.058], [0.034, 0.058], [0.034, 0.064], [0.012, 0.08], [0.009, 0.12], [0.018, 0.13], [0.046, 0.15], [0.06, 0.19], [0.066, 0.24], [0.07, 0.25], [0.064, 0.25], [0.058, 0.2], [0.001, 0.15]], 28), silver, 0, 0, 0);
+      for (const s of [-1, 1]) add(g, new THREE.TorusGeometry(0.032, 0.005, 6, 14, Math.PI * 1.2), silver, s * 0.066, 0.2, 0, 0, 0, s > 0 ? -Math.PI * 0.6 : Math.PI * 0.4);
+    },
+    // a desk globe, its oceans gone the colour of weak tea: on a brass half-meridian and a turned wooden stand
+    globe(g) {
+      const map = tx('globe', 256, 128, (x, w, h) => {
+        x.fillStyle = '#5f7a6a'; x.fillRect(0, 0, w, h);
+        const r = new RNG(77); x.fillStyle = '#b8a070';
+        for (let i = 0; i < 9; i++) { let cx = r.range(0, w), cy = r.range(20, h - 20); for (let k = 0; k < 26; k++) { x.beginPath(); x.ellipse(cx, cy, r.range(4, 14), r.range(3, 10), r.range(0, 3), 0, TAU); x.fill(); cx += r.range(-9, 9); cy += r.range(-6, 6); } }
+        x.strokeStyle = 'rgba(40,30,20,.35)'; x.lineWidth = 0.6;
+        for (let i = 0; i <= 12; i++) { x.beginPath(); x.moveTo(i * w / 12, 0); x.lineTo(i * w / 12, h); x.stroke(); }
+        for (let j = 1; j < 6; j++) { x.beginPath(); x.moveTo(0, j * h / 6); x.lineTo(w, j * h / 6); x.stroke(); }
+        x.fillStyle = 'rgba(150,110,40,.25)'; x.fillRect(0, 0, w, h);
+      });
+      const gm = M('globeMat', { map, roughness: 0.4 }, { kind: 'paint', k: [0.4, 0, 0.0005, 0.3], s: 4 });
+      add(g, cyl(0.07, 0.085, 0.022, 22), m.wood(), 0, 0.011, 0); add(g, cyl(0.009, 0.013, 0.07, 10), m.brass(), 0, 0.055, 0);
+      const tilt = new THREE.Group(); tilt.position.set(0, 0.19, 0); tilt.rotation.z = 0.41; g.add(tilt);
+      add(tilt, sph(0.1, 28), gm, 0, 0, 0);
+      add(tilt, new THREE.TorusGeometry(0.108, 0.004, 6, 36, Math.PI * 1.1), m.brass(), 0, 0, 0, 0, Math.PI / 2, -Math.PI * 0.55);
+      add(tilt, cyl(0.004, 0.004, 0.24, 6), m.brass(), 0, 0, 0);
+    },
+    // a ram's skull, picked clean and gone yellow: the long face, dark sockets, worn teeth, the horns curling back
+    skull(g) {
+      const bone = M('bone', { color: 0xd6c9aa, roughness: 0.72 }, { kind: 'paint', k: [0.65, 0, 0.0008, 0.3], s: 4 }), dark = M('void', { color: 0x050403, roughness: 1 });
+      const horn = M('hornMat', { color: 0x5c4c38, roughness: 0.55 }, METAL(0x8a7a60));
+      add(g, sph(0.055, 16), bone, 0, 0.065, 0.03).scale.set(1, 0.95, 1.1);
+      add(g, cyl(0.02, 0.042, 0.13, 14), bone, 0, 0.045, -0.06, -Math.PI / 2 - 0.25, 0, 0).scale.set(1, 1, 0.75);
+      for (const s of [-1, 1]) add(g, sph(0.017, 10), dark, s * 0.036, 0.075, -0.012).scale.set(1, 1.1, 0.7);
+      add(g, box(0.014, 0.03, 0.01), dark, 0, 0.05, -0.112, 0.3);
+      for (let i = 0; i < 5; i++) add(g, box(0.006, 0.008, 0.007), m.cream(), (i - 2) * 0.009, 0.022, -0.1 + Math.abs(i - 2) * 0.006);
+      for (const s of [-1, 1]) {
+        const pts = [];
+        for (let i = 0; i <= 28; i++) { const t = i / 28, a = 2.5 - t * Math.PI * 1.7, rr = 0.06 * (1 - 0.5 * t); pts.push(V3(s * (0.04 + 0.05 * t), 0.075 + Math.sin(a) * rr, 0.06 + Math.cos(a) * rr)); }
+        add(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.013, 8), horn, 0, 0, 0);
+      }
+    },
+    // a red fire extinguisher, its label peeling: the domed bottle, the squeeze valve with its pin, a pressure gauge, the
+    // black hose clipped down its side to the horn (squeeze it and it hisses)
+    extinguisher(g) {
+      const red = m.red(), blk = m.black();
+      const lbl = M('extLabel', { map: tx('extLabel', 128, 64, (x, w, h) => {
+        x.fillStyle = '#e4dcc4'; x.fillRect(0, 0, 54, h); x.fillStyle = '#9a1d16'; x.fillRect(54, 0, w - 54, h);
+        x.fillStyle = '#9a1d16'; x.font = 'bold 9px monospace'; x.fillText('FIRE', 6, 16); x.fillText('EXTING-', 6, 28); x.fillText('UISHER', 6, 40);
+        x.fillStyle = '#1a1814'; x.font = '6px monospace'; x.fillText('CO2  5KG', 6, 54);
+        const r = new RNG(3); for (let i = 0; i < 18; i++) { x.fillStyle = `rgba(60,40,20,${r.range(0.05, 0.2)})`; x.fillRect(r.next() * 54, r.next() * h, r.range(4, 12), r.range(3, 8)); }
+      }), roughness: 0.6 });
+      add(g, cyl(0.06, 0.06, 0.34, 20), red, 0, 0.175, 0); add(g, sph(0.06, 18), red, 0, 0.345, 0).scale.set(1, 0.5, 1);
+      add(g, new THREE.CylinderGeometry(0.0605, 0.0605, 0.12, 20, 1, true), lbl, 0, 0.17, 0);
+      add(g, cyl(0.058, 0.06, 0.008, 20), blk, 0, 0.004, 0);
+      add(g, cyl(0.016, 0.018, 0.04, 10), m.steel(), 0, 0.39, 0);
+      add(g, box(0.1, 0.01, 0.022), blk, 0.02, 0.428, 0, 0, 0, 0.12); add(g, box(0.09, 0.01, 0.022), m.steel(), 0.02, 0.405, 0);
+      add(g, cyl(0.012, 0.012, 0.008, 12), m.cream(), -0.026, 0.39, -0.01, Math.PI / 2); add(g, new THREE.TorusGeometry(0.012, 0.002, 4, 12), m.steel(), -0.026, 0.39, -0.014);
+      add(g, new THREE.TorusGeometry(0.008, 0.0015, 4, 10), m.steel(), 0.045, 0.41, 0.0, Math.PI / 2);
+      add(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V3(0.014, 0.385, 0), V3(0.05, 0.38, 0), V3(0.068, 0.32, 0.01), V3(0.07, 0.2, 0.01), V3(0.068, 0.11, 0)]), 20, 0.008, 6), blk, 0, 0, 0);
+      add(g, cyl(0.012, 0.018, 0.05, 10), blk, 0.068, 0.085, 0);
+    },
+    // a red steel toolbox, dented and scuffed: the lid's seam and its two catches, a folding handle, a padlock loop
+    toolbox(g) {
+      const red = m.red(), st = m.steel(), blk = m.black();
+      add(g, box(0.4, 0.15, 0.17), red, 0, 0.075, 0);
+      add(g, box(0.404, 0.045, 0.174), red, 0, 0.168, 0); add(g, box(0.406, 0.004, 0.176), blk, 0, 0.146, 0);
+      for (const s of [-1, 1]) { add(g, box(0.03, 0.034, 0.008), st, s * 0.12, 0.142, -0.089); add(g, cyl(0.004, 0.004, 0.012, 6), st, s * 0.12, 0.156, -0.094, Math.PI / 2); add(g, box(0.012, 0.03, 0.02), st, s * 0.07, 0.2, 0); }
+      add(g, cyl(0.011, 0.011, 0.16, 10), blk, 0, 0.215, 0, 0, 0, Math.PI / 2);
+      add(g, new THREE.TorusGeometry(0.012, 0.003, 4, 10), st, 0, 0.142, -0.092);
+    },
+    // a bench test meter in a grey-green case: a big dial (VOLTS) behind its bezel, the range knob, red and black jacks,
+    // a carrying handle over the top
+    meter(g) {
+      const cs = M('meterCase', { color: 0x4c5446, roughness: 0.55 }, PAINT);
+      const face = M('meterFace', { map: tx('meterFace', 128, 72, (x, w, h) => {
+        x.fillStyle = '#e4dcc4'; x.fillRect(0, 0, w, h); x.strokeStyle = '#1a1814'; x.lineWidth = 1.5;
+        x.beginPath(); x.arc(64, 78, 58, Math.PI * 1.2, Math.PI * 1.8); x.stroke();
+        for (let i = 0; i <= 10; i++) { const a = Math.PI * (1.2 + 0.06 * i), r0 = i % 5 ? 52 : 47; x.beginPath(); x.moveTo(64 + Math.cos(a) * r0, 78 + Math.sin(a) * r0); x.lineTo(64 + Math.cos(a) * 58, 78 + Math.sin(a) * 58); x.stroke(); }
+        x.fillStyle = '#1a1814'; x.font = 'bold 10px monospace'; x.textAlign = 'center'; x.fillText('VOLTS', 64, 60);
+        x.strokeStyle = '#a01a10'; x.beginPath(); x.moveTo(64, 78); x.lineTo(64 + Math.cos(Math.PI * 1.62) * 56, 78 + Math.sin(Math.PI * 1.62) * 56); x.stroke();
+      }), roughness: 0.3 });
+      add(g, rbox(0.2, 0.14, 0.12, 0.012), cs, 0, 0.07, 0);
+      add(g, box(0.16, 0.085, 0.006), m.black(), 0, 0.095, -0.059);
+      add(g, box(0.15, 0.075, 0.003), face, 0, 0.095, -0.0625);
+      add(g, cyl(0.016, 0.018, 0.018, 14), m.black(), -0.05, 0.03, -0.065, Math.PI / 2); add(g, box(0.003, 0.012, 0.004), m.cream(), -0.05, 0.036, -0.075);
+      add(g, cyl(0.006, 0.006, 0.012, 8), m.red(), 0.03, 0.03, -0.064, Math.PI / 2); add(g, cyl(0.006, 0.006, 0.012, 8), m.black(), 0.06, 0.03, -0.064, Math.PI / 2);
+      add(g, new THREE.TorusGeometry(0.07, 0.006, 5, 16, Math.PI), m.black(), 0, 0.14, 0);
+    },
+    // a tall painted vase, blue on white: bands of scrolls, a flowering branch round the belly, crazed all over
+    vase(g) {
+      const map = tx('vase', 256, 256, (x, w, h) => {
+        x.fillStyle = '#e8e4d8'; x.fillRect(0, 0, w, h); const r = new RNG(55), blue = '#24407a';
+        x.fillStyle = blue; for (const y of [18, 40, 214, 236]) x.fillRect(0, y, w, 4);
+        x.strokeStyle = blue; x.lineWidth = 2;
+        for (let i = 0; i < 16; i++) { x.beginPath(); x.arc(i * 16 + 8, 30, 6, 0, Math.PI); x.stroke(); x.beginPath(); x.arc(i * 16 + 8, 225, 6, Math.PI, TAU); x.stroke(); }
+        x.lineWidth = 3; x.beginPath(); x.moveTo(0, 150); for (let i = 1; i <= 8; i++) x.quadraticCurveTo(i * 32 - 16, 150 + (i % 2 ? -30 : 30), i * 32, 150); x.stroke();
+        for (let i = 0; i < 24; i++) {
+          const cx = r.range(0, w), cy = r.range(90, 200);
+          x.fillStyle = blue; for (let k = 0; k < 5; k++) { const a = (k / 5) * TAU; x.beginPath(); x.arc(cx + Math.cos(a) * 5, cy + Math.sin(a) * 5, 3.5, 0, TAU); x.fill(); }
+          x.fillStyle = '#e8e4d8'; x.beginPath(); x.arc(cx, cy, 2.5, 0, TAU); x.fill();
+        }
+        x.strokeStyle = 'rgba(80,70,50,.25)'; x.lineWidth = 0.6;
+        for (let i = 0; i < 70; i++) { let px = r.range(0, w), py = r.range(0, h); x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 4; k++) { px += r.range(-12, 12); py += r.range(-12, 12); x.lineTo(px, py); } x.stroke(); }
+      });
+      const por = M('vaseMat', { map, roughness: 0.18, side: THREE.DoubleSide });
+      add(g, lathe([[0.001, 0], [0.055, 0], [0.065, 0.02], [0.1, 0.1], [0.112, 0.17], [0.098, 0.24], [0.06, 0.3], [0.04, 0.33], [0.042, 0.36], [0.056, 0.38], [0.05, 0.384], [0.036, 0.37]], 28), por, 0, 0, 0);
+    },
+    // a moth-eaten teddy bear: one button eye (the other a loose thread), a torn ear leaking stuffing, a stitched belly,
+    // the nose worn bald (squeeze it and the voice box groans)
+    teddy(g) {
+      const fur = M('fur', { color: 0x6c4a2c, roughness: 1 }, { kind: 'vinyl', k: [0.7, 0, 0.0015, 0.5], s: 5 }), muz = M('furPale', { color: 0x9c7a54, roughness: 1 }, { kind: 'vinyl', k: [0.6, 0, 0.001, 0.4], s: 5 });
+      const blk = m.black(), stuff = M('stuffing', { color: 0xe6e0d0, roughness: 1 });
+      add(g, sph(0.07, 16), fur, 0, 0.08, 0.01).scale.set(1, 1.12, 0.85);
+      add(g, sph(0.055, 16), fur, 0, 0.19, -0.002);
+      add(g, sph(0.026, 12), muz, 0, 0.178, -0.048).scale.set(1.1, 0.85, 0.9);
+      add(g, sph(0.009, 8), blk, 0, 0.188, -0.072);
+      add(g, cyl(0.008, 0.008, 0.004, 10), blk, -0.022, 0.205, -0.047, Math.PI / 2 - 0.3);
+      add(g, box(0.0015, 0.016, 0.0015), m.cream(), 0.022, 0.196, -0.05, 0, 0, 0.3);
+      add(g, sph(0.021, 10), fur, -0.042, 0.236, 0).scale.set(1, 1, 0.45);
+      add(g, sph(0.018, 10), fur, 0.044, 0.232, 0).scale.set(1, 0.8, 0.45);
+      add(g, sph(0.012, 8), stuff, 0.05, 0.245, -0.004);
+      for (const s of [-1, 1]) {
+        const a = add(g, sph(0.026, 10), fur, s * 0.07, 0.11, -0.005); a.scale.set(0.8, 1.5, 0.8); a.rotation.z = s * 0.5;
+        add(g, sph(0.03, 10), fur, s * 0.042, 0.03, -0.045).scale.set(0.9, 0.75, 1.4);
+        add(g, sph(0.018, 8), muz, s * 0.042, 0.03, -0.085).scale.set(1, 1, 0.3);
+      }
+      add(g, box(0.0025, 0.07, 0.002), M('stitch', { color: 0x2a1a10, roughness: 1 }), 0, 0.08, -0.05);
+    },
+    // a car battery: a black case with its cells' ribs along the top, a label, the lead posts (one red cap) and a
+    // strap handle
+    battery(g) {
+      const cs = M('batCase', { color: 0x1a1a1a, roughness: 0.6 }, Object.assign({}, PAINT, { k: [0.6, 0.15, 0.0008, 0.7], bare: 0x3a3a3a })), lead = M('lead', { color: 0x7a7c7e, metalness: 0.6, roughness: 0.55 }, METAL(0xb8babc));
+      const lbl = M('batLabel', { map: tx('batLabel', 128, 64, (x, w, h) => {
+        x.fillStyle = '#c8a020'; x.fillRect(0, 0, w, h); x.fillStyle = '#141414'; x.fillRect(0, 44, w, 20);
+        x.font = 'bold 17px monospace'; x.textAlign = 'center'; x.fillText('HEAVY DUTY', 64, 28);
+        x.fillStyle = '#c8a020'; x.font = 'bold 13px monospace'; x.fillText('12V   880A', 64, 59);
+        const r = new RNG(8); for (let i = 0; i < 20; i++) { x.fillStyle = `rgba(20,16,10,${r.range(0.08, 0.3)})`; x.fillRect(r.next() * w, r.next() * h, r.range(4, 14), r.range(3, 9)); }
+      }), roughness: 0.7 });
+      add(g, box(0.26, 0.18, 0.17), cs, 0, 0.09, 0);
+      add(g, box(0.264, 0.014, 0.174), cs, 0, 0.187, 0);
+      for (let i = 0; i < 5; i++) add(g, box(0.004, 0.006, 0.15), cs, -0.1 + i * 0.05, 0.197, 0);
+      add(g, box(0.16, 0.08, 0.002), lbl, 0, 0.09, -0.0855);
+      for (const [x, c] of [[-0.09, m.black()], [0.09, m.red()]]) { add(g, cyl(0.012, 0.014, 0.024, 10), lead, x, 0.206, -0.05); add(g, cyl(0.017, 0.017, 0.012, 10), c, x, 0.2, -0.05); }
+      add(g, new THREE.TorusGeometry(0.12, 0.006, 4, 16, Math.PI), m.black(), 0, 0.19, 0.03);
+    },
+    // a circuit board pulled out of something: green board, copper traces, black chips on their legs, a few
+    // capacitors, a finned heat sink, gold fingers along one edge
+    circuit(g) {
+      const pcb = M('pcb', { map: tx('pcb', 128, 96, (x, w, h) => {
+        x.fillStyle = '#1f5a30'; x.fillRect(0, 0, w, h); const r = new RNG(12);
+        x.strokeStyle = 'rgba(190,170,90,.55)'; x.lineWidth = 1.2;
+        for (let i = 0; i < 40; i++) {
+          let px = r.range(4, w - 4), py = r.range(4, h - 4); x.beginPath(); x.moveTo(px, py);
+          for (let k = 0; k < 3; k++) { if (r.chance(0.5)) px = clamp(px + r.range(-30, 30), 2, w - 2); else py = clamp(py + r.range(-20, 20), 2, h - 2); x.lineTo(px, py); }
+          x.stroke(); x.fillStyle = 'rgba(210,190,110,.8)'; x.beginPath(); x.arc(px, py, 1.6, 0, TAU); x.fill();
+        }
+        x.fillStyle = 'rgba(230,230,220,.75)'; x.font = '7px monospace'; x.fillText('MS-7  REV C', 6, 10); x.fillText('U4', 60, 50);
+      }), roughness: 0.45 }, { kind: 'paint', k: [0.4, 0.1, 0.0004, 0.3], bare: 0x9a8a50, s: 4 });
+      add(g, box(0.2, 0.004, 0.14), pcb, 0, 0.004, 0);
+      for (const [x, z, w, d] of [[-0.04, -0.02, 0.05, 0.03], [0.04, 0.03, 0.036, 0.036], [0.05, -0.035, 0.03, 0.018]]) {
+        add(g, box(w, 0.006, d), m.black(), x, 0.009, z);
+        for (let k = 0; k < Math.round(w / 0.006); k++) for (const s of [-1, 1]) add(g, box(0.002, 0.004, 0.004), m.steel(), x - w / 2 + 0.003 + k * 0.006, 0.007, z + s * (d / 2 + 0.002));
+      }
+      for (const [x, z, c] of [[-0.075, 0.035, 0x1a3a6a], [-0.06, 0.042, 0x1a1a1a], [0.0, 0.05, 0x1a3a6a]]) add(g, cyl(0.007, 0.007, 0.02, 10), M('cap' + c, { color: c, roughness: 0.4 }), x, 0.016, z);
+      add(g, box(0.03, 0.004, 0.025), m.steel(), -0.075, 0.008, -0.04); for (let i = 0; i < 5; i++) add(g, box(0.002, 0.016, 0.025), m.steel(), -0.087 + i * 0.006, 0.018, -0.04);
+      add(g, box(0.12, 0.0045, 0.01), m.gold(), 0, 0.004, 0.072);
+    },
+    // a dusty wine bottle, still corked: dark green glass, a faded label, the foil gone dull
+    bottle(g) {
+      const gl = M('bottleGlass', { color: 0x16301a, roughness: 0.08, metalness: 0.3 });
+      const lbl = M('wineLabel', { map: tx('wineLabel', 128, 64, (x, w, h) => {
+        x.fillStyle = '#d8ccaa'; x.fillRect(0, 0, w, h); x.strokeStyle = '#5a1a14'; x.lineWidth = 2; x.strokeRect(4, 4, 56, h - 8);
+        x.fillStyle = '#3a1a10'; x.font = 'italic 11px serif'; x.textAlign = 'center'; x.fillText('Chateau', 32, 24); x.fillText('Mercy', 32, 38); x.font = '8px serif'; x.fillText('1891', 32, 52);
+        const r = new RNG(19); for (let i = 0; i < 26; i++) { x.fillStyle = `rgba(80,60,30,${r.range(0.1, 0.35)})`; x.fillRect(r.next() * w, r.next() * h, r.range(4, 12), r.range(3, 8)); }
+      }), roughness: 0.9 });
+      add(g, lathe([[0.001, 0.004], [0.034, 0], [0.037, 0.01], [0.037, 0.19], [0.03, 0.22], [0.015, 0.255], [0.014, 0.3], [0.016, 0.305], [0.001, 0.306]], 20), gl, 0, 0, 0);
+      add(g, new THREE.CylinderGeometry(0.0375, 0.0375, 0.08, 20, 1, true), lbl, 0, 0.1, 0);
+      add(g, cyl(0.0155, 0.0155, 0.03, 12), M('foil', { color: 0x5a1a18, metalness: 0.6, roughness: 0.5 }), 0, 0.293, 0);
+    },
     core(g) {
       add(g, cyl(0.2, 0.2, 0.08, 16), m.dsteel(), 0, 0.04, 0); add(g, cyl(0.2, 0.2, 0.08, 16), m.dsteel(), 0, 0.72, 0);
       add(g, cyl(0.12, 0.12, 0.6, 16), m.coreGlow(), 0, 0.38, 0);
@@ -589,6 +856,13 @@ const HOLD = {
   jar: { p: [0, -0.8, -0.8], r: [0, 0, 0] },
   core: { p: [0, -1.1, -0.85], r: [0, 0, 0] },
   goldbar: { p: [0.22, -0.3, -0.5], r: [0, 0.3, 0] },
+  typewriter: { p: [0.16, -0.4, -0.6], r: [0.1, -0.2, 0] },
+  radio: { p: [0.18, -0.42, -0.6], r: [0.05, -0.25, 0] },
+  battery: { p: [0.2, -0.48, -0.6], r: [0, -0.2, 0] },
+  toolbox: { p: [0.22, -0.5, -0.62], r: [0, -0.2, 0] },
+  globe: { p: [0.2, -0.44, -0.6], r: [0, 0, 0] },
+  vase: { p: [0.22, -0.46, -0.6], r: [0, 0, 0] },
+  extinguisher: { p: [0.24, -0.5, -0.55], r: [0, 0, 0] },
   // snacks are held in a fist closed round the lower part (grip: where the fist sits, from the item's origin; gr: how
   // the forearm comes in, from below and to the right so it never hides what's in the hand)
   cola: { p: [0.17, -0.2, -0.5], r: [0.12, 0.6, 0], grip: [0.01, 0.03, 0.008], gr: [1.0, 0.5, 0], fist: true },

@@ -1041,6 +1041,24 @@ const SFX = (() => {
     },
     run_far(d, t) { for (let i = 0; i < 8; i++) S.step(d, t + i * 0.27, { surf: 'concrete', pitch: 0.9 }); },
     bell(d, t) { [1, 2.4, 3.9, 5.2].forEach((r, i) => osc(d, 'sine', 620 * r, null, t, 2.6 - i * 0.4, 0.25 / (i + 1))); },
+    // a valve radio warming up and hunting the dial: hiss swelling, whistles sliding past as it crosses stations, a
+    // snatch of a dance band from somewhere far off, then the static again
+    radio_tune(d, t) {
+      nz(d, t, 2.2, 0.16, 'bandpass', 1600, 2600, 0.5, 0.25);
+      for (const [k, f0, f1] of [[0.3, 2600, 900], [0.95, 1800, 3400], [1.5, 3000, 1200]]) osc(filt(d, 'bandpass', 1800, 1.2), 'sine', f0, f1, t + k, 0.35, 0.025, 0.05);
+      const band = filt(filt(d, 'bandpass', 900, 0.9), 'highpass', 300);
+      [392, 494, 587, 494].forEach((f, i) => { osc(band, 'square', f, f, t + 1.15 + i * 0.12, 0.13, 0.018, 0.01); osc(band, 'triangle', f / 2, f / 2, t + 1.15 + i * 0.12, 0.13, 0.02, 0.01); });
+    },
+    // an old flash gun: the shutter's click, the capacitor's rising whine, the bulb's pop
+    camflash(d, t) {
+      nz(d, t, 0.015, 0.35, 'highpass', 3500, null, 0.8, 0.001); nz(d, t + 0.03, 0.02, 0.25, 'bandpass', 1800, null, 3, 0.001);
+      osc(d, 'sine', 1800, 7800, t + 0.06, 0.9, 0.018, 0.2);
+      nz(d, t + 1.0, 0.09, 0.45, 'bandpass', 2400, 600, 0.7, 0.002); osc(d, 'sine', 160, 60, t + 1.0, 0.12, 0.25, 0.002);
+    },
+    // a fire extinguisher's blast: a hard rush of gas through the horn, sputtering out
+    spray(d, t) { nz(d, t, 1.3, 0.55, 'highpass', 2200, 3800, 0.6, 0.03); nz(d, t, 1.3, 0.3, 'bandpass', 700, 400, 0.8, 0.03, brownBuf); nz(d, t + 1.2, 0.25, 0.25, 'highpass', 3000, null, 0.6, 0.01); },
+    // a teddy bear's voice box: a tired, sagging groan through a tin reed
+    growler(d, t) { const o = osc(filt(d, 'lowpass', 1100, 2), 'sawtooth', 210, 120, t, 0.9, 0.12, 0.08); vib(o, t, 0.9, 7, 6); nz(d, t, 0.9, 0.04, 'bandpass', 800, 500, 2, 0.08); },
     toot(d, t) { for (const k of [0, 0.17]) { osc(d, 'square', 1180, 1165, t + k, 0.12, 0.07, 0.004); osc(d, 'square', 1485, 1470, t + k, 0.12, 0.04, 0.004); } },
     horn(d, t) { const w = shaper(d, 10); osc(w, 'sawtooth', 415, 410, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 421, 418, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 622, 615, t, 1.1, 0.22, 0.02); },
     bang(d, t) { nz(d, t, 0.7, 1, 'lowpass', 8000, 250, 0.5, 0.002); osc(d, 'sine', 70, 28, t, 0.9, 1, 0.002); },
@@ -2256,6 +2274,63 @@ const TEX = (() => {
     },
   };
 
+  // What years of use leave on the flat-coloured things (see MATS.wear): one tiling sheet per kind of surface, three
+  // channels. R: how much lighter or darker it's gone (128: as it was made); G: bare metal showing through (chips,
+  // scratches); B: its relief (128: flush, lower: sunk). Everything drawn wraps round the edges so the sheet tiles.
+  //   paint: grime, chipped edges round little islands of bare metal, scratches, a fine orange-peel grain
+  //   metal: mottled, brushed one way, scratched, pitted, grimy
+  //   vinyl: a pebbled grain, creases, patches rubbed paler, scuffs
+  //   rubber: a fine grain and the odd scuff
+  function wearSheet(kind) {
+    const N = 256, rr = new RNG({ paint: 11, metal: 23, vinyl: 37, rubber: 41 }[kind] || 5);
+    const layer = (v) => { const [c, g] = C(N, N); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, 0, N, N); return g; };
+    const T = layer(128), B = layer(0), Hh = layer(128);
+    const around = (x, y, r, fn) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) if (x + ox > -r && x + ox < N + r && y + oy > -r && y + oy < N + r) fn(x + ox, y + oy); };
+    const soft = (g, x, y, rad, v, a) => around(x, y, rad, (px, py) => { const gr = g.createRadialGradient(px, py, 0, px, py, rad); gr.addColorStop(0, `rgba(${v},${v},${v},${a})`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(px - rad, py - rad, rad * 2, rad * 2); });
+    // (a ragged little blob, the same shape in every layer it's drawn into)
+    const shape = (rad) => { const k = 9, rot = rr.range(0, TAU); return Array.from({ length: k }, (_, i) => [rot + (i / k) * TAU, rad * rr.range(0.45, 1.15)]); };
+    const blob = (g, x, y, sh, grow, v, a) => around(x, y, 40, (px, py) => { g.fillStyle = `rgba(${v},${v},${v},${a})`; g.beginPath(); sh.forEach(([t, q], i) => g[i ? 'lineTo' : 'moveTo'](px + Math.cos(t) * q * grow, py + Math.sin(t) * q * grow)); g.closePath(); g.fill(); });
+    const line = (g, x, y, a, len, w, v, al) => around(x, y, len + 2, (px, py) => { g.strokeStyle = `rgba(${v},${v},${v},${al})`; g.lineWidth = w; g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len); g.stroke(); });
+    const P = () => [rr.next() * N, rr.next() * N];
+    if (kind === 'paint') {
+      for (let i = 0; i < 50; i++) { const [x, y] = P(); soft(T, x, y, rr.range(18, 70), rr.chance(0.5) ? 150 : 104, rr.range(0.15, 0.35)); }
+      for (let i = 0; i < 26; i++) { const [x, y] = P(); soft(T, x, y, rr.range(10, 46), 66, rr.range(0.2, 0.42)); }
+      for (let i = 0; i < 80; i++) { const [x, y] = P(), a = rr.range(0, TAU), l = rr.range(4, 34); line(T, x, y, a, l, 1, 158, 0.45); line(B, x, y, a, l, 1, 255, 0.4); line(Hh, x, y, a, l, 1, 96, 0.6); }
+      for (let i = 0; i < 46; i++) {
+        const [x, y] = P(), sh = shape(rr.range(1.4, 5.5));
+        blob(T, x, y, sh, 1.6, 156, 0.5); blob(Hh, x, y, sh, 1.6, 146, 0.7);
+        blob(T, x, y, sh, 1, 70, 0.9); blob(B, x, y, sh, 1, 255, 0.85); blob(Hh, x, y, sh, 1, 36, 1);
+      }
+    } else if (kind === 'metal') {
+      for (let i = 0; i < 46; i++) { const [x, y] = P(); soft(T, x, y, rr.range(16, 60), rr.chance(0.5) ? 156 : 100, rr.range(0.2, 0.4)); }
+      for (let i = 0; i < 420; i++) { const [x, y] = P(); line(T, x, y, rr.range(-0.04, 0.04), rr.range(16, 110), 1, rr.chance(0.5) ? 150 : 108, rr.range(0.12, 0.3)); }
+      for (let i = 0; i < 20; i++) { const [x, y] = P(); soft(T, x, y, rr.range(10, 40), 60, rr.range(0.2, 0.45)); }
+      for (let i = 0; i < 60; i++) { const [x, y] = P(), a = rr.range(0, TAU), l = rr.range(3, 26); line(B, x, y, a, l, 1, 255, rr.range(0.25, 0.6)); line(Hh, x, y, a, l, 1, 104, 0.5); }
+      for (let i = 0; i < 90; i++) { const [x, y] = P(), s = rr.range(0.8, 2.2); around(x, y, 3, (px, py) => { T.fillStyle = 'rgba(70,70,70,.6)'; T.fillRect(px, py, s, s); Hh.fillStyle = 'rgba(80,80,80,.8)'; Hh.fillRect(px, py, s, s); }); }
+    } else if (kind === 'vinyl') {
+      for (let i = 0; i < 12; i++) { const [x, y] = P(); soft(T, x, y, rr.range(20, 60), 158, rr.range(0.2, 0.4)); }
+      for (let i = 0; i < 18; i++) { const [x, y] = P(); soft(T, x, y, rr.range(10, 36), 84, rr.range(0.15, 0.35)); }
+      for (let i = 0; i < 34; i++) {
+        let [x, y] = P(), a = rr.range(0, TAU); const n = rr.int(3, 7);
+        for (let k = 0; k < n; k++) { const l = rr.range(5, 14); line(T, x, y, a, l, 1.5, 92, 0.45); line(Hh, x, y, a, l, 2, 70, 0.7); x += Math.cos(a) * l; y += Math.sin(a) * l; a += rr.range(-0.6, 0.6); }
+      }
+      for (let i = 0; i < 16; i++) { const [x, y] = P(); line(B, x, y, rr.range(0, TAU), rr.range(3, 10), 2, 255, 0.3); }
+    } else {
+      for (let i = 0; i < 14; i++) { const [x, y] = P(); soft(T, x, y, rr.range(8, 30), 156, rr.range(0.15, 0.35)); }
+    }
+    // the fine grain under it all, a pixel at a time: orange peel, brushed steel, the pebbling in vinyl, rubber
+    const grain = { paint: [6, 10], metal: [5, 6], vinyl: [7, 26], rubber: [6, 14] }[kind] || [5, 8];
+    const [c, g] = C(N, N), out = g.createImageData(N, N), o = out.data;
+    const t = T.getImageData(0, 0, N, N).data, b = B.getImageData(0, 0, N, N).data, h = Hh.getImageData(0, 0, N, N).data;
+    for (let i = 0; i < o.length; i += 4) {
+      const n = rr.next() - 0.5;
+      o[i] = clamp(t[i] + n * grain[0] * 2, 0, 255); o[i + 1] = b[i]; o[i + 2] = clamp(h[i] + n * grain[1] * 2, 0, 255); o[i + 3] = 255;
+    }
+    g.putImageData(out, 0, 0);
+    const tx = finish(c); tx.colorSpace = THREE.NoColorSpace; return tx;
+  }
+  const wearCache = {};
+
   function sign(text, opts = {}) {
     const w = opts.w || 256, h = opts.h || 64;
     const [c, g] = C(w, h);
@@ -2284,6 +2359,7 @@ const TEX = (() => {
     },
     sign,
     canvas: C,
+    wear(kind) { return wearCache[kind] || (wearCache[kind] = wearSheet(kind)); },
   };
 })();
 
@@ -2291,6 +2367,48 @@ const TEX = (() => {
 const MATS = (() => {
   const cache = {};
   const S = (o) => new THREE.MeshStandardMaterial(o);
+  // Wear on a flat-coloured material (TEX.wear): looked up three ways round in the object's own space, so it's the same
+  // size on a bolt as on a bulkhead, never stretched along a long box, and rides along with the ship in flight instead
+  // of sliding over it. o.kind: paint | metal | vinyl | rubber; o.k: [how far the tone wanders, how much bare metal
+  // shows, how deep the relief is (m), how far it rubs paler]; o.bare: the colour under the paint; o.s: sheets per metre.
+  // It darkens and lightens what's there, so it stays the colour it was painted; relief comes from the sheet's own
+  // heights, read off as the pixels go by (no normal map needed).
+  function wear(mat, o) {
+    const k = o.k || [0.4, 0.3, 0.002, 0], U = { tWear: { value: TEX.wear(o.kind) }, uWear: { value: new THREE.Vector4(k[0], k[1], k[2], k[3] || 0) }, uWearS: { value: o.s || 1.1 }, uBare: { value: new THREE.Color(o.bare ?? 0x6a6e70) }, uEdge: { value: o.edge || 0 } };
+    mat.userData.wear = { kind: o.kind, k, s: o.s, bare: o.bare, tint: o.tint, edge: o.edge };
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.vertexShader = 'varying vec3 vWearP; varying vec3 vWearN; varying vec2 vWearUv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vWearP = position; vWearN = normal; vWearUv = uv;');
+      sh.fragmentShader = 'uniform sampler2D tWear; uniform vec4 uWear; uniform float uWearS, uEdge; uniform vec3 uBare; varying vec3 vWearP; varying vec3 vWearN; varying vec2 vWearUv;\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          vec3 wq = vWearP * uWearS, wb = pow(abs(normalize(vWearN)), vec3(4.0)); wb /= wb.x + wb.y + wb.z;
+          vec3 ws = texture2D(tWear, wq.zy).rgb * wb.x + texture2D(tWear, wq.xz).rgb * wb.y + texture2D(tWear, wq.xy).rgb * wb.z;
+          // (paint rubbed off along the edges and corners, raggedly: how far this is from its face's edge, in metres,
+          // from how fast the face's own 0..1 coordinates run across the screen against how fast the surface does)
+          float wearE = 0.0;
+          if (uEdge > 0.0) {
+            vec2 e2 = min(vWearUv, 1.0 - vWearUv), ux = dFdx(vWearUv), uy = dFdy(vWearUv);
+            float dp = max(length(dFdx(vWearP)), length(dFdy(vWearP)));
+            float ed = min(e2.x * dp / max(max(abs(ux.x), abs(uy.x)), 1e-6), e2.y * dp / max(max(abs(ux.y), abs(uy.y)), 1e-6));
+            float rag = texture2D(tWear, wq.zy * 2.7 + wq.xz * 1.3).r;
+            wearE = (1.0 - smoothstep(uEdge * 0.3, uEdge, ed)) * smoothstep(0.34, 0.52, rag + 0.35 * (1.0 - ed / uEdge));
+          }
+          diffuseColor.rgb *= mix(1.0, ws.r * 2.0, uWear.x) * (1.0 + uWear.w * max(ws.r - 0.5, 0.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, uBare, max(ws.g * uWear.y, wearE * 0.85));
+          ws.g = max(ws.g, wearE);
+          float wearH = ws.b - 0.3 * wearE;`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          roughnessFactor = clamp(roughnessFactor - ws.g * uWear.y * 0.25 + (0.5 - ws.r) * 0.3 * uWear.x, 0.05, 1.0);`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          { vec3 sp = -vViewPosition, dx = dFdx(sp), dy = dFdy(sp); float hx = dFdx(wearH) * uWear.z, hy = dFdy(wearH) * uWear.z;
+            vec3 r1 = cross(dy, normal), r2 = cross(normal, dx); float dt = dot(dx, r1);
+            normal = normalize(abs(dt) * normal - sign(dt) * (hx * r1 + hy * r2)); }`);
+    };
+    mat.customProgramCacheKey = () => 'wear';
+    return mat;
+  }
+  // (copies of a worn material (MATS.rep, MATS.aged) wear the same way)
+  const rewear = (m, base) => (base.userData.wear ? wear(m, base.userData.wear) : m);
   // a surface with relief: its colour map plus a normal map read off it (k: how deep the relief goes)
   const N = (tex, k, o) => S(Object.assign({ map: TEX.get(tex), normalMap: TEX.normal(tex, k), normalScale: new THREE.Vector2(1, 1) }, o));
   const defs = {
@@ -2302,7 +2420,9 @@ const MATS = (() => {
     metal: () => N('metalPanel', 2.2, { roughness: 0.6, metalness: 0.45 }),
     grate: () => N('grate', 3, { roughness: 0.55, metalness: 0.5 }),
     rust: () => N('rust', 2.2, { roughness: 0.9, metalness: 0.3 }),
-    painted: () => N('paintedMetal', 1.4, { roughness: 0.75, metalness: 0.3 }),
+    // painted steel, gone grubby, chipped down to rust (its colour: the drab green-grey it was painted, which anything
+    // repainted another colour (MATS.rep) is tinted by, the way it always was)
+    painted: () => wear(S({ color: 0x5f6357, roughness: 0.72, metalness: 0.3 }), { tint: true, kind: 'paint', k: [0.55, 0.5, 0.0025, 0.2], bare: 0x4a2c1a, s: 1, edge: 0.02 }),
     wood: () => N('wood', 1.6, { roughness: 0.9 }),
     crate: () => N('crate', 1.6, { roughness: 0.9 }),
     terrain: () => S({ map: TEX.get('terrain'), roughness: 1, vertexColors: true }),
@@ -2314,18 +2434,19 @@ const MATS = (() => {
     bunker: () => N('bunker', 2, { roughness: 0.95 }),
     locker: () => N('locker', 1.8, { roughness: 0.6, metalness: 0.4 }),
     vent: () => N('vent', 3, { roughness: 0.7, metalness: 0.4 }),
-    dark: () => S({ color: 0x141414, roughness: 0.8 }),
-    darkmetal: () => S({ color: 0x23262a, roughness: 0.5, metalness: 0.6 }),
-    rubber: () => S({ color: 0x0e0e0e, roughness: 0.95 }),
-    cloth: () => S({ color: 0x8f8a7c, roughness: 1 }),
+    dark: () => wear(S({ color: 0x141414, roughness: 0.8 }), { kind: 'metal', k: [0.45, 0.25, 0.0012], bare: 0x3a3c3e }),
+    darkmetal: () => wear(S({ color: 0x23262a, roughness: 0.5, metalness: 0.6 }), { kind: 'metal', k: [0.5, 0.3, 0.0015], bare: 0x5c6064, edge: 0.01 }),
+    rubber: () => wear(S({ color: 0x0e0e0e, roughness: 0.95 }), { kind: 'rubber', k: [0.6, 0, 0.0015, 0.6] }),
+    cloth: () => wear(S({ color: 0x8f8a7c, roughness: 1 }), { kind: 'vinyl', k: [0.35, 0, 0.0012, 0.2] }),
     sheet: () => S({ color: 0xb9b5a8, roughness: 1 }),
     darkflesh: () => S({ map: TEX.get('darkflesh'), roughness: 0.35 }),
-    steelBolt: () => S({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }),
-    hardware: () => S({ color: 0xa3a59e, metalness: 0.85, roughness: 0.3 }),
+    steelBolt: () => wear(S({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }), { kind: 'metal', k: [0.35, 0.15, 0.0008], bare: 0xd0d4d6, s: 2 }),
+    hardware: () => wear(S({ color: 0xa3a59e, metalness: 0.85, roughness: 0.3 }), { kind: 'metal', k: [0.35, 0.15, 0.0008], bare: 0xd0d4d6, s: 2 }),
     brick: () => N('brick', 2.2, { roughness: 0.92 }),
     labPanel: () => N('labPanel', 1.5, { roughness: 0.55, metalness: 0.12 }),
     carGlass: () => S({ color: 0x0a0d0f, roughness: 0.12, metalness: 0.6 }),
-    seat: () => S({ color: 0x2c2724, roughness: 0.55, map: TEX.get('paintedMetal') }),
+    // (worn vinyl upholstery, a dark oxblood brown, rubbed paler where people sit)
+    seat: () => wear(S({ color: 0x3a2c26, roughness: 0.5 }), { kind: 'vinyl', k: [0.6, 0.05, 0.0018, 0.7], bare: 0x2a2420, s: 1.6 }),
     corrugated: () => S({ map: TEX.get('corrugated'), roughness: 0.75, metalness: 0.3 }),
     glass: () => new THREE.MeshStandardMaterial({ color: 0x9fb6bd, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.18, depthWrite: false }),
     liquid: () => new THREE.MeshStandardMaterial({ color: 0x3a5a2a, roughness: 0.2, transparent: true, opacity: 0.55, emissive: 0x0c1a06, depthWrite: false }),
@@ -2336,13 +2457,13 @@ const MATS = (() => {
     moss: () => new THREE.MeshStandardMaterial({ map: TEX.get('moss'), transparent: true, roughness: 1, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     puddle: () => new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.05, metalness: 0.6, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
     paper: () => S({ color: 0xb8b2a0, roughness: 1, side: THREE.DoubleSide }),
-    beige: () => S({ color: 0x8f8875, roughness: 0.55, map: TEX.get('paintedMetal') }),
+    beige: () => wear(S({ color: 0x5e594c, roughness: 0.55 }), { kind: 'paint', k: [0.5, 0.35, 0.002, 0.2], bare: 0x4a2c1a, edge: 0.018 }),
     quilt: () => N('quilt', 3.2, { roughness: 0.95 }),
     perf: () => N('perf', 2.5, { roughness: 0.6, metalness: 0.4 }),
     oil: () => new THREE.MeshStandardMaterial({ map: TEX.get('oil'), transparent: true, roughness: 0.15, metalness: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     pegboard: () => N('pegboard', 2, { roughness: 0.9 }),
-    cable: () => S({ color: 0x111111, roughness: 0.7 }),
-    lampHousing: () => S({ color: 0x2b2d2c, roughness: 0.6, metalness: 0.5 }),
+    cable: () => wear(S({ color: 0x111111, roughness: 0.7 }), { kind: 'rubber', k: [0.5, 0, 0.001, 0.4], s: 2 }),
+    lampHousing: () => wear(S({ color: 0x2b2d2c, roughness: 0.6, metalness: 0.5 }), { kind: 'metal', k: [0.45, 0.25, 0.0012], bare: 0x5c6064 }),
     screenGreen: () => new THREE.MeshBasicMaterial({ color: 0x2bff6a }),
     ledRed: () => new THREE.MeshBasicMaterial({ color: 0xff2a1a }),
     ledGreen: () => new THREE.MeshBasicMaterial({ color: 0x33ff55 }),
@@ -2353,6 +2474,7 @@ const MATS = (() => {
   const AGE_TINT = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34]];
   return {
     get(name) { if (!cache[name]) { if (!defs[name]) throw new Error('No material ' + name); cache[name] = defs[name](); } return cache[name]; },
+    wear,
     // every shared material (and its textures) made up front, while the game loads, not mid-landing
     warmAll() { for (const k in defs) this.get(k); },
     aged(name, lv) {
@@ -2362,7 +2484,7 @@ const MATS = (() => {
       m.color = m.color.clone().multiply(new THREE.Color(t[0], t[1], t[2]));
       if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv);
       if (m.metalness) m.metalness *= 0.6;
-      return (agedCache[k] = m);
+      return (agedCache[k] = rewear(m, this.get(name)));
     },
     // same material, with its textures tiled rx * ry times (for big surfaces)
     rep(name, rx, ry, color) {
@@ -2370,8 +2492,9 @@ const MATS = (() => {
       if (repCache[k]) return repCache[k];
       const base = this.get(name), m = base.clone();
       for (const slot of ['map', 'bumpMap', 'normalMap']) if (base[slot]) { m[slot] = base[slot].clone(); m[slot].repeat.set(rx, ry); m[slot].wrapS = m[slot].wrapT = THREE.RepeatWrapping; m[slot].needsUpdate = true; }
-      if (color != null) m.color = new THREE.Color(color);
-      return (repCache[k] = m);
+      // (a worn painted surface keeps its old drab under a new colour, as the old paint texture used to tint it)
+      if (color != null) { m.color = new THREE.Color(color); if (base.userData.wear && base.userData.wear.tint) m.color.multiply(base.color).multiplyScalar(1.4); }
+      return (repCache[k] = rewear(m, base));
     },
   };
 })();
@@ -2412,6 +2535,22 @@ const ITEMS = {
   mask: { name: 'Porcelain Mask', kind: 'scrap', value: [30, 66], weight: 2 },
   jar: { name: 'Specimen Jar', kind: 'scrap', value: [40, 90], weight: 6, twoHanded: true },
   bolt: { name: 'Big Bolt', kind: 'scrap', value: [18, 38], weight: 4 },
+  // (more of what people left behind: office things, kitchen things, workshop things, and a few you'd rather not)
+  typewriter: { name: 'Typewriter', kind: 'scrap', value: [34, 76], weight: 9 },
+  radio: { name: 'Valve Radio', kind: 'scrap', value: [30, 68], weight: 6, noise: 'radio_tune', noiseR: 22 },
+  kettle: { name: 'Copper Kettle', kind: 'scrap', value: [14, 36], weight: 2 },
+  camera: { name: 'Box Camera', kind: 'scrap', value: [38, 88], weight: 2, noise: 'camflash', noiseR: 14 },
+  trophy: { name: 'Silver Trophy', kind: 'scrap', value: [42, 96], weight: 3 },
+  globe: { name: 'Desk Globe', kind: 'scrap', value: [32, 74], weight: 4 },
+  skull: { name: 'Ram Skull', kind: 'scrap', value: [22, 58], weight: 1.5 },
+  extinguisher: { name: 'Fire Extinguisher', kind: 'scrap', value: [12, 30], weight: 7, noise: 'spray', noiseR: 18 },
+  toolbox: { name: 'Toolbox', kind: 'scrap', value: [24, 54], weight: 8 },
+  meter: { name: 'Test Meter', kind: 'scrap', value: [26, 60], weight: 3 },
+  vase: { name: 'Painted Vase', kind: 'scrap', value: [48, 120], weight: 4 },
+  teddy: { name: 'Teddy Bear', kind: 'scrap', value: [8, 28], weight: 0.6, noise: 'growler', noiseR: 12 },
+  battery: { name: 'Car Battery', kind: 'scrap', value: [16, 40], weight: 12 },
+  circuit: { name: 'Circuit Board', kind: 'scrap', value: [16, 44], weight: 0.5 },
+  bottle: { name: 'Old Wine Bottle', kind: 'scrap', value: [12, 34], weight: 1.4 },
   core: { name: 'Reactor Core', kind: 'scrap', value: [190, 270], weight: 26, twoHanded: true, core: true },
   // gift boxes: worth a little as they are; open one (left click) and it might be cash, something better, a tool,
   // a snack... or, once in a while, something nobody should ever have wrapped
@@ -2457,18 +2596,20 @@ const UPGRADES = {
 
 const ItemMeshes = (() => {
   const mc = {};
-  const M = (k, o) => mc[k] || (mc[k] = new THREE.MeshStandardMaterial(o));
+  // (w: how it's worn, as MATS.wear; finer than on the ship's fittings, for something held up to your face)
+  const M = (k, o, w) => mc[k] || (mc[k] = w ? MATS.wear(new THREE.MeshStandardMaterial(o), Object.assign({ s: 3 }, w)) : new THREE.MeshStandardMaterial(o));
+  const PAINT = { kind: 'paint', k: [0.45, 0.4, 0.0008, 0.25], bare: 0x8a8e90 }, METAL = (bare) => ({ kind: 'metal', k: [0.4, 0.2, 0.0005], bare });
   const m = {
-    gold: () => M('gold', { color: 0xd4a640, metalness: 1, roughness: 0.32 }),
-    brass: () => M('brass', { color: 0xa88a45, metalness: 0.9, roughness: 0.4 }),
-    steel: () => M('steel', { color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }),
-    dsteel: () => M('dsteel', { color: 0x4a4e52, metalness: 0.8, roughness: 0.45 }),
-    black: () => M('black', { color: 0x161616, roughness: 0.6 }),
-    yellow: () => M('yellow', { color: 0xd6a21c, roughness: 0.55 }),
-    red: () => M('red', { color: 0x9a1d16, roughness: 0.5 }),
-    blue: () => M('blue', { color: 0x2c4a7a, roughness: 0.5 }),
-    green: () => M('green', { color: 0x3b5a35, roughness: 0.6 }),
-    cream: () => M('cream', { color: 0xd9cfb6, roughness: 0.4 }),
+    gold: () => M('gold', { color: 0xd4a640, metalness: 1, roughness: 0.32 }, METAL(0xf0d890)),
+    brass: () => M('brass', { color: 0xa88a45, metalness: 0.9, roughness: 0.4 }, METAL(0xd8c08a)),
+    steel: () => M('steel', { color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }, METAL(0xd0d4d6)),
+    dsteel: () => M('dsteel', { color: 0x4a4e52, metalness: 0.8, roughness: 0.45 }, METAL(0x9a9ea2)),
+    black: () => M('black', { color: 0x161616, roughness: 0.6 }, Object.assign({}, PAINT, { k: [0.55, 0.25, 0.0006, 0.7], bare: 0x505356 })),
+    yellow: () => M('yellow', { color: 0xd6a21c, roughness: 0.55 }, PAINT),
+    red: () => M('red', { color: 0x9a1d16, roughness: 0.5 }, PAINT),
+    blue: () => M('blue', { color: 0x2c4a7a, roughness: 0.5 }, PAINT),
+    green: () => M('green', { color: 0x3b5a35, roughness: 0.6 }, PAINT),
+    cream: () => M('cream', { color: 0xd9cfb6, roughness: 0.4 }, PAINT),
     porcelain: () => M('porc', { map: TEX.get('porcelain'), roughness: 0.25 }),
     wood: () => MATS.get('wood'),
     rust: () => MATS.get('rust'),
@@ -2498,6 +2639,9 @@ const ItemMeshes = (() => {
   }
   // a lathe from (radius, height) pairs
   const lathe = (pts, seg = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+  // a drawn texture, made once (key), drawn by draw(context, width, height)
+  const tx = (key, w, h, draw) => mc['tx:' + key] || (mc['tx:' + key] = (() => { const [cv, x] = TEX.canvas(w, h); draw(x, w, h); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; })());
+  const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
   // a green radar face: range rings, crosshairs, the sweep and a couple of blips
   function radarTex() {
     const [cv, x] = TEX.canvas(128, 128);
@@ -2811,6 +2955,252 @@ const ItemMeshes = (() => {
       fz.castShadow = false;
       const sp = add(g, sph(0.014, 6), M('spark', { color: 0xffd080, emissive: 0xffa040, emissiveIntensity: 5 }), 0.16, 0.13, 0); sp.name = 'spark';
     },
+    // a heavy black office typewriter: four banks of round keys in chrome rims stepping up to the platen, the space
+    // bar, the carriage with its knobs and return lever, and a page still in it, typed to the bottom (the same line,
+    // all the way down)
+    typewriter(g) {
+      const body = M('twBody', { color: 0x1a1b19, roughness: 0.32, metalness: 0.25 }, Object.assign({}, PAINT, { k: [0.5, 0.3, 0.0006, 0.6], bare: 0x5a5c5e })), key = m.cream(), chrome = m.steel(), rub = M('rubber', { color: 0x151515, roughness: 0.9 });
+      const page = M('twPage', { map: tx('page', 128, 160, (x, w, h) => {
+        x.fillStyle = '#e6dfca'; x.fillRect(0, 0, w, h); x.fillStyle = 'rgba(30,26,22,.85)'; x.font = '7px monospace';
+        ['NIGHT SHIFT LOG', 'DAY 41', ''].concat(new Array(14).fill('IT KNOWS THE DOOR CODES')).forEach((l, i) => x.fillText(l, 9, 14 + i * 8.5));
+        const r = new RNG(5); for (let i = 0; i < 24; i++) { x.fillStyle = `rgba(120,90,40,${r.range(0.04, 0.12)})`; x.fillRect(r.next() * w, r.next() * h, r.range(6, 20), r.range(4, 12)); }
+      }), roughness: 0.95, side: THREE.DoubleSide });
+      add(g, rbox(0.32, 0.05, 0.28, 0.012), body, 0, 0.025, 0);
+      add(g, rbox(0.3, 0.07, 0.15, 0.014), body, 0, 0.085, 0.055);
+      for (let r = 0; r < 4; r++) for (let c = 0; c < (r === 0 ? 9 : 11); c++) {
+        const x = -0.125 + c * 0.025 + (r % 2) * 0.008 + (r === 0 ? 0.025 : 0), z = -0.12 + r * 0.024, y = 0.058 + r * 0.011;
+        add(g, cyl(0.0013, 0.0013, 0.022, 4), chrome, x, y - 0.012, z);
+        add(g, cyl(0.0082, 0.0082, 0.004, 10), key, x, y, z);
+        add(g, new THREE.TorusGeometry(0.0084, 0.0013, 4, 10), chrome, x, y, z, Math.PI / 2);
+      }
+      add(g, rbox(0.17, 0.008, 0.016, 0.003), key, 0, 0.05, -0.142);
+      add(g, cyl(0.022, 0.022, 0.31, 16), rub, 0, 0.135, 0.105, 0, 0, Math.PI / 2);
+      for (const s of [-1, 1]) add(g, cyl(0.017, 0.017, 0.024, 14), body, s * 0.168, 0.135, 0.105, 0, 0, Math.PI / 2);
+      add(g, box(0.27, 0.008, 0.018), chrome, 0, 0.152, 0.08);
+      add(g, new THREE.PlaneGeometry(0.19, 0.22), page, 0, 0.235, 0.12, 0.2, Math.PI, 0).castShadow = false;
+      add(g, box(0.006, 0.006, 0.08), chrome, -0.2, 0.16, 0.07, 0, 0.6, 0.3);
+    },
+    // a valve radio in a walnut case with an arched top: cloth over the speaker behind wooden fretwork, a round tuning
+    // dial in a brass ring, two bakelite knobs (switch it on and it hunts through the static)
+    radio(g) {
+      const wood = M('walnut', { color: 0x5a3820, roughness: 0.42 }, { kind: 'paint', k: [0.5, 0.3, 0.0008, 0.3], bare: 0x8a6040, s: 3 }), cloth = M('grille', { color: 0x7a6440, roughness: 1 }, { kind: 'vinyl', k: [0.6, 0, 0.0008, 0.3], s: 4 }), bak = M('bakelite', { color: 0x0f0e0d, roughness: 0.22, metalness: 0.1 });
+      add(g, box(0.34, 0.2, 0.17), wood, 0, 0.112, 0);
+      { const arch = new THREE.CylinderGeometry(0.17, 0.17, 0.17, 28, 1, false, Math.PI / 2, Math.PI); arch.rotateX(Math.PI / 2); add(g, arch, wood, 0, 0.212, 0); }
+      add(g, box(0.25, 0.17, 0.004), cloth, 0, 0.225, -0.086);
+      for (let i = 0; i < 6; i++) add(g, box(0.012, 0.18, 0.008), wood, -0.1 + i * 0.04, 0.228, -0.09);
+      add(g, box(0.27, 0.012, 0.01), wood, 0, 0.145, -0.088);
+      add(g, cyl(0.036, 0.036, 0.006, 24), m.cream(), 0, 0.08, -0.087, Math.PI / 2);
+      add(g, box(0.002, 0.03, 0.002), m.red(), 0.008, 0.085, -0.091, 0, 0, -0.5);
+      add(g, new THREE.TorusGeometry(0.037, 0.004, 5, 24), m.brass(), 0, 0.08, -0.089);
+      for (const s of [-1, 1]) { add(g, cyl(0.02, 0.022, 0.02, 14), bak, s * 0.11, 0.075, -0.093, Math.PI / 2); add(g, box(0.003, 0.016, 0.004), m.cream(), s * 0.11, 0.082, -0.104); }
+      for (const [x, z] of [[-0.14, -0.06], [0.14, -0.06], [-0.14, 0.06], [0.14, 0.06]]) add(g, box(0.03, 0.012, 0.03), bak, x, 0.006, z);
+    },
+    // a copper kettle gone brown with handling: a squat belly, a lid with a black knob, the spout, a carry handle over
+    // the top with a wooden grip
+    kettle(g) {
+      const cu = M('copper', { color: 0xa8643a, metalness: 0.85, roughness: 0.38 }, METAL(0xf0b080));
+      add(g, lathe([[0.001, 0], [0.08, 0], [0.092, 0.012], [0.098, 0.05], [0.092, 0.09], [0.075, 0.115], [0.05, 0.13], [0.046, 0.136], [0.001, 0.138]], 24), cu, 0, 0, 0);
+      add(g, lathe([[0.001, 0.138], [0.045, 0.138], [0.04, 0.148], [0.012, 0.152], [0.001, 0.153]], 18), cu, 0, 0, 0);
+      add(g, sph(0.013, 10), m.black(), 0, 0.16, 0);
+      add(g, cyl(0.009, 0.02, 0.13, 10), cu, 0.105, 0.085, 0, 0, 0, -0.75);
+      add(g, new THREE.TorusGeometry(0.075, 0.007, 6, 16, Math.PI), m.dsteel(), 0, 0.12, 0);
+      add(g, cyl(0.013, 0.013, 0.07, 10), m.wood(), 0, 0.195, 0, 0, 0, Math.PI / 2);
+    },
+    // a box camera in cracked black leatherette with chrome trim: the lens out front, a viewfinder, the shutter button,
+    // and a flash gun clipped to its side with the bulb in a polished dish (fire it and it pops)
+    camera(g) {
+      const lea = M('leather', { color: 0x1a1816, roughness: 0.62 }, { kind: 'vinyl', k: [0.6, 0.1, 0.0008, 0.5], bare: 0x3a3632, s: 4 }), chrome = m.steel(), glass = M('camLens', { color: 0x0c1014, metalness: 0.7, roughness: 0.06 });
+      add(g, rbox(0.16, 0.1, 0.09, 0.008), lea, 0, 0.056, 0);
+      add(g, box(0.164, 0.016, 0.094), chrome, 0, 0.112, 0); add(g, box(0.164, 0.008, 0.094), chrome, 0, 0.004, 0);
+      add(g, cyl(0.034, 0.036, 0.05, 22), chrome, 0, 0.058, -0.065, Math.PI / 2);
+      add(g, cyl(0.03, 0.03, 0.02, 22), m.black(), 0, 0.058, -0.088, Math.PI / 2);
+      add(g, cyl(0.024, 0.024, 0.003, 22), glass, 0, 0.058, -0.098, Math.PI / 2);
+      add(g, box(0.042, 0.026, 0.05), chrome, -0.045, 0.132, -0.01); add(g, box(0.03, 0.016, 0.003), glass, -0.045, 0.132, -0.036);
+      add(g, cyl(0.007, 0.007, 0.012, 10), chrome, 0.05, 0.126, 0.02);
+      add(g, box(0.02, 0.06, 0.03), m.black(), 0.092, 0.084, 0);
+      add(g, new THREE.CylinderGeometry(0.04, 0.012, 0.03, 18, 1, true), M('reflDish', { color: 0xdedede, metalness: 1, roughness: 0.12, side: THREE.DoubleSide }), 0.1, 0.155, -0.01, -Math.PI / 2);
+      add(g, sph(0.011, 10), m.lens(), 0.1, 0.155, -0.006);
+      add(g, cyl(0.004, 0.004, 0.05, 6), chrome, 0.1, 0.12, 0);
+    },
+    // a silver loving cup on a wooden plinth: two looping handles, and a brass plate with the name rubbed off
+    trophy(g) {
+      const silver = M('silver', { color: 0xc4c8cc, metalness: 0.95, roughness: 0.22, side: THREE.DoubleSide }, METAL(0xf4f6f8));
+      add(g, box(0.12, 0.05, 0.12), m.wood(), 0, 0.025, 0); add(g, box(0.13, 0.008, 0.13), m.wood(), 0, 0.054, 0);
+      add(g, box(0.07, 0.022, 0.002), m.brass(), 0, 0.027, -0.061);
+      add(g, lathe([[0.001, 0.058], [0.034, 0.058], [0.034, 0.064], [0.012, 0.08], [0.009, 0.12], [0.018, 0.13], [0.046, 0.15], [0.06, 0.19], [0.066, 0.24], [0.07, 0.25], [0.064, 0.25], [0.058, 0.2], [0.001, 0.15]], 28), silver, 0, 0, 0);
+      for (const s of [-1, 1]) add(g, new THREE.TorusGeometry(0.032, 0.005, 6, 14, Math.PI * 1.2), silver, s * 0.066, 0.2, 0, 0, 0, s > 0 ? -Math.PI * 0.6 : Math.PI * 0.4);
+    },
+    // a desk globe, its oceans gone the colour of weak tea: on a brass half-meridian and a turned wooden stand
+    globe(g) {
+      const map = tx('globe', 256, 128, (x, w, h) => {
+        x.fillStyle = '#5f7a6a'; x.fillRect(0, 0, w, h);
+        const r = new RNG(77); x.fillStyle = '#b8a070';
+        for (let i = 0; i < 9; i++) { let cx = r.range(0, w), cy = r.range(20, h - 20); for (let k = 0; k < 26; k++) { x.beginPath(); x.ellipse(cx, cy, r.range(4, 14), r.range(3, 10), r.range(0, 3), 0, TAU); x.fill(); cx += r.range(-9, 9); cy += r.range(-6, 6); } }
+        x.strokeStyle = 'rgba(40,30,20,.35)'; x.lineWidth = 0.6;
+        for (let i = 0; i <= 12; i++) { x.beginPath(); x.moveTo(i * w / 12, 0); x.lineTo(i * w / 12, h); x.stroke(); }
+        for (let j = 1; j < 6; j++) { x.beginPath(); x.moveTo(0, j * h / 6); x.lineTo(w, j * h / 6); x.stroke(); }
+        x.fillStyle = 'rgba(150,110,40,.25)'; x.fillRect(0, 0, w, h);
+      });
+      const gm = M('globeMat', { map, roughness: 0.4 }, { kind: 'paint', k: [0.4, 0, 0.0005, 0.3], s: 4 });
+      add(g, cyl(0.07, 0.085, 0.022, 22), m.wood(), 0, 0.011, 0); add(g, cyl(0.009, 0.013, 0.07, 10), m.brass(), 0, 0.055, 0);
+      const tilt = new THREE.Group(); tilt.position.set(0, 0.19, 0); tilt.rotation.z = 0.41; g.add(tilt);
+      add(tilt, sph(0.1, 28), gm, 0, 0, 0);
+      add(tilt, new THREE.TorusGeometry(0.108, 0.004, 6, 36, Math.PI * 1.1), m.brass(), 0, 0, 0, 0, Math.PI / 2, -Math.PI * 0.55);
+      add(tilt, cyl(0.004, 0.004, 0.24, 6), m.brass(), 0, 0, 0);
+    },
+    // a ram's skull, picked clean and gone yellow: the long face, dark sockets, worn teeth, the horns curling back
+    skull(g) {
+      const bone = M('bone', { color: 0xd6c9aa, roughness: 0.72 }, { kind: 'paint', k: [0.65, 0, 0.0008, 0.3], s: 4 }), dark = M('void', { color: 0x050403, roughness: 1 });
+      const horn = M('hornMat', { color: 0x5c4c38, roughness: 0.55 }, METAL(0x8a7a60));
+      add(g, sph(0.055, 16), bone, 0, 0.065, 0.03).scale.set(1, 0.95, 1.1);
+      add(g, cyl(0.02, 0.042, 0.13, 14), bone, 0, 0.045, -0.06, -Math.PI / 2 - 0.25, 0, 0).scale.set(1, 1, 0.75);
+      for (const s of [-1, 1]) add(g, sph(0.017, 10), dark, s * 0.036, 0.075, -0.012).scale.set(1, 1.1, 0.7);
+      add(g, box(0.014, 0.03, 0.01), dark, 0, 0.05, -0.112, 0.3);
+      for (let i = 0; i < 5; i++) add(g, box(0.006, 0.008, 0.007), m.cream(), (i - 2) * 0.009, 0.022, -0.1 + Math.abs(i - 2) * 0.006);
+      for (const s of [-1, 1]) {
+        const pts = [];
+        for (let i = 0; i <= 28; i++) { const t = i / 28, a = 2.5 - t * Math.PI * 1.7, rr = 0.06 * (1 - 0.5 * t); pts.push(V3(s * (0.04 + 0.05 * t), 0.075 + Math.sin(a) * rr, 0.06 + Math.cos(a) * rr)); }
+        add(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.013, 8), horn, 0, 0, 0);
+      }
+    },
+    // a red fire extinguisher, its label peeling: the domed bottle, the squeeze valve with its pin, a pressure gauge, the
+    // black hose clipped down its side to the horn (squeeze it and it hisses)
+    extinguisher(g) {
+      const red = m.red(), blk = m.black();
+      const lbl = M('extLabel', { map: tx('extLabel', 128, 64, (x, w, h) => {
+        x.fillStyle = '#e4dcc4'; x.fillRect(0, 0, 54, h); x.fillStyle = '#9a1d16'; x.fillRect(54, 0, w - 54, h);
+        x.fillStyle = '#9a1d16'; x.font = 'bold 9px monospace'; x.fillText('FIRE', 6, 16); x.fillText('EXTING-', 6, 28); x.fillText('UISHER', 6, 40);
+        x.fillStyle = '#1a1814'; x.font = '6px monospace'; x.fillText('CO2  5KG', 6, 54);
+        const r = new RNG(3); for (let i = 0; i < 18; i++) { x.fillStyle = `rgba(60,40,20,${r.range(0.05, 0.2)})`; x.fillRect(r.next() * 54, r.next() * h, r.range(4, 12), r.range(3, 8)); }
+      }), roughness: 0.6 });
+      add(g, cyl(0.06, 0.06, 0.34, 20), red, 0, 0.175, 0); add(g, sph(0.06, 18), red, 0, 0.345, 0).scale.set(1, 0.5, 1);
+      add(g, new THREE.CylinderGeometry(0.0605, 0.0605, 0.12, 20, 1, true), lbl, 0, 0.17, 0);
+      add(g, cyl(0.058, 0.06, 0.008, 20), blk, 0, 0.004, 0);
+      add(g, cyl(0.016, 0.018, 0.04, 10), m.steel(), 0, 0.39, 0);
+      add(g, box(0.1, 0.01, 0.022), blk, 0.02, 0.428, 0, 0, 0, 0.12); add(g, box(0.09, 0.01, 0.022), m.steel(), 0.02, 0.405, 0);
+      add(g, cyl(0.012, 0.012, 0.008, 12), m.cream(), -0.026, 0.39, -0.01, Math.PI / 2); add(g, new THREE.TorusGeometry(0.012, 0.002, 4, 12), m.steel(), -0.026, 0.39, -0.014);
+      add(g, new THREE.TorusGeometry(0.008, 0.0015, 4, 10), m.steel(), 0.045, 0.41, 0.0, Math.PI / 2);
+      add(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V3(0.014, 0.385, 0), V3(0.05, 0.38, 0), V3(0.068, 0.32, 0.01), V3(0.07, 0.2, 0.01), V3(0.068, 0.11, 0)]), 20, 0.008, 6), blk, 0, 0, 0);
+      add(g, cyl(0.012, 0.018, 0.05, 10), blk, 0.068, 0.085, 0);
+    },
+    // a red steel toolbox, dented and scuffed: the lid's seam and its two catches, a folding handle, a padlock loop
+    toolbox(g) {
+      const red = m.red(), st = m.steel(), blk = m.black();
+      add(g, box(0.4, 0.15, 0.17), red, 0, 0.075, 0);
+      add(g, box(0.404, 0.045, 0.174), red, 0, 0.168, 0); add(g, box(0.406, 0.004, 0.176), blk, 0, 0.146, 0);
+      for (const s of [-1, 1]) { add(g, box(0.03, 0.034, 0.008), st, s * 0.12, 0.142, -0.089); add(g, cyl(0.004, 0.004, 0.012, 6), st, s * 0.12, 0.156, -0.094, Math.PI / 2); add(g, box(0.012, 0.03, 0.02), st, s * 0.07, 0.2, 0); }
+      add(g, cyl(0.011, 0.011, 0.16, 10), blk, 0, 0.215, 0, 0, 0, Math.PI / 2);
+      add(g, new THREE.TorusGeometry(0.012, 0.003, 4, 10), st, 0, 0.142, -0.092);
+    },
+    // a bench test meter in a grey-green case: a big dial (VOLTS) behind its bezel, the range knob, red and black jacks,
+    // a carrying handle over the top
+    meter(g) {
+      const cs = M('meterCase', { color: 0x4c5446, roughness: 0.55 }, PAINT);
+      const face = M('meterFace', { map: tx('meterFace', 128, 72, (x, w, h) => {
+        x.fillStyle = '#e4dcc4'; x.fillRect(0, 0, w, h); x.strokeStyle = '#1a1814'; x.lineWidth = 1.5;
+        x.beginPath(); x.arc(64, 78, 58, Math.PI * 1.2, Math.PI * 1.8); x.stroke();
+        for (let i = 0; i <= 10; i++) { const a = Math.PI * (1.2 + 0.06 * i), r0 = i % 5 ? 52 : 47; x.beginPath(); x.moveTo(64 + Math.cos(a) * r0, 78 + Math.sin(a) * r0); x.lineTo(64 + Math.cos(a) * 58, 78 + Math.sin(a) * 58); x.stroke(); }
+        x.fillStyle = '#1a1814'; x.font = 'bold 10px monospace'; x.textAlign = 'center'; x.fillText('VOLTS', 64, 60);
+        x.strokeStyle = '#a01a10'; x.beginPath(); x.moveTo(64, 78); x.lineTo(64 + Math.cos(Math.PI * 1.62) * 56, 78 + Math.sin(Math.PI * 1.62) * 56); x.stroke();
+      }), roughness: 0.3 });
+      add(g, rbox(0.2, 0.14, 0.12, 0.012), cs, 0, 0.07, 0);
+      add(g, box(0.16, 0.085, 0.006), m.black(), 0, 0.095, -0.059);
+      add(g, box(0.15, 0.075, 0.003), face, 0, 0.095, -0.0625);
+      add(g, cyl(0.016, 0.018, 0.018, 14), m.black(), -0.05, 0.03, -0.065, Math.PI / 2); add(g, box(0.003, 0.012, 0.004), m.cream(), -0.05, 0.036, -0.075);
+      add(g, cyl(0.006, 0.006, 0.012, 8), m.red(), 0.03, 0.03, -0.064, Math.PI / 2); add(g, cyl(0.006, 0.006, 0.012, 8), m.black(), 0.06, 0.03, -0.064, Math.PI / 2);
+      add(g, new THREE.TorusGeometry(0.07, 0.006, 5, 16, Math.PI), m.black(), 0, 0.14, 0);
+    },
+    // a tall painted vase, blue on white: bands of scrolls, a flowering branch round the belly, crazed all over
+    vase(g) {
+      const map = tx('vase', 256, 256, (x, w, h) => {
+        x.fillStyle = '#e8e4d8'; x.fillRect(0, 0, w, h); const r = new RNG(55), blue = '#24407a';
+        x.fillStyle = blue; for (const y of [18, 40, 214, 236]) x.fillRect(0, y, w, 4);
+        x.strokeStyle = blue; x.lineWidth = 2;
+        for (let i = 0; i < 16; i++) { x.beginPath(); x.arc(i * 16 + 8, 30, 6, 0, Math.PI); x.stroke(); x.beginPath(); x.arc(i * 16 + 8, 225, 6, Math.PI, TAU); x.stroke(); }
+        x.lineWidth = 3; x.beginPath(); x.moveTo(0, 150); for (let i = 1; i <= 8; i++) x.quadraticCurveTo(i * 32 - 16, 150 + (i % 2 ? -30 : 30), i * 32, 150); x.stroke();
+        for (let i = 0; i < 24; i++) {
+          const cx = r.range(0, w), cy = r.range(90, 200);
+          x.fillStyle = blue; for (let k = 0; k < 5; k++) { const a = (k / 5) * TAU; x.beginPath(); x.arc(cx + Math.cos(a) * 5, cy + Math.sin(a) * 5, 3.5, 0, TAU); x.fill(); }
+          x.fillStyle = '#e8e4d8'; x.beginPath(); x.arc(cx, cy, 2.5, 0, TAU); x.fill();
+        }
+        x.strokeStyle = 'rgba(80,70,50,.25)'; x.lineWidth = 0.6;
+        for (let i = 0; i < 70; i++) { let px = r.range(0, w), py = r.range(0, h); x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 4; k++) { px += r.range(-12, 12); py += r.range(-12, 12); x.lineTo(px, py); } x.stroke(); }
+      });
+      const por = M('vaseMat', { map, roughness: 0.18, side: THREE.DoubleSide });
+      add(g, lathe([[0.001, 0], [0.055, 0], [0.065, 0.02], [0.1, 0.1], [0.112, 0.17], [0.098, 0.24], [0.06, 0.3], [0.04, 0.33], [0.042, 0.36], [0.056, 0.38], [0.05, 0.384], [0.036, 0.37]], 28), por, 0, 0, 0);
+    },
+    // a moth-eaten teddy bear: one button eye (the other a loose thread), a torn ear leaking stuffing, a stitched belly,
+    // the nose worn bald (squeeze it and the voice box groans)
+    teddy(g) {
+      const fur = M('fur', { color: 0x6c4a2c, roughness: 1 }, { kind: 'vinyl', k: [0.7, 0, 0.0015, 0.5], s: 5 }), muz = M('furPale', { color: 0x9c7a54, roughness: 1 }, { kind: 'vinyl', k: [0.6, 0, 0.001, 0.4], s: 5 });
+      const blk = m.black(), stuff = M('stuffing', { color: 0xe6e0d0, roughness: 1 });
+      add(g, sph(0.07, 16), fur, 0, 0.08, 0.01).scale.set(1, 1.12, 0.85);
+      add(g, sph(0.055, 16), fur, 0, 0.19, -0.002);
+      add(g, sph(0.026, 12), muz, 0, 0.178, -0.048).scale.set(1.1, 0.85, 0.9);
+      add(g, sph(0.009, 8), blk, 0, 0.188, -0.072);
+      add(g, cyl(0.008, 0.008, 0.004, 10), blk, -0.022, 0.205, -0.047, Math.PI / 2 - 0.3);
+      add(g, box(0.0015, 0.016, 0.0015), m.cream(), 0.022, 0.196, -0.05, 0, 0, 0.3);
+      add(g, sph(0.021, 10), fur, -0.042, 0.236, 0).scale.set(1, 1, 0.45);
+      add(g, sph(0.018, 10), fur, 0.044, 0.232, 0).scale.set(1, 0.8, 0.45);
+      add(g, sph(0.012, 8), stuff, 0.05, 0.245, -0.004);
+      for (const s of [-1, 1]) {
+        const a = add(g, sph(0.026, 10), fur, s * 0.07, 0.11, -0.005); a.scale.set(0.8, 1.5, 0.8); a.rotation.z = s * 0.5;
+        add(g, sph(0.03, 10), fur, s * 0.042, 0.03, -0.045).scale.set(0.9, 0.75, 1.4);
+        add(g, sph(0.018, 8), muz, s * 0.042, 0.03, -0.085).scale.set(1, 1, 0.3);
+      }
+      add(g, box(0.0025, 0.07, 0.002), M('stitch', { color: 0x2a1a10, roughness: 1 }), 0, 0.08, -0.05);
+    },
+    // a car battery: a black case with its cells' ribs along the top, a label, the lead posts (one red cap) and a
+    // strap handle
+    battery(g) {
+      const cs = M('batCase', { color: 0x1a1a1a, roughness: 0.6 }, Object.assign({}, PAINT, { k: [0.6, 0.15, 0.0008, 0.7], bare: 0x3a3a3a })), lead = M('lead', { color: 0x7a7c7e, metalness: 0.6, roughness: 0.55 }, METAL(0xb8babc));
+      const lbl = M('batLabel', { map: tx('batLabel', 128, 64, (x, w, h) => {
+        x.fillStyle = '#c8a020'; x.fillRect(0, 0, w, h); x.fillStyle = '#141414'; x.fillRect(0, 44, w, 20);
+        x.font = 'bold 17px monospace'; x.textAlign = 'center'; x.fillText('HEAVY DUTY', 64, 28);
+        x.fillStyle = '#c8a020'; x.font = 'bold 13px monospace'; x.fillText('12V   880A', 64, 59);
+        const r = new RNG(8); for (let i = 0; i < 20; i++) { x.fillStyle = `rgba(20,16,10,${r.range(0.08, 0.3)})`; x.fillRect(r.next() * w, r.next() * h, r.range(4, 14), r.range(3, 9)); }
+      }), roughness: 0.7 });
+      add(g, box(0.26, 0.18, 0.17), cs, 0, 0.09, 0);
+      add(g, box(0.264, 0.014, 0.174), cs, 0, 0.187, 0);
+      for (let i = 0; i < 5; i++) add(g, box(0.004, 0.006, 0.15), cs, -0.1 + i * 0.05, 0.197, 0);
+      add(g, box(0.16, 0.08, 0.002), lbl, 0, 0.09, -0.0855);
+      for (const [x, c] of [[-0.09, m.black()], [0.09, m.red()]]) { add(g, cyl(0.012, 0.014, 0.024, 10), lead, x, 0.206, -0.05); add(g, cyl(0.017, 0.017, 0.012, 10), c, x, 0.2, -0.05); }
+      add(g, new THREE.TorusGeometry(0.12, 0.006, 4, 16, Math.PI), m.black(), 0, 0.19, 0.03);
+    },
+    // a circuit board pulled out of something: green board, copper traces, black chips on their legs, a few
+    // capacitors, a finned heat sink, gold fingers along one edge
+    circuit(g) {
+      const pcb = M('pcb', { map: tx('pcb', 128, 96, (x, w, h) => {
+        x.fillStyle = '#1f5a30'; x.fillRect(0, 0, w, h); const r = new RNG(12);
+        x.strokeStyle = 'rgba(190,170,90,.55)'; x.lineWidth = 1.2;
+        for (let i = 0; i < 40; i++) {
+          let px = r.range(4, w - 4), py = r.range(4, h - 4); x.beginPath(); x.moveTo(px, py);
+          for (let k = 0; k < 3; k++) { if (r.chance(0.5)) px = clamp(px + r.range(-30, 30), 2, w - 2); else py = clamp(py + r.range(-20, 20), 2, h - 2); x.lineTo(px, py); }
+          x.stroke(); x.fillStyle = 'rgba(210,190,110,.8)'; x.beginPath(); x.arc(px, py, 1.6, 0, TAU); x.fill();
+        }
+        x.fillStyle = 'rgba(230,230,220,.75)'; x.font = '7px monospace'; x.fillText('MS-7  REV C', 6, 10); x.fillText('U4', 60, 50);
+      }), roughness: 0.45 }, { kind: 'paint', k: [0.4, 0.1, 0.0004, 0.3], bare: 0x9a8a50, s: 4 });
+      add(g, box(0.2, 0.004, 0.14), pcb, 0, 0.004, 0);
+      for (const [x, z, w, d] of [[-0.04, -0.02, 0.05, 0.03], [0.04, 0.03, 0.036, 0.036], [0.05, -0.035, 0.03, 0.018]]) {
+        add(g, box(w, 0.006, d), m.black(), x, 0.009, z);
+        for (let k = 0; k < Math.round(w / 0.006); k++) for (const s of [-1, 1]) add(g, box(0.002, 0.004, 0.004), m.steel(), x - w / 2 + 0.003 + k * 0.006, 0.007, z + s * (d / 2 + 0.002));
+      }
+      for (const [x, z, c] of [[-0.075, 0.035, 0x1a3a6a], [-0.06, 0.042, 0x1a1a1a], [0.0, 0.05, 0x1a3a6a]]) add(g, cyl(0.007, 0.007, 0.02, 10), M('cap' + c, { color: c, roughness: 0.4 }), x, 0.016, z);
+      add(g, box(0.03, 0.004, 0.025), m.steel(), -0.075, 0.008, -0.04); for (let i = 0; i < 5; i++) add(g, box(0.002, 0.016, 0.025), m.steel(), -0.087 + i * 0.006, 0.018, -0.04);
+      add(g, box(0.12, 0.0045, 0.01), m.gold(), 0, 0.004, 0.072);
+    },
+    // a dusty wine bottle, still corked: dark green glass, a faded label, the foil gone dull
+    bottle(g) {
+      const gl = M('bottleGlass', { color: 0x16301a, roughness: 0.08, metalness: 0.3 });
+      const lbl = M('wineLabel', { map: tx('wineLabel', 128, 64, (x, w, h) => {
+        x.fillStyle = '#d8ccaa'; x.fillRect(0, 0, w, h); x.strokeStyle = '#5a1a14'; x.lineWidth = 2; x.strokeRect(4, 4, 56, h - 8);
+        x.fillStyle = '#3a1a10'; x.font = 'italic 11px serif'; x.textAlign = 'center'; x.fillText('Chateau', 32, 24); x.fillText('Mercy', 32, 38); x.font = '8px serif'; x.fillText('1891', 32, 52);
+        const r = new RNG(19); for (let i = 0; i < 26; i++) { x.fillStyle = `rgba(80,60,30,${r.range(0.1, 0.35)})`; x.fillRect(r.next() * w, r.next() * h, r.range(4, 12), r.range(3, 8)); }
+      }), roughness: 0.9 });
+      add(g, lathe([[0.001, 0.004], [0.034, 0], [0.037, 0.01], [0.037, 0.19], [0.03, 0.22], [0.015, 0.255], [0.014, 0.3], [0.016, 0.305], [0.001, 0.306]], 20), gl, 0, 0, 0);
+      add(g, new THREE.CylinderGeometry(0.0375, 0.0375, 0.08, 20, 1, true), lbl, 0, 0.1, 0);
+      add(g, cyl(0.0155, 0.0155, 0.03, 12), M('foil', { color: 0x5a1a18, metalness: 0.6, roughness: 0.5 }), 0, 0.293, 0);
+    },
     core(g) {
       add(g, cyl(0.2, 0.2, 0.08, 16), m.dsteel(), 0, 0.04, 0); add(g, cyl(0.2, 0.2, 0.08, 16), m.dsteel(), 0, 0.72, 0);
       add(g, cyl(0.12, 0.12, 0.6, 16), m.coreGlow(), 0, 0.38, 0);
@@ -2969,6 +3359,13 @@ const HOLD = {
   jar: { p: [0, -0.8, -0.8], r: [0, 0, 0] },
   core: { p: [0, -1.1, -0.85], r: [0, 0, 0] },
   goldbar: { p: [0.22, -0.3, -0.5], r: [0, 0.3, 0] },
+  typewriter: { p: [0.16, -0.4, -0.6], r: [0.1, -0.2, 0] },
+  radio: { p: [0.18, -0.42, -0.6], r: [0.05, -0.25, 0] },
+  battery: { p: [0.2, -0.48, -0.6], r: [0, -0.2, 0] },
+  toolbox: { p: [0.22, -0.5, -0.62], r: [0, -0.2, 0] },
+  globe: { p: [0.2, -0.44, -0.6], r: [0, 0, 0] },
+  vase: { p: [0.22, -0.46, -0.6], r: [0, 0, 0] },
+  extinguisher: { p: [0.24, -0.5, -0.55], r: [0, 0, 0] },
   // snacks are held in a fist closed round the lower part (grip: where the fist sits, from the item's origin; gr: how
   // the forearm comes in, from below and to the right so it never hides what's in the hand)
   cola: { p: [0.17, -0.2, -0.5], r: [0.12, 0.6, 0], grip: [0.01, 0.03, 0.008], gr: [1.0, 0.5, 0], fist: true },
@@ -7073,7 +7470,7 @@ const Ship = (() => {
         black: S({ color: 0x151617, roughness: 0.45 }),
         cork: S({ color: 0x8d6b43, roughness: 1 }),
         brass: S({ color: 0xa88a45, metalness: 0.9, roughness: 0.38 }),
-        pad: S({ color: 0x2b2927, roughness: 0.85, map: TEX.get('paintedMetal') }),
+        pad: S({ color: 0x302c28, roughness: 0.8 }),
         blue: S({ color: 0x2c4a6e, roughness: 0.5, metalness: 0.2 }),
         tunnel: S({ color: 0x23262a, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide }),
         gauge: S({ map: gaugeTex, roughness: 0.25, emissive: 0xffffff, emissiveMap: gaugeTex, emissiveIntensity: 0.15 }),
@@ -7085,6 +7482,13 @@ const Ship = (() => {
         glowRed: L(0.95, 0.12, 0.06), glowAmber: L(0.95, 0.55, 0.1), glowGreen: L(0.25, 0.9, 0.35), glowBlue: L(0.3, 0.6, 1.0),
         glowWarm: B(1.7, 1.4, 0.95),
       };
+      // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
+      // rubbed bright (see MATS.wear)
+      for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) MATS.wear(this.cm[n], { kind: 'paint', k: [0.55, 0.42, 0.002, 0.25], bare: 0x6a6e70, edge: 0.018 });
+      MATS.wear(this.cm.black, { kind: 'paint', k: [0.55, 0.28, 0.0015, 0.7], bare: 0x484b4e, edge: 0.012 });
+      MATS.wear(this.cm.pad, { kind: 'vinyl', k: [0.55, 0.05, 0.0016, 0.6], bare: 0x2a2420, s: 1.6 });
+      MATS.wear(this.cm.brass, { kind: 'metal', k: [0.4, 0.15, 0.0008], bare: 0xd8c08a, s: 2 });
+      MATS.wear(this.cm.cork, { kind: 'vinyl', k: [0.5, 0, 0.002, 0.3], s: 2 });
     }
     buildCockpit() {
       const dm = MATS.get('darkmetal');
@@ -7145,13 +7549,17 @@ const Ship = (() => {
         const scr = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex })); this.group.add(scr);
         this.screens.push({ cv, tex, kind: i });
       }
-      const btnGeo = new THREE.BoxGeometry(0.035, 0.02, 0.035), btnMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const btns = new THREE.InstancedMesh(btnGeo, btnMat, 60); const col = new THREE.Color(), pal = [0xff3020, 0x30ff60, 0xffa020, 0x40a0ff, 0x222222];
+      // the key banks: worn charcoal keycaps, the odd function key painted red, amber or green, and over each of those a
+      // little lit lamp (dim, so it reads as a lens in the panel and not a light of its own)
+      const btnGeo = new THREE.BoxGeometry(0.036, 0.022, 0.036), btnMat = MATS.wear(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.1 }), { kind: 'paint', k: [0.5, 0.2, 0.0006, 0.6], bare: 0x8a8a86, s: 3 });
+      const btns = new THREE.InstancedMesh(btnGeo, btnMat, 60); const col = new THREE.Color(), pal = [0x242422, 0x353430, 0x242422, 0x8a2a1c, 0x353430, 0x242422, 0x9a7a28, 0x2c2b28, 0x2a5a34];
+      const lamp = { 3: 'glowRed', 6: 'glowAmber', 8: 'glowGreen' };
       const bm = new THREE.Matrix4(), q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, nrm, tan.clone().negate()));
       for (let i = 0; i < 60; i++) {
-        const row = i % 3, colI = Math.floor(i / 3);
+        const row = i % 3, colI = Math.floor(i / 3), k = (i * 7 + row) % pal.length;
         bm.compose(surf(-0.3 + row * 0.07, -1.7 + colI * 0.18, 0.06), q, V(1, 1, 1)); btns.setMatrixAt(i, bm);
-        btns.setColorAt(i, col.set(pal[(i * 7 + row) % pal.length]));
+        btns.setColorAt(i, col.set(pal[k]));
+        if (lamp[k]) { const p = surf(-0.3 + row * 0.07, -1.7 + colI * 0.18 + 0.042, 0.054); this.pb(lamp[k], 0.012, 0.006, 0.012, p.x, p.y, p.z, 0, 0, 0.35); }
       }
       btns.instanceColor.needsUpdate = true; this.group.add(btns); this.buttons = btns;
       this.box(0.06, 0.06, 2 * CK.w1 - 0.3, new THREE.MeshBasicMaterial({ color: 0x5a1008 }), 7.48, 0.2, 0);
@@ -7211,7 +7619,7 @@ const Ship = (() => {
       // overhead panel
       this.box(1.4, 0.09, 1.5, dm, 5.8, CK.roof - 0.05, 0);
       const ob = new THREE.InstancedMesh(btnGeo, btnMat, 24);
-      for (let i = 0; i < 24; i++) { bm.compose(V(5.3 + (i % 6) * 0.2, CK.roof - 0.1, -0.55 + Math.floor(i / 6) * 0.36), new THREE.Quaternion(), V(1, 1, 1)); ob.setMatrixAt(i, bm); ob.setColorAt(i, col.set(pal[(i * 3) % 4])); }
+      for (let i = 0; i < 24; i++) { bm.compose(V(5.3 + (i % 6) * 0.2, CK.roof - 0.1, -0.55 + Math.floor(i / 6) * 0.36), new THREE.Quaternion(), V(1, 1, 1)); ob.setMatrixAt(i, bm); ob.setColorAt(i, col.set(pal[(i * 5) % pal.length])); }
       ob.instanceColor.needsUpdate = true; this.group.add(ob);
       // cockpit glow
       this.lights.push({ x: 5.6, y: 2.55, z: 0, color: 0xffc89a, power: 0.45, state: 'on', zone: 'out', range: 6, lit: 1, ship: true, phase: 1 });
@@ -7308,10 +7716,49 @@ const Ship = (() => {
         this.sign(label, 0.17, 0.05, x, 1.565, -3.884, 0, { w: 128, h: 38, size: 28, bold: true, bg: '#1b1b18', fg: '#d0a040', border: false, dirty: false });
         this.interact.push({ kind: 'monitor', act, x, y: 1.45, z: -3.84, r: 0.11 });
       }
-      // charger
-      this.box(0.65, 0.55, 0.16, MATS.get('hazard'), -3.6, 1.3, -3.92);
-      const bolt = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ map: TEX.sign('⚡', { w: 64, h: 64, size: 48, bg: '#111', fg: '#ffd040', border: false, dirty: false }) }));
-      bolt.position.set(-3.6, 1.3, -3.835); this.group.add(bolt);
+      // the charging station: a heavy yellow unit on a bolted backplate, hazard-striped down its sides; a cradle across its
+      // face (a black bezel, brass contacts at the back, a lip to stand a torch on); a little readout over it (READY, a
+      // bar that fills while it charges, FULL) beside a high-voltage plate, a row of lamps under its cap that chase while
+      // it works; its feed comes down a conduit from the ceiling, and a cable runs down to the cell on the deck
+      {
+        const cx = -3.6, cy = 1.32, zf = -3.805, D = 'darkmetal', SB = 'steelBolt';
+        this.pb(D, 0.64, 0.74, 0.025, cx, cy, -3.965);
+        for (const a of [-1, 1]) for (const b of [-1, 1]) this.ps(SB, 0.014, cx + a * 0.29, cy + b * 0.335, -3.952, 1, 1, 0.6, 6);
+        this.pb('yellow', 0.5, 0.56, 0.15, cx, cy, -3.88);
+        for (const s of [-1, 1]) this.pb('hazard', 0.03, 0.5, 0.152, cx + s * 0.236, cy - 0.005, -3.88);
+        this.pb(D, 0.54, 0.045, 0.18, cx, cy + 0.3, -3.88); this.pb(D, 0.54, 0.03, 0.17, cx, cy - 0.295, -3.882);
+        for (const s of [-1, 1]) this.ps(SB, 0.009, cx + s * 0.2, cy + 0.3, zf - 0.005, 1, 0.6, 1, 6);
+        // the cradle
+        this.pb('black', 0.34, 0.15, 0.02, cx, cy - 0.09, zf + 0.004); this.pb('rubber', 0.3, 0.11, 0.006, cx, cy - 0.09, zf + 0.015);
+        for (const s of [-1, 1]) { this.pb('brass', 0.035, 0.055, 0.008, cx + s * 0.07, cy - 0.09, zf + 0.019); this.pb('brass', 0.008, 0.02, 0.004, cx + s * 0.07, cy - 0.055, zf + 0.022); }
+        this.pb(D, 0.36, 0.022, 0.085, cx, cy - 0.177, zf + 0.04); this.pb(D, 0.36, 0.045, 0.012, cx, cy - 0.158, zf + 0.078);
+        // the readout in a black bezel, and the high-voltage plate beside it
+        this.pb('black', 0.27, 0.115, 0.012, cx - 0.06, cy + 0.13, zf + 0.004);
+        const [cv, cg] = TEX.canvas(128, 48), ctex = new THREE.CanvasTexture(cv); ctex.colorSpace = THREE.SRGBColorSpace; ctex.magFilter = THREE.NearestFilter;
+        const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.09), new THREE.MeshBasicMaterial({ map: ctex })); scr.position.set(cx - 0.06, cy + 0.13, zf + 0.0112); this.group.add(scr);
+        {
+          const [wc, wg] = TEX.canvas(64, 58);
+          wg.fillStyle = '#e8b018'; wg.strokeStyle = '#141414'; wg.lineWidth = 5; wg.lineJoin = 'round';
+          wg.beginPath(); wg.moveTo(32, 5); wg.lineTo(60, 53); wg.lineTo(4, 53); wg.closePath(); wg.fill(); wg.stroke();
+          wg.fillStyle = '#141414'; wg.beginPath(); wg.moveTo(36, 16); wg.lineTo(24, 36); wg.lineTo(31, 36); wg.lineTo(27, 49); wg.lineTo(40, 29); wg.lineTo(33, 29); wg.lineTo(37, 16); wg.closePath(); wg.fill();
+          const wt = new THREE.CanvasTexture(wc); wt.colorSpace = THREE.SRGBColorSpace;
+          const w = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.09), new THREE.MeshStandardMaterial({ map: wt, transparent: true, alphaTest: 0.5, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }));
+          w.position.set(cx + 0.14, cy + 0.13, zf + 0.002); this.group.add(w);
+        }
+        this.sign('CHARGE  48V DC', 0.22, 0.04, cx, cy - 0.235, zf + 0.002, 0, { w: 256, h: 46, size: 30, bold: true, bg: '#141414', fg: '#e8b018', border: false, dirty: false });
+        // its lamps (each its own, so they can chase)
+        this.chg = { g: cg, tex: ctex, t: null, last: null, lamps: [] };
+        for (let i = 0; i < 5; i++) {
+          const m = new THREE.MeshBasicMaterial({ color: 0x0c140c }), l = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.016, 0.01), m);
+          l.position.set(cx - 0.12 + i * 0.06, cy + 0.235, zf + 0.004); this.group.add(l); this.chg.lamps.push(m);
+          this.pb('black', 0.032, 0.026, 0.006, cx - 0.12 + i * 0.06, cy + 0.235, zf + 0.0005);
+        }
+        this.drawCharger();
+        // the feed down from the ceiling, clamped to the wall, into the top of the unit
+        this.pc(D, 0.022, 0.022, H - 0.15 - (cy + 0.32), cx + 0.16, (H - 0.15 + cy + 0.32) / 2, -3.935, 0, 0, 0, 8);
+        for (let y = cy + 0.6; y < H - 0.3; y += 0.55) { this.pb(D, 0.07, 0.03, 0.03, cx + 0.16, y, -3.955); this.ps(SB, 0.008, cx + 0.16, y, -3.935, 1, 1, 1, 5); }
+        this.pc(D, 0.035, 0.035, 0.04, cx + 0.16, cy + 0.33, -3.935, 0, 0, 0, 10);
+      }
       this.interact.push({ kind: 'charger', x: -3.6, y: 1.3, z: -3.75, r: 0.5 });
       // storage racks at the back + engine-room door
       for (const z of [-2.6, 2.6]) {
@@ -7442,7 +7889,7 @@ const Ship = (() => {
       this.col(-1.08, 1.08, -4.0, -3.5);
       // the charger's battery pack and its cable
       this.pb('yellow', 0.42, 0.32, 0.3, -3.6, 0.16, -3.8); this.pb('black', 0.08, 0.05, 0.06, -3.72, 0.345, -3.8); this.pb('red', 0.08, 0.05, 0.06, -3.48, 0.345, -3.8);
-      this.tube('cable', [V(-3.75, 1.04, -3.9), V(-3.88, 0.72, -3.72), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16);
+      this.tube('cable', [V(-3.75, 1.02, -3.88), V(-3.84, 0.72, -3.74), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16); this.pc('darkmetal', 0.025, 0.02, 0.04, -3.75, 1.03, -3.88, 0, 0, 0, 8);
       this.col(-3.82, -3.38, -4.0, -3.63);
       // intercom with a coiled handset cord
       this.pb('painted', 0.24, 0.34, 0.07, -6.0, 1.45, -3.965); this.pb('vent', 0.16, 0.1, 0.01, -6.0, 1.55, -3.928);
@@ -7634,6 +8081,24 @@ const Ship = (() => {
         this.col(x - 0.17, x + 0.17, z - 0.17, z + 0.17);
       }
     }
+    // the charging station's readout: READY (and the cell's voltage) while it waits; charging, a bar of blocks filling
+    // as it goes; then FULL for a moment. t: seconds since it started charging (null: idle)
+    drawCharger(t = null) {
+      const { g, tex } = this.chg, W = 128, Hh = 48, ink = '#6dff8a';
+      g.fillStyle = '#031208'; g.fillRect(0, 0, W, Hh);
+      g.fillStyle = ink; g.font = 'bold 15px "Share Tech Mono", monospace'; g.textBaseline = 'top';
+      const k = t == null ? 0 : Math.min(1, t / 2.4);
+      g.fillText(t == null ? 'READY' : k < 1 ? 'CHARGING' : 'FULL', 6, 5);
+      if (t == null) g.fillText('48.2V', 74, 5);
+      // (the bar: ten blocks, outlined)
+      g.strokeStyle = ink; g.lineWidth = 2; g.strokeRect(6, 26, 104, 15); g.fillRect(110, 30, 5, 7);
+      const n = t == null ? 0 : Math.floor(k * 10 + (k < 1 && (t * 6) % 1 < 0.5 ? 1 : 0));
+      for (let i = 0; i < Math.min(10, n); i++) g.fillRect(9 + i * 10, 29, 8, 9);
+      g.fillStyle = 'rgba(0,0,0,.28)'; for (let y = 0; y < Hh; y += 3) g.fillRect(0, y, W, 1);
+      tex.needsUpdate = true;
+    }
+    // someone has just put something on charge
+    charging() { if (this.chg) this.chg.t = 0; }
     // the clock's face: hours and minutes from minutes past midnight
     drawClock(m) {
       const { g, tex } = this.clock, c = 128;
@@ -9175,6 +9640,16 @@ const Ship = (() => {
       const spin = this.beaconOn;
       this.beacon.group.rotation.y += dt * (spin ? 9 : 0);
       this.beacon.mat.color.set(spin ? (Math.sin(time * 9) > 0 ? 0xffa020 : 0x553300) : 0x331a00);
+      // the charging station: its readout, and its lamps (one green while it waits; chasing while it charges; all lit full)
+      if (this.chg) {
+        const c = this.chg;
+        if (c.t != null) { c.t += dt; if (c.t > 4.6) c.t = null; }
+        const s = c.t == null ? -1 : Math.floor(c.t * 8);
+        if (s !== c.last) {
+          c.last = s; this.drawCharger(c.t);
+          c.lamps.forEach((m, i) => m.color.setHex(c.t == null ? (i === 0 ? 0x2a9a3a : 0x0c140c) : c.t >= 2.4 ? 0x3aff5a : (s % 6) >= i + 1 ? 0xffb020 : 0x1a1408));
+        }
+      }
       this.screenT -= dt;
       if (this.screenT <= 0) { this.screenT = 0.25; this.drawScreens(time, mode === 'orbit' ? 'IN ORBIT' : this.airborne ? 'IN FLIGHT' : mode === 'site' ? 'LANDED' : 'TRANSIT'); }
       // gear and ramp run on hydraulics: they whine while they move and clunk home
@@ -14381,31 +14856,31 @@ const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin
 const turnFrom = (pm, po) => { const vx = po.x - pm.x, vz = po.z - pm.z; return Math.atan2(-pm.x * vz + pm.z * vx, -pm.x * vx - pm.z * vz); };
 // what is left in a room depends on what the room was for
 const LOOT = {
-  office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4 },
-  storage: { gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25 },
-  machine: { gear: 3, bolt: 3, axle: 2, engine: 1.3, horn: 1, goldbar: 0.2 },
-  boiler: { gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8 },
-  hall: { gear: 1, bolt: 1, axle: 1, engine: 0.6, toy: 0.5, doll: 0.5, painting: 0.4 },
-  lab: { flask: 4, jar: 2.2, mask: 1, watch: 0.5, doll: 0.3 },
-  morgue: { mask: 2, doll: 2, watch: 2.2, jar: 1, flask: 1.4, candelabra: 0.5 },
-  lockers: { watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35 },
-  entrance: { phone: 2, register: 1.5, painting: 1, lamp: 1, bell: 1 },
-  exit: { bolt: 1, gear: 1, horn: 1, toy: 0.6 },
-  core: { bolt: 1, gear: 1 },
-  corridor: { bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4 },
+  office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4, typewriter: 2.2, radio: 1.4, globe: 1.4, trophy: 1.2, camera: 1, vase: 0.8, bottle: 0.8 },
+  storage: { gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25, toolbox: 1.5, battery: 1.2, kettle: 1, bottle: 1, extinguisher: 0.8, radio: 0.6, typewriter: 0.5 },
+  machine: { gear: 3, bolt: 3, axle: 2, engine: 1.3, horn: 1, goldbar: 0.2, toolbox: 2, battery: 1.8, meter: 1.2, extinguisher: 1.2, circuit: 1 },
+  boiler: { gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8, extinguisher: 1.5, toolbox: 1.2, battery: 1, meter: 1, kettle: 0.6 },
+  hall: { gear: 1, bolt: 1, axle: 1, engine: 0.6, toy: 0.5, doll: 0.5, painting: 0.4, extinguisher: 1, trophy: 0.6, vase: 0.5, globe: 0.4 },
+  lab: { flask: 4, jar: 2.2, mask: 1, watch: 0.5, doll: 0.3, meter: 2, circuit: 2.2, skull: 1.2, camera: 0.6, bottle: 0.6 },
+  morgue: { mask: 2, doll: 2, watch: 2.2, jar: 1, flask: 1.4, candelabra: 0.5, skull: 2, teddy: 1.4, camera: 0.8, bottle: 0.6 },
+  lockers: { watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35, teddy: 1.4, radio: 1.2, camera: 1.2, kettle: 1, bottle: 1.2, trophy: 0.8 },
+  entrance: { phone: 2, register: 1.5, painting: 1, lamp: 1, bell: 1, typewriter: 1.2, radio: 1, trophy: 1.2, vase: 1, globe: 0.8 },
+  exit: { bolt: 1, gear: 1, horn: 1, toy: 0.6, extinguisher: 1.5, toolbox: 0.6 },
+  core: { bolt: 1, gear: 1, battery: 0.6, meter: 0.6, circuit: 0.6 },
+  corridor: { bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4, extinguisher: 1, teddy: 0.8, bottle: 0.5 },
 };
 // ...and on what the whole site was
 const SITE_LOOT = {
-  ashgrove: { bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2 },
-  kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2 },
-  nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4 },
-  hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3 },
-  verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2 },
-  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2 },
-  agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3 },
-  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1 },
-  saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3 },
-  vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2 },
+  ashgrove: { bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2, typewriter: 1.4, kettle: 1.4, radio: 1.3 },
+  kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2, circuit: 1.6, meter: 1.5, skull: 1.3 },
+  nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4, battery: 1.5, toolbox: 1.5, extinguisher: 1.3 },
+  hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3, skull: 1.8, vase: 1.5, trophy: 1.3, teddy: 1.3 },
+  verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2, circuit: 1.3, camera: 1.3, globe: 1.3 },
+  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2, battery: 1.3, kettle: 1.3, radio: 1.3 },
+  agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3, teddy: 1.8, vase: 1.4, trophy: 1.4, typewriter: 1.3 },
+  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1, bottle: 1.6, extinguisher: 1.3, globe: 1.3, radio: 1.2 },
+  saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3, meter: 1.4, circuit: 1.4, camera: 1.2 },
+  vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2, trophy: 1.5, vase: 1.5, battery: 1.3 },
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
@@ -15138,7 +15613,7 @@ const G = {
       }
       if (G.leechOn === p.id) G.leechOn = null;
     },
-    sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); },
+    sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); if (e.s === 'charge' && G.ship) G.ship.charging(); },
     monSpawn(e) { G.spawnMonster(e); },
     monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
     leech(e) {

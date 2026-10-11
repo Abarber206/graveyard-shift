@@ -810,6 +810,63 @@ const TEX = (() => {
     },
   };
 
+  // What years of use leave on the flat-coloured things (see MATS.wear): one tiling sheet per kind of surface, three
+  // channels. R: how much lighter or darker it's gone (128: as it was made); G: bare metal showing through (chips,
+  // scratches); B: its relief (128: flush, lower: sunk). Everything drawn wraps round the edges so the sheet tiles.
+  //   paint: grime, chipped edges round little islands of bare metal, scratches, a fine orange-peel grain
+  //   metal: mottled, brushed one way, scratched, pitted, grimy
+  //   vinyl: a pebbled grain, creases, patches rubbed paler, scuffs
+  //   rubber: a fine grain and the odd scuff
+  function wearSheet(kind) {
+    const N = 256, rr = new RNG({ paint: 11, metal: 23, vinyl: 37, rubber: 41 }[kind] || 5);
+    const layer = (v) => { const [c, g] = C(N, N); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, 0, N, N); return g; };
+    const T = layer(128), B = layer(0), Hh = layer(128);
+    const around = (x, y, r, fn) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) if (x + ox > -r && x + ox < N + r && y + oy > -r && y + oy < N + r) fn(x + ox, y + oy); };
+    const soft = (g, x, y, rad, v, a) => around(x, y, rad, (px, py) => { const gr = g.createRadialGradient(px, py, 0, px, py, rad); gr.addColorStop(0, `rgba(${v},${v},${v},${a})`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(px - rad, py - rad, rad * 2, rad * 2); });
+    // (a ragged little blob, the same shape in every layer it's drawn into)
+    const shape = (rad) => { const k = 9, rot = rr.range(0, TAU); return Array.from({ length: k }, (_, i) => [rot + (i / k) * TAU, rad * rr.range(0.45, 1.15)]); };
+    const blob = (g, x, y, sh, grow, v, a) => around(x, y, 40, (px, py) => { g.fillStyle = `rgba(${v},${v},${v},${a})`; g.beginPath(); sh.forEach(([t, q], i) => g[i ? 'lineTo' : 'moveTo'](px + Math.cos(t) * q * grow, py + Math.sin(t) * q * grow)); g.closePath(); g.fill(); });
+    const line = (g, x, y, a, len, w, v, al) => around(x, y, len + 2, (px, py) => { g.strokeStyle = `rgba(${v},${v},${v},${al})`; g.lineWidth = w; g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len); g.stroke(); });
+    const P = () => [rr.next() * N, rr.next() * N];
+    if (kind === 'paint') {
+      for (let i = 0; i < 50; i++) { const [x, y] = P(); soft(T, x, y, rr.range(18, 70), rr.chance(0.5) ? 150 : 104, rr.range(0.15, 0.35)); }
+      for (let i = 0; i < 26; i++) { const [x, y] = P(); soft(T, x, y, rr.range(10, 46), 66, rr.range(0.2, 0.42)); }
+      for (let i = 0; i < 80; i++) { const [x, y] = P(), a = rr.range(0, TAU), l = rr.range(4, 34); line(T, x, y, a, l, 1, 158, 0.45); line(B, x, y, a, l, 1, 255, 0.4); line(Hh, x, y, a, l, 1, 96, 0.6); }
+      for (let i = 0; i < 46; i++) {
+        const [x, y] = P(), sh = shape(rr.range(1.4, 5.5));
+        blob(T, x, y, sh, 1.6, 156, 0.5); blob(Hh, x, y, sh, 1.6, 146, 0.7);
+        blob(T, x, y, sh, 1, 70, 0.9); blob(B, x, y, sh, 1, 255, 0.85); blob(Hh, x, y, sh, 1, 36, 1);
+      }
+    } else if (kind === 'metal') {
+      for (let i = 0; i < 46; i++) { const [x, y] = P(); soft(T, x, y, rr.range(16, 60), rr.chance(0.5) ? 156 : 100, rr.range(0.2, 0.4)); }
+      for (let i = 0; i < 420; i++) { const [x, y] = P(); line(T, x, y, rr.range(-0.04, 0.04), rr.range(16, 110), 1, rr.chance(0.5) ? 150 : 108, rr.range(0.12, 0.3)); }
+      for (let i = 0; i < 20; i++) { const [x, y] = P(); soft(T, x, y, rr.range(10, 40), 60, rr.range(0.2, 0.45)); }
+      for (let i = 0; i < 60; i++) { const [x, y] = P(), a = rr.range(0, TAU), l = rr.range(3, 26); line(B, x, y, a, l, 1, 255, rr.range(0.25, 0.6)); line(Hh, x, y, a, l, 1, 104, 0.5); }
+      for (let i = 0; i < 90; i++) { const [x, y] = P(), s = rr.range(0.8, 2.2); around(x, y, 3, (px, py) => { T.fillStyle = 'rgba(70,70,70,.6)'; T.fillRect(px, py, s, s); Hh.fillStyle = 'rgba(80,80,80,.8)'; Hh.fillRect(px, py, s, s); }); }
+    } else if (kind === 'vinyl') {
+      for (let i = 0; i < 12; i++) { const [x, y] = P(); soft(T, x, y, rr.range(20, 60), 158, rr.range(0.2, 0.4)); }
+      for (let i = 0; i < 18; i++) { const [x, y] = P(); soft(T, x, y, rr.range(10, 36), 84, rr.range(0.15, 0.35)); }
+      for (let i = 0; i < 34; i++) {
+        let [x, y] = P(), a = rr.range(0, TAU); const n = rr.int(3, 7);
+        for (let k = 0; k < n; k++) { const l = rr.range(5, 14); line(T, x, y, a, l, 1.5, 92, 0.45); line(Hh, x, y, a, l, 2, 70, 0.7); x += Math.cos(a) * l; y += Math.sin(a) * l; a += rr.range(-0.6, 0.6); }
+      }
+      for (let i = 0; i < 16; i++) { const [x, y] = P(); line(B, x, y, rr.range(0, TAU), rr.range(3, 10), 2, 255, 0.3); }
+    } else {
+      for (let i = 0; i < 14; i++) { const [x, y] = P(); soft(T, x, y, rr.range(8, 30), 156, rr.range(0.15, 0.35)); }
+    }
+    // the fine grain under it all, a pixel at a time: orange peel, brushed steel, the pebbling in vinyl, rubber
+    const grain = { paint: [6, 10], metal: [5, 6], vinyl: [7, 26], rubber: [6, 14] }[kind] || [5, 8];
+    const [c, g] = C(N, N), out = g.createImageData(N, N), o = out.data;
+    const t = T.getImageData(0, 0, N, N).data, b = B.getImageData(0, 0, N, N).data, h = Hh.getImageData(0, 0, N, N).data;
+    for (let i = 0; i < o.length; i += 4) {
+      const n = rr.next() - 0.5;
+      o[i] = clamp(t[i] + n * grain[0] * 2, 0, 255); o[i + 1] = b[i]; o[i + 2] = clamp(h[i] + n * grain[1] * 2, 0, 255); o[i + 3] = 255;
+    }
+    g.putImageData(out, 0, 0);
+    const tx = finish(c); tx.colorSpace = THREE.NoColorSpace; return tx;
+  }
+  const wearCache = {};
+
   function sign(text, opts = {}) {
     const w = opts.w || 256, h = opts.h || 64;
     const [c, g] = C(w, h);
@@ -838,6 +895,7 @@ const TEX = (() => {
     },
     sign,
     canvas: C,
+    wear(kind) { return wearCache[kind] || (wearCache[kind] = wearSheet(kind)); },
   };
 })();
 
@@ -845,6 +903,48 @@ const TEX = (() => {
 const MATS = (() => {
   const cache = {};
   const S = (o) => new THREE.MeshStandardMaterial(o);
+  // Wear on a flat-coloured material (TEX.wear): looked up three ways round in the object's own space, so it's the same
+  // size on a bolt as on a bulkhead, never stretched along a long box, and rides along with the ship in flight instead
+  // of sliding over it. o.kind: paint | metal | vinyl | rubber; o.k: [how far the tone wanders, how much bare metal
+  // shows, how deep the relief is (m), how far it rubs paler]; o.bare: the colour under the paint; o.s: sheets per metre.
+  // It darkens and lightens what's there, so it stays the colour it was painted; relief comes from the sheet's own
+  // heights, read off as the pixels go by (no normal map needed).
+  function wear(mat, o) {
+    const k = o.k || [0.4, 0.3, 0.002, 0], U = { tWear: { value: TEX.wear(o.kind) }, uWear: { value: new THREE.Vector4(k[0], k[1], k[2], k[3] || 0) }, uWearS: { value: o.s || 1.1 }, uBare: { value: new THREE.Color(o.bare ?? 0x6a6e70) }, uEdge: { value: o.edge || 0 } };
+    mat.userData.wear = { kind: o.kind, k, s: o.s, bare: o.bare, tint: o.tint, edge: o.edge };
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.vertexShader = 'varying vec3 vWearP; varying vec3 vWearN; varying vec2 vWearUv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vWearP = position; vWearN = normal; vWearUv = uv;');
+      sh.fragmentShader = 'uniform sampler2D tWear; uniform vec4 uWear; uniform float uWearS, uEdge; uniform vec3 uBare; varying vec3 vWearP; varying vec3 vWearN; varying vec2 vWearUv;\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          vec3 wq = vWearP * uWearS, wb = pow(abs(normalize(vWearN)), vec3(4.0)); wb /= wb.x + wb.y + wb.z;
+          vec3 ws = texture2D(tWear, wq.zy).rgb * wb.x + texture2D(tWear, wq.xz).rgb * wb.y + texture2D(tWear, wq.xy).rgb * wb.z;
+          // (paint rubbed off along the edges and corners, raggedly: how far this is from its face's edge, in metres,
+          // from how fast the face's own 0..1 coordinates run across the screen against how fast the surface does)
+          float wearE = 0.0;
+          if (uEdge > 0.0) {
+            vec2 e2 = min(vWearUv, 1.0 - vWearUv), ux = dFdx(vWearUv), uy = dFdy(vWearUv);
+            float dp = max(length(dFdx(vWearP)), length(dFdy(vWearP)));
+            float ed = min(e2.x * dp / max(max(abs(ux.x), abs(uy.x)), 1e-6), e2.y * dp / max(max(abs(ux.y), abs(uy.y)), 1e-6));
+            float rag = texture2D(tWear, wq.zy * 2.7 + wq.xz * 1.3).r;
+            wearE = (1.0 - smoothstep(uEdge * 0.3, uEdge, ed)) * smoothstep(0.34, 0.52, rag + 0.35 * (1.0 - ed / uEdge));
+          }
+          diffuseColor.rgb *= mix(1.0, ws.r * 2.0, uWear.x) * (1.0 + uWear.w * max(ws.r - 0.5, 0.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, uBare, max(ws.g * uWear.y, wearE * 0.85));
+          ws.g = max(ws.g, wearE);
+          float wearH = ws.b - 0.3 * wearE;`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          roughnessFactor = clamp(roughnessFactor - ws.g * uWear.y * 0.25 + (0.5 - ws.r) * 0.3 * uWear.x, 0.05, 1.0);`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          { vec3 sp = -vViewPosition, dx = dFdx(sp), dy = dFdy(sp); float hx = dFdx(wearH) * uWear.z, hy = dFdy(wearH) * uWear.z;
+            vec3 r1 = cross(dy, normal), r2 = cross(normal, dx); float dt = dot(dx, r1);
+            normal = normalize(abs(dt) * normal - sign(dt) * (hx * r1 + hy * r2)); }`);
+    };
+    mat.customProgramCacheKey = () => 'wear';
+    return mat;
+  }
+  // (copies of a worn material (MATS.rep, MATS.aged) wear the same way)
+  const rewear = (m, base) => (base.userData.wear ? wear(m, base.userData.wear) : m);
   // a surface with relief: its colour map plus a normal map read off it (k: how deep the relief goes)
   const N = (tex, k, o) => S(Object.assign({ map: TEX.get(tex), normalMap: TEX.normal(tex, k), normalScale: new THREE.Vector2(1, 1) }, o));
   const defs = {
@@ -856,7 +956,9 @@ const MATS = (() => {
     metal: () => N('metalPanel', 2.2, { roughness: 0.6, metalness: 0.45 }),
     grate: () => N('grate', 3, { roughness: 0.55, metalness: 0.5 }),
     rust: () => N('rust', 2.2, { roughness: 0.9, metalness: 0.3 }),
-    painted: () => N('paintedMetal', 1.4, { roughness: 0.75, metalness: 0.3 }),
+    // painted steel, gone grubby, chipped down to rust (its colour: the drab green-grey it was painted, which anything
+    // repainted another colour (MATS.rep) is tinted by, the way it always was)
+    painted: () => wear(S({ color: 0x5f6357, roughness: 0.72, metalness: 0.3 }), { tint: true, kind: 'paint', k: [0.55, 0.5, 0.0025, 0.2], bare: 0x4a2c1a, s: 1, edge: 0.02 }),
     wood: () => N('wood', 1.6, { roughness: 0.9 }),
     crate: () => N('crate', 1.6, { roughness: 0.9 }),
     terrain: () => S({ map: TEX.get('terrain'), roughness: 1, vertexColors: true }),
@@ -868,18 +970,19 @@ const MATS = (() => {
     bunker: () => N('bunker', 2, { roughness: 0.95 }),
     locker: () => N('locker', 1.8, { roughness: 0.6, metalness: 0.4 }),
     vent: () => N('vent', 3, { roughness: 0.7, metalness: 0.4 }),
-    dark: () => S({ color: 0x141414, roughness: 0.8 }),
-    darkmetal: () => S({ color: 0x23262a, roughness: 0.5, metalness: 0.6 }),
-    rubber: () => S({ color: 0x0e0e0e, roughness: 0.95 }),
-    cloth: () => S({ color: 0x8f8a7c, roughness: 1 }),
+    dark: () => wear(S({ color: 0x141414, roughness: 0.8 }), { kind: 'metal', k: [0.45, 0.25, 0.0012], bare: 0x3a3c3e }),
+    darkmetal: () => wear(S({ color: 0x23262a, roughness: 0.5, metalness: 0.6 }), { kind: 'metal', k: [0.5, 0.3, 0.0015], bare: 0x5c6064, edge: 0.01 }),
+    rubber: () => wear(S({ color: 0x0e0e0e, roughness: 0.95 }), { kind: 'rubber', k: [0.6, 0, 0.0015, 0.6] }),
+    cloth: () => wear(S({ color: 0x8f8a7c, roughness: 1 }), { kind: 'vinyl', k: [0.35, 0, 0.0012, 0.2] }),
     sheet: () => S({ color: 0xb9b5a8, roughness: 1 }),
     darkflesh: () => S({ map: TEX.get('darkflesh'), roughness: 0.35 }),
-    steelBolt: () => S({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }),
-    hardware: () => S({ color: 0xa3a59e, metalness: 0.85, roughness: 0.3 }),
+    steelBolt: () => wear(S({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.35 }), { kind: 'metal', k: [0.35, 0.15, 0.0008], bare: 0xd0d4d6, s: 2 }),
+    hardware: () => wear(S({ color: 0xa3a59e, metalness: 0.85, roughness: 0.3 }), { kind: 'metal', k: [0.35, 0.15, 0.0008], bare: 0xd0d4d6, s: 2 }),
     brick: () => N('brick', 2.2, { roughness: 0.92 }),
     labPanel: () => N('labPanel', 1.5, { roughness: 0.55, metalness: 0.12 }),
     carGlass: () => S({ color: 0x0a0d0f, roughness: 0.12, metalness: 0.6 }),
-    seat: () => S({ color: 0x2c2724, roughness: 0.55, map: TEX.get('paintedMetal') }),
+    // (worn vinyl upholstery, a dark oxblood brown, rubbed paler where people sit)
+    seat: () => wear(S({ color: 0x3a2c26, roughness: 0.5 }), { kind: 'vinyl', k: [0.6, 0.05, 0.0018, 0.7], bare: 0x2a2420, s: 1.6 }),
     corrugated: () => S({ map: TEX.get('corrugated'), roughness: 0.75, metalness: 0.3 }),
     glass: () => new THREE.MeshStandardMaterial({ color: 0x9fb6bd, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.18, depthWrite: false }),
     liquid: () => new THREE.MeshStandardMaterial({ color: 0x3a5a2a, roughness: 0.2, transparent: true, opacity: 0.55, emissive: 0x0c1a06, depthWrite: false }),
@@ -890,13 +993,13 @@ const MATS = (() => {
     moss: () => new THREE.MeshStandardMaterial({ map: TEX.get('moss'), transparent: true, roughness: 1, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     puddle: () => new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.05, metalness: 0.6, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
     paper: () => S({ color: 0xb8b2a0, roughness: 1, side: THREE.DoubleSide }),
-    beige: () => S({ color: 0x8f8875, roughness: 0.55, map: TEX.get('paintedMetal') }),
+    beige: () => wear(S({ color: 0x5e594c, roughness: 0.55 }), { kind: 'paint', k: [0.5, 0.35, 0.002, 0.2], bare: 0x4a2c1a, edge: 0.018 }),
     quilt: () => N('quilt', 3.2, { roughness: 0.95 }),
     perf: () => N('perf', 2.5, { roughness: 0.6, metalness: 0.4 }),
     oil: () => new THREE.MeshStandardMaterial({ map: TEX.get('oil'), transparent: true, roughness: 0.15, metalness: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     pegboard: () => N('pegboard', 2, { roughness: 0.9 }),
-    cable: () => S({ color: 0x111111, roughness: 0.7 }),
-    lampHousing: () => S({ color: 0x2b2d2c, roughness: 0.6, metalness: 0.5 }),
+    cable: () => wear(S({ color: 0x111111, roughness: 0.7 }), { kind: 'rubber', k: [0.5, 0, 0.001, 0.4], s: 2 }),
+    lampHousing: () => wear(S({ color: 0x2b2d2c, roughness: 0.6, metalness: 0.5 }), { kind: 'metal', k: [0.45, 0.25, 0.0012], bare: 0x5c6064 }),
     screenGreen: () => new THREE.MeshBasicMaterial({ color: 0x2bff6a }),
     ledRed: () => new THREE.MeshBasicMaterial({ color: 0xff2a1a }),
     ledGreen: () => new THREE.MeshBasicMaterial({ color: 0x33ff55 }),
@@ -907,6 +1010,7 @@ const MATS = (() => {
   const AGE_TINT = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34]];
   return {
     get(name) { if (!cache[name]) { if (!defs[name]) throw new Error('No material ' + name); cache[name] = defs[name](); } return cache[name]; },
+    wear,
     // every shared material (and its textures) made up front, while the game loads, not mid-landing
     warmAll() { for (const k in defs) this.get(k); },
     aged(name, lv) {
@@ -916,7 +1020,7 @@ const MATS = (() => {
       m.color = m.color.clone().multiply(new THREE.Color(t[0], t[1], t[2]));
       if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv);
       if (m.metalness) m.metalness *= 0.6;
-      return (agedCache[k] = m);
+      return (agedCache[k] = rewear(m, this.get(name)));
     },
     // same material, with its textures tiled rx * ry times (for big surfaces)
     rep(name, rx, ry, color) {
@@ -924,8 +1028,9 @@ const MATS = (() => {
       if (repCache[k]) return repCache[k];
       const base = this.get(name), m = base.clone();
       for (const slot of ['map', 'bumpMap', 'normalMap']) if (base[slot]) { m[slot] = base[slot].clone(); m[slot].repeat.set(rx, ry); m[slot].wrapS = m[slot].wrapT = THREE.RepeatWrapping; m[slot].needsUpdate = true; }
-      if (color != null) m.color = new THREE.Color(color);
-      return (repCache[k] = m);
+      // (a worn painted surface keeps its old drab under a new colour, as the old paint texture used to tint it)
+      if (color != null) { m.color = new THREE.Color(color); if (base.userData.wear && base.userData.wear.tint) m.color.multiply(base.color).multiplyScalar(1.4); }
+      return (repCache[k] = rewear(m, base));
     },
   };
 })();

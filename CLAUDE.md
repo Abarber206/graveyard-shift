@@ -47,6 +47,10 @@ Keep that file current when gameplay changes.
 - **Assets are all procedural.**
   - Canvas textures live in `textures.js` (`TEX.get(name)`; `CQ` draws at double resolution; `TEX.normal()` derives relief).
   - Shared materials are `MATS.get(name)` / `MATS.rep` / `MATS.aged`.
+  - Flat-coloured materials wear a wear layer instead of a stretched texture: `MATS.wear(mat, { kind, k, bare, s, edge })`
+    (sheets from `TEX.wear`: paint / metal / vinyl / rubber), looked up triplanar in the object's own space so it neither
+    stretches nor slides in flight; `edge` rubs the paint off along box edges (from the faces' UVs). Copies made by
+    `MATS.rep` / `MATS.aged` keep it.
   - Item models are in `items.js` (`ItemMeshes`), creatures in `monsters.js` (`MonModels`), the crew robot in `avatar.js`.
   - The ship is built in `ship.js` (`pb`/`pc`/`ps`/`pt` push geometry into material buckets, which are merged).
 - **Touch** (`touch.js`) drives the same `Input` the keyboard and mouse do (`Input.analog` for the stick). On a touch

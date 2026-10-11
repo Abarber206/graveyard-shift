@@ -137,31 +137,31 @@ const bodyAt = (b, o) => ({ x: Math.cos(o.phase) * b.orbit * o.near, z: Math.sin
 const turnFrom = (pm, po) => { const vx = po.x - pm.x, vz = po.z - pm.z; return Math.atan2(-pm.x * vz + pm.z * vx, -pm.x * vx - pm.z * vz); };
 // what is left in a room depends on what the room was for
 const LOOT = {
-  office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4 },
-  storage: { gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25 },
-  machine: { gear: 3, bolt: 3, axle: 2, engine: 1.3, horn: 1, goldbar: 0.2 },
-  boiler: { gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8 },
-  hall: { gear: 1, bolt: 1, axle: 1, engine: 0.6, toy: 0.5, doll: 0.5, painting: 0.4 },
-  lab: { flask: 4, jar: 2.2, mask: 1, watch: 0.5, doll: 0.3 },
-  morgue: { mask: 2, doll: 2, watch: 2.2, jar: 1, flask: 1.4, candelabra: 0.5 },
-  lockers: { watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35 },
-  entrance: { phone: 2, register: 1.5, painting: 1, lamp: 1, bell: 1 },
-  exit: { bolt: 1, gear: 1, horn: 1, toy: 0.6 },
-  core: { bolt: 1, gear: 1 },
-  corridor: { bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4 },
+  office: { phone: 3, register: 1.2, watch: 2, painting: 1.2, lamp: 1, horn: 0.8, candelabra: 1, bell: 0.6, toy: 0.4, typewriter: 2.2, radio: 1.4, globe: 1.4, trophy: 1.2, camera: 1, vase: 0.8, bottle: 0.8 },
+  storage: { gear: 2, bolt: 2, toy: 1.5, doll: 1, candelabra: 1, bell: 1, lamp: 0.8, axle: 1, register: 0.4, painting: 0.5, goldbar: 0.25, toolbox: 1.5, battery: 1.2, kettle: 1, bottle: 1, extinguisher: 0.8, radio: 0.6, typewriter: 0.5 },
+  machine: { gear: 3, bolt: 3, axle: 2, engine: 1.3, horn: 1, goldbar: 0.2, toolbox: 2, battery: 1.8, meter: 1.2, extinguisher: 1.2, circuit: 1 },
+  boiler: { gear: 2, bolt: 3, axle: 1.5, engine: 1.2, horn: 0.8, extinguisher: 1.5, toolbox: 1.2, battery: 1, meter: 1, kettle: 0.6 },
+  hall: { gear: 1, bolt: 1, axle: 1, engine: 0.6, toy: 0.5, doll: 0.5, painting: 0.4, extinguisher: 1, trophy: 0.6, vase: 0.5, globe: 0.4 },
+  lab: { flask: 4, jar: 2.2, mask: 1, watch: 0.5, doll: 0.3, meter: 2, circuit: 2.2, skull: 1.2, camera: 0.6, bottle: 0.6 },
+  morgue: { mask: 2, doll: 2, watch: 2.2, jar: 1, flask: 1.4, candelabra: 0.5, skull: 2, teddy: 1.4, camera: 0.8, bottle: 0.6 },
+  lockers: { watch: 2, toy: 1.5, horn: 1.4, phone: 1, doll: 1, mask: 1, bell: 1, goldbar: 0.35, teddy: 1.4, radio: 1.2, camera: 1.2, kettle: 1, bottle: 1.2, trophy: 0.8 },
+  entrance: { phone: 2, register: 1.5, painting: 1, lamp: 1, bell: 1, typewriter: 1.2, radio: 1, trophy: 1.2, vase: 1, globe: 0.8 },
+  exit: { bolt: 1, gear: 1, horn: 1, toy: 0.6, extinguisher: 1.5, toolbox: 0.6 },
+  core: { bolt: 1, gear: 1, battery: 0.6, meter: 0.6, circuit: 0.6 },
+  corridor: { bolt: 1, doll: 1.2, toy: 0.8, gear: 0.6, watch: 0.4, extinguisher: 1, teddy: 0.8, bottle: 0.5 },
 };
 // ...and on what the whole site was
 const SITE_LOOT = {
-  ashgrove: { bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2 },
-  kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2 },
-  nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4 },
-  hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3 },
-  verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2 },
-  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2 },
-  agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3 },
-  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1 },
-  saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3 },
-  vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2 },
+  ashgrove: { bell: 1.4, candelabra: 1.4, gear: 1.3, painting: 1.2, lamp: 1.2, typewriter: 1.4, kettle: 1.4, radio: 1.3 },
+  kessler: { flask: 1.6, jar: 1.6, mask: 1.3, doll: 1.2, circuit: 1.6, meter: 1.5, skull: 1.3 },
+  nadir: { engine: 1.6, axle: 1.5, bolt: 1.3, gear: 1.2, goldbar: 1.4, battery: 1.5, toolbox: 1.5, extinguisher: 1.3 },
+  hollow: { goldbar: 1.8, mask: 1.6, doll: 1.6, painting: 1.3, candelabra: 1.3, skull: 1.8, vase: 1.5, trophy: 1.3, teddy: 1.3 },
+  verdigris: { jar: 1.5, flask: 1.2, toy: 1.2, lamp: 1.2, circuit: 1.3, camera: 1.3, globe: 1.3 },
+  rimefall: { engine: 1.3, axle: 1.2, bolt: 1.2, jar: 1.3, watch: 1.2, battery: 1.3, kettle: 1.3, radio: 1.3 },
+  agnes: { doll: 1.6, mask: 1.4, bell: 1.4, candelabra: 1.4, watch: 1.3, teddy: 1.8, vase: 1.4, trophy: 1.4, typewriter: 1.3 },
+  brinewell: { horn: 1.6, bolt: 1.4, gear: 1.4, engine: 1.2, goldbar: 1.1, bottle: 1.6, extinguisher: 1.3, globe: 1.3, radio: 1.2 },
+  saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3, meter: 1.4, circuit: 1.4, camera: 1.2 },
+  vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2, trophy: 1.5, vase: 1.5, battery: 1.3 },
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
@@ -894,7 +894,7 @@ const G = {
       }
       if (G.leechOn === p.id) G.leechOn = null;
     },
-    sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); },
+    sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); if (e.s === 'charge' && G.ship) G.ship.charging(); },
     monSpawn(e) { G.spawnMonster(e); },
     monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
     leech(e) {

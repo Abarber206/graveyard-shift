@@ -472,6 +472,24 @@ const SFX = (() => {
     },
     run_far(d, t) { for (let i = 0; i < 8; i++) S.step(d, t + i * 0.27, { surf: 'concrete', pitch: 0.9 }); },
     bell(d, t) { [1, 2.4, 3.9, 5.2].forEach((r, i) => osc(d, 'sine', 620 * r, null, t, 2.6 - i * 0.4, 0.25 / (i + 1))); },
+    // a valve radio warming up and hunting the dial: hiss swelling, whistles sliding past as it crosses stations, a
+    // snatch of a dance band from somewhere far off, then the static again
+    radio_tune(d, t) {
+      nz(d, t, 2.2, 0.16, 'bandpass', 1600, 2600, 0.5, 0.25);
+      for (const [k, f0, f1] of [[0.3, 2600, 900], [0.95, 1800, 3400], [1.5, 3000, 1200]]) osc(filt(d, 'bandpass', 1800, 1.2), 'sine', f0, f1, t + k, 0.35, 0.025, 0.05);
+      const band = filt(filt(d, 'bandpass', 900, 0.9), 'highpass', 300);
+      [392, 494, 587, 494].forEach((f, i) => { osc(band, 'square', f, f, t + 1.15 + i * 0.12, 0.13, 0.018, 0.01); osc(band, 'triangle', f / 2, f / 2, t + 1.15 + i * 0.12, 0.13, 0.02, 0.01); });
+    },
+    // an old flash gun: the shutter's click, the capacitor's rising whine, the bulb's pop
+    camflash(d, t) {
+      nz(d, t, 0.015, 0.35, 'highpass', 3500, null, 0.8, 0.001); nz(d, t + 0.03, 0.02, 0.25, 'bandpass', 1800, null, 3, 0.001);
+      osc(d, 'sine', 1800, 7800, t + 0.06, 0.9, 0.018, 0.2);
+      nz(d, t + 1.0, 0.09, 0.45, 'bandpass', 2400, 600, 0.7, 0.002); osc(d, 'sine', 160, 60, t + 1.0, 0.12, 0.25, 0.002);
+    },
+    // a fire extinguisher's blast: a hard rush of gas through the horn, sputtering out
+    spray(d, t) { nz(d, t, 1.3, 0.55, 'highpass', 2200, 3800, 0.6, 0.03); nz(d, t, 1.3, 0.3, 'bandpass', 700, 400, 0.8, 0.03, brownBuf); nz(d, t + 1.2, 0.25, 0.25, 'highpass', 3000, null, 0.6, 0.01); },
+    // a teddy bear's voice box: a tired, sagging groan through a tin reed
+    growler(d, t) { const o = osc(filt(d, 'lowpass', 1100, 2), 'sawtooth', 210, 120, t, 0.9, 0.12, 0.08); vib(o, t, 0.9, 7, 6); nz(d, t, 0.9, 0.04, 'bandpass', 800, 500, 2, 0.08); },
     toot(d, t) { for (const k of [0, 0.17]) { osc(d, 'square', 1180, 1165, t + k, 0.12, 0.07, 0.004); osc(d, 'square', 1485, 1470, t + k, 0.12, 0.04, 0.004); } },
     horn(d, t) { const w = shaper(d, 10); osc(w, 'sawtooth', 415, 410, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 421, 418, t, 1.1, 0.35, 0.02); osc(w, 'sawtooth', 622, 615, t, 1.1, 0.22, 0.02); },
     bang(d, t) { nz(d, t, 0.7, 1, 'lowpass', 8000, 250, 0.5, 0.002); osc(d, 'sine', 70, 28, t, 0.9, 1, 0.002); },

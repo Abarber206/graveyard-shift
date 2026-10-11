@@ -487,7 +487,7 @@ const Ship = (() => {
         black: S({ color: 0x151617, roughness: 0.45 }),
         cork: S({ color: 0x8d6b43, roughness: 1 }),
         brass: S({ color: 0xa88a45, metalness: 0.9, roughness: 0.38 }),
-        pad: S({ color: 0x2b2927, roughness: 0.85, map: TEX.get('paintedMetal') }),
+        pad: S({ color: 0x302c28, roughness: 0.8 }),
         blue: S({ color: 0x2c4a6e, roughness: 0.5, metalness: 0.2 }),
         tunnel: S({ color: 0x23262a, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide }),
         gauge: S({ map: gaugeTex, roughness: 0.25, emissive: 0xffffff, emissiveMap: gaugeTex, emissiveIntensity: 0.15 }),
@@ -499,6 +499,13 @@ const Ship = (() => {
         glowRed: L(0.95, 0.12, 0.06), glowAmber: L(0.95, 0.55, 0.1), glowGreen: L(0.25, 0.9, 0.35), glowBlue: L(0.3, 0.6, 1.0),
         glowWarm: B(1.7, 1.4, 0.95),
       };
+      // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
+      // rubbed bright (see MATS.wear)
+      for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) MATS.wear(this.cm[n], { kind: 'paint', k: [0.55, 0.42, 0.002, 0.25], bare: 0x6a6e70, edge: 0.018 });
+      MATS.wear(this.cm.black, { kind: 'paint', k: [0.55, 0.28, 0.0015, 0.7], bare: 0x484b4e, edge: 0.012 });
+      MATS.wear(this.cm.pad, { kind: 'vinyl', k: [0.55, 0.05, 0.0016, 0.6], bare: 0x2a2420, s: 1.6 });
+      MATS.wear(this.cm.brass, { kind: 'metal', k: [0.4, 0.15, 0.0008], bare: 0xd8c08a, s: 2 });
+      MATS.wear(this.cm.cork, { kind: 'vinyl', k: [0.5, 0, 0.002, 0.3], s: 2 });
     }
     buildCockpit() {
       const dm = MATS.get('darkmetal');
@@ -559,13 +566,17 @@ const Ship = (() => {
         const scr = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex })); this.group.add(scr);
         this.screens.push({ cv, tex, kind: i });
       }
-      const btnGeo = new THREE.BoxGeometry(0.035, 0.02, 0.035), btnMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const btns = new THREE.InstancedMesh(btnGeo, btnMat, 60); const col = new THREE.Color(), pal = [0xff3020, 0x30ff60, 0xffa020, 0x40a0ff, 0x222222];
+      // the key banks: worn charcoal keycaps, the odd function key painted red, amber or green, and over each of those a
+      // little lit lamp (dim, so it reads as a lens in the panel and not a light of its own)
+      const btnGeo = new THREE.BoxGeometry(0.036, 0.022, 0.036), btnMat = MATS.wear(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.1 }), { kind: 'paint', k: [0.5, 0.2, 0.0006, 0.6], bare: 0x8a8a86, s: 3 });
+      const btns = new THREE.InstancedMesh(btnGeo, btnMat, 60); const col = new THREE.Color(), pal = [0x242422, 0x353430, 0x242422, 0x8a2a1c, 0x353430, 0x242422, 0x9a7a28, 0x2c2b28, 0x2a5a34];
+      const lamp = { 3: 'glowRed', 6: 'glowAmber', 8: 'glowGreen' };
       const bm = new THREE.Matrix4(), q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, nrm, tan.clone().negate()));
       for (let i = 0; i < 60; i++) {
-        const row = i % 3, colI = Math.floor(i / 3);
+        const row = i % 3, colI = Math.floor(i / 3), k = (i * 7 + row) % pal.length;
         bm.compose(surf(-0.3 + row * 0.07, -1.7 + colI * 0.18, 0.06), q, V(1, 1, 1)); btns.setMatrixAt(i, bm);
-        btns.setColorAt(i, col.set(pal[(i * 7 + row) % pal.length]));
+        btns.setColorAt(i, col.set(pal[k]));
+        if (lamp[k]) { const p = surf(-0.3 + row * 0.07, -1.7 + colI * 0.18 + 0.042, 0.054); this.pb(lamp[k], 0.012, 0.006, 0.012, p.x, p.y, p.z, 0, 0, 0.35); }
       }
       btns.instanceColor.needsUpdate = true; this.group.add(btns); this.buttons = btns;
       this.box(0.06, 0.06, 2 * CK.w1 - 0.3, new THREE.MeshBasicMaterial({ color: 0x5a1008 }), 7.48, 0.2, 0);
@@ -625,7 +636,7 @@ const Ship = (() => {
       // overhead panel
       this.box(1.4, 0.09, 1.5, dm, 5.8, CK.roof - 0.05, 0);
       const ob = new THREE.InstancedMesh(btnGeo, btnMat, 24);
-      for (let i = 0; i < 24; i++) { bm.compose(V(5.3 + (i % 6) * 0.2, CK.roof - 0.1, -0.55 + Math.floor(i / 6) * 0.36), new THREE.Quaternion(), V(1, 1, 1)); ob.setMatrixAt(i, bm); ob.setColorAt(i, col.set(pal[(i * 3) % 4])); }
+      for (let i = 0; i < 24; i++) { bm.compose(V(5.3 + (i % 6) * 0.2, CK.roof - 0.1, -0.55 + Math.floor(i / 6) * 0.36), new THREE.Quaternion(), V(1, 1, 1)); ob.setMatrixAt(i, bm); ob.setColorAt(i, col.set(pal[(i * 5) % pal.length])); }
       ob.instanceColor.needsUpdate = true; this.group.add(ob);
       // cockpit glow
       this.lights.push({ x: 5.6, y: 2.55, z: 0, color: 0xffc89a, power: 0.45, state: 'on', zone: 'out', range: 6, lit: 1, ship: true, phase: 1 });
@@ -722,10 +733,49 @@ const Ship = (() => {
         this.sign(label, 0.17, 0.05, x, 1.565, -3.884, 0, { w: 128, h: 38, size: 28, bold: true, bg: '#1b1b18', fg: '#d0a040', border: false, dirty: false });
         this.interact.push({ kind: 'monitor', act, x, y: 1.45, z: -3.84, r: 0.11 });
       }
-      // charger
-      this.box(0.65, 0.55, 0.16, MATS.get('hazard'), -3.6, 1.3, -3.92);
-      const bolt = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ map: TEX.sign('⚡', { w: 64, h: 64, size: 48, bg: '#111', fg: '#ffd040', border: false, dirty: false }) }));
-      bolt.position.set(-3.6, 1.3, -3.835); this.group.add(bolt);
+      // the charging station: a heavy yellow unit on a bolted backplate, hazard-striped down its sides; a cradle across its
+      // face (a black bezel, brass contacts at the back, a lip to stand a torch on); a little readout over it (READY, a
+      // bar that fills while it charges, FULL) beside a high-voltage plate, a row of lamps under its cap that chase while
+      // it works; its feed comes down a conduit from the ceiling, and a cable runs down to the cell on the deck
+      {
+        const cx = -3.6, cy = 1.32, zf = -3.805, D = 'darkmetal', SB = 'steelBolt';
+        this.pb(D, 0.64, 0.74, 0.025, cx, cy, -3.965);
+        for (const a of [-1, 1]) for (const b of [-1, 1]) this.ps(SB, 0.014, cx + a * 0.29, cy + b * 0.335, -3.952, 1, 1, 0.6, 6);
+        this.pb('yellow', 0.5, 0.56, 0.15, cx, cy, -3.88);
+        for (const s of [-1, 1]) this.pb('hazard', 0.03, 0.5, 0.152, cx + s * 0.236, cy - 0.005, -3.88);
+        this.pb(D, 0.54, 0.045, 0.18, cx, cy + 0.3, -3.88); this.pb(D, 0.54, 0.03, 0.17, cx, cy - 0.295, -3.882);
+        for (const s of [-1, 1]) this.ps(SB, 0.009, cx + s * 0.2, cy + 0.3, zf - 0.005, 1, 0.6, 1, 6);
+        // the cradle
+        this.pb('black', 0.34, 0.15, 0.02, cx, cy - 0.09, zf + 0.004); this.pb('rubber', 0.3, 0.11, 0.006, cx, cy - 0.09, zf + 0.015);
+        for (const s of [-1, 1]) { this.pb('brass', 0.035, 0.055, 0.008, cx + s * 0.07, cy - 0.09, zf + 0.019); this.pb('brass', 0.008, 0.02, 0.004, cx + s * 0.07, cy - 0.055, zf + 0.022); }
+        this.pb(D, 0.36, 0.022, 0.085, cx, cy - 0.177, zf + 0.04); this.pb(D, 0.36, 0.045, 0.012, cx, cy - 0.158, zf + 0.078);
+        // the readout in a black bezel, and the high-voltage plate beside it
+        this.pb('black', 0.27, 0.115, 0.012, cx - 0.06, cy + 0.13, zf + 0.004);
+        const [cv, cg] = TEX.canvas(128, 48), ctex = new THREE.CanvasTexture(cv); ctex.colorSpace = THREE.SRGBColorSpace; ctex.magFilter = THREE.NearestFilter;
+        const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.09), new THREE.MeshBasicMaterial({ map: ctex })); scr.position.set(cx - 0.06, cy + 0.13, zf + 0.0112); this.group.add(scr);
+        {
+          const [wc, wg] = TEX.canvas(64, 58);
+          wg.fillStyle = '#e8b018'; wg.strokeStyle = '#141414'; wg.lineWidth = 5; wg.lineJoin = 'round';
+          wg.beginPath(); wg.moveTo(32, 5); wg.lineTo(60, 53); wg.lineTo(4, 53); wg.closePath(); wg.fill(); wg.stroke();
+          wg.fillStyle = '#141414'; wg.beginPath(); wg.moveTo(36, 16); wg.lineTo(24, 36); wg.lineTo(31, 36); wg.lineTo(27, 49); wg.lineTo(40, 29); wg.lineTo(33, 29); wg.lineTo(37, 16); wg.closePath(); wg.fill();
+          const wt = new THREE.CanvasTexture(wc); wt.colorSpace = THREE.SRGBColorSpace;
+          const w = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.09), new THREE.MeshStandardMaterial({ map: wt, transparent: true, alphaTest: 0.5, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }));
+          w.position.set(cx + 0.14, cy + 0.13, zf + 0.002); this.group.add(w);
+        }
+        this.sign('CHARGE  48V DC', 0.22, 0.04, cx, cy - 0.235, zf + 0.002, 0, { w: 256, h: 46, size: 30, bold: true, bg: '#141414', fg: '#e8b018', border: false, dirty: false });
+        // its lamps (each its own, so they can chase)
+        this.chg = { g: cg, tex: ctex, t: null, last: null, lamps: [] };
+        for (let i = 0; i < 5; i++) {
+          const m = new THREE.MeshBasicMaterial({ color: 0x0c140c }), l = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.016, 0.01), m);
+          l.position.set(cx - 0.12 + i * 0.06, cy + 0.235, zf + 0.004); this.group.add(l); this.chg.lamps.push(m);
+          this.pb('black', 0.032, 0.026, 0.006, cx - 0.12 + i * 0.06, cy + 0.235, zf + 0.0005);
+        }
+        this.drawCharger();
+        // the feed down from the ceiling, clamped to the wall, into the top of the unit
+        this.pc(D, 0.022, 0.022, H - 0.15 - (cy + 0.32), cx + 0.16, (H - 0.15 + cy + 0.32) / 2, -3.935, 0, 0, 0, 8);
+        for (let y = cy + 0.6; y < H - 0.3; y += 0.55) { this.pb(D, 0.07, 0.03, 0.03, cx + 0.16, y, -3.955); this.ps(SB, 0.008, cx + 0.16, y, -3.935, 1, 1, 1, 5); }
+        this.pc(D, 0.035, 0.035, 0.04, cx + 0.16, cy + 0.33, -3.935, 0, 0, 0, 10);
+      }
       this.interact.push({ kind: 'charger', x: -3.6, y: 1.3, z: -3.75, r: 0.5 });
       // storage racks at the back + engine-room door
       for (const z of [-2.6, 2.6]) {
@@ -856,7 +906,7 @@ const Ship = (() => {
       this.col(-1.08, 1.08, -4.0, -3.5);
       // the charger's battery pack and its cable
       this.pb('yellow', 0.42, 0.32, 0.3, -3.6, 0.16, -3.8); this.pb('black', 0.08, 0.05, 0.06, -3.72, 0.345, -3.8); this.pb('red', 0.08, 0.05, 0.06, -3.48, 0.345, -3.8);
-      this.tube('cable', [V(-3.75, 1.04, -3.9), V(-3.88, 0.72, -3.72), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16);
+      this.tube('cable', [V(-3.75, 1.02, -3.88), V(-3.84, 0.72, -3.74), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16); this.pc('darkmetal', 0.025, 0.02, 0.04, -3.75, 1.03, -3.88, 0, 0, 0, 8);
       this.col(-3.82, -3.38, -4.0, -3.63);
       // intercom with a coiled handset cord
       this.pb('painted', 0.24, 0.34, 0.07, -6.0, 1.45, -3.965); this.pb('vent', 0.16, 0.1, 0.01, -6.0, 1.55, -3.928);
@@ -1048,6 +1098,24 @@ const Ship = (() => {
         this.col(x - 0.17, x + 0.17, z - 0.17, z + 0.17);
       }
     }
+    // the charging station's readout: READY (and the cell's voltage) while it waits; charging, a bar of blocks filling
+    // as it goes; then FULL for a moment. t: seconds since it started charging (null: idle)
+    drawCharger(t = null) {
+      const { g, tex } = this.chg, W = 128, Hh = 48, ink = '#6dff8a';
+      g.fillStyle = '#031208'; g.fillRect(0, 0, W, Hh);
+      g.fillStyle = ink; g.font = 'bold 15px "Share Tech Mono", monospace'; g.textBaseline = 'top';
+      const k = t == null ? 0 : Math.min(1, t / 2.4);
+      g.fillText(t == null ? 'READY' : k < 1 ? 'CHARGING' : 'FULL', 6, 5);
+      if (t == null) g.fillText('48.2V', 74, 5);
+      // (the bar: ten blocks, outlined)
+      g.strokeStyle = ink; g.lineWidth = 2; g.strokeRect(6, 26, 104, 15); g.fillRect(110, 30, 5, 7);
+      const n = t == null ? 0 : Math.floor(k * 10 + (k < 1 && (t * 6) % 1 < 0.5 ? 1 : 0));
+      for (let i = 0; i < Math.min(10, n); i++) g.fillRect(9 + i * 10, 29, 8, 9);
+      g.fillStyle = 'rgba(0,0,0,.28)'; for (let y = 0; y < Hh; y += 3) g.fillRect(0, y, W, 1);
+      tex.needsUpdate = true;
+    }
+    // someone has just put something on charge
+    charging() { if (this.chg) this.chg.t = 0; }
     // the clock's face: hours and minutes from minutes past midnight
     drawClock(m) {
       const { g, tex } = this.clock, c = 128;
@@ -2589,6 +2657,16 @@ const Ship = (() => {
       const spin = this.beaconOn;
       this.beacon.group.rotation.y += dt * (spin ? 9 : 0);
       this.beacon.mat.color.set(spin ? (Math.sin(time * 9) > 0 ? 0xffa020 : 0x553300) : 0x331a00);
+      // the charging station: its readout, and its lamps (one green while it waits; chasing while it charges; all lit full)
+      if (this.chg) {
+        const c = this.chg;
+        if (c.t != null) { c.t += dt; if (c.t > 4.6) c.t = null; }
+        const s = c.t == null ? -1 : Math.floor(c.t * 8);
+        if (s !== c.last) {
+          c.last = s; this.drawCharger(c.t);
+          c.lamps.forEach((m, i) => m.color.setHex(c.t == null ? (i === 0 ? 0x2a9a3a : 0x0c140c) : c.t >= 2.4 ? 0x3aff5a : (s % 6) >= i + 1 ? 0xffb020 : 0x1a1408));
+        }
+      }
       this.screenT -= dt;
       if (this.screenT <= 0) { this.screenT = 0.25; this.drawScreens(time, mode === 'orbit' ? 'IN ORBIT' : this.airborne ? 'IN FLIGHT' : mode === 'site' ? 'LANDED' : 'TRANSIT'); }
       // gear and ramp run on hydraulics: they whine while they move and clunk home

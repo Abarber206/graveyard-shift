@@ -3122,7 +3122,8 @@ const MATS = (() => {
   };
   const repCache = {}, agedCache = {};
   // a surface on a lower level: darker and browner with grime, duller, its paint and metal gone flat
-  const AGE_TINT = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34]];
+  // (past the third basement only a little darker each floor: the bottom of a deep plant is grim, not black)
+  const AGE_TINT = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34], [0.42, 0.39, 0.31], [0.39, 0.36, 0.29]];
   return {
     get(name) { if (!cache[name]) { if (!defs[name]) throw new Error('No material ' + name); cache[name] = defs[name](); } return cache[name]; },
     wear,
@@ -3131,7 +3132,7 @@ const MATS = (() => {
     aged(name, lv) {
       const k = name + '@' + lv;
       if (agedCache[k]) return agedCache[k];
-      const m = this.get(name).clone(), t = AGE_TINT[Math.min(3, lv)] || AGE_TINT[3];
+      const m = this.get(name).clone(), t = AGE_TINT[Math.min(AGE_TINT.length - 1, lv)] || AGE_TINT[3];
       m.color = m.color.clone().multiply(new THREE.Color(t[0], t[1], t[2]));
       if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv);
       if (m.metalness) m.metalness *= 0.6;
@@ -4207,9 +4208,14 @@ const DoorKit = {
 const Facility = (() => {
   const TS = FAC_TS, Y0 = FAC_Y0, CH = 3.0, DW = 1.6, DH = 2.4;
   // levels: each lies DROP below the last. They are joined by stairwells: vertical shafts SW x SL tiles with switchback
-  // flights stacked one storey over the next, standing in a band SB tiles deep between the ground floor and the levels
-  // under it. A shaft serving several floors opens onto each of them at its own landing.
-  const DROP = 6, SB = 4, SW = 2, SL = 4, STAIR_H = 3.3, LEVEL_NAMES = ['G', 'B1', 'B2', 'B3'];
+  // flights stacked one storey over the next, standing in a band SB tiles deep between one floor and the next one down.
+  // A shaft opens onto each floor it serves at its own landing.
+  const DROP = 6, SB = 4, SW = 2, SL = 4, STAIR_H = 3.3, levelLabel = (n) => (n > 0 ? 'B' + n : 'G');
+  // how far gone a level is (dark, failing, grown over): a floor further down for each of the first two, and after that
+  // only a little more for each (the bottom of the deepest plant is as near dead as the second basement, not past it)
+  const deepK = (d) => (d <= 2 ? Math.max(0, d) : 2 + (d - 2) * 0.15);
+  // how near a stairwell you have to be to see into it at all (further off, its doorway is lost in the dark)
+  const SHOW_R = 40;
   // a stairwell storey: north landing (v 0-3), flights (v 3-9: east one down to the south, west one down to the north),
   // south landing (v 9-12); the well between the flights is RAIL wide
   const RAIL = 0.15;
@@ -4263,13 +4269,13 @@ const Facility = (() => {
     // sooty firebrick, black slag concrete, rusted doors, furnace-orange light
     vesper: { wall: ['brick', 0x7a5a50], wallTile: ['bunker', 0x5a5450], floor: ['floor', 0x5a524c], floorTile: ['metal', 0x5a5450], ceiling: ['bunker', 0x4a4440], door: ['rust', 0x8a6a5a], lamp: 0xff9a50 },
   };
-  const _lampC = new THREE.Color(), _lampF = new THREE.Color();
-  const AGE_T = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34]], finCache = {};
+  const _lampC = new THREE.Color(), _lampF = new THREE.Color(), stencils = {};
+  const AGE_T = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34], [0.42, 0.39, 0.31], [0.39, 0.36, 0.29]], finCache = {};
   // a world's own version of a surface (worn the way MATS.aged wears one, on the levels below)
   const finMat = (theme, base, f, lv) => {
     const k = theme + ':' + base + '@' + lv; if (finCache[k]) return finCache[k];
     const m = MATS.get(f[0]).clone(); if (f[1] != null) m.color = new THREE.Color(f[1]);
-    if (lv > 0) { const t = AGE_T[Math.min(3, lv)]; m.color.multiply(new THREE.Color(t[0], t[1], t[2])); if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv); if (m.metalness) m.metalness *= 0.6; }
+    if (lv > 0) { const t = AGE_T[Math.min(AGE_T.length - 1, lv)]; m.color.multiply(new THREE.Color(t[0], t[1], t[2])); if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv); if (m.metalness) m.metalness *= 0.6; }
     return (finCache[k] = m);
   };
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -4281,23 +4287,19 @@ const Facility = (() => {
       if (f) return finMat(this.theme, base, f, lv);
       return at < 0 ? MATS.get(key) : MATS.aged(base, lv);
     }
-    // stairs: the stairwell plan, one entry per level under the ground floor. [n]: two levels joined by n stairwells.
-    // [a, b]: three levels; a main stairwell serves all three, and one more runs down to each of the lower two.
-    constructor(seed, size, theme, stairs) {
+    // stairs: how many stairwells join each floor to the next one down (2 or 3; fewer only where a floor is too narrow
+    // to keep them apart). floors: how many floors, the ground floor and the basements under it (1 if not given).
+    // defer: set up only; generateGen() then lays it out a piece at a time (see G.stageSite)
+    constructor(seed, size, theme, stairs, floors, defer) {
       this.seed = seed; this.rng = new RNG(seed); this.theme = theme;
-      this.stairPlan = stairs || []; this.levels = Math.min(3, this.stairPlan.length + 1);
+      this.perBand = clamp((Array.isArray(stairs) ? stairs[0] : stairs) || 2, 1, 3); this.levels = Math.max(1, Math.min(10, floors | 0 || 1));
       const W = (this.W = size), L = this.levels;
-      // where each level lies: the ground floor across the top, a band of stairwells under it, then the lower levels
-      // (side by side when there are two). Nothing joins them but the stairwells.
-      this.regions = [];
-      if (L === 1) { this.H = size; this.Hg = size; this.regions.push({ n: 0, i0: 0, i1: W, j0: 0, j1: size }); }
-      else {
-        const Hg = size, Hl = Math.max(16, Math.round(size * (L === 2 ? 0.66 : 0.74)));
-        this.Hg = Hg; this.H = Hg + SB + Hl;
-        this.regions.push({ n: 0, i0: 0, i1: W, j0: 0, j1: Hg });
-        if (L === 2) this.regions.push({ n: 1, i0: 0, i1: W, j0: Hg + SB, j1: this.H });
-        else { const half = Math.floor(W / 2); this.regions.push({ n: 1, i0: 0, i1: half - 1, j0: Hg + SB, j1: this.H }, { n: 2, i0: half + 1, i1: W, j0: Hg + SB, j1: this.H }); }
-      }
+      // where each level lies: the ground floor across the top, then for each floor down a band of stairwells and under
+      // it that floor, every one the full width (each further down the grid; nothing joins them but the stairwells)
+      const Hg = (this.Hg = size), Hl = (this.Hl = Math.max(16, Math.round(size * 0.66)));
+      this.regions = [{ n: 0, i0: 0, i1: W, j0: 0, j1: Hg }]; this.bands = [0];
+      for (let n = 1; n < L; n++) { const jb = this.regions[n - 1].j1; this.bands.push(jb); this.regions.push({ n, i0: 0, i1: W, j0: jb + SB, j1: jb + SB + Hl }); }
+      this.H = this.regions[L - 1].j1;
       const N = this.W * this.H;
       this.ox = -size * TS / 2; this.oz = -size * TS / 2;
       this.grid = new Uint8Array(N); this.room = new Int16Array(N).fill(-1); this.ceil = new Float32Array(N);
@@ -4307,8 +4309,8 @@ const Facility = (() => {
       this.rooms = []; this.doors = []; this.doorEdge = new Map(); this.lamps = []; this.vents = [];
       this.shafts = []; this.exitEdge = new Map(); this.portals = new Map(); this.blasts = []; this.blastEdge = new Map();
       this.cols = []; this.colHash = new Map(); this.spots = []; this.exits = []; this.buckets = {}; this.coreSpot = null; this.containers = [];
-      this.lampMeshes = null; this.group = null; this.lv = 0;
-      this.generate();
+      this.lampMeshes = null; this.group = null; this.parts = null; this.lv = 0; this.part = null;
+      if (!defer) { const g = this.generateGen(); while (!g.next().done); }
     }
     // ---------- grid helpers ----------
     idx(i, j) { return i < 0 || j < 0 || i >= this.W || j >= this.H ? -1 : i + j * this.W; }
@@ -4328,9 +4330,12 @@ const Facility = (() => {
       return this.grid[k] === 4 ? this.shaftFloor(this.shafts[this.shaftOf[k]], x, z, y) : this.tileY(k);
     }
     ceilY(x, z, y) { const k = this.idx(this.ti(x), this.tj(z)); return this.floorY(x, z, y) + (k >= 0 && this.grid[k] === 4 ? 4 : this.ceilAt(x, z)); }
-    // how far down a height is, in levels, and that level's name
+    // how far down a height is, in levels, and that level's name (G, B1, B2...)
     depthOfY(y) { return clamp(-(y - Y0) / DROP, 0, this.levels - 1); }
-    levelName(y) { return LEVEL_NAMES[Math.round(this.depthOfY(y))] || 'B?'; }
+    levelName(y) { return levelLabel(Math.round(this.depthOfY(y))); }
+    levelLabel(n) { return levelLabel(n); }
+    // how far gone the air is at a height: dark, murk (see G.environment); 0 up on the ground floor
+    gloomAt(y) { return deepK(this.depthOfY(y)); }
     contains(x, y, z) { return y < Y0 + 30 && y > Y0 - 10 - (this.levels - 1) * DROP && this.floorAt(this.ti(x), this.tj(z)); }
     edgeKey(a, b) { return a < b ? a * 65536 + b : b * 65536 + a; }
     // can you pass straight from tile k into its neighbour nk? Only on the same level, and into a stairwell only
@@ -4351,35 +4356,36 @@ const Facility = (() => {
       r.ax = r.cx; r.ay = r.cy;   // where corridors are dug to and from
       this.rooms.push(r); return r;
     }
-    // the stairwells: 2 x 4-tile shafts in the band under the ground floor. Each opens north onto a small lobby on the
-    // ground floor and, at its lower levels, sideways into a hall that runs down beside it into that level.
+    // the stairwells: 2 x 4-tile shafts in the band over each floor below the ground, two or three of them spread across
+    // its width. Each opens north onto a small lobby on the floor above and, at its foot, sideways into a hall that runs
+    // down beside it into the floor below. (A shaft only ever joins two floors: the way down is a floor at a time.)
     planShafts() {
       const r = this.rng, W = this.W, L = this.levels; if (L < 2) return;
-      const Hg = this.Hg, half = Math.floor(W / 2), plan = [];
-      if (L === 2) {
-        const count = clamp(this.stairPlan[0] || 2, 1, 3), cols = [];
+      const plan = [], count = this.perBand;
+      for (let b = 1; b < L; b++) {
+        const cols = [];
         for (let c = 0; c < count; c++) for (let t = 0; t < 40; t++) {
           const i = clamp(Math.round(W * (c + 0.5) / count + r.range(-W * 0.08, W * 0.08)), 3, W - 5);
           if (cols.some((o) => Math.abs(o - i) < 8)) continue;
           cols.push(i); break;
         }
-        cols.sort((a, b) => a - b).forEach((c, n) => plan.push({ c, levels: [0, 1], side: { 1: n % 2 ? 'e' : 'w' } }));
-      } else {
-        plan.push({ c: half - 1, levels: [0, 1, 2], side: { 1: 'w', 2: 'e' } });
-        plan.push({ c: clamp(Math.round(W * 0.2 + r.range(-2, 2)), 3, half - 7), levels: [0, 1], side: { 1: r.chance(0.5) ? 'w' : 'e' } });
-        plan.push({ c: clamp(Math.round(W * 0.78 + r.range(-2, 2)), half + 5, W - 5), levels: [0, 2], side: { 2: r.chance(0.5) ? 'w' : 'e' } });
+        // (where chance left them crowded, the first column clear of the others)
+        for (let i = 3; cols.length < count && i <= W - 5; i++) if (cols.every((o) => Math.abs(o - i) >= 8)) cols.push(i);
+        // the halls down into the floor below turn alternately west and east, the other way round on the next floor
+        cols.sort((a, q) => a - q).forEach((c, n) => plan.push({ c, jb: this.bands[b], levels: [b - 1, b], side: { [b]: (n + b) % 2 ? 'w' : 'e' } }));
       }
       plan.forEach((p, n) => {
-        const s = { id: n, name: String.fromCharCode(65 + n), c: p.c, top: Math.min(...p.levels), bot: Math.max(...p.levels), exits: [], x0: this.ox + p.c * TS, z0: this.oz + Hg * TS };
-        for (let a = 0; a < SW; a++) for (let b = 0; b < SL; b++) { const k = this.idx(p.c + a, Hg + b); this.grid[k] = 4; this.shaftOf[k] = n; }
-        // the ground floor: through the north wall from a small lobby
-        const lob = this.addRoom(p.c - 1, Hg - 2, 3, 2, 'stairs', 0); lob.shaft = s;
-        s.exits.push({ lv: 0, side: 'n', out: this.idx(p.c, Hg - 1), inn: this.idx(p.c, Hg) });
-        // a lower level: a side door off its landing into a hall running down beside the shaft into the level
-        for (const lv of p.levels) if (lv > 0) {
+        const jb = p.jb, top = p.levels[0];
+        const s = { id: n, name: String.fromCharCode(65 + n), c: p.c, jb, top, bot: p.levels[1], exits: [], x0: this.ox + p.c * TS, z0: this.oz + jb * TS };
+        for (let a = 0; a < SW; a++) for (let b = 0; b < SL; b++) { const k = this.idx(p.c + a, jb + b); this.grid[k] = 4; this.shaftOf[k] = n; }
+        // the floor above: through the north wall from a small lobby
+        const lob = this.addRoom(p.c - 1, jb - 2, 3, 2, 'stairs', top); lob.shaft = s;
+        s.exits.push({ lv: top, side: 'n', out: this.idx(p.c, jb - 1), inn: this.idx(p.c, jb) });
+        // the floor below: a side door off its landing into a hall running down beside the shaft into the floor
+        for (const lv of p.levels) if (lv > top) {
           const side = p.side[lv], ci = side === 'w' ? p.c - 1 : p.c + SW;
-          const hall = this.addRoom(ci, Hg, 1, SB + 1, 'stairs', lv); hall.ax = ci; hall.ay = Hg + SB; hall.shaft = s; hall.hall = true;
-          s.exits.push({ lv, side, out: this.idx(ci, Hg), inn: this.idx(side === 'w' ? p.c : p.c + SW - 1, Hg) });
+          const hall = this.addRoom(ci, jb, 1, SB + 1, 'stairs', lv); hall.ax = ci; hall.ay = jb + SB; hall.shaft = s; hall.hall = true;
+          s.exits.push({ lv, side, out: this.idx(ci, jb), inn: this.idx(side === 'w' ? p.c : p.c + SW - 1, jb) });
         }
         for (const e of s.exits) { e.shaft = s; this.exitEdge.set(this.edgeKey(e.out, e.inn), e); }
         // a creature can go in at one doorway and come out at another (see findPath)
@@ -4390,8 +4396,11 @@ const Facility = (() => {
         this.shafts.push(s);
       });
     }
-    generate() {
+    // laid out a piece at a time: it yields whenever it has been at it for a few milliseconds, so a landing can spread
+    // it over frames (the pieces always come in the same order, so the layout is the same however it's split up)
+    *generateGen() {
       const r = this.rng, W = this.W;
+      let t0 = performance.now(); const busy = () => performance.now() - t0 > 6;
       const ew = 5, eh = 4, ei = Math.floor(W / 2 - ew / 2), ej = 1;
       const ent = this.addRoom(ei, ej, ew, eh, 'entrance', 0);
       this.planShafts();
@@ -4420,7 +4429,7 @@ const Facility = (() => {
       { const ex = farthest(plain(0), this.rooms.filter((o) => o.lv === 0 && o.type)); if (ex) ex.type = 'exit'; }
       for (const o of this.rooms) if (!o.type) {
         const w = { ...(o.w * o.h >= 30 ? { machine: 3, hall: 2, storage: 3, boiler: 2 } : THEME_W[this.theme] || TYPE_W) };
-        if (o.lv > 0) for (const t in w) w[t] *= Math.pow(DEEP_W[t] || 1, o.lv);
+        if (o.lv > 0) for (const t in w) w[t] *= Math.pow(DEEP_W[t] || 1, deepK(o.lv));
         o.type = r.weighted(w);
       }
       for (const room of this.rooms) for (let i = room.i; i < room.i + room.w; i++) for (let j = room.j; j < room.j + room.h; j++) {
@@ -4442,27 +4451,35 @@ const Facility = (() => {
           for (let q = 0; q < n; q++) if (q !== a && !has.has(a * 1000 + q)) { const d = dr(rs[a], rs[q]); if (d < bd) { bd = d; bb = q; } }
           if (bb >= 0 && bd < W * 0.5 && r.chance(0.4)) { edges.push([a, bb]); has.add(a * 1000 + bb); has.add(bb * 1000 + a); }
         }
-        for (const [a, q] of edges) this.carve(rs[a], rs[q], reg);
+        for (const [a, q] of edges) { this.carve(rs[a], rs[q], reg); if (busy()) { yield; t0 = performance.now(); } }
       }
       this.deadEnds();
+      yield; t0 = performance.now();
       this.placeBlastDoors();
+      yield; t0 = performance.now();
       this.placeDoors();
       this.placeExits();
+      yield; t0 = performance.now();
       this.placeLamps();
       this.placeVents();
-      for (const room of this.rooms) this.furnish(room);
-      this.corridorDressing();
+      for (const room of this.rooms) { this.furnish(room); if (busy()) { yield; t0 = performance.now(); } }
+      yield; t0 = performance.now();
+      for (const _ of this.corridorDressing()) if (busy()) { yield; t0 = performance.now(); }
       for (const s of this.shafts) this.shaftColliders(s);
       this.bloodTrail();
+      this._dig = null;
     }
     // a corridor dug from A to B within one level's region (from and to each room's anchor tile)
     carve(A, B, reg) {
       const W = this.W, H = this.H, N = W * H * 4, ilo = Math.max(1, reg.i0), ihi = Math.min(W - 1, reg.i1), jlo = Math.max(1, reg.j0), jhi = Math.min(H - 1, reg.j1);
       const start = this.idx(A.ax, A.ay), goal = this.idx(B.ax, B.ay);
-      const g = new Float32Array(N).fill(Infinity), came = new Int32Array(N).fill(-1);
+      // (one set of scratch arrays for every dig, each search stamped with its own number: a state whose stamp is old
+      // hasn't been reached yet this time)
+      const C = this._dig || (this._dig = { g: new Float32Array(N), came: new Int32Array(N), at: new Uint32Array(N), t: 0 }), g = C.g, came = C.came, at = C.at, now = ++C.t;
+      const gOf = (s) => (at[s] === now ? g[s] : Infinity);
       const open = new MinHeap();
       const hx = (k) => Math.abs((k % W) - B.ax) + Math.abs(Math.floor(k / W) - B.ay);
-      for (let d = 0; d < 4; d++) { g[start * 4 + d] = 0; open.push(hx(start), start * 4 + d); }
+      for (let d = 0; d < 4; d++) { at[start * 4 + d] = now; g[start * 4 + d] = 0; came[start * 4 + d] = -1; open.push(hx(start), start * 4 + d); }
       let end = -1, guard = 0;
       while (open.size && guard++ < 60000) {
         const s = open.pop(), k = s >> 2, dir = s & 3;
@@ -4473,7 +4490,7 @@ const Facility = (() => {
           if (ni < ilo || nj < jlo || ni >= ihi || nj >= jhi) continue;
           const nk = ni + nj * W, ns = nk * 4 + nd;
           const cost = g[s] + this.carveCost(nk, A, B) + (nd !== dir ? 4 : 0);
-          if (cost < g[ns]) { g[ns] = cost; came[ns] = s; open.push(cost + hx(nk), ns); }
+          if (cost < gOf(ns)) { at[ns] = now; g[ns] = cost; came[ns] = s; open.push(cost + hx(nk), ns); }
         }
       }
       if (end < 0) return;
@@ -4583,7 +4600,7 @@ const Facility = (() => {
       const r = this.rng, W = this.W;
       const near = (i, j, d) => this.lamps.some((l) => Math.abs(l.i - i) + Math.abs(l.j - j) <= d);
       const add = (i, j, color, state, axis) => {
-        const k = this.idx(i, j), h = this.ceil[k], deep = Math.max(0, this.lvl[k]), base = this.tileY(k);
+        const k = this.idx(i, j), h = this.ceil[k], deep = deepK(this.lvl[k]), base = this.tileY(k);
         // short ranges keep lamps from bleeding through the walls into neighbouring rooms
         const range = this.grid[k] !== 2 ? 6.2 : h >= 5 ? 8.5 : 7;
         // the further down, the weaker what's left of the supply; the lowest emergency circuit glows red
@@ -4592,13 +4609,14 @@ const Facility = (() => {
         else if (state !== 'emergency' && FINISH[this.theme]) color = _lampC.set(color).lerp(_lampF.set(FINISH[this.theme].lamp), 0.6).getHex();
         this.lamps.push({ i, j, x: this.cx(i), y: base + h - 0.12, fy: base, z: this.cz(j), tilt: 0, color, state, axis, range, power: (state === 'emergency' ? 0.55 : h >= 5 ? 1.4 : 1) * (1 - 0.16 * deep), phase: r.next() * 100, zone: 'in', lit: 1, idx: this.lamps.length });
       };
-      // deeper down more of the tubes are dead and most of the rest are failing; on the lowest level only the
-      // emergency circuit still runs in places
+      // deeper down more of the tubes are dead and most of the rest are failing; from the second basement on only the
+      // emergency circuit still runs in places, and less of anything at all the further down
       const pickState = (deep) => {
         const x = r.next();
         if (deep < 0.5) return x < 0.5 ? 'on' : x < 0.68 ? 'flicker' : 'off';
         if (deep < 1.5) return x < 0.28 ? 'on' : x < 0.5 ? 'flicker' : 'off';
-        return x < 0.14 ? 'on' : x < 0.34 ? 'flicker' : x < 0.5 ? 'emergency' : 'off';
+        const f = clamp((deep - 2) / 0.45, 0, 1);
+        return x < 0.14 - 0.05 * f ? 'on' : x < 0.34 - 0.08 * f ? 'flicker' : x < 0.5 - 0.06 * f ? 'emergency' : 'off';
       };
       this.pickLampState = pickState;
       for (let k = 0; k < this.grid.length; k++) {
@@ -4606,14 +4624,14 @@ const Facility = (() => {
         const i = k % W, j = Math.floor(k / W);
         if (near(i, j, 3) || !r.chance(0.6)) continue;
         const horiz = this.floorAt(i - 1, j) || this.floorAt(i + 1, j);
-        add(i, j, 0xcfdcff, pickState(this.lvl[k]), horiz ? 'x' : 'z');
+        add(i, j, 0xcfdcff, pickState(deepK(this.lvl[k])), horiz ? 'x' : 'z');
       }
       for (const room of this.rooms) {
         const t = RT[room.type];
         // a stairwell's hall: one fitting halfway along, never quite dead
-        if (room.hall) { const st = pickState(room.lv); add(room.i, room.j + 2, st === 'emergency' ? 0xff5a30 : t.lamp, st === 'off' ? 'flicker' : st, 'z'); continue; }
+        if (room.hall) { const st = pickState(deepK(room.lv)); add(room.i, room.j + 2, st === 'emergency' ? 0xff5a30 : t.lamp, st === 'off' ? 'flicker' : st, 'z'); continue; }
         for (let i = room.i + 1; i < room.i + room.w; i += 3) for (let j = room.j + 1; j < room.j + room.h; j += 3) {
-          let st = pickState(room.lv);
+          let st = pickState(deepK(room.lv));
           if (room.type === 'entrance') st = 'on';
           if (room.type === 'core') st = 'emergency';
           // a stairwell's lobby always has its light, even if it's only the emergency one
@@ -4649,8 +4667,13 @@ const Facility = (() => {
       return c;
     }
     // ---------- geometry buckets ----------
-    // props built while furnishing a lower level (this.lv > 0) get that level's grimier, darker finish
-    put(mat, geo, m) { if (this.lv > 0 && AGED.has(mat)) mat += '@' + this.lv; (this.buckets[mat] || (this.buckets[mat] = [])).push({ geo, matrix: m }); }
+    // props built while furnishing a lower level (this.lv > 0) get that level's grimier, darker finish. Each level's
+    // (and each stairwell's: this.part) are merged on their own, so a floor nobody can see isn't drawn (see showFor)
+    put(mat, geo, m) {
+      if (this.lv > 0 && AGED.has(mat)) mat += '@' + this.lv;
+      const key = mat + '#' + (this.part ?? this.lv);
+      (this.buckets[key] || (this.buckets[key] = [])).push({ geo, matrix: m });
+    }
     // place a box prop. local size w (x) * h * d (z), positioned with base at y.
     pbox(mat, w, h, d, x, y, z, ry = 0) { this.put(mat, new THREE.BoxGeometry(w, h, d), mat4(x, y + h / 2, z, ry)); }
     // a door leaf; mirrored leaves flip the texture so double doors have both handles on the inner edges
@@ -5097,9 +5120,11 @@ const Facility = (() => {
         }
       }
     }
-    corridorDressing() {
+    // (a piece at a time: see generateGen)
+    *corridorDressing() {
       const r = this.rng, W = this.W, deep = this.regions.map(() => []);
       for (let k = 0; k < this.grid.length; k++) {
+        if ((k & 511) === 511) yield;
         if (this.grid[k] !== 1) continue;
         const i = k % W, j = Math.floor(k / W), x = this.cx(i), z = this.cz(j), h = this.ceil[k];
         const Y0 = this.tileY(k);
@@ -5117,7 +5142,7 @@ const Facility = (() => {
           else this.put('puddle', new THREE.CircleGeometry(r.range(0.3, 0.9), 12), mat4(x + r.range(-0.8, 0.8), Y0 + 0.01, z + r.range(-0.8, 0.8), 0, -Math.PI / 2));
         }
       }
-      for (let n = 1; n < this.levels; n++) if (deep[n].length) { this.lv = n; this.decay(deep[n], FAC_Y0 - n * DROP, n, CH, null); }
+      for (let n = 1; n < this.levels; n++) if (deep[n].length) { yield; this.lv = n; this.decay(deep[n], FAC_Y0 - n * DROP, n, CH, null); }
       this.lv = 0;
     }
     // ---------- blast doors ----------
@@ -5150,9 +5175,12 @@ const Facility = (() => {
         if (this.grid[nk] === 1 && straight(nk) === ax) cand.push([k, nk, ax]);
       }
       r.shuffle(cand);
-      const want = clamp(Math.round(total / 240), 2, 5), letters = 'ABCDEFGHJKLMNPRSTUVWXYZ', used = new Set();
-      for (const [k, nk, ax] of cand) {
+      // (about one for every 240 tiles of floor, shared out between the levels: a few on every one of a deep plant)
+      const want = clamp(Math.round(total / 240), 2, 3 + this.levels), letters = 'ABCDEFGHJKLMNPRSTUVWXYZ', used = new Set();
+      const perLv = Math.ceil(want / this.levels), onLv = new Array(this.levels).fill(0);
+      for (const pass of [0, 1]) for (const [k, nk, ax] of cand) {
         if (this.blasts.length >= want) break;
+        if (this.blastEdge.has(this.edgeKey(k, nk)) || (!pass && onLv[this.lvl[k]] >= perLv)) continue;
         const i = k % W, j = Math.floor(k / W);
         if (this.blasts.some((b) => Math.abs(b.i - i) + Math.abs(b.j - j) < 9)) continue;
         cut.add(this.edgeKey(k, nk));
@@ -5161,7 +5189,7 @@ const Facility = (() => {
         const dx = ax === 'x' ? 1 : 0, dz = ax === 'z' ? 1 : 0;
         const x = this.cx(i) + dx * TS / 2, z = this.cz(j) + dz * TS / 2, open = r.chance(0.35);
         const d = { id: this.blasts.length, code, i, j, a: k, b: nk, x, z, y: this.tileY(k), nx: dx, nz: dz, lv: this.lvl[k], open, anim: open ? 1 : 0, mesh: null };
-        this.blasts.push(d); this.blastEdge.set(this.edgeKey(k, nk), d);
+        this.blasts.push(d); this.blastEdge.set(this.edgeKey(k, nk), d); onLv[d.lv]++;
         this.clear[k] = this.clear[nk] = 1;
         // the slab across the corridor (solid while it's down)
         this.addCol(x - (dx ? 0.25 : TS / 2), x + (dx ? 0.25 : TS / 2), z - (dz ? 0.25 : TS / 2), z + (dz ? 0.25 : TS / 2), 4, null, [k, nk], { blast: d });
@@ -5228,7 +5256,7 @@ const Facility = (() => {
     // rail where the top landing drops away, the pit under the lowest flight, and dim lamps on every landing
     shaftColliders(s) {
       const x0 = s.x0, z0 = s.z0, X1 = x0 + SW * TS, Z1 = z0 + SL * TS, t = 0.2, tiles = [];
-      for (let a = 0; a < SW; a++) for (let b = 0; b < SL; b++) tiles.push(this.idx(s.c + a, this.Hg + b));
+      for (let a = 0; a < SW; a++) for (let b = 0; b < SL; b++) tiles.push(this.idx(s.c + a, s.jb + b));
       const yTop = this.shaftY(s, s.top), yBot = this.shaftY(s, s.bot), col = (a, b, c, d, extra) => this.addCol(a, b, c, d, 99, null, tiles, extra);
       const wall = (side, fixed0, fixed1, from, to, horiz) => {
         const e = s.exits.find((q) => q.side === side), at = (a, b, extra) => (horiz ? col(a, b, fixed0, fixed1, extra) : col(fixed0, fixed1, a, b, extra));
@@ -5245,7 +5273,8 @@ const Facility = (() => {
       col(x0 + 3 + RAIL, X1, z0 + 2.95, z0 + 3.1, { yr: [yBot - 0.8, yBot + 1.5] });
       col(x0, x0 + 3 - RAIL, z0 + 4.5, Z1, { yr: [yBot - 0.8, yBot + 0.3] });
       // a caged lamp on the wall of every landing: dim, most of them failing
-      const lamp = (x, z, fy, deep) => {
+      const lamp = (x, z, fy, lv) => {
+        const deep = deepK(lv);
         let st = this.pickLampState(deep); if (st === 'off' || st === 'on') st = this.rng.chance(0.6) ? 'flicker' : 'on';
         this.lamps.push({ i: this.ti(x), j: this.tj(z), x, y: fy + 2.7, fy, z, tilt: 0, color: st === 'emergency' ? 0xff5a30 : 0xffc890, state: st, axis: 'x', range: 7, power: 0.62 * (1 - 0.14 * deep), phase: this.rng.next() * 100, zone: 'in', lit: 1, idx: this.lamps.length, shaft: s.id });
       };
@@ -5264,12 +5293,14 @@ const Facility = (() => {
       const Y0 = this.roomY(a);
       const path = this.findPath(this.cx(a.cx), this.cz(a.cy), this.cx(b.cx), this.cz(b.cy), true);
       if (!path || path.length < 3) return;
+      this.lv = a.lv;
       for (let n = 0; n < path.length - 1; n++) {
         const p = path[n], q = path[n + 1], ang = Math.atan2(q.x - p.x, q.z - p.z);
         this.put('smear', new THREE.PlaneGeometry(0.7, TS * 1.05), mat4((p.x + q.x) / 2 + r.range(-0.2, 0.2), Y0 + 0.016, (p.z + q.z) / 2, ang, -Math.PI / 2));
       }
       const e = path[path.length - 1];
       this.put('blood', new THREE.PlaneGeometry(1.8, 1.8), mat4(e.x, Y0 + 0.017, e.z, r.range(0, TAU), -Math.PI / 2));
+      this.lv = 0;
     }
 
     // ---------- mesh building ----------
@@ -5277,6 +5308,11 @@ const Facility = (() => {
     build() { const g = this.buildGen(); let r; do r = g.next(); while (!r.done); return r.value; }
     *buildGen() {
       const grp = new THREE.Group(); grp.name = 'facility';
+      // what's built is hung in parts: one for each level, then one for each stairwell (see showFor)
+      const parts = (this.parts = []), L = this.levels;
+      for (let n = 0; n < L + this.shafts.length; n++) { const g = new THREE.Group(); g.name = n < L ? 'level ' + levelLabel(n) : 'stairwell ' + this.shafts[n - L].name; parts.push(g); grp.add(g); }
+      const partOf = (key) => { const at = key.lastIndexOf('#'); return at < 0 ? [key, 0] : [key.slice(0, at), +key.slice(at + 1)]; };
+      let t0 = performance.now(); const busy = () => performance.now() - t0 > 6;
       const P = {};
       const bucket = (m) => P[m] || (P[m] = { pos: [], nor: [], uv: [] });
       const quad = (m, pts, n, uvs) => {
@@ -5289,8 +5325,8 @@ const Facility = (() => {
         for (const o of order) { b.pos.push(...pts[o]); b.nor.push(...n); b.uv.push(...uvs[o]); }
       };
       const W = this.W, H = this.H;
-      // a tile's level decides its finish (the deeper, the grimier)
-      const aged = (m, lv) => (lv > 0 && AGED.has(m) ? m + '@' + lv : m);
+      // a tile's level decides its finish (the deeper, the grimier), and which part it's merged into
+      const aged = (m, lv) => (lv > 0 && AGED.has(m) ? m + '@' + lv : m) + '#' + lv;
       const matFloor = (k) => (this.room[k] >= 0 ? RT[this.rooms[this.room[k]].type].floor : 'floor');
       const matWall = (k) => (this.room[k] >= 0 ? RT[this.rooms[this.room[k]].type].wall : 'wall');
       const wallQuad = (m, k, dx, dy, y0, y1, a0 = -TS / 2, a1 = TS / 2) => {
@@ -5301,7 +5337,7 @@ const Facility = (() => {
         quad(m, [p(a0, y0), p(a1, y0), p(a1, y1), p(a0, y1)], [-dx, 0, -dy], [[u(a0), y0 / 3], [u(a1), y0 / 3], [u(a1), y1 / 3], [u(a0), y1 / 3]]);
       };
       for (let k = 0; k < W * H; k++) {
-        if ((k & 2047) === 2047) yield;
+        if ((k & 255) === 255 && busy()) { yield; t0 = performance.now(); }
         // (a stairwell builds itself, below)
         if (!this.grid[k] || this.grid[k] === 4) continue;
         const i = k % W, j = Math.floor(k / W), x0 = this.ox + i * TS, x1 = x0 + TS, z0 = this.oz + j * TS, z1 = z0 + TS, h = this.ceil[k];
@@ -5326,15 +5362,16 @@ const Facility = (() => {
           if (nh < h) wallQuad(wm, k, dx, dy, nh, h);
         }
       }
-      yield;
-      for (const m in P) {
-        const b = P[m], geo = new THREE.BufferGeometry();
+      yield; t0 = performance.now();
+      for (const key in P) {
+        const b = P[key], geo = new THREE.BufferGeometry(), [m, part] = partOf(key);
         geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
-        const me = new THREE.Mesh(geo, this.mat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); grp.add(me);
+        const me = new THREE.Mesh(geo, this.mat(m)); me.receiveShadow = true; me.castShadow = !m.startsWith('ceiling') && !m.startsWith('floor'); parts[part].add(me);
+        if (busy()) { yield; t0 = performance.now(); }
       }
-      yield;
+      yield; t0 = performance.now();
       // doors: frames + panels
       const leafGeo = Pane.leaf(LEAF_W, DH - 0.03, LEAF_T);
       const leafHW = {};
@@ -5373,10 +5410,11 @@ const Facility = (() => {
         d.base = base;
         d.swingP = angDiff(base, Math.atan2(-d.nz, d.nx)) * 0.97;
         d.swingN = angDiff(base, Math.atan2(d.nz, -d.nx)) * 0.97;
-        d.mesh = pivot; this.applyDoor(d); grp.add(pivot);
+        d.mesh = pivot; this.applyDoor(d); parts[d.lv].add(pivot);
         { const a = d.base, lz = { x: Math.sin(a), z: Math.cos(a) }; d.leafSign = Math.sign(lz.x * d.nx + lz.z * d.nz) || 1; }
+        if (busy()) { yield; t0 = performance.now(); }
       }
-      yield;
+      yield; t0 = performance.now();
       // locker and cabinet doors: hinged on the left front edge, a small pull at the right
       const chw = {};
       for (const c of this.containers) {
@@ -5387,7 +5425,7 @@ const Facility = (() => {
         door.position.set(dw / 2, 0.025 + dh / 2, 0.01); door.castShadow = true; door.receiveShadow = true; pivot.add(door);
         if (!chw[c.kind]) { const parts = []; const y = c.kind === 'locker' ? 0.95 : 0.55; DoorKit.pull(parts, dw - 0.07, 0.02, 1, y, y + 0.2, 0.009); chw[c.kind] = mergeGeoList(DoorKit.place(parts, mat(0, 0, 0.01))); }
         const hw = new THREE.Mesh(chw[c.kind], MATS.get('hardware')); pivot.add(hw);
-        c.mesh = pivot; pivot.rotation.y = c.closedRy + c.swing * c.anim; grp.add(pivot);
+        c.mesh = pivot; pivot.rotation.y = c.closedRy + c.swing * c.anim; parts[c.lv].add(pivot);
       }
       // exits: big doors + signs
       for (const ex of this.exits) {
@@ -5408,7 +5446,7 @@ const Facility = (() => {
         for (const s of [-1, 1]) { const [px, pz] = L(s * (w / 2 + 0.06), 0.08); this.pbox('darkmetal', 0.24, h, 0.26, px, Y0, pz, ry); }
         if (big) { const [cx, cz] = L(0, 0.06); this.pbox('darkmetal', 0.06, h, 0.04, cx, Y0, cz, ry); }
         const sign = new THREE.Mesh(new THREE.PlaneGeometry(big ? 1.4 : 1.2, 0.35), new THREE.MeshBasicMaterial({ map: TEX.sign(big ? 'EXIT' : 'FIRE EXIT', { bg: '#2a0505', fg: '#ff5040', size: 34, bold: true, dirty: false, w: 256, h: 64 }) }));
-        sign.position.set(ex.x + ex.nx * 0.12, Y0 + h + 0.45, ex.z + ex.nz * 0.12); sign.rotation.y = ry; grp.add(sign);
+        sign.position.set(ex.x + ex.nx * 0.12, Y0 + h + 0.45, ex.z + ex.nz * 0.12); sign.rotation.y = ry; parts[0].add(sign);
         this.lamps.push({ i: this.ti(ex.x), j: this.tj(ex.z), x: ex.x + ex.nx * 0.6, y: Y0 + h + 0.3, z: ex.z + ex.nz * 0.6, color: 0xff3a24, state: 'emergency', power: 0.5, phase: 0, zone: 'in', axis: 'none', lit: 1, idx: this.lamps.length, noMesh: true });
       }
       // vents
@@ -5418,38 +5456,28 @@ const Facility = (() => {
         this.pbox('vent', 0.9, 0.55, 0.06, v.x, v.y - 0.275, v.z, ry);
       }
       this.lv = 0;
-      yield;
-      for (const s of this.shafts) { this.buildShaft(s, grp); yield; }
-      this.buildBlasts(grp);
-      yield;
+      yield; t0 = performance.now();
+      for (const s of this.shafts) { this.buildShaft(s, parts[L + s.id]); if (busy()) { yield; t0 = performance.now(); } }
+      this.buildBlasts();
+      yield; t0 = performance.now();
       // prop buckets
-      for (const m in this.buckets) {
-        const geo = mergeGeoList(this.buckets[m]);
+      for (const key in this.buckets) {
+        const geo = mergeGeoList(this.buckets[key]), [m, part] = partOf(key);
         if (!geo) continue;
         const mat = this.mat(m);
         const me = new THREE.Mesh(geo, mat);
         me.castShadow = !mat.transparent && m !== 'paper'; me.receiveShadow = true;
         if (mat.transparent) me.renderOrder = 2;
-        grp.add(me);
-        yield;
+        parts[part].add(me);
+        if (busy()) { yield; t0 = performance.now(); }
       }
       this.buckets = {};
-      // lamps (instanced)
-      const lamps = this.lamps.filter((l) => !l.noMesh);
-      const hous = new THREE.InstancedMesh(new THREE.BoxGeometry(0.34, 0.1, 1.4), MATS.get('lampHousing'), lamps.length);
+      // lamps (instanced: a set for each part, hung with it)
+      const lamps = this.lamps.filter((l) => !l.noMesh), byPart = parts.map(() => []);
+      for (const l of lamps) byPart[l.shaft != null ? L + l.shaft : clamp(Math.round((Y0 - l.fy) / DROP), 0, L - 1)].push(l);
+      const housGeo = new THREE.BoxGeometry(0.34, 0.1, 1.4), tubeGeo = new THREE.BoxGeometry(0.2, 0.04, 1.25);
       const tubeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const tubes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.04, 1.25), tubeMat, lamps.length);
       const m4 = new THREE.Matrix4(), col = new THREE.Color();
-      lamps.forEach((l, n) => {
-        const ry = l.axis === 'x' ? Math.PI / 2 : 0;
-        m4.copy(mat4(l.x, l.y + 0.06, l.z, ry, l.tilt || 0)); hous.setMatrixAt(n, m4);
-        m4.copy(mat4(l.x, l.y - 0.01, l.z, ry, l.tilt || 0)); tubes.setMatrixAt(n, m4);
-        l.inst = n;
-        tubes.setColorAt(n, col.set(l.state === 'off' ? 0x111111 : l.color));
-      });
-      tubes.instanceColor.needsUpdate = true;
-      hous.castShadow = false; tubes.castShadow = false;
-      grp.add(hous); grp.add(tubes);
       // a faint shaft of light under each lamp, as if the air were full of dust; it dims and flickers with the lamp
       const shaftGeo = new THREE.CylinderGeometry(0.38, 1.3, 1, 18, 1, true); shaftGeo.translate(0, -0.5, 0);
       const shaftMat = new THREE.ShaderMaterial({
@@ -5473,16 +5501,26 @@ const Facility = (() => {
             gl_FragColor = vec4(vC * a, 1.0); }`,
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       });
-      const shafts = new THREE.InstancedMesh(shaftGeo, shaftMat, lamps.length);
       const q = new THREE.Quaternion(), sc = new THREE.Vector3(), pv = new THREE.Vector3();
-      lamps.forEach((l, n) => {
-        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), l.axis === 'x' ? Math.PI / 2 : 0);
-        m4.compose(pv.set(l.x, l.y - 0.04, l.z), q, sc.set(1, Math.max(1, l.y - l.fy - 0.02), 1.7)); shafts.setMatrixAt(n, m4);
-        shafts.setColorAt(n, col.set(l.state === 'off' ? 0x000000 : l.color));
+      byPart.forEach((ls, pi) => {
+        if (!ls.length) return;
+        const hous = new THREE.InstancedMesh(housGeo, MATS.get('lampHousing'), ls.length), tubes = new THREE.InstancedMesh(tubeGeo, tubeMat, ls.length);
+        const shafts = new THREE.InstancedMesh(shaftGeo, shaftMat, ls.length), set = { tubes, shafts };
+        ls.forEach((l, n) => {
+          const ry = l.axis === 'x' ? Math.PI / 2 : 0;
+          m4.copy(mat4(l.x, l.y + 0.06, l.z, ry, l.tilt || 0)); hous.setMatrixAt(n, m4);
+          m4.copy(mat4(l.x, l.y - 0.01, l.z, ry, l.tilt || 0)); tubes.setMatrixAt(n, m4);
+          tubes.setColorAt(n, col.set(l.state === 'off' ? 0x111111 : l.color));
+          q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry);
+          m4.compose(pv.set(l.x, l.y - 0.04, l.z), q, sc.set(1, Math.max(1, l.y - l.fy - 0.02), 1.7)); shafts.setMatrixAt(n, m4);
+          shafts.setColorAt(n, col.set(l.state === 'off' ? 0x000000 : l.color));
+          l.inst = n; l.lampSet = set;
+        });
+        tubes.instanceColor.needsUpdate = true; shafts.instanceColor.needsUpdate = true;
+        hous.castShadow = false; tubes.castShadow = false; shafts.castShadow = false; shafts.renderOrder = 3; shafts.frustumCulled = false;
+        parts[pi].add(hous, tubes, shafts);
       });
-      shafts.instanceColor.needsUpdate = true; shafts.castShadow = false; shafts.renderOrder = 3; shafts.frustumCulled = false;
-      grp.add(shafts);
-      this.lampMeshes = { tubes, shafts, lamps };
+      this.lampMeshes = { lamps };
       this.group = grp;
       return grp;
     }
@@ -5499,7 +5537,8 @@ const Facility = (() => {
     buildShaft(s, grp) {
       const r = this.rng, x0 = s.x0, z0 = s.z0, X1 = x0 + SW * TS, Z1 = z0 + SL * TS;
       const yTop = this.shaftY(s, s.top), yBot = this.shaftY(s, s.bot), top = yTop + 3.6, bottom = yBot - 0.4;
-      this.lv = Math.max(1, Math.min(2, s.bot));
+      // (worn the way the floor at its foot is, and merged on its own: see showFor)
+      this.lv = Math.max(1, s.bot); this.part = this.levels + s.id;
       const box = (m, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0, sc = 1) => this.put(m, this.wbox(w, h, d, sc), mat4(x, y, z, ry, rx, rz));
       const cyl = (m, rad, len, x, y, z, rx = 0, ry = 0, rz = 0, seg = 8) => this.put(m, new THREE.CylinderGeometry(rad, rad, len, seg), mat4(x, y, z, ry, rx, rz));
       // ---- the shaft walls, each with its doorway ----
@@ -5568,10 +5607,10 @@ const Facility = (() => {
         }
         // the levels painted big inside each landing, and a plate by the doorway outside
         const e = s.exits.find((q) => q.lv === lv);
-        this.shaftSign(grp, LEVEL_NAMES[lv], 1.2, 0.75, x0 + 4.4, yl + 1.45, z0 + 0.215, 0, { w: 256, h: 160, size: 118, bold: true, border: false, bg: 'rgba(0,0,0,0)', fg: lv > 1 ? 'rgba(160,44,28,.75)' : 'rgba(205,195,165,.6)', clear: true });
+        this.shaftSign(grp, levelLabel(lv), 1.2, 0.75, x0 + 4.4, yl + 1.45, z0 + 0.215, 0, { w: 256, h: 160, size: 118, bold: true, border: false, bg: 'rgba(0,0,0,0)', fg: lv > 1 ? 'rgba(160,44,28,.75)' : 'rgba(205,195,165,.6)', clear: true });
         if (e) {
           const list = [];
-          for (let q = s.top; q <= s.bot; q++) if (s.exits.some((x) => x.lv === q)) list.push(LEVEL_NAMES[q]);
+          for (let q = s.top; q <= s.bot; q++) if (s.exits.some((x) => x.lv === q)) list.push(levelLabel(q));
           const text = 'STAIRWELL ' + s.name + '\n' + list.join('  ·  ');
           const plate = { w: 256, h: 128, size: 28, bold: true, bg: '#c2aa62', fg: '#1a1712' };
           if (e.side === 'n') this.shaftSign(grp, text, 0.66, 0.33, x0 + 1.5 + 1.25, yl + 1.7, z0 - 0.0, Math.PI, plate);
@@ -5618,15 +5657,20 @@ const Facility = (() => {
       // what fell down the well
       for (let q = 0; q < 10; q++) { const sz = r.range(0.08, 0.22), g = new THREE.DodecahedronGeometry(sz, 0); g.scale(1, 0.6, 1.1); this.put('bunker', g, mat4(x0 + r.range(0.6, 5.4), yBot + sz * 0.3, z0 + r.range(4, 11.4), r.range(0, TAU), r.range(0, TAU))); }
       this.pbox('crate', 0.7, 0.5, 0.6, x0 + 1.2, yBot, Z1 - 1.2, 0.5);
-      this.lv = 0;
+      this.lv = 0; this.part = null;
     }
     shaftSign(grp, text, w, h, x, y, z, ry, opts) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: TEX.sign(text, opts), roughness: 0.85, transparent: !!opts.clear, depthWrite: !opts.clear, polygonOffset: true, polygonOffsetFactor: -2 }));
+      // (the levels stencilled on the landings are the same in every stairwell: painted once, and kept)
+      const key = opts.clear && text + JSON.stringify(opts);
+      const mat = (key && stencils[key]) || new THREE.MeshStandardMaterial({ map: TEX.sign(text, opts), roughness: 0.85, transparent: !!opts.clear, depthWrite: !opts.clear, polygonOffset: true, polygonOffsetFactor: -2 });
+      if (key) stencils[key] = mat;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
       m.position.set(x, y, z); m.rotation.y = ry; grp.add(m); return m;
     }
     // the blast doors: a heavy rusted frame across the corridor, a slab that drops out of a slot in the ceiling
     // with its code stencilled on both faces, and a lamp over it (red while it's down)
-    buildBlasts(grp) {
+    buildBlasts() {
+      const parts = this.parts;
       for (const d of this.blasts) {
         this.lv = d.lv;
         const tx = -d.nz, tz = d.nx, ry = Math.atan2(d.nx, d.nz), half = TS / 2;
@@ -5634,7 +5678,7 @@ const Facility = (() => {
         this.pbox('rust', TS, 0.32, 0.5, d.x, d.y + CH - 0.32, d.z, ry);
         this.pbox('hazard', TS - 0.84, 0.12, 0.52, d.x, d.y + CH - 0.46, d.z, ry);
         this.lv = 0;
-        const g = new THREE.Group(); g.position.set(d.x, d.y, d.z); g.rotation.y = ry; grp.add(g);
+        const g = new THREE.Group(); g.position.set(d.x, d.y, d.z); g.rotation.y = ry; parts[d.lv].add(g);
         const slab = new THREE.Mesh(this.wbox(TS - 0.8, CH - 0.1, 0.26, 1.5), this.mat(d.lv > 0 ? 'painted@' + d.lv : 'painted'));
         slab.position.y = (CH - 0.1) / 2; slab.castShadow = true; slab.receiveShadow = true; g.add(slab);
         const band = new THREE.Mesh(new THREE.BoxGeometry(TS - 0.82, 0.16, 0.28), MATS.get('hazard')); band.position.y = 0.12; g.add(band);
@@ -5644,7 +5688,7 @@ const Facility = (() => {
           p.position.set(0, 1.45, f * 0.136); p.rotation.y = f > 0 ? 0 : Math.PI; g.add(p);
         }
         const lampMat = new THREE.MeshStandardMaterial({ color: 0x220806, emissive: 0xff2a14, emissiveIntensity: 0.9 });
-        for (const f of [-1, 1]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.1), lampMat); l.position.set(d.x + d.nx * f * 0.3, d.y + CH - 0.2, d.z + d.nz * f * 0.3); l.rotation.y = ry; grp.add(l); }
+        for (const f of [-1, 1]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.1), lampMat); l.position.set(d.x + d.nx * f * 0.3, d.y + CH - 0.2, d.z + d.nz * f * 0.3); l.rotation.y = ry; parts[d.lv].add(l); }
         d.mesh = g; d.slab = slab; d.lampMat = lampMat;
         this.applyBlast(d);
       }
@@ -5656,13 +5700,28 @@ const Facility = (() => {
       d.mesh.position.y = d.y + k * (CH - 0.32);
       d.lampMat.emissive.setHex(d.anim > 0.98 ? 0x30ff60 : 0xff2a14);
     }
+    // what's drawn from an eye at p (called for every view, the body-cams' and the rover's too): the floor it's on, the
+    // stairwells near enough to be seen into, and, from on a stairwell's flights, the floor at its other end. The floors
+    // are far apart and shut in, and nothing of one can be seen from another except from down in a stairwell (each
+    // landing hides the doorway under it), so the rest is never missed, and never drawn. Up on the surface, none of it.
+    showFor(p) {
+      const P = this.parts; if (!P) return;
+      const L = this.levels;
+      if (p.y > Y0 + 50) { for (const g of P) g.visible = false; return; }
+      const lv = clamp(Math.round((Y0 - (p.y - 1)) / DROP), 0, L - 1);
+      for (let n = 0; n < L; n++) P[n].visible = n === lv;
+      for (const s of this.shafts) {
+        if (s.top !== lv && s.bot !== lv) { P[L + s.id].visible = false; continue; }
+        const d = Math.hypot(p.x - clamp(p.x, s.x0, s.x0 + SW * TS), p.z - clamp(p.z, s.z0, s.z0 + SL * TS));
+        P[L + s.id].visible = d < SHOW_R;
+        if (d < 2) P[s.top === lv ? s.bot : s.top].visible = true;
+      }
+    }
     setLampVisual(l, f) {
-      if (l.inst == null || !this.lampMeshes) return;
-      const c = new THREE.Color(l.color).multiplyScalar(f);
-      this.lampMeshes.tubes.setColorAt(l.inst, c);
-      this.lampMeshes.tubes.instanceColor.needsUpdate = true;
-      this.lampMeshes.shafts.setColorAt(l.inst, c);
-      this.lampMeshes.shafts.instanceColor.needsUpdate = true;
+      if (l.inst == null || !l.lampSet) return;
+      const c = new THREE.Color(l.color).multiplyScalar(f), m = l.lampSet;
+      m.tubes.setColorAt(l.inst, c); m.tubes.instanceColor.needsUpdate = true;
+      m.shafts.setColorAt(l.inst, c); m.shafts.instanceColor.needsUpdate = true;
     }
     breakDoor(d) {
       if (d.broken) return;
@@ -5673,7 +5732,7 @@ const Facility = (() => {
       slab.position.set(d.x + d.nx * 1.5, d.y + 0.05, d.z + d.nz * 1.5);
       slab.rotation.set(0.04, d.base + 0.3, 0.02);
       slab.castShadow = true; slab.receiveShadow = true;
-      this.group.add(slab);
+      (this.parts ? this.parts[d.lv] : this.group).add(slab);
     }
     // where to aim to open a locker/cabinet: the middle of its door
     containerFront(c) { const [x, z] = this.frame(c.x, c.z, c.ry)(0.05, c.d / 2 + 0.03); return { x, y: c.y + Math.min(1.15, c.h * 0.55), z }; }
@@ -5831,15 +5890,21 @@ const Facility = (() => {
         goal = e.out;
       } else { const t = this.nearestWalkable(this.ti(bx), this.tj(bz)); if (!t) return null; goal = this.idx(t[0], t[1]); }
       const tg = [goal % W, Math.floor(goal / W)];
-      const g = new Map(), came = new Map(), via = new Map(), open = new MinHeap();
-      g.set(start, 0); open.push(0, start);
+      // (scratch arrays kept from one search to the next, each search stamped with its own number: a tile whose stamp is
+      // old hasn't been reached yet this time)
+      // (and a tile once taken off the heap is done with: a later, costlier way to it is skipped)
+      const N = this.grid.length, S = this._path || (this._path = { g: new Float64Array(N), came: new Int32Array(N), via: new Array(N).fill(null), at: new Uint32Array(N), shut: new Uint32Array(N), t: 0 });
+      const now = ++S.t, gOf = (k) => (S.at[k] === now ? S.g[k] : Infinity), open = new MinHeap();
+      S.at[start] = now; S.g[start] = 0; S.came[start] = -1; S.via[start] = null; open.push(0, start);
       let found = start === goal, guard = 0;
-      while (!found && open.size && guard++ < 8000) {
+      while (!found && open.size && guard++ < Math.max(8000, N)) {
         const k = open.pop();
         if (k === goal) { found = true; break; }
-        const i = k % W, j = Math.floor(k / W), gk = g.get(k);
+        if (S.shut[k] === now) continue;
+        S.shut[k] = now;
+        const i = k % W, j = Math.floor(k / W), gk = S.g[k];
         const relax = (nk, cost, portal) => {
-          if (cost < (g.has(nk) ? g.get(nk) : Infinity)) { g.set(nk, cost); came.set(nk, k); if (portal) via.set(nk, portal); else via.delete(nk); open.push(cost + Math.abs((nk % W) - tg[0]) + Math.abs(Math.floor(nk / W) - tg[1]), nk); }
+          if (cost < gOf(nk)) { S.at[nk] = now; S.g[nk] = cost; S.came[nk] = k; S.via[nk] = portal || null; open.push(cost + Math.abs((nk % W) - tg[0]) + Math.abs(Math.floor(nk / W) - tg[1]), nk); }
         };
         for (const [dx, dy] of DIRS) {
           const ni = i + dx, nj = j + dy, nk = this.idx(ni, nj);
@@ -5852,11 +5917,11 @@ const Facility = (() => {
       }
       if (!found) return null;
       const tiles = [];
-      for (let k = goal; k !== undefined && k !== start; k = came.get(k)) tiles.push(k);
+      for (let k = goal; k >= 0 && k !== start; k = S.came[k]) tiles.push(k);
       tiles.reverse();
       const pts = [];
       for (const k of tiles) {
-        const p = via.get(k);
+        const p = S.via[k];
         if (p) pts.push(...this.shaftPassage(p.a, p.b));
         else pts.push({ x: this.cx(k % W), z: this.cz(Math.floor(k / W)), k });
       }
@@ -5885,9 +5950,21 @@ const Facility = (() => {
       for (let s = 1; s < n; s++) { const t = s / n; if (!this.walkable(this.ti(lerp(ax, bx, t)), this.tj(lerp(az, bz, t)))) return true; }
       return false;
     }
-    randomWalkable(rng, filter) {
+    // somewhere a creature could stand, picked at random (filter: if it'll do). near: only look round there ({ x, z, r },
+    // r in metres), or ({ lv }) only on that floor and those under it ({ lv, only: true }: just on that floor, with the
+    // hall down into it); anywhere in the building otherwise
+    randomWalkable(rng, filter, near) {
+      let i0 = 0, i1 = this.W - 1, j0 = 0, j1 = this.H - 1;
+      if (near && near.lv != null) {
+        const lv = clamp(near.lv, 0, this.levels - 1);
+        j0 = lv > 0 ? this.bands[lv] : 0;
+        if (near.only) j1 = this.regions[lv].j1 - 1;
+      } else if (near) {
+        const r = Math.ceil(near.r / TS) + 1, ci = this.ti(near.x), cj = this.tj(near.z);
+        i0 = clamp(ci - r, 0, i1); i1 = clamp(ci + r, 0, i1); j0 = clamp(cj - r, 0, j1); j1 = clamp(cj + r, 0, j1);
+      }
       for (let t = 0; t < 200; t++) {
-        const i = rng.int(0, this.W - 1), j = rng.int(0, this.H - 1);
+        const i = rng.int(i0, i1), j = rng.int(j0, j1);
         if (!this.walkable(i, j)) continue;
         const p = { x: this.cx(i), z: this.cz(j), i, j };
         if (!filter || filter(p)) return p;
@@ -11790,14 +11867,15 @@ class Monster {
   }
   randomGoal(minD, maxD, filter) {
     if (this.def.zone === 'in' && this.g.fac) {
-      const fac = this.g.fac;
+      // (looked for round about here: the building is far too big to find somewhere close by picking anywhere in it)
+      const fac = this.g.fac, near = { x: this.pos.x, z: this.pos.z, r: maxD };
       for (let t = 0; t < 30; t++) {
-        const p = fac.randomWalkable(R0);
+        const p = fac.randomWalkable(R0, null, near);
         if (!p) break;
         const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
         if (d >= minD && d <= maxD && (!filter || filter(p))) return p;
       }
-      return fac.randomWalkable(R0) || { x: this.pos.x, z: this.pos.z };
+      return fac.randomWalkable(R0, null, { x: this.pos.x, z: this.pos.z, r: maxD * 2 }) || fac.randomWalkable(R0) || { x: this.pos.x, z: this.pos.z };
     }
     const a = Math.random() * TAU, d = minD + Math.random() * (maxD - minD);
     let x = this.pos.x + Math.cos(a) * d, z = this.pos.z + Math.sin(a) * d;
@@ -12163,7 +12241,7 @@ class Monster {
     const fac = this.g.fac;
     let best = null, bs = -Infinity;
     for (let t = 0; t < 14; t++) {
-      const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; });
+      const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; }, { x: this.pos.x, z: this.pos.z, r: 24 });
       if (!p) continue;
       const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z, true) : false;
       const s = (vis ? -100 : 0) + (tgt ? Math.hypot(p.x - tgt.pos.x, p.z - tgt.pos.z) : 0) - Math.hypot(p.x - this.pos.x, p.z - this.pos.z) * 0.3;
@@ -13421,7 +13499,7 @@ const CrewCam = (() => {
     let where = '';
     if (!p.alive) where = 'NO LIFE SIGNS';
     else if (G.mode === 'orbit' || !G.round) where = 'IN ORBIT';
-    else if (p.zone === 'in' && G.fac) { const L = drawFacMap(p, crew, t); where = 'FACILITY · ' + (['G', 'B1', 'B2', 'B3'][L] || ''); }
+    else if (p.zone === 'in' && G.fac) { const L = drawFacMap(p, crew, t); where = 'FACILITY · ' + G.fac.levelLabel(L); }
     else { drawExtMap(p, crew, t); where = G.inShip(p) ? 'SHIP' : 'OUTSIDE'; }
     if (p.alive && G.round && G.mode !== 'orbit') runSweep(p, t);
     if (!p.alive || G.mode === 'orbit' || !G.round) {
@@ -15826,7 +15904,7 @@ const Rover = (() => {
     stopDriving() { if (!driving) return; driving = false; v = 0; buf = []; overlay.classList.add('hidden'); $('hud').classList.remove('cine', 'rc'); R.fx.static = 0; R.flash.intensity = 0; SFX.play('static', null, { dur: 0.25, vol: 0.5 }); },
     // the link: clear by the ship, grainier the further out it goes, worse still under ground
     link() {
-      if (S.zone === 'in') { const d = G.fac ? G.fac.depthOfY(S.y) : 0; return clamp(0.82 - 0.22 * d - Math.hypot(S.x, S.z) * 0.0012, 0.15, 0.85); }
+      if (S.zone === 'in') { const d = G.fac ? G.fac.gloomAt(S.y) : 0; return clamp(0.82 - 0.22 * d - Math.min(0.2, Math.hypot(S.x, S.z) * 0.0012), 0.15, 0.85); }
       return clamp(1 - Math.max(0, Math.hypot(S.x, S.z) - 25) / ROVER.RANGE, 0.12, 1);
     },
 
@@ -16181,7 +16259,11 @@ const Bots = (() => {
       break;
     }
     step(p, b, tx, tz, speed, dt, face);
-    return Math.hypot(gx - p.pos.x, gz - p.pos.z);
+    // (how far it still has to go along the way it's taking, not as the crow flies: in a deep plant the way down to
+    // somewhere can lead a long way off to one side first, to the stairwell, and that's still getting there)
+    let left = Math.hypot(wp.x - p.pos.x, wp.z - p.pos.z);
+    for (let n = 1; n < b.path.length; n++) left += Math.hypot(b.path[n].x - b.path[n - 1].x, b.path[n].z - b.path[n - 1].z);
+    return left;
   }
   function teleport(p, zone, x, y, z, yaw) {
     p.zone = zone; p.pos.set(x, y, z); p.yaw = yaw; p.buf.length = 0; p.rpos.copy(p.pos);
@@ -16340,10 +16422,11 @@ const Bots = (() => {
     }
     return best;
   }
-  // somewhere it hasn't been yet, not too far off; once most of this floor has been covered, the floors below it
-  // (they were never stripped, so the scrap down there is worth more)
+  // somewhere it hasn't been yet, not too far off; once most of this floor has been covered, the nearest floor that
+  // hasn't been, the one below first (they were never stripped, so the scrap down there is worth more): floor by floor
+  // all the way down
   function exploreGoal(p, b) {
-    const fac = G.fac, here = Math.round(fac.depthOfY(p.pos.y));
+    const fac = G.fac, here = Math.round(fac.depthOfY(p.pos.y)), L = fac.levels;
     if (!b.cells) {
       b.cells = new Map();
       for (let k = 0; k < fac.grid.length; k++) { const i = k % fac.W, j = Math.floor(k / fac.W); if (fac.walkable(i, j)) b.cells.set(cell(fac, fac.cx(i), fac.cz(j), fac.tileY(k)), Math.max(0, fac.lvl[k])); }
@@ -16351,13 +16434,15 @@ const Bots = (() => {
     const total = {}, seen = {};
     for (const [key, lv] of b.cells) { total[lv] = (total[lv] || 0) + 1; if (b.seen.has(key)) seen[lv] = (seen[lv] || 0) + 1; }
     const covered = (lv) => (seen[lv] || 0) / (total[lv] || 1) > 0.55;
+    let lv = here;
+    if (covered(here)) for (let d = 1; d < L && lv === here; d++) { if (here + d < L && !covered(here + d)) lv = here + d; else if (here - d >= 0 && !covered(here - d)) lv = here - d; }
     let best = null, bs = Infinity;
+    // (on this floor, half of them looked for round about here; on another, anywhere on it)
     for (let t = 0; t < 60; t++) {
-      const q = fac.randomWalkable(rng); if (!q) break;
-      const k = fac.idx(q.i, q.j), y = fac.tileY(k), lv = Math.max(0, fac.lvl[k]), d = Math.hypot(q.x - p.pos.x, q.z - p.pos.z);
+      const q = fac.randomWalkable(rng, (c) => fac.lvl[fac.idx(c.i, c.j)] === lv, lv === here && t % 2 ? { x: p.pos.x, z: p.pos.z, r: 40 } : { lv, only: true }); if (!q) continue;
+      const y = fac.tileY(fac.idx(q.i, q.j)), d = Math.hypot(q.x - p.pos.x, q.z - p.pos.z);
       if (d < 8 && lv === here) continue;
-      let s = d * rng.range(0.6, 1.4) + (b.seen.has(cell(fac, q.x, q.z, y)) ? 80 : 0) + Math.abs(lv - here) * 6;
-      if (lv !== here && covered(here) && !covered(lv)) s -= 60;
+      const s = d * rng.range(0.6, 1.4) + (b.seen.has(cell(fac, q.x, q.z, y)) ? 80 : 0);
       if (s < bs) { bs = s; best = { x: q.x, z: q.z, y }; }
     }
     return best;
@@ -16402,7 +16487,7 @@ const Bots = (() => {
     const fac = G.fac, ax = p.pos.x - m.pos.x, az = p.pos.z - m.pos.z, al = Math.hypot(ax, az) || 1;
     let best = null, bs = -Infinity;
     for (let t = 0; t < 40; t++) {
-      const q = fac.randomWalkable(rng); if (!q) break;
+      const q = fac.randomWalkable(rng, null, { x: p.pos.x, z: p.pos.z, r: 32 }); if (!q) break;
       const dx = q.x - p.pos.x, dz = q.z - p.pos.z, d = Math.hypot(dx, dz);
       if (d < 7 || d > 32 || Math.abs(fac.tileY(fac.idx(q.i, q.j)) - p.pos.y) > 2) continue;
       const s = (dx * ax + dz * az) / (d * al) + Math.min(d, 20) / 40;
@@ -16669,21 +16754,24 @@ const SITE_LOOK = {
   hush: { tint: 0xeaf4f8, atmo: 0x9ad8ff, rings: { in: 1.6, out: 2.05, map: 'ringsThin', col: 0x5a5e64 }, giant: 'giantIce' },
 };
 const SITES = {
-  // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once
-  ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: [2], scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'Abandoned textile mill. Shallow. A good place to learn.' },
-  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: [2], scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, slime: 0.5 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
-  kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: [3], scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6, slime: 1.3 }, desc: 'Research annex. Something got out. Something stayed.' },
-  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: [2], scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, slime: 1 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
-  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: [3], scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
-  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: [2, 1], scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
-  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: [2, 1], scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
-  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: [2, 1], scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
-  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: [2, 1], scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
-  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: [2, 1], scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
+  // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once.
+  // size: how wide its facility is, in tiles; stairs: how many stairwells join each of its floors to the next one down;
+  // scrap: how many pieces are left in the whole building, however deep it goes (shared out between its floors: see
+  // spawnScrap). How many floors it goes down is down to its risk (FLOORS, below).
+  ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: 2, scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'Abandoned textile mill. The shallowest of them. A good place to learn.' },
+  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: 2, scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, slime: 0.5 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
+  kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: 3, scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6, slime: 1.3 }, desc: 'Research annex. Something got out. Something stayed.' },
+  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: 2, scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, slime: 1 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
+  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: 3, scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
+  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: 3, scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
+  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: 3, scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
+  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: 3, scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
+  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: 3, scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
+  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: 3, scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
 };
 // Halcyon, a gas giant: nowhere to land on it, but a family of moons round it, each with a facility, and all of them
 // open every day (open): jump to any of them, or to the giant to look, and hop between them for nothing
-const GIANT = { stairs: [2], scrap: [0, 0], size: 30, mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, risk: 'VARIES', giant: true };
+const GIANT = { stairs: 2, scrap: [0, 0], size: 30, mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, risk: 'VARIES', giant: true };
 Object.assign(SITES, {
   halcyon: Object.assign({ name: 'Halcyon', code: '9', cost: 150, desc: 'A pale gold gas giant in broad bright rings: no surface. Five moons, each with a facility. Route to any of them.' }, GIANT),
   tarrow: Object.assign({ name: 'Tarrow', code: '14', cost: 190, desc: 'A banded giant, its storms bigger than worlds: no surface. Three moons, each with a facility.' }, GIANT),
@@ -16760,41 +16848,45 @@ const BODIES = {
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
 // surface, nothing hunting outside, better pay for the risk
 Object.assign(SITES, {
-  wick: { name: 'Wick', code: 'A-I', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'moon', lowG: true, size: 28, stairs: [2], scrap: [15, 20], mult: 1.5, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1 }, desc: 'A survey outpost that stopped answering.' },
-  tallow: { name: 'Tallow', code: 'A-R', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [12, 16], mult: 1.6, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1, leech: 1.6 }, desc: 'A mining claim bored into it. Tight tunnels.' },
-  petri: { name: 'Petri', code: 'K-I', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'moon', lowG: true, size: 32, stairs: [3], scrap: [18, 24], mult: 1.9, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, pale: 0.9, crawler: 1.2, slime: 1.4 }, desc: 'The quarantine overflow site. Sealed from the outside.' },
-  swab: { name: 'Swab', code: 'K-R', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'rock', lowG: true, size: 26, stairs: [], scrap: [14, 19], mult: 2.0, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: 'A sample store. Whatever they kept here is still kept.' },
-  grit: { name: 'Grit', code: '7-I', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4, mannequin: 0.6 }, desc: "The pumping company's refinery. Red dust in everything." },
-  mote: { name: 'Mote', code: '7-R', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1.2, pale: 0.8 }, desc: 'An ore crusher, still running.' },
-  cinder: { name: 'Cinder', code: '0-I', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [32, 40], mult: 2.6, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, mannequin: 1.5, crawler: 1.4, leech: 1 }, desc: 'The signal from below the Hollow is louder here.' },
-  clinker: { name: 'Clinker', code: '0-R', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [26, 33], mult: 2.8, power: 9, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, crawler: 1.4, mannequin: 1 }, desc: 'Burnt out. Something tunnels through it.' },
-  sprig: { name: 'Sprig', code: '5-I', risk: 'LOW', cost: 0, bonus: 'verdigris', biome: 'moon', lowG: true, size: 26, stairs: [2], scrap: [13, 18], mult: 1.4, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.6, crawler: 1.2 }, desc: 'A seed vault, sealed against the end of the world. Something got in anyway.' },
-  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: [], scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2, slime: 1 }, desc: 'A compost works bored into the rock. Mind the smell.' },
-  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4 }, desc: 'An ice-core drilling station. The cores are missing.' },
-  floe: { name: 'Floe', code: '22-R', risk: 'HIGH', cost: 0, bonus: 'rimefall', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [18, 24], mult: 1.8, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, pale: 1 }, desc: "An ice hauler's camp out in the rings, cutting blocks from them." },
-  vigil: { name: 'Vigil', code: '40-I', risk: 'MEDIUM', cost: 0, bonus: 'agnes', biome: 'moon', lowG: true, size: 30, stairs: [3], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 2, pale: 1 }, desc: "The sanatorium's isolation ward. Built a long way off, on purpose." },
-  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.2, pale: 1 }, desc: 'An ossuary. They ran out of room on the moor.' },
-  ballast: { name: 'Ballast', code: '56-I', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, crawler: 1.4, pale: 0.8 }, desc: "A breaker's yard, where they cut up the ships too big to land." },
-  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: "A salvage tender's base, grown over with something." },
-  cask: { name: 'Cask', code: '19-I', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4 }, desc: 'Brine evaporators under glass. The glass is cracked.' },
-  grain: { name: 'Grain', code: '19-R', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [21, 27], mult: 2.3, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, pale: 1.2 }, desc: 'A salt mine in a rock out in the rings.' },
-  flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
+  wick: { name: 'Wick', code: 'A-I', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'moon', lowG: true, size: 28, stairs: 2, scrap: [15, 20], mult: 1.5, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1 }, desc: 'A survey outpost that stopped answering.' },
+  tallow: { name: 'Tallow', code: 'A-R', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'rock', lowG: true, size: 24, stairs: 2, scrap: [12, 16], mult: 1.6, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1, leech: 1.6 }, desc: 'A mining claim bored into it. Tight tunnels.' },
+  petri: { name: 'Petri', code: 'K-I', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'moon', lowG: true, size: 32, stairs: 3, scrap: [18, 24], mult: 1.9, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, pale: 0.9, crawler: 1.2, slime: 1.4 }, desc: 'The quarantine overflow site. Sealed from the outside.' },
+  swab: { name: 'Swab', code: 'K-R', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [14, 19], mult: 2.0, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: 'A sample store. Whatever they kept here is still kept.' },
+  grit: { name: 'Grit', code: '7-I', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [24, 31], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4, mannequin: 0.6 }, desc: "The pumping company's refinery. Red dust in everything." },
+  mote: { name: 'Mote', code: '7-R', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'rock', lowG: true, size: 28, stairs: 2, scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1.2, pale: 0.8 }, desc: 'An ore crusher, still running.' },
+  cinder: { name: 'Cinder', code: '0-I', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'moon', lowG: true, size: 42, stairs: 3, scrap: [32, 40], mult: 2.6, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, mannequin: 1.5, crawler: 1.4, leech: 1 }, desc: 'The signal from below the Hollow is louder here.' },
+  clinker: { name: 'Clinker', code: '0-R', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'rock', lowG: true, size: 30, stairs: 2, scrap: [26, 33], mult: 2.8, power: 9, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, crawler: 1.4, mannequin: 1 }, desc: 'Burnt out. Something tunnels through it.' },
+  sprig: { name: 'Sprig', code: '5-I', risk: 'LOW', cost: 0, bonus: 'verdigris', biome: 'moon', lowG: true, size: 26, stairs: 2, scrap: [13, 18], mult: 1.4, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.6, crawler: 1.2 }, desc: 'A seed vault, sealed against the end of the world. Something got in anyway.' },
+  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: 2, scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2, slime: 1 }, desc: 'A compost works bored into the rock. Mind the smell.' },
+  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: 2, scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4 }, desc: 'An ice-core drilling station. The cores are missing.' },
+  floe: { name: 'Floe', code: '22-R', risk: 'HIGH', cost: 0, bonus: 'rimefall', biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [18, 24], mult: 1.8, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, pale: 1 }, desc: "An ice hauler's camp out in the rings, cutting blocks from them." },
+  vigil: { name: 'Vigil', code: '40-I', risk: 'MEDIUM', cost: 0, bonus: 'agnes', biome: 'moon', lowG: true, size: 30, stairs: 3, scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 2, pale: 1 }, desc: "The sanatorium's isolation ward. Built a long way off, on purpose." },
+  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: 2, scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.2, pale: 1 }, desc: 'An ossuary. They ran out of room on the moor.' },
+  ballast: { name: 'Ballast', code: '56-I', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'moon', lowG: true, size: 34, stairs: 3, scrap: [22, 29], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, crawler: 1.4, pale: 0.8 }, desc: "A breaker's yard, where they cut up the ships too big to land." },
+  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: "A salvage tender's base, grown over with something." },
+  cask: { name: 'Cask', code: '19-I', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4 }, desc: 'Brine evaporators under glass. The glass is cracked.' },
+  grain: { name: 'Grain', code: '19-R', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'rock', lowG: true, size: 28, stairs: 2, scrap: [21, 27], mult: 2.3, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, pale: 1.2 }, desc: 'A salt mine in a rock out in the rings.' },
+  flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: 3, scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
   // Halcyon's: open every day (open), each a little world of its own (ground: its dust's colour against a plain moon's)
-  sump: { name: 'Sump', code: '9-R', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [16, 21], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.4, slime: 0.8 }, ground: [0.95, 0.9, 0.85], desc: "A moonlet in the rings, mined hollow for ice. The drills stopped mid-shift." },
-  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon just outside the rings. The relay station still answers hails, in a voice nobody recorded.' },
-  chandler: { name: 'Chandler', code: '9-II', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, slime: 1.2, pale: 1 }, ground: [1.2, 1.04, 0.62], desc: 'Sulphur flats and a refinery that ran itself for years. It kept the furnaces lit for someone.' },
-  gloam: { name: 'Gloam', code: '9-III', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 38, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.8, pale: 1.4, leech: 0.8 }, ground: [0.5, 0.5, 0.54], desc: 'A moon as black as soot. The observatory on it was watching something, then stopped reporting.' },
-  ferrule: { name: 'Ferrule', code: '9-IV', risk: 'EXTREME', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [1.12, 0.82, 0.7], desc: "Halcyon's outermost moon, rust-red. A breakers' yard for ships that came back wrong." },
+  sump: { name: 'Sump', code: '9-R', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [16, 21], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.4, slime: 0.8 }, ground: [0.95, 0.9, 0.85], desc: "A moonlet in the rings, mined hollow for ice. The drills stopped mid-shift." },
+  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: 2, scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon just outside the rings. The relay station still answers hails, in a voice nobody recorded.' },
+  chandler: { name: 'Chandler', code: '9-II', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [23, 30], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, slime: 1.2, pale: 1 }, ground: [1.2, 1.04, 0.62], desc: 'Sulphur flats and a refinery that ran itself for years. It kept the furnaces lit for someone.' },
+  gloam: { name: 'Gloam', code: '9-III', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 38, stairs: 3, scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.8, pale: 1.4, leech: 0.8 }, ground: [0.5, 0.5, 0.54], desc: 'A moon as black as soot. The observatory on it was watching something, then stopped reporting.' },
+  ferrule: { name: 'Ferrule', code: '9-IV', risk: 'EXTREME', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 42, stairs: 3, scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [1.12, 0.82, 0.7], desc: "Halcyon's outermost moon, rust-red. A breakers' yard for ships that came back wrong." },
   // Tarrow's
-  kiln: { name: 'Kiln', code: '14-I', risk: 'HIGH', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, slime: 1.4, pale: 1 }, ground: [1.2, 0.85, 0.55], desc: "Down in Tarrow's dust ring, its crust cracking and smoking in the giant's pull. The geothermal plant still runs, hot as a stove." },
-  tithe: { name: 'Tithe', code: '14-II', risk: 'MEDIUM', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, pale: 1 }, ground: [0.96, 0.96, 0.93], desc: 'A grey moon with a company chapel and its counting house. The tithes were paid in something other than money.' },
-  warden: { name: 'Warden', code: '14-III', risk: 'EXTREME', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [0.78, 0.64, 0.52], desc: 'A prison moon. The cells were built to keep things in; the doors all open from the inside now.' },
+  kiln: { name: 'Kiln', code: '14-I', risk: 'HIGH', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [23, 30], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, slime: 1.4, pale: 1 }, ground: [1.2, 0.85, 0.55], desc: "Down in Tarrow's dust ring, its crust cracking and smoking in the giant's pull. The geothermal plant still runs, hot as a stove." },
+  tithe: { name: 'Tithe', code: '14-II', risk: 'MEDIUM', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 30, stairs: 2, scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, pale: 1 }, ground: [0.96, 0.96, 0.93], desc: 'A grey moon with a company chapel and its counting house. The tithes were paid in something other than money.' },
+  warden: { name: 'Warden', code: '14-III', risk: 'EXTREME', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 42, stairs: 3, scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [0.78, 0.64, 0.52], desc: 'A prison moon. The cells were built to keep things in; the doors all open from the inside now.' },
   // Hush's
-  murmur: { name: 'Murmur', code: '20-I', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, leech: 1.2, crawler: 1 }, ground: [1.1, 1.18, 1.3], desc: 'An ice moon so close in that Hush fills half its sky. A listening post, every dish turned the same way.' },
-  lull: { name: 'Lull', code: '20-R', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, slime: 1.2 }, ground: [0.9, 0.96, 1.06], desc: 'A captured rock in a slow, cold orbit. A cryo vault is cut into it; most of the pods are open.' },
-  pall: { name: 'Pall', code: '20-II', risk: 'EXTREME', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.9, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2.2, mannequin: 1.6, crawler: 1.4 }, ground: [0.46, 0.49, 0.56], desc: "Hush's dark outer moon. They brought a lost fleet's crews here to lie in state, and something kept them." },
-  dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: [2], scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
+  murmur: { name: 'Murmur', code: '20-I', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 34, stairs: 3, scrap: [22, 29], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, leech: 1.2, crawler: 1 }, ground: [1.1, 1.18, 1.3], desc: 'An ice moon so close in that Hush fills half its sky. A listening post, every dish turned the same way.' },
+  lull: { name: 'Lull', code: '20-R', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'rock', lowG: true, size: 30, stairs: 2, scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, slime: 1.2 }, ground: [0.9, 0.96, 1.06], desc: 'A captured rock in a slow, cold orbit. A cryo vault is cut into it; most of the pods are open.' },
+  pall: { name: 'Pall', code: '20-II', risk: 'EXTREME', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 44, stairs: 3, scrap: [34, 42], mult: 2.9, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2.2, mannequin: 1.6, crawler: 1.4 }, ground: [0.46, 0.49, 0.56], desc: "Hush's dark outer moon. They brought a lost fleet's crews here to lie in state, and something kept them." },
+  dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: 2, scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
 });
+// How deep each site's facility goes, the ground floor counted: never fewer than four floors, and the more dangerous the
+// site, the further down it goes (every floor the size it would be anyway, so a deeper plant is a bigger one)
+const FLOORS = { LOW: 4, MEDIUM: 4, HIGH: 5, EXTREME: 6 };
+for (const k in SITES) SITES[k].floors = Math.max(4, FLOORS[SITES[k].risk] || 4);
 for (const w in BODIES) {
   const W = SITE_LOOK[w];
   // seen from orbit round one of them, it's grey and airless
@@ -16864,7 +16956,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 10;
+const PROTO = 11;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -16877,7 +16969,7 @@ const FLY = {
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
 const _lampP = new THREE.Vector3();
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0);
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
@@ -17088,7 +17180,8 @@ const G = {
     // (a step that's built in pieces takes a piece a frame, and says false until it's done)
     const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
-      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs); },
+      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); },
+      pieces(() => b.fac.generateGen(), () => {}),
       pieces(() => b.fac.buildGen(), (v) => { b.facG = v; }),
       () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); },
       pieces(() => b.ext.landGen(), () => {}),
@@ -17121,6 +17214,8 @@ const G = {
     R.precompile(R.scene, () => {});
     R.precompile(b.facG, () => R.precompile(b.extG, () => { if (G.fac !== fac) return; R.scene.add(b.facG); R.scene.add(b.extG); G.siteShown = true; }));
     G.fac.lamps.forEach((l) => (l.fac = true));
+    // (of the facility, only what can be seen from wherever each view is drawn from is drawn: see Facility.showFor)
+    R.scene.onBeforeRender = (r, s, cam) => { if (G.fac) G.fac.showFor(_eyeAt.setFromMatrixPosition(cam.matrixWorld)); };
     G.lightSources = [...G.ship.lights, ...G.ext.lights, ...G.fac.lamps];
     G.round = { site: siteKey, seed, weather, time: 8 * 60, power: true, coreTaken: false, startShip: new Set(), warn1: false, warn2: false, spawnT: 45, houndT: 30, blackoutT: 150 + Math.random() * 240, blackout: false, allDeadT: 0, total: 0 };
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
@@ -18354,7 +18449,7 @@ const G = {
           if (G.mode !== 'landing' || !G.round || G.round.seed !== seed) return;
           const items = G.spawnScrap(seed, site, key);
           G.emit({ e: 'land', site: key, seed, weather, items });
-          const first = key === 'hollow' ? 2 : 1;
+          const first = (key === 'hollow' ? 2 : 1) + (G.fac.levels >= 6 ? 1 : 0);
           for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
         };
         const wait = (t) => (G.siteShown || t > 6 ? go() : G.timers.push({ t: 0.1, fn: () => wait(t + 0.1) }));
@@ -18369,13 +18464,17 @@ const G = {
     const r = new RNG(seed ^ 0x77aa), fac = G.fac;
     const n = Math.round(r.int(site.scrap[0], site.scrap[1]) * 0.85);
     const ent = fac.exits.find((e) => e.kind === 'main') || { x: 0, z: 0 };
-    const spots = fac.spots.map((s) => ({ ...s, w: s.w * clamp(Math.hypot(s.x - ent.x, s.z - ent.z) / 28, 0.2, 1.5) }));
+    const spots = fac.spots.map((s) => ({ ...s, w: s.w * clamp(Math.hypot(s.x - ent.x, s.z - ent.z) / 28, 0.2, 1.5), lv: Math.round(fac.depthOfY(s.y)) }));
     const bias = SITE_LOOT[siteKey] || {};
     const out = [];
+    // (however deep the plant goes, there's no more of it than there ever was: it's shared out between the floors, each
+    // in turn, starting from a different one each day, so every floor holds about as much as any other)
+    const L = fac.levels, lv0 = r.int(0, L - 1);
     for (let i = 0; i < n && spots.length; i++) {
-      let tot = 0; for (const s of spots) tot += s.w;
-      let x = r.next() * tot, k = 0;
-      for (; k < spots.length - 1; k++) { x -= spots[k].w; if (x <= 0) break; }
+      const want = (lv0 + i) % L, pool = spots.some((s) => s.lv === want) ? (s) => s.lv === want : () => true;
+      let tot = 0; for (const s of spots) if (pool(s)) tot += s.w;
+      let x = r.next() * tot, k = -1;
+      for (let q = 0; q < spots.length; q++) if (pool(spots[q])) { k = q; x -= spots[q].w; if (x <= 0) break; }
       const s = spots.splice(k, 1)[0];
       // spread finds out: no second piece lying a step away from the first
       for (let q = spots.length - 1; q >= 0; q--) if (spots[q].c == null && Math.hypot(spots[q].x - s.x, spots[q].z - s.z) < 2.2) spots.splice(q, 1);
@@ -18408,7 +18507,9 @@ const G = {
     if (!type) {
       const counts = {}; let power = 0, n = 0;
       for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in') { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n++; }
-      if (n >= site.cap) return;
+      // (a plant more than four floors deep has room for a little more of it: one more thing for each floor past the fourth)
+      const extra = Math.max(0, fac.levels - 4);
+      if (n >= site.cap + Math.min(2, extra)) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
       const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2 };
@@ -18417,20 +18518,24 @@ const G = {
       if (fac.levels < 2) delete w.mannequin;
       if (!Object.keys(w).length) return;
       type = R0.weighted(w);
-      if (!force && power + MON_DEFS[type].power > site.power) return;
+      if (!force && power + MON_DEFS[type].power > site.power * (1 + 0.15 * extra)) return;
     }
     const players = G.alivePlayers().filter((p) => p.zone === 'in');
     const far = (x, z) => players.every((p) => Math.hypot(p.pos.x - x, p.pos.z - z) > minDist);
-    // where: out of a vent for most things; a mannequin only somewhere on the lower levels; the Seep out in a
-    // corridor (it's far too big for a vent)
-    // (the Executioner, up from below: as deep as the building goes, and far too big for a vent)
-    const deep = (type === 'mannequin' || type === 'executioner') && fac.levels >= 2, wide = type === 'slime' || type === 'executioner';
+    // where: out of a vent for most things; a mannequin only somewhere in the lower half of the building; the Seep out
+    // in a corridor (it's far too big for a vent)
+    // (the Executioner, up from below: from the bottom floor, and far too big for a vent)
+    const wide = type === 'slime' || type === 'executioner';
     if (type === 'mannequin' && fac.levels < 2) return;
-    const lvOk = (x, z, y) => !deep || fac.levelAt(x, z, y) >= 1;
+    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
-    for (const v of vents) if (far(v.x, v.z) && lvOk(v.x, v.z, v.y)) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
-    if (!spot) { const p = fac.randomWalkable(R0, (q) => far(q.x, q.z) && (!deep || fac.lvl[fac.idx(q.i, q.j)] >= 1) && (!wide || fac.grid[fac.idx(q.i, q.j)] === 1)); if (p) spot = { x: p.x, z: p.z }; }
+    for (const v of vents) if (far(v.x, v.z) && fac.levelAt(v.x, v.z, v.y) >= minLv) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
+    // (nowhere down there far enough from everyone: anywhere below the ground floor will do)
+    for (let tries = 0; !spot && tries < 2; tries++, minLv = Math.min(minLv, 1)) {
+      const p = fac.randomWalkable(R0, (q) => far(q.x, q.z) && fac.lvl[fac.idx(q.i, q.j)] >= minLv && (!wide || fac.grid[fac.idx(q.i, q.j)] === 1), minLv ? { lv: minLv } : null);
+      if (p) spot = { x: p.x, z: p.z };
+    }
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
@@ -19638,9 +19743,9 @@ const G = {
   feedLight(p, eye) {
     const me = G.me(), t = performance.now() / 1000, power = G.round ? G.round.power : true, fac = G.fac;
     if (p.zone === 'in' && fac && G.zoneOf(me) !== 'in') {
-      const dp = fac.depthOfY(eye.y - 1.4);
+      const dp = fac.gloomAt(eye.y - 1.4);
       R.scene.background.set(0x000000); R.scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); R.scene.fog.density = 0.07 + 0.014 * dp; R.setFog(null);
-      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), Math.min(1, dp * 0.5)); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
       R.lightsAt(G.lightSources, eye, 'in', t, power, (s) => (s.fac ? fac.lampReach(eye, s) : fac.los(eye.x, eye.z, s.x, s.z) ? 1 : 0));
     }
     const lamps = [...G.players.values()].filter((q) => q.id !== G.localId && q.alive && q.flash && q.zone === p.zone)
@@ -19693,10 +19798,11 @@ const G = {
       if (G.ext) G.ext.group.visible = false;
     } else if (zone === 'in') {
       R.fx.peek = 0; R.fx.sun = 0;
-      // each level down the air is thicker and what little light there is bounces off nothing
-      const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
+      // each level down the air is thicker and what little light there is bounces off nothing (past the second
+      // basement only a little more so each floor: see Facility.gloomAt)
+      const dp = G.fac ? G.fac.gloomAt(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
-      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), Math.min(1, dp * 0.5)); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
       // (the volumetric air, if it's on: the building's still, dusty air, the flashlights' beams showing in it)
       if (Settings.volumetric) { R.vol.on = true; R.volIndoor(scene.fog.color, 0.062 + 0.012 * dp); scene.fog.density = 0; }
       SFX.setEnv('interior');
@@ -19785,8 +19891,10 @@ const G = {
         amb.buzz = Math.pow(clamp(1 - d / 8, 0, 1), 1.4) * Math.min(1, best.lit) * (power || best.state === 'emergency' ? 1 : 0);
         if (best.state === 'flicker' && power) amb.flickerLamp = new THREE.Vector3(best.x, best.y, best.z);
       }
-      if (G.fac._machine === undefined) { const p = G.fac.randomWalkable(R0, () => true); G.fac._machine = p ? new THREE.Vector3(p.x, G.fac.floorY(p.x, p.z) + 1.2, p.z) : null; }
-      amb.machine = G.fac._machine;
+      // (somewhere on every floor, a machine still thumping away)
+      const fac = G.fac, lv = Math.round(fac.depthOfY(cam.y - 1.4)), M = fac._machines || (fac._machines = []);
+      if (M[lv] === undefined) { const p = fac.randomWalkable(R0, (q) => fac.lvl[fac.idx(q.i, q.j)] === lv, { lv, only: true }); M[lv] = p ? new THREE.Vector3(p.x, fac.floorY(p.x, p.z) + 1.2, p.z) : null; }
+      amb.machine = M[lv];
     }
     if (G.ship.termPos) amb.console = G.ship.termPos;
     SFX.ambience(dt, amb);
@@ -19857,7 +19965,7 @@ const G = {
         if (pick === 'whisper') { const back = new THREE.Vector3(Math.sin(me.yaw), 0, Math.cos(me.yaw)); pos = cam.clone().addScaledVector(back, 1.1).add(new THREE.Vector3((Math.random() - 0.5), 0.1, 0)); }
         else {
           const near = pick === 'drip' || pick === 'knock';
-          const p = G.fac.randomWalkable(R0, (q) => { const dd = Math.hypot(q.x - me.pos.x, q.z - me.pos.z); return near ? dd > 3 && dd < 9 : dd > 12 && dd < 34; });
+          const p = G.fac.randomWalkable(R0, (q) => { const dd = Math.hypot(q.x - me.pos.x, q.z - me.pos.z); return near ? dd > 3 && dd < 9 : dd > 12 && dd < 34; }, { x: me.pos.x, z: me.pos.z, r: near ? 9 : 34 });
           pos = p ? new THREE.Vector3(p.x, G.fac.floorY(p.x, p.z) + (pick === 'knock' ? 1.2 : 2), p.z) : null;
         }
         if (pos) SFX.play(pick, pos, { vol: pick === 'scream' ? 0.5 : pick === 'whisper' ? 0.35 : 0.9, rev: 0.7 });

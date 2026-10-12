@@ -214,7 +214,7 @@ const CrewCam = (() => {
     let where = '';
     if (!p.alive) where = 'NO LIFE SIGNS';
     else if (G.mode === 'orbit' || !G.round) where = 'IN ORBIT';
-    else if (p.zone === 'in' && G.fac) { const L = drawFacMap(p, crew, t); where = 'FACILITY · ' + (['G', 'B1', 'B2', 'B3'][L] || ''); }
+    else if (p.zone === 'in' && G.fac) { const L = drawFacMap(p, crew, t); where = 'FACILITY · ' + G.fac.levelLabel(L); }
     else { drawExtMap(p, crew, t); where = G.inShip(p) ? 'SHIP' : 'OUTSIDE'; }
     if (p.alive && G.round && G.mode !== 'orbit') runSweep(p, t);
     if (!p.alive || G.mode === 'orbit' || !G.round) {

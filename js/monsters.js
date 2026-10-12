@@ -476,14 +476,15 @@ class Monster {
   }
   randomGoal(minD, maxD, filter) {
     if (this.def.zone === 'in' && this.g.fac) {
-      const fac = this.g.fac;
+      // (looked for round about here: the building is far too big to find somewhere close by picking anywhere in it)
+      const fac = this.g.fac, near = { x: this.pos.x, z: this.pos.z, r: maxD };
       for (let t = 0; t < 30; t++) {
-        const p = fac.randomWalkable(R0);
+        const p = fac.randomWalkable(R0, null, near);
         if (!p) break;
         const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
         if (d >= minD && d <= maxD && (!filter || filter(p))) return p;
       }
-      return fac.randomWalkable(R0) || { x: this.pos.x, z: this.pos.z };
+      return fac.randomWalkable(R0, null, { x: this.pos.x, z: this.pos.z, r: maxD * 2 }) || fac.randomWalkable(R0) || { x: this.pos.x, z: this.pos.z };
     }
     const a = Math.random() * TAU, d = minD + Math.random() * (maxD - minD);
     let x = this.pos.x + Math.cos(a) * d, z = this.pos.z + Math.sin(a) * d;
@@ -849,7 +850,7 @@ class Monster {
     const fac = this.g.fac;
     let best = null, bs = -Infinity;
     for (let t = 0; t < 14; t++) {
-      const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; });
+      const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; }, { x: this.pos.x, z: this.pos.z, r: 24 });
       if (!p) continue;
       const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z, true) : false;
       const s = (vis ? -100 : 0) + (tgt ? Math.hypot(p.x - tgt.pos.x, p.z - tgt.pos.z) : 0) - Math.hypot(p.x - this.pos.x, p.z - this.pos.z) * 0.3;

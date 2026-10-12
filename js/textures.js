@@ -1082,7 +1082,8 @@ const MATS = (() => {
   };
   const repCache = {}, agedCache = {};
   // a surface on a lower level: darker and browner with grime, duller, its paint and metal gone flat
-  const AGE_TINT = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34]];
+  // (past the third basement only a little darker each floor: the bottom of a deep plant is grim, not black)
+  const AGE_TINT = [null, [0.72, 0.66, 0.56], [0.55, 0.52, 0.42], [0.45, 0.42, 0.34], [0.42, 0.39, 0.31], [0.39, 0.36, 0.29]];
   return {
     get(name) { if (!cache[name]) { if (!defs[name]) throw new Error('No material ' + name); cache[name] = defs[name](); } return cache[name]; },
     wear,
@@ -1091,7 +1092,7 @@ const MATS = (() => {
     aged(name, lv) {
       const k = name + '@' + lv;
       if (agedCache[k]) return agedCache[k];
-      const m = this.get(name).clone(), t = AGE_TINT[Math.min(3, lv)] || AGE_TINT[3];
+      const m = this.get(name).clone(), t = AGE_TINT[Math.min(AGE_TINT.length - 1, lv)] || AGE_TINT[3];
       m.color = m.color.clone().multiply(new THREE.Color(t[0], t[1], t[2]));
       if (m.roughness != null) m.roughness = Math.min(1, m.roughness + 0.12 * lv);
       if (m.metalness) m.metalness *= 0.6;

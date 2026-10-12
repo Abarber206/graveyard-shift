@@ -144,7 +144,7 @@ const Rover = (() => {
     stopDriving() { if (!driving) return; driving = false; v = 0; buf = []; overlay.classList.add('hidden'); $('hud').classList.remove('cine', 'rc'); R.fx.static = 0; R.flash.intensity = 0; SFX.play('static', null, { dur: 0.25, vol: 0.5 }); },
     // the link: clear by the ship, grainier the further out it goes, worse still under ground
     link() {
-      if (S.zone === 'in') { const d = G.fac ? G.fac.depthOfY(S.y) : 0; return clamp(0.82 - 0.22 * d - Math.hypot(S.x, S.z) * 0.0012, 0.15, 0.85); }
+      if (S.zone === 'in') { const d = G.fac ? G.fac.gloomAt(S.y) : 0; return clamp(0.82 - 0.22 * d - Math.min(0.2, Math.hypot(S.x, S.z) * 0.0012), 0.15, 0.85); }
       return clamp(1 - Math.max(0, Math.hypot(S.x, S.z) - 25) / ROVER.RANGE, 0.12, 1);
     },
 

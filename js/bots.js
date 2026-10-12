@@ -186,7 +186,11 @@ const Bots = (() => {
       break;
     }
     step(p, b, tx, tz, speed, dt, face);
-    return Math.hypot(gx - p.pos.x, gz - p.pos.z);
+    // (how far it still has to go along the way it's taking, not as the crow flies: in a deep plant the way down to
+    // somewhere can lead a long way off to one side first, to the stairwell, and that's still getting there)
+    let left = Math.hypot(wp.x - p.pos.x, wp.z - p.pos.z);
+    for (let n = 1; n < b.path.length; n++) left += Math.hypot(b.path[n].x - b.path[n - 1].x, b.path[n].z - b.path[n - 1].z);
+    return left;
   }
   function teleport(p, zone, x, y, z, yaw) {
     p.zone = zone; p.pos.set(x, y, z); p.yaw = yaw; p.buf.length = 0; p.rpos.copy(p.pos);
@@ -345,10 +349,11 @@ const Bots = (() => {
     }
     return best;
   }
-  // somewhere it hasn't been yet, not too far off; once most of this floor has been covered, the floors below it
-  // (they were never stripped, so the scrap down there is worth more)
+  // somewhere it hasn't been yet, not too far off; once most of this floor has been covered, the nearest floor that
+  // hasn't been, the one below first (they were never stripped, so the scrap down there is worth more): floor by floor
+  // all the way down
   function exploreGoal(p, b) {
-    const fac = G.fac, here = Math.round(fac.depthOfY(p.pos.y));
+    const fac = G.fac, here = Math.round(fac.depthOfY(p.pos.y)), L = fac.levels;
     if (!b.cells) {
       b.cells = new Map();
       for (let k = 0; k < fac.grid.length; k++) { const i = k % fac.W, j = Math.floor(k / fac.W); if (fac.walkable(i, j)) b.cells.set(cell(fac, fac.cx(i), fac.cz(j), fac.tileY(k)), Math.max(0, fac.lvl[k])); }
@@ -356,13 +361,15 @@ const Bots = (() => {
     const total = {}, seen = {};
     for (const [key, lv] of b.cells) { total[lv] = (total[lv] || 0) + 1; if (b.seen.has(key)) seen[lv] = (seen[lv] || 0) + 1; }
     const covered = (lv) => (seen[lv] || 0) / (total[lv] || 1) > 0.55;
+    let lv = here;
+    if (covered(here)) for (let d = 1; d < L && lv === here; d++) { if (here + d < L && !covered(here + d)) lv = here + d; else if (here - d >= 0 && !covered(here - d)) lv = here - d; }
     let best = null, bs = Infinity;
+    // (on this floor, half of them looked for round about here; on another, anywhere on it)
     for (let t = 0; t < 60; t++) {
-      const q = fac.randomWalkable(rng); if (!q) break;
-      const k = fac.idx(q.i, q.j), y = fac.tileY(k), lv = Math.max(0, fac.lvl[k]), d = Math.hypot(q.x - p.pos.x, q.z - p.pos.z);
+      const q = fac.randomWalkable(rng, (c) => fac.lvl[fac.idx(c.i, c.j)] === lv, lv === here && t % 2 ? { x: p.pos.x, z: p.pos.z, r: 40 } : { lv, only: true }); if (!q) continue;
+      const y = fac.tileY(fac.idx(q.i, q.j)), d = Math.hypot(q.x - p.pos.x, q.z - p.pos.z);
       if (d < 8 && lv === here) continue;
-      let s = d * rng.range(0.6, 1.4) + (b.seen.has(cell(fac, q.x, q.z, y)) ? 80 : 0) + Math.abs(lv - here) * 6;
-      if (lv !== here && covered(here) && !covered(lv)) s -= 60;
+      const s = d * rng.range(0.6, 1.4) + (b.seen.has(cell(fac, q.x, q.z, y)) ? 80 : 0);
       if (s < bs) { bs = s; best = { x: q.x, z: q.z, y }; }
     }
     return best;
@@ -407,7 +414,7 @@ const Bots = (() => {
     const fac = G.fac, ax = p.pos.x - m.pos.x, az = p.pos.z - m.pos.z, al = Math.hypot(ax, az) || 1;
     let best = null, bs = -Infinity;
     for (let t = 0; t < 40; t++) {
-      const q = fac.randomWalkable(rng); if (!q) break;
+      const q = fac.randomWalkable(rng, null, { x: p.pos.x, z: p.pos.z, r: 32 }); if (!q) break;
       const dx = q.x - p.pos.x, dz = q.z - p.pos.z, d = Math.hypot(dx, dz);
       if (d < 7 || d > 32 || Math.abs(fac.tileY(fac.idx(q.i, q.j)) - p.pos.y) > 2) continue;
       const s = (dx * ax + dz * az) / (d * al) + Math.min(d, 20) / 40;

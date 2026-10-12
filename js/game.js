@@ -21,21 +21,24 @@ const SITE_LOOK = {
   hush: { tint: 0xeaf4f8, atmo: 0x9ad8ff, rings: { in: 1.6, out: 2.05, map: 'ringsThin', col: 0x5a5e64 }, giant: 'giantIce' },
 };
 const SITES = {
-  // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once
-  ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: [2], scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'Abandoned textile mill. Shallow. A good place to learn.' },
-  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: [2], scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, slime: 0.5 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
-  kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: [3], scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6, slime: 1.3 }, desc: 'Research annex. Something got out. Something stayed.' },
-  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: [2], scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, slime: 1 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
-  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: [3], scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
-  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: [2, 1], scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
-  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: [2, 1], scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
-  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: [2, 1], scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
-  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: [2, 1], scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
-  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: [2, 1], scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
+  // each site has its own roster (what lives there), a threat budget, and a cap on how many things are inside at once.
+  // size: how wide its facility is, in tiles; stairs: how many stairwells join each of its floors to the next one down;
+  // scrap: how many pieces are left in the whole building, however deep it goes (shared out between its floors: see
+  // spawnScrap). How many floors it goes down is down to its risk (FLOORS, below).
+  ashgrove: { name: 'Ashgrove Mill', code: '12-A', risk: 'LOW', cost: 0, size: 26, stairs: 2, scrap: [11, 15], mult: 1.0, power: 3, cap: 2, hounds: 1, weather: { clear: 3, fog: 3, rain: 2 }, mon: { crawler: 1.4, leech: 1.2 }, desc: 'Abandoned textile mill. The shallowest of them. A good place to learn.' },
+  verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: 2, scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, slime: 0.5 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
+  kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: 3, scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6, slime: 1.3 }, desc: 'Research annex. Something got out. Something stayed.' },
+  rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: 2, scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, slime: 1 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
+  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: 3, scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
+  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: 3, scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
+  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: 3, scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
+  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: 3, scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
+  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: 3, scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
+  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: 3, scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
 };
 // Halcyon, a gas giant: nowhere to land on it, but a family of moons round it, each with a facility, and all of them
 // open every day (open): jump to any of them, or to the giant to look, and hop between them for nothing
-const GIANT = { stairs: [2], scrap: [0, 0], size: 30, mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, risk: 'VARIES', giant: true };
+const GIANT = { stairs: 2, scrap: [0, 0], size: 30, mult: 1, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1 }, risk: 'VARIES', giant: true };
 Object.assign(SITES, {
   halcyon: Object.assign({ name: 'Halcyon', code: '9', cost: 150, desc: 'A pale gold gas giant in broad bright rings: no surface. Five moons, each with a facility. Route to any of them.' }, GIANT),
   tarrow: Object.assign({ name: 'Tarrow', code: '14', cost: 190, desc: 'A banded giant, its storms bigger than worlds: no surface. Three moons, each with a facility.' }, GIANT),
@@ -112,41 +115,45 @@ const BODIES = {
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
 // surface, nothing hunting outside, better pay for the risk
 Object.assign(SITES, {
-  wick: { name: 'Wick', code: 'A-I', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'moon', lowG: true, size: 28, stairs: [2], scrap: [15, 20], mult: 1.5, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1 }, desc: 'A survey outpost that stopped answering.' },
-  tallow: { name: 'Tallow', code: 'A-R', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [12, 16], mult: 1.6, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1, leech: 1.6 }, desc: 'A mining claim bored into it. Tight tunnels.' },
-  petri: { name: 'Petri', code: 'K-I', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'moon', lowG: true, size: 32, stairs: [3], scrap: [18, 24], mult: 1.9, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, pale: 0.9, crawler: 1.2, slime: 1.4 }, desc: 'The quarantine overflow site. Sealed from the outside.' },
-  swab: { name: 'Swab', code: 'K-R', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'rock', lowG: true, size: 26, stairs: [], scrap: [14, 19], mult: 2.0, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: 'A sample store. Whatever they kept here is still kept.' },
-  grit: { name: 'Grit', code: '7-I', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4, mannequin: 0.6 }, desc: "The pumping company's refinery. Red dust in everything." },
-  mote: { name: 'Mote', code: '7-R', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1.2, pale: 0.8 }, desc: 'An ore crusher, still running.' },
-  cinder: { name: 'Cinder', code: '0-I', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [32, 40], mult: 2.6, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, mannequin: 1.5, crawler: 1.4, leech: 1 }, desc: 'The signal from below the Hollow is louder here.' },
-  clinker: { name: 'Clinker', code: '0-R', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [26, 33], mult: 2.8, power: 9, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, crawler: 1.4, mannequin: 1 }, desc: 'Burnt out. Something tunnels through it.' },
-  sprig: { name: 'Sprig', code: '5-I', risk: 'LOW', cost: 0, bonus: 'verdigris', biome: 'moon', lowG: true, size: 26, stairs: [2], scrap: [13, 18], mult: 1.4, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.6, crawler: 1.2 }, desc: 'A seed vault, sealed against the end of the world. Something got in anyway.' },
-  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: [], scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2, slime: 1 }, desc: 'A compost works bored into the rock. Mind the smell.' },
-  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4 }, desc: 'An ice-core drilling station. The cores are missing.' },
-  floe: { name: 'Floe', code: '22-R', risk: 'HIGH', cost: 0, bonus: 'rimefall', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [18, 24], mult: 1.8, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, pale: 1 }, desc: "An ice hauler's camp out in the rings, cutting blocks from them." },
-  vigil: { name: 'Vigil', code: '40-I', risk: 'MEDIUM', cost: 0, bonus: 'agnes', biome: 'moon', lowG: true, size: 30, stairs: [3], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 2, pale: 1 }, desc: "The sanatorium's isolation ward. Built a long way off, on purpose." },
-  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: [], scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.2, pale: 1 }, desc: 'An ossuary. They ran out of room on the moor.' },
-  ballast: { name: 'Ballast', code: '56-I', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, crawler: 1.4, pale: 0.8 }, desc: "A breaker's yard, where they cut up the ships too big to land." },
-  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: "A salvage tender's base, grown over with something." },
-  cask: { name: 'Cask', code: '19-I', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4 }, desc: 'Brine evaporators under glass. The glass is cracked.' },
-  grain: { name: 'Grain', code: '19-R', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'rock', lowG: true, size: 28, stairs: [2], scrap: [21, 27], mult: 2.3, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, pale: 1.2 }, desc: 'A salt mine in a rock out in the rings.' },
-  flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
+  wick: { name: 'Wick', code: 'A-I', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'moon', lowG: true, size: 28, stairs: 2, scrap: [15, 20], mult: 1.5, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1 }, desc: 'A survey outpost that stopped answering.' },
+  tallow: { name: 'Tallow', code: 'A-R', risk: 'MEDIUM', cost: 0, bonus: 'ashgrove', biome: 'rock', lowG: true, size: 24, stairs: 2, scrap: [12, 16], mult: 1.6, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1, leech: 1.6 }, desc: 'A mining claim bored into it. Tight tunnels.' },
+  petri: { name: 'Petri', code: 'K-I', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'moon', lowG: true, size: 32, stairs: 3, scrap: [18, 24], mult: 1.9, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, pale: 0.9, crawler: 1.2, slime: 1.4 }, desc: 'The quarantine overflow site. Sealed from the outside.' },
+  swab: { name: 'Swab', code: 'K-R', risk: 'HIGH', cost: 0, bonus: 'kessler', biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [14, 19], mult: 2.0, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: 'A sample store. Whatever they kept here is still kept.' },
+  grit: { name: 'Grit', code: '7-I', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [24, 31], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4, mannequin: 0.6 }, desc: "The pumping company's refinery. Red dust in everything." },
+  mote: { name: 'Mote', code: '7-R', risk: 'HIGH', cost: 0, bonus: 'nadir', biome: 'rock', lowG: true, size: 28, stairs: 2, scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, leech: 1.2, pale: 0.8 }, desc: 'An ore crusher, still running.' },
+  cinder: { name: 'Cinder', code: '0-I', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'moon', lowG: true, size: 42, stairs: 3, scrap: [32, 40], mult: 2.6, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, mannequin: 1.5, crawler: 1.4, leech: 1 }, desc: 'The signal from below the Hollow is louder here.' },
+  clinker: { name: 'Clinker', code: '0-R', risk: 'EXTREME', cost: 0, bonus: 'hollow', biome: 'rock', lowG: true, size: 30, stairs: 2, scrap: [26, 33], mult: 2.8, power: 9, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, crawler: 1.4, mannequin: 1 }, desc: 'Burnt out. Something tunnels through it.' },
+  sprig: { name: 'Sprig', code: '5-I', risk: 'LOW', cost: 0, bonus: 'verdigris', biome: 'moon', lowG: true, size: 26, stairs: 2, scrap: [13, 18], mult: 1.4, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.6, crawler: 1.2 }, desc: 'A seed vault, sealed against the end of the world. Something got in anyway.' },
+  husk: { name: 'Husk', code: '5-R', risk: 'MEDIUM', cost: 0, bonus: 'verdigris', biome: 'rock', lowG: true, size: 22, stairs: 2, scrap: [11, 15], mult: 1.5, power: 4, cap: 2, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.2, slime: 1 }, desc: 'A compost works bored into the rock. Mind the smell.' },
+  sleet: { name: 'Sleet', code: '22-I', risk: 'MEDIUM', cost: 0, bonus: 'rimefall', biome: 'moon', lowG: true, size: 30, stairs: 2, scrap: [16, 22], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1, crawler: 1.4 }, desc: 'An ice-core drilling station. The cores are missing.' },
+  floe: { name: 'Floe', code: '22-R', risk: 'HIGH', cost: 0, bonus: 'rimefall', biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [18, 24], mult: 1.8, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, pale: 1 }, desc: "An ice hauler's camp out in the rings, cutting blocks from them." },
+  vigil: { name: 'Vigil', code: '40-I', risk: 'MEDIUM', cost: 0, bonus: 'agnes', biome: 'moon', lowG: true, size: 30, stairs: 3, scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 2, pale: 1 }, desc: "The sanatorium's isolation ward. Built a long way off, on purpose." },
+  relic: { name: 'Relic', code: '40-R', risk: 'HIGH', cost: 0, bonus: 'agnes', biome: 'rock', lowG: true, size: 24, stairs: 2, scrap: [15, 20], mult: 1.8, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 1.2, pale: 1 }, desc: 'An ossuary. They ran out of room on the moor.' },
+  ballast: { name: 'Ballast', code: '56-I', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'moon', lowG: true, size: 34, stairs: 3, scrap: [22, 29], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { leech: 2, crawler: 1.4, pale: 0.8 }, desc: "A breaker's yard, where they cut up the ships too big to land." },
+  barnacle: { name: 'Barnacle', code: '56-R', risk: 'HIGH', cost: 0, bonus: 'brinewell', biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [19, 25], mult: 2.1, power: 6, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { leech: 2.2, crawler: 1, slime: 1.2 }, desc: "A salvage tender's base, grown over with something." },
+  cask: { name: 'Cask', code: '19-I', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, pale: 1.4 }, desc: 'Brine evaporators under glass. The glass is cracked.' },
+  grain: { name: 'Grain', code: '19-R', risk: 'HIGH', cost: 0, bonus: 'saltreach', biome: 'rock', lowG: true, size: 28, stairs: 2, scrap: [21, 27], mult: 2.3, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, pale: 1.2 }, desc: 'A salt mine in a rock out in the rings.' },
+  flux: { name: 'Flux', code: '1-I', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'moon', lowG: true, size: 44, stairs: 3, scrap: [34, 42], mult: 2.8, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.4, leech: 1 }, desc: "The foundry's ore terminal. The conveyors are still running." },
   // Halcyon's: open every day (open), each a little world of its own (ground: its dust's colour against a plain moon's)
-  sump: { name: 'Sump', code: '9-R', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'rock', lowG: true, size: 26, stairs: [2], scrap: [16, 21], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.4, slime: 0.8 }, ground: [0.95, 0.9, 0.85], desc: "A moonlet in the rings, mined hollow for ice. The drills stopped mid-shift." },
-  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon just outside the rings. The relay station still answers hails, in a voice nobody recorded.' },
-  chandler: { name: 'Chandler', code: '9-II', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, slime: 1.2, pale: 1 }, ground: [1.2, 1.04, 0.62], desc: 'Sulphur flats and a refinery that ran itself for years. It kept the furnaces lit for someone.' },
-  gloam: { name: 'Gloam', code: '9-III', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 38, stairs: [2, 1], scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.8, pale: 1.4, leech: 0.8 }, ground: [0.5, 0.5, 0.54], desc: 'A moon as black as soot. The observatory on it was watching something, then stopped reporting.' },
-  ferrule: { name: 'Ferrule', code: '9-IV', risk: 'EXTREME', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [1.12, 0.82, 0.7], desc: "Halcyon's outermost moon, rust-red. A breakers' yard for ships that came back wrong." },
+  sump: { name: 'Sump', code: '9-R', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'rock', lowG: true, size: 26, stairs: 2, scrap: [16, 21], mult: 1.6, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.4, leech: 1.4, slime: 0.8 }, ground: [0.95, 0.9, 0.85], desc: "A moonlet in the rings, mined hollow for ice. The drills stopped mid-shift." },
+  lantern: { name: 'Lantern', code: '9-I', risk: 'MEDIUM', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 30, stairs: 2, scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.2, crawler: 1.4 }, ground: [1.12, 1.16, 1.24], desc: 'An ice moon just outside the rings. The relay station still answers hails, in a voice nobody recorded.' },
+  chandler: { name: 'Chandler', code: '9-II', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [23, 30], mult: 2.0, power: 7, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 2, slime: 1.2, pale: 1 }, ground: [1.2, 1.04, 0.62], desc: 'Sulphur flats and a refinery that ran itself for years. It kept the furnaces lit for someone.' },
+  gloam: { name: 'Gloam', code: '9-III', risk: 'HIGH', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 38, stairs: 3, scrap: [24, 31], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.8, pale: 1.4, leech: 0.8 }, ground: [0.5, 0.5, 0.54], desc: 'A moon as black as soot. The observatory on it was watching something, then stopped reporting.' },
+  ferrule: { name: 'Ferrule', code: '9-IV', risk: 'EXTREME', cost: 150, bonus: 'halcyon', open: true, biome: 'moon', lowG: true, size: 42, stairs: 3, scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [1.12, 0.82, 0.7], desc: "Halcyon's outermost moon, rust-red. A breakers' yard for ships that came back wrong." },
   // Tarrow's
-  kiln: { name: 'Kiln', code: '14-I', risk: 'HIGH', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 36, stairs: [2, 1], scrap: [23, 30], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, slime: 1.4, pale: 1 }, ground: [1.2, 0.85, 0.55], desc: "Down in Tarrow's dust ring, its crust cracking and smoking in the giant's pull. The geothermal plant still runs, hot as a stove." },
-  tithe: { name: 'Tithe', code: '14-II', risk: 'MEDIUM', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 30, stairs: [2], scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, pale: 1 }, ground: [0.96, 0.96, 0.93], desc: 'A grey moon with a company chapel and its counting house. The tithes were paid in something other than money.' },
-  warden: { name: 'Warden', code: '14-III', risk: 'EXTREME', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 42, stairs: [2, 1], scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [0.78, 0.64, 0.52], desc: 'A prison moon. The cells were built to keep things in; the doors all open from the inside now.' },
+  kiln: { name: 'Kiln', code: '14-I', risk: 'HIGH', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 36, stairs: 3, scrap: [23, 30], mult: 2.1, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.8, slime: 1.4, pale: 1 }, ground: [1.2, 0.85, 0.55], desc: "Down in Tarrow's dust ring, its crust cracking and smoking in the giant's pull. The geothermal plant still runs, hot as a stove." },
+  tithe: { name: 'Tithe', code: '14-II', risk: 'MEDIUM', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 30, stairs: 2, scrap: [17, 23], mult: 1.7, power: 5, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { mannequin: 1.4, pale: 1 }, ground: [0.96, 0.96, 0.93], desc: 'A grey moon with a company chapel and its counting house. The tithes were paid in something other than money.' },
+  warden: { name: 'Warden', code: '14-III', risk: 'EXTREME', cost: 190, bonus: 'tarrow', open: true, biome: 'moon', lowG: true, size: 42, stairs: 3, scrap: [30, 38], mult: 2.6, power: 10, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2, crawler: 1.6, mannequin: 1.2, leech: 1 }, ground: [0.78, 0.64, 0.52], desc: 'A prison moon. The cells were built to keep things in; the doors all open from the inside now.' },
   // Hush's
-  murmur: { name: 'Murmur', code: '20-I', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 34, stairs: [2, 1], scrap: [22, 29], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, leech: 1.2, crawler: 1 }, ground: [1.1, 1.18, 1.3], desc: 'An ice moon so close in that Hush fills half its sky. A listening post, every dish turned the same way.' },
-  lull: { name: 'Lull', code: '20-R', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'rock', lowG: true, size: 30, stairs: [2], scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, slime: 1.2 }, ground: [0.9, 0.96, 1.06], desc: 'A captured rock in a slow, cold orbit. A cryo vault is cut into it; most of the pods are open.' },
-  pall: { name: 'Pall', code: '20-II', risk: 'EXTREME', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 44, stairs: [2, 1], scrap: [34, 42], mult: 2.9, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2.2, mannequin: 1.6, crawler: 1.4 }, ground: [0.46, 0.49, 0.56], desc: "Hush's dark outer moon. They brought a lost fleet's crews here to lie in state, and something kept them." },
-  dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: [2], scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
+  murmur: { name: 'Murmur', code: '20-I', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 34, stairs: 3, scrap: [22, 29], mult: 2.2, power: 8, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.6, leech: 1.2, crawler: 1 }, ground: [1.1, 1.18, 1.3], desc: 'An ice moon so close in that Hush fills half its sky. A listening post, every dish turned the same way.' },
+  lull: { name: 'Lull', code: '20-R', risk: 'HIGH', cost: 240, bonus: 'hush', open: true, biome: 'rock', lowG: true, size: 30, stairs: 2, scrap: [20, 26], mult: 2.2, power: 7, cap: 3, hounds: 0, weather: { clear: 1 }, mon: { crawler: 1.6, slime: 1.2 }, ground: [0.9, 0.96, 1.06], desc: 'A captured rock in a slow, cold orbit. A cryo vault is cut into it; most of the pods are open.' },
+  pall: { name: 'Pall', code: '20-II', risk: 'EXTREME', cost: 240, bonus: 'hush', open: true, biome: 'moon', lowG: true, size: 44, stairs: 3, scrap: [34, 42], mult: 2.9, power: 11, cap: 5, hounds: 0, weather: { clear: 1 }, mon: { pale: 2.2, mannequin: 1.6, crawler: 1.4 }, ground: [0.46, 0.49, 0.56], desc: "Hush's dark outer moon. They brought a lost fleet's crews here to lie in state, and something kept them." },
+  dross: { name: 'Dross', code: '1-R', risk: 'EXTREME', cost: 0, bonus: 'vesper', biome: 'rock', lowG: true, size: 32, stairs: 2, scrap: [28, 35], mult: 3.0, power: 10, cap: 4, hounds: 0, weather: { clear: 1 }, mon: { pale: 1.8, crawler: 1.6, mannequin: 1 }, desc: 'A slag dump that somebody hollowed out and lived in.' },
 });
+// How deep each site's facility goes, the ground floor counted: never fewer than four floors, and the more dangerous the
+// site, the further down it goes (every floor the size it would be anyway, so a deeper plant is a bigger one)
+const FLOORS = { LOW: 4, MEDIUM: 4, HIGH: 5, EXTREME: 6 };
+for (const k in SITES) SITES[k].floors = Math.max(4, FLOORS[SITES[k].risk] || 4);
 for (const w in BODIES) {
   const W = SITE_LOOK[w];
   // seen from orbit round one of them, it's grey and airless
@@ -216,7 +223,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 10;
+const PROTO = 11;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -229,7 +236,7 @@ const FLY = {
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
 const _lampP = new THREE.Vector3();
-const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0);
+const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
 const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
@@ -440,7 +447,8 @@ const G = {
     // (a step that's built in pieces takes a piece a frame, and says false until it's done)
     const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
-      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs); },
+      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); },
+      pieces(() => b.fac.generateGen(), () => {}),
       pieces(() => b.fac.buildGen(), (v) => { b.facG = v; }),
       () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); },
       pieces(() => b.ext.landGen(), () => {}),
@@ -473,6 +481,8 @@ const G = {
     R.precompile(R.scene, () => {});
     R.precompile(b.facG, () => R.precompile(b.extG, () => { if (G.fac !== fac) return; R.scene.add(b.facG); R.scene.add(b.extG); G.siteShown = true; }));
     G.fac.lamps.forEach((l) => (l.fac = true));
+    // (of the facility, only what can be seen from wherever each view is drawn from is drawn: see Facility.showFor)
+    R.scene.onBeforeRender = (r, s, cam) => { if (G.fac) G.fac.showFor(_eyeAt.setFromMatrixPosition(cam.matrixWorld)); };
     G.lightSources = [...G.ship.lights, ...G.ext.lights, ...G.fac.lamps];
     G.round = { site: siteKey, seed, weather, time: 8 * 60, power: true, coreTaken: false, startShip: new Set(), warn1: false, warn2: false, spawnT: 45, houndT: 30, blackoutT: 150 + Math.random() * 240, blackout: false, allDeadT: 0, total: 0 };
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
@@ -1706,7 +1716,7 @@ const G = {
           if (G.mode !== 'landing' || !G.round || G.round.seed !== seed) return;
           const items = G.spawnScrap(seed, site, key);
           G.emit({ e: 'land', site: key, seed, weather, items });
-          const first = key === 'hollow' ? 2 : 1;
+          const first = (key === 'hollow' ? 2 : 1) + (G.fac.levels >= 6 ? 1 : 0);
           for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
         };
         const wait = (t) => (G.siteShown || t > 6 ? go() : G.timers.push({ t: 0.1, fn: () => wait(t + 0.1) }));
@@ -1721,13 +1731,17 @@ const G = {
     const r = new RNG(seed ^ 0x77aa), fac = G.fac;
     const n = Math.round(r.int(site.scrap[0], site.scrap[1]) * 0.85);
     const ent = fac.exits.find((e) => e.kind === 'main') || { x: 0, z: 0 };
-    const spots = fac.spots.map((s) => ({ ...s, w: s.w * clamp(Math.hypot(s.x - ent.x, s.z - ent.z) / 28, 0.2, 1.5) }));
+    const spots = fac.spots.map((s) => ({ ...s, w: s.w * clamp(Math.hypot(s.x - ent.x, s.z - ent.z) / 28, 0.2, 1.5), lv: Math.round(fac.depthOfY(s.y)) }));
     const bias = SITE_LOOT[siteKey] || {};
     const out = [];
+    // (however deep the plant goes, there's no more of it than there ever was: it's shared out between the floors, each
+    // in turn, starting from a different one each day, so every floor holds about as much as any other)
+    const L = fac.levels, lv0 = r.int(0, L - 1);
     for (let i = 0; i < n && spots.length; i++) {
-      let tot = 0; for (const s of spots) tot += s.w;
-      let x = r.next() * tot, k = 0;
-      for (; k < spots.length - 1; k++) { x -= spots[k].w; if (x <= 0) break; }
+      const want = (lv0 + i) % L, pool = spots.some((s) => s.lv === want) ? (s) => s.lv === want : () => true;
+      let tot = 0; for (const s of spots) if (pool(s)) tot += s.w;
+      let x = r.next() * tot, k = -1;
+      for (let q = 0; q < spots.length; q++) if (pool(spots[q])) { k = q; x -= spots[q].w; if (x <= 0) break; }
       const s = spots.splice(k, 1)[0];
       // spread finds out: no second piece lying a step away from the first
       for (let q = spots.length - 1; q >= 0; q--) if (spots[q].c == null && Math.hypot(spots[q].x - s.x, spots[q].z - s.z) < 2.2) spots.splice(q, 1);
@@ -1760,7 +1774,9 @@ const G = {
     if (!type) {
       const counts = {}; let power = 0, n = 0;
       for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in') { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n++; }
-      if (n >= site.cap) return;
+      // (a plant more than four floors deep has room for a little more of it: one more thing for each floor past the fourth)
+      const extra = Math.max(0, fac.levels - 4);
+      if (n >= site.cap + Math.min(2, extra)) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
       const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2 };
@@ -1769,20 +1785,24 @@ const G = {
       if (fac.levels < 2) delete w.mannequin;
       if (!Object.keys(w).length) return;
       type = R0.weighted(w);
-      if (!force && power + MON_DEFS[type].power > site.power) return;
+      if (!force && power + MON_DEFS[type].power > site.power * (1 + 0.15 * extra)) return;
     }
     const players = G.alivePlayers().filter((p) => p.zone === 'in');
     const far = (x, z) => players.every((p) => Math.hypot(p.pos.x - x, p.pos.z - z) > minDist);
-    // where: out of a vent for most things; a mannequin only somewhere on the lower levels; the Seep out in a
-    // corridor (it's far too big for a vent)
-    // (the Executioner, up from below: as deep as the building goes, and far too big for a vent)
-    const deep = (type === 'mannequin' || type === 'executioner') && fac.levels >= 2, wide = type === 'slime' || type === 'executioner';
+    // where: out of a vent for most things; a mannequin only somewhere in the lower half of the building; the Seep out
+    // in a corridor (it's far too big for a vent)
+    // (the Executioner, up from below: from the bottom floor, and far too big for a vent)
+    const wide = type === 'slime' || type === 'executioner';
     if (type === 'mannequin' && fac.levels < 2) return;
-    const lvOk = (x, z, y) => !deep || fac.levelAt(x, z, y) >= 1;
+    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
-    for (const v of vents) if (far(v.x, v.z) && lvOk(v.x, v.z, v.y)) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
-    if (!spot) { const p = fac.randomWalkable(R0, (q) => far(q.x, q.z) && (!deep || fac.lvl[fac.idx(q.i, q.j)] >= 1) && (!wide || fac.grid[fac.idx(q.i, q.j)] === 1)); if (p) spot = { x: p.x, z: p.z }; }
+    for (const v of vents) if (far(v.x, v.z) && fac.levelAt(v.x, v.z, v.y) >= minLv) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
+    // (nowhere down there far enough from everyone: anywhere below the ground floor will do)
+    for (let tries = 0; !spot && tries < 2; tries++, minLv = Math.min(minLv, 1)) {
+      const p = fac.randomWalkable(R0, (q) => far(q.x, q.z) && fac.lvl[fac.idx(q.i, q.j)] >= minLv && (!wide || fac.grid[fac.idx(q.i, q.j)] === 1), minLv ? { lv: minLv } : null);
+      if (p) spot = { x: p.x, z: p.z };
+    }
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
@@ -2990,9 +3010,9 @@ const G = {
   feedLight(p, eye) {
     const me = G.me(), t = performance.now() / 1000, power = G.round ? G.round.power : true, fac = G.fac;
     if (p.zone === 'in' && fac && G.zoneOf(me) !== 'in') {
-      const dp = fac.depthOfY(eye.y - 1.4);
+      const dp = fac.gloomAt(eye.y - 1.4);
       R.scene.background.set(0x000000); R.scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); R.scene.fog.density = 0.07 + 0.014 * dp; R.setFog(null);
-      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), Math.min(1, dp * 0.5)); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
       R.lightsAt(G.lightSources, eye, 'in', t, power, (s) => (s.fac ? fac.lampReach(eye, s) : fac.los(eye.x, eye.z, s.x, s.z) ? 1 : 0));
     }
     const lamps = [...G.players.values()].filter((q) => q.id !== G.localId && q.alive && q.flash && q.zone === p.zone)
@@ -3045,10 +3065,11 @@ const G = {
       if (G.ext) G.ext.group.visible = false;
     } else if (zone === 'in') {
       R.fx.peek = 0; R.fx.sun = 0;
-      // each level down the air is thicker and what little light there is bounces off nothing
-      const dp = G.fac ? G.fac.depthOfY(cam.y - 1.4) : 0;
+      // each level down the air is thicker and what little light there is bounces off nothing (past the second
+      // basement only a little more so each floor: see Facility.gloomAt)
+      const dp = G.fac ? G.fac.gloomAt(cam.y - 1.4) : 0;
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
-      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), dp * 0.5); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
+      R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), Math.min(1, dp * 0.5)); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
       // (the volumetric air, if it's on: the building's still, dusty air, the flashlights' beams showing in it)
       if (Settings.volumetric) { R.vol.on = true; R.volIndoor(scene.fog.color, 0.062 + 0.012 * dp); scene.fog.density = 0; }
       SFX.setEnv('interior');
@@ -3137,8 +3158,10 @@ const G = {
         amb.buzz = Math.pow(clamp(1 - d / 8, 0, 1), 1.4) * Math.min(1, best.lit) * (power || best.state === 'emergency' ? 1 : 0);
         if (best.state === 'flicker' && power) amb.flickerLamp = new THREE.Vector3(best.x, best.y, best.z);
       }
-      if (G.fac._machine === undefined) { const p = G.fac.randomWalkable(R0, () => true); G.fac._machine = p ? new THREE.Vector3(p.x, G.fac.floorY(p.x, p.z) + 1.2, p.z) : null; }
-      amb.machine = G.fac._machine;
+      // (somewhere on every floor, a machine still thumping away)
+      const fac = G.fac, lv = Math.round(fac.depthOfY(cam.y - 1.4)), M = fac._machines || (fac._machines = []);
+      if (M[lv] === undefined) { const p = fac.randomWalkable(R0, (q) => fac.lvl[fac.idx(q.i, q.j)] === lv, { lv, only: true }); M[lv] = p ? new THREE.Vector3(p.x, fac.floorY(p.x, p.z) + 1.2, p.z) : null; }
+      amb.machine = M[lv];
     }
     if (G.ship.termPos) amb.console = G.ship.termPos;
     SFX.ambience(dt, amb);
@@ -3209,7 +3232,7 @@ const G = {
         if (pick === 'whisper') { const back = new THREE.Vector3(Math.sin(me.yaw), 0, Math.cos(me.yaw)); pos = cam.clone().addScaledVector(back, 1.1).add(new THREE.Vector3((Math.random() - 0.5), 0.1, 0)); }
         else {
           const near = pick === 'drip' || pick === 'knock';
-          const p = G.fac.randomWalkable(R0, (q) => { const dd = Math.hypot(q.x - me.pos.x, q.z - me.pos.z); return near ? dd > 3 && dd < 9 : dd > 12 && dd < 34; });
+          const p = G.fac.randomWalkable(R0, (q) => { const dd = Math.hypot(q.x - me.pos.x, q.z - me.pos.z); return near ? dd > 3 && dd < 9 : dd > 12 && dd < 34; }, { x: me.pos.x, z: me.pos.z, r: near ? 9 : 34 });
           pos = p ? new THREE.Vector3(p.x, G.fac.floorY(p.x, p.z) + (pick === 'knock' ? 1.2 : 2), p.z) : null;
         }
         if (pos) SFX.play(pick, pos, { vol: pick === 'scream' ? 0.5 : pick === 'whisper' ? 0.35 : 0.9, rev: 0.7 });

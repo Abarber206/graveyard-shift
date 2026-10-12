@@ -279,7 +279,7 @@ const Menu = (() => {
       if (!G.online) Voice.tick(dt);
       const on = Voice.enabled;
       fill.style.width = on ? pos(Voice.db) : '0';
-      fill.style.background = Voice.talking ? 'var(--amber-hi)' : 'var(--amber-dim)';
+      fill.style.background = Voice.gateOpen ? 'var(--amber-hi)' : 'var(--amber-dim)';
       mark.style.left = pos(Settings.micGate); mark.style.display = Settings.ptt ? 'none' : '';
       requestAnimationFrame(loop);
     };

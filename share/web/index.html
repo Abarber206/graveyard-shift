@@ -13744,10 +13744,11 @@ const Voice = (() => {
   const dbOf = (x) => 20 * Math.log10(Math.max(x, 1e-5));
   function makeChain() {
     if (chain || !SFX.ctx) return chain;
-    const ctx = SFX.ctx, c = { gain: ctx.createGain(), gate: ctx.createGain(), an: ctx.createAnalyser(), dest: ctx.createMediaStreamDestination(), mon: ctx.createGain() };
-    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.mon.gain.value = 0;
-    // (the mic test can play you back to yourself: straight to the speakers, past the game's own effects)
-    c.gain.connect(c.an); c.gain.connect(c.gate); c.gate.connect(c.dest); c.gate.connect(c.mon); c.mon.connect(ctx.destination);
+    const ctx = SFX.ctx, c = { gain: ctx.createGain(), gate: ctx.createGain(), send: ctx.createGain(), an: ctx.createAnalyser(), dest: ctx.createMediaStreamDestination(), mon: ctx.createGain() };
+    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.send.gain.value = 0; c.mon.gain.value = 0;
+    // (the mic test can play you back to yourself: straight to the speakers, past the game's own effects; and with voice
+    // chat off nothing goes out over the calls, though the meter and the playback still work)
+    c.gain.connect(c.an); c.gain.connect(c.gate); c.gate.connect(c.send); c.send.connect(c.dest); c.gate.connect(c.mon); c.mon.connect(ctx.destination);
     return (chain = c);
   }
   function outStream() { const c = makeChain(); return c ? c.dest.stream : null; }
@@ -13759,7 +13760,6 @@ const Voice = (() => {
     peers.set(call.peer, e);
     call.on('stream', (remote) => {
       if (peers.get(call.peer) !== e || e.src || !SFX.ctx) return;
-      fails.delete(call.peer);
       const ctx = SFX.ctx;
       e.el = new Audio(); e.el.srcObject = remote; e.el.muted = true; e.el.play().catch(() => {});
       e.src = ctx.createMediaStreamSource(remote);
@@ -13803,7 +13803,7 @@ const Voice = (() => {
   function drop(peerId, replaced) {
     const e = peers.get(peerId); if (!e) return;
     peers.delete(peerId);
-    if (!replaced && !e.src) fails.set(peerId, (fails.get(peerId) || 0) + 1);
+    if (!replaced && !e.ok) fails.set(peerId, (fails.get(peerId) || 0) + 1);
     seen.set(peerId, performance.now());
     for (const k of ['src', 'prox', 'lp', 'panner', 'rv', 'radio', 'hiss', 'flat']) try { e[k] && e[k].disconnect(); } catch (x) { /* ignore */ }
     try { e.hissSrc && e.hissSrc.stop(); } catch (x) { /* ignore */ }
@@ -13812,17 +13812,20 @@ const Voice = (() => {
   }
   // Keeping everyone connected. Every crewmate with voice chat on should have a call with every other: whoever's id
   // sorts first dials, straight away; if nothing has come from the other side after a few seconds, the other dials
-  // too (a call can be lost on the way, or have been turned away while their voice was off). A call that hasn't got
-  // going in ten seconds, or whose link has failed, is hung up and tried again, a little later each time.
+  // too (a call can be lost on the way, or have been turned away while their voice was off). A call counts as going
+  // once its link is actually up (not just agreed: the voice is wired in before the link is tried); one that isn't up
+  // in 25 seconds, or whose link has failed, is hung up and tried again, a little later each time.
   function reconcile(ids) {
     const me = Net.myPeerId, peer = Net.peer, now = performance.now();
-    if (!me || !peer || peer.destroyed || peer.disconnected || !SFX.ctx) return;
-    for (const id of [...peers.keys()]) if (!ids.includes(id)) { drop(id, true); seen.delete(id); fails.delete(id); }
+    for (const id of [...peers.keys()]) if (!ids.includes(id)) drop(id, true);
+    for (const m of [seen, fails]) for (const id of [...m.keys()]) if (!ids.includes(id)) m.delete(id);
     for (const [id, e] of peers) {
-      const pc = e.call && e.call.peerConnection, st = pc && (pc.connectionState || pc.iceConnectionState);
-      if (st === 'failed' || st === 'closed' || (!e.src && now - e.t0 > 10000)) drop(id);
+      const pc = e.call && e.call.peerConnection, st = pc && pc.connectionState, ice = pc && pc.iceConnectionState;
+      if (st === 'connected' || ice === 'connected' || ice === 'completed') { if (!e.ok) { e.ok = true; fails.delete(id); } }
+      if (st === 'failed' || st === 'closed' || ice === 'failed' || ice === 'closed' || (!e.ok && now - e.t0 > 25000)) drop(id);
     }
-    if (!Settings.voice) return;
+    // (dialling needs the matchmaking server: while it's reconnecting, an offer would be lost on the way)
+    if (!Settings.voice || !me || !peer || !peer.open || peer.destroyed || peer.disconnected || !SFX.ctx) return;
     for (const id of ids) {
       if (!id || id === me || peers.has(id)) continue;
       if (!seen.has(id)) seen.set(id, now);
@@ -13838,7 +13841,9 @@ const Voice = (() => {
     get level() { return level; },
     get db() { return dbOf(level); },
     get enabled() { return enabled; },
-    get talking() { return enabled && open; },
+    // (talking: what the others hear, and what the game counts as noise; gateOpen: the mic test's meter)
+    get talking() { return enabled && open && Settings.voice; },
+    get gateOpen() { return enabled && open; },
     setPTT(d) { pttDown = d; },
     async enable() {
       if (raw) return true;
@@ -13879,10 +13884,10 @@ const Voice = (() => {
       let s = 0; for (let i = 0; i < chain.buf.length; i++) s += chain.buf[i] * chain.buf[i];
       level = damp(level, Math.sqrt(s / chain.buf.length), 12, dt);
       // (and keying a walkie-talkie opens it whatever the mode: a keyed radio sends all the while it's held)
-      if (!Settings.voice) open = false;
-      else if (Settings.ptt) open = pttDown;
+      if (Settings.ptt) open = pttDown;
       else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
+      chain.send.gain.setTargetAtTime(Settings.voice ? 1 : 0, SFX.ctx.currentTime, 0.02);
     },
     // A call coming in is always answered, voice on or off (turned away, the caller's end would hang there half-open
     // forever): with it off nothing goes out (the microphone is shut) and nothing is heard (see update). Two calls
@@ -13925,7 +13930,7 @@ const Voice = (() => {
               else {
                 // (what's in the way, looked at a few times a second, along three lines a little apart, so a voice
                 // comes round a doorway gradually rather than all at once)
-                if ((e.occT = (e.occT || 0) - 1 / 60) <= 0) {
+                if ((e.occT = (e.occT || 0) - dt) <= 0) {
                   e.occT = 0.12;
                   let o = 0;
                   if (aboard !== earAboard) o = lerp(0.93, 0.3, G.ship.door.t);
@@ -20153,7 +20158,7 @@ const Menu = (() => {
       if (!G.online) Voice.tick(dt);
       const on = Voice.enabled;
       fill.style.width = on ? pos(Voice.db) : '0';
-      fill.style.background = Voice.talking ? 'var(--amber-hi)' : 'var(--amber-dim)';
+      fill.style.background = Voice.gateOpen ? 'var(--amber-hi)' : 'var(--amber-dim)';
       mark.style.left = pos(Settings.micGate); mark.style.display = Settings.ptt ? 'none' : '';
       requestAnimationFrame(loop);
     };

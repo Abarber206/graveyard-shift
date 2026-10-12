@@ -273,6 +273,17 @@ const Facility = (() => {
     // a blast door shut across this edge?
     closedBlast(a, b) { const d = this.blastEdge.get(this.edgeKey(a, b)); return !!d && !(d.open && d.anim > 0.6); }
     shaftAt(x, z) { const k = this.idx(this.ti(x), this.tj(z)); return k >= 0 && this.grid[k] === 4 ? this.shafts[this.shaftOf[k]] : null; }
+    // a stairwell's two flights run side by side with only the rail down the well between them, so near the half
+    // landing the lower one passes barely a metre under the upper: a reach from one flight to the other (anything
+    // but level with it) goes over the rail, and nothing on the stairs can do that
+    acrossRail(ax, az, ay, bx, bz, by) {
+      const s = this.shaftAt(ax, az) || this.shaftAt(bx, bz);
+      if (!s || Math.abs(ay - by) < 0.5) return false;
+      const ua = ax - s.x0 - 3, ub = bx - s.x0 - 3;
+      if ((ua < 0) === (ub < 0)) return false;
+      const v = az - s.z0 + (bz - az) * ua / (ua - ub);
+      return v > 3 && v < 9;
+    }
 
     // ---------- generation ----------
     addRoom(i, j, w, h, type, lv = 0) {

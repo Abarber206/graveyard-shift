@@ -649,7 +649,12 @@ class Monster {
   // round a corner or across to the flight above)
   reaches(p, r, dy = 1.5) {
     if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) >= r || Math.abs(p.pos.y - this.pos.y) >= dy) return false;
-    return this.def.zone !== 'in' || !this.g.fac || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z);
+    return this.def.zone !== 'in' || !this.g.fac || this.clearTo(p);
+  }
+  // nothing solid between it and p: no wall, and not the rail between a stairwell's flights
+  clearTo(p) {
+    const fac = this.g.fac;
+    return fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z) && !fac.acrossRail(this.pos.x, this.pos.z, this.pos.y, p.pos.x, p.pos.z, p.pos.y);
   }
   // how far it would have to walk to (x, y, z): along the corridors and up and down the stairs, not as the crow flies
   // (Infinity if there's no way)
@@ -993,7 +998,7 @@ class Monster {
         const f = this.forward(); let hit = false;
         for (const p of this.playersIn()) {
           const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z)) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
+          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3 && this.clearTo(p)) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
         }
         this.g.emitSound(hit ? 'blade_flesh' : 'blade_floor', new THREE.Vector3(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2), { vol: 1.3, ref: 6 });
         this.g.addNoise(this.pos, 30, 'in', null);
@@ -1259,7 +1264,7 @@ class Monster {
     const f = this.forward(), sx = f.z, sz = -f.x;
     for (const p of this.playersIn()) {
       const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, along = dx * f.x + dz * f.z, lat = dx * sx + dz * sz;
-      if (Math.abs(p.pos.y - this.pos.y) > 1.6 || along < -0.95 || along > 1.25 || Math.abs(lat) > 1.45 || (this.g.fac && !this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z))) continue;
+      if (Math.abs(p.pos.y - this.pos.y) > 1.6 || along < -0.95 || along > 1.25 || Math.abs(lat) > 1.45 || (this.g.fac && !this.clearTo(p))) continue;
       this.atk = 0.3;
       this.g.emitSound('slime_burn', p.pos, { vol: 1 });
       if (p.hp <= 9) this.g.killPlayer(p.id, 'slime', this.id);

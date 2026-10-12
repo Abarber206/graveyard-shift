@@ -3,3 +3,4 @@ node_modules/
 Thumbs.db
 # an old build output (the current one is share/GraveyardShift-web.zip)
 share/GraveyardShift.zip
+.claude/worktrees/

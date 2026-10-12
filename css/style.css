@@ -12,7 +12,7 @@ html, body {
   color: var(--amber); font-family: 'VT323', 'Share Tech Mono', monospace;
   user-select: none; -webkit-user-select: none;
 }
-canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; image-rendering: pixelated; cursor: none; }
+canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: var(--app-h, 100vh); display: block; image-rendering: pixelated; cursor: none; }
 .hidden { display: none !important; }
 
 /* ---------------- HUD ---------------- */
@@ -136,7 +136,7 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #spectate.on { display: block; }
 /* letterbox for the send-off (the view flies out to watch the ship leave): the play HUD steps aside */
 #bars i { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; z-index: 5; }
-#bars i:first-child { top: 0; } #bars i:last-child { bottom: 0; }
+#bars i:first-child { top: 0; } #bars i:last-child { bottom: calc(100% - var(--app-h, 100%)); }
 #bars.on i { height: 11vh; }
 #hud.cine #crosshair, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
 #voiceind { position: absolute; left: 30px; bottom: 110px; font-size: 18px; color: #b6ffb0; }
@@ -328,3 +328,6 @@ body.touch #voiceind { bottom: auto; top: calc(60px + env(safe-area-inset-top));
   #term-bar { gap: 4px 6px; padding: 4px 0; } #term-bar button { font-size: 16px; padding: 2px 8px; }
   #term-input { font-size: 17px; } #term-hint { display: none; } #term-more { bottom: 38px; font-size: 14px; }
 }
+/* every full-screen layer reaches the screen's true bottom edge, even where an iPhone home-screen app is told its window
+   is shorter than it is (--app-h: see appSize in js/util.js) */
+#hud, #rovercam, #terminal, #summary, #menu, #pause, #fade, #clicktoplay, #loading, #touch, #rotate { bottom: auto; height: var(--app-h, 100%); }

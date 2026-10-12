@@ -420,10 +420,12 @@ const R = (() => {
     quadScene = new THREE.Scene(); quad = new THREE.Mesh(tri, bloomPre); quad.frustumCulled = false; quadScene.add(quad);
     postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     window.addEventListener('resize', resize);
+    // (iOS can report the new size a moment after it turns)
+    window.addEventListener('orientationchange', () => { setTimeout(resize, 300); setTimeout(resize, 900); });
     resize();
   }
   function resize() {
-    const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight), a = w / h;
+    fitApp(); const S = appSize(), w = Math.max(1, S.w), h = Math.max(1, S.h), a = w / h;
     renderer.setSize(w, h, false);
     const ih = RES_LEVELS[clamp(Settings.res, 0, RES_LEVELS.length - 1)].h;
     const rh = Math.min(h, ih), rw = Math.round(rh * a);

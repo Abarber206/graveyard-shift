@@ -86,9 +86,9 @@ const Menu = (() => {
     if (!p || m.classList.contains('hidden')) return;
     fitToScreen(p, 1e9);
     const cs = getComputedStyle(m), titleH = t.offsetParent ? p.getBoundingClientRect().top - t.getBoundingClientRect().top : 0;
-    fitToScreen(p, innerHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - titleH - 14);
+    fitToScreen(p, appSize().h - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - titleH - 14);
   }
-  const fitPause = () => { const i = $('pause').querySelector('.inner'); if (i && !$('pause').classList.contains('hidden')) fitToScreen(i, innerHeight - 24); };
+  const fitPause = () => { const i = $('pause').querySelector('.inner'); if (i && !$('pause').classList.contains('hidden')) fitToScreen(i, appSize().h - 24); };
   let fitQ = 0;
   const refit = () => { cancelAnimationFrame(fitQ); fitQ = requestAnimationFrame(() => { fitMenu(); fitPause(); HUD.fitSummary(); }); };
   window.addEventListener('resize', refit); window.addEventListener('orientationchange', () => setTimeout(refit, 250));

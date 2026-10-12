@@ -159,6 +159,22 @@ function mat(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
 // A menu, pause screen or report taller than the screen it's on (a phone on its side, say) first splits into two
 // columns side by side, and if that's still too tall, shrinks until it fits: nobody has to scroll to reach START.
 // room: the height it has (px).
+// The size of the screen the game really has. An iPhone home-screen app turned to landscape can be told its window is
+// shorter than it is (by about the height of the status bar it no longer has), and everything stops short of the
+// bottom edge over a black strip; there, the screen's own height is taken instead, and every full-screen layer is
+// stretched to it (--app-h). Only for an app installed on an iPhone or iPad (navigator.standalone), and only when the
+// width is the screen's and the height a little short of it, never in a split view or a browser tab.
+function appSize() {
+  const w = innerWidth; let h = innerHeight;
+  if (navigator.standalone && screen.width && screen.height) {
+    const land = w > h, sw = land ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height), sh = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+    if (Math.abs(w - sw) <= 2 && h < sh - 2 && h > sh * 0.75) h = sh;
+  }
+  return { w, h };
+}
+function fitApp() { const { h } = appSize(); document.documentElement.style.setProperty('--app-h', h + 'px'); return h; }
+fitApp();
+addEventListener('resize', fitApp); addEventListener('orientationchange', () => { fitApp(); setTimeout(fitApp, 300); setTimeout(fitApp, 900); });
 function fitToScreen(el, room) {
   if (!el || !el.isConnected || !el.getClientRects().length) return;
   el.classList.remove('cols'); el.style.zoom = ''; el.style.maxHeight = ''; el.style.overflowY = '';

@@ -30,7 +30,7 @@ html, body {
   color: var(--amber); font-family: 'VT323', 'Share Tech Mono', monospace;
   user-select: none; -webkit-user-select: none;
 }
-canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; image-rendering: pixelated; cursor: none; }
+canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: var(--app-h, 100vh); display: block; image-rendering: pixelated; cursor: none; }
 .hidden { display: none !important; }
 
 /* ---------------- HUD ---------------- */
@@ -154,7 +154,7 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #spectate.on { display: block; }
 /* letterbox for the send-off (the view flies out to watch the ship leave): the play HUD steps aside */
 #bars i { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; z-index: 5; }
-#bars i:first-child { top: 0; } #bars i:last-child { bottom: 0; }
+#bars i:first-child { top: 0; } #bars i:last-child { bottom: calc(100% - var(--app-h, 100%)); }
 #bars.on i { height: 11vh; }
 #hud.cine #crosshair, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
 #voiceind { position: absolute; left: 30px; bottom: 110px; font-size: 18px; color: #b6ffb0; }
@@ -346,6 +346,9 @@ body.touch #voiceind { bottom: auto; top: calc(60px + env(safe-area-inset-top));
   #term-bar { gap: 4px 6px; padding: 4px 0; } #term-bar button { font-size: 16px; padding: 2px 8px; }
   #term-input { font-size: 17px; } #term-hint { display: none; } #term-more { bottom: 38px; font-size: 14px; }
 }
+/* every full-screen layer reaches the screen's true bottom edge, even where an iPhone home-screen app is told its window
+   is shorter than it is (--app-h: see appSize in js/util.js) */
+#hud, #rovercam, #terminal, #summary, #menu, #pause, #fade, #clicktoplay, #loading, #touch, #rotate { bottom: auto; height: var(--app-h, 100%); }
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
@@ -575,6 +578,22 @@ function mat(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
 // A menu, pause screen or report taller than the screen it's on (a phone on its side, say) first splits into two
 // columns side by side, and if that's still too tall, shrinks until it fits: nobody has to scroll to reach START.
 // room: the height it has (px).
+// The size of the screen the game really has. An iPhone home-screen app turned to landscape can be told its window is
+// shorter than it is (by about the height of the status bar it no longer has), and everything stops short of the
+// bottom edge over a black strip; there, the screen's own height is taken instead, and every full-screen layer is
+// stretched to it (--app-h). Only for an app installed on an iPhone or iPad (navigator.standalone), and only when the
+// width is the screen's and the height a little short of it, never in a split view or a browser tab.
+function appSize() {
+  const w = innerWidth; let h = innerHeight;
+  if (navigator.standalone && screen.width && screen.height) {
+    const land = w > h, sw = land ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height), sh = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+    if (Math.abs(w - sw) <= 2 && h < sh - 2 && h > sh * 0.75) h = sh;
+  }
+  return { w, h };
+}
+function fitApp() { const { h } = appSize(); document.documentElement.style.setProperty('--app-h', h + 'px'); return h; }
+fitApp();
+addEventListener('resize', fitApp); addEventListener('orientationchange', () => { fitApp(); setTimeout(fitApp, 300); setTimeout(fitApp, 900); });
 function fitToScreen(el, room) {
   if (!el || !el.isConnected || !el.getClientRects().length) return;
   el.classList.remove('cols'); el.style.zoom = ''; el.style.maxHeight = ''; el.style.overflowY = '';
@@ -14395,10 +14414,12 @@ const R = (() => {
     quadScene = new THREE.Scene(); quad = new THREE.Mesh(tri, bloomPre); quad.frustumCulled = false; quadScene.add(quad);
     postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     window.addEventListener('resize', resize);
+    // (iOS can report the new size a moment after it turns)
+    window.addEventListener('orientationchange', () => { setTimeout(resize, 300); setTimeout(resize, 900); });
     resize();
   }
   function resize() {
-    const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight), a = w / h;
+    fitApp(); const S = appSize(), w = Math.max(1, S.w), h = Math.max(1, S.h), a = w / h;
     renderer.setSize(w, h, false);
     const ih = RES_LEVELS[clamp(Settings.res, 0, RES_LEVELS.length - 1)].h;
     const rh = Math.min(h, ih), rw = Math.round(rh * a);
@@ -14918,7 +14939,7 @@ const HUD = (() => {
     struggle(on) { $('struggle').classList.toggle('on', on); $('struggle').innerHTML = on ? 'SOMETHING IS ON YOUR HEAD<br><span style="font-size:22px">MASH [E] TO TEAR IT OFF</span>' : ''; },
     voice(t) { $('voiceind').textContent = t || ''; },
     // (the report fits the screen like the menus do)
-    fitSummary() { const s = $('summary'); if (!s.classList.contains('hidden')) fitToScreen(s.querySelector('.panel'), innerHeight - 20); },
+    fitSummary() { const s = $('summary'); if (!s.classList.contains('hidden')) fitToScreen(s.querySelector('.panel'), appSize().h - 20); },
     summary(html, btnLabel, onClose) {
       const s = $('summary');
       s.innerHTML = `<div class="panel">${html}<button class="btn" id="sumclose">${esc(btnLabel || 'CONTINUE')}</button></div>`;
@@ -14931,7 +14952,7 @@ const HUD = (() => {
     update(dt) {
       if (noticeT > 0) { noticeT -= dt; if (noticeT <= 0) $('notice').classList.remove('show'); }
       if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-      const cam = R.camera, W = innerWidth, H = innerHeight;
+      const cam = R.camera, { w: W, h: H } = appSize();
       for (let i = labels.length - 1; i >= 0; i--) {
         const l = labels[i];
         if (l.delay > 0) { l.delay -= dt; if (l.delay > 0) continue; }
@@ -19965,9 +19986,9 @@ const Menu = (() => {
     if (!p || m.classList.contains('hidden')) return;
     fitToScreen(p, 1e9);
     const cs = getComputedStyle(m), titleH = t.offsetParent ? p.getBoundingClientRect().top - t.getBoundingClientRect().top : 0;
-    fitToScreen(p, innerHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - titleH - 14);
+    fitToScreen(p, appSize().h - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - titleH - 14);
   }
-  const fitPause = () => { const i = $('pause').querySelector('.inner'); if (i && !$('pause').classList.contains('hidden')) fitToScreen(i, innerHeight - 24); };
+  const fitPause = () => { const i = $('pause').querySelector('.inner'); if (i && !$('pause').classList.contains('hidden')) fitToScreen(i, appSize().h - 24); };
   let fitQ = 0;
   const refit = () => { cancelAnimationFrame(fitQ); fitQ = requestAnimationFrame(() => { fitMenu(); fitPause(); HUD.fitSummary(); }); };
   window.addEventListener('resize', refit); window.addEventListener('orientationchange', () => setTimeout(refit, 250));

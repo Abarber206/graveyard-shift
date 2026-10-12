@@ -235,7 +235,7 @@ const HUD = (() => {
     struggle(on) { $('struggle').classList.toggle('on', on); $('struggle').innerHTML = on ? 'SOMETHING IS ON YOUR HEAD<br><span style="font-size:22px">MASH [E] TO TEAR IT OFF</span>' : ''; },
     voice(t) { $('voiceind').textContent = t || ''; },
     // (the report fits the screen like the menus do)
-    fitSummary() { const s = $('summary'); if (!s.classList.contains('hidden')) fitToScreen(s.querySelector('.panel'), innerHeight - 20); },
+    fitSummary() { const s = $('summary'); if (!s.classList.contains('hidden')) fitToScreen(s.querySelector('.panel'), appSize().h - 20); },
     summary(html, btnLabel, onClose) {
       const s = $('summary');
       s.innerHTML = `<div class="panel">${html}<button class="btn" id="sumclose">${esc(btnLabel || 'CONTINUE')}</button></div>`;
@@ -248,7 +248,7 @@ const HUD = (() => {
     update(dt) {
       if (noticeT > 0) { noticeT -= dt; if (noticeT <= 0) $('notice').classList.remove('show'); }
       if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-      const cam = R.camera, W = innerWidth, H = innerHeight;
+      const cam = R.camera, { w: W, h: H } = appSize();
       for (let i = labels.length - 1; i >= 0; i--) {
         const l = labels[i];
         if (l.delay > 0) { l.delay -= dt; if (l.delay > 0) continue; }

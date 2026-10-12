@@ -1549,8 +1549,11 @@ const Exterior = (() => {
           if (Math.hypot(a.x, a.z) < 30 || Math.hypot(a.x - this.center.x, a.z - this.center.z) < 56) continue;
           const ha = this.height(a.x, a.z), hb = this.height(bq.x, bq.z), len = Math.hypot(bq.x - a.x, bq.z - a.z), ang = Math.atan2(-(bq.z - a.z), bq.x - a.x);
           parts.push({ geo: new THREE.BoxGeometry(0.14, 1.3, 0.14), matrix: mat(a.x, ha + 0.55, a.z, r.range(-0.08, 0.08), 0, r.range(-0.08, 0.08)) });
-          for (const y of [0.55, 1.0]) if (!r.chance(0.12)) parts.push({ geo: new THREE.BoxGeometry(len, 0.1, 0.06), matrix: mat((a.x + bq.x) / 2, (ha + hb) / 2 + y, (a.z + bq.z) / 2, 0, ang, Math.atan2(hb - ha, len)) });
+          // (a stretch with a rail still up is solid; only where both have fallen can you step through)
+          let up = 0;
+          for (const y of [0.55, 1.0]) if (!r.chance(0.12)) { up++; parts.push({ geo: new THREE.BoxGeometry(len, 0.1, 0.06), matrix: mat((a.x + bq.x) / 2, (ha + hb) / 2 + y, (a.z + bq.z) / 2, 0, ang, Math.atan2(hb - ha, len)) }); }
           this.addCircle(a.x, a.z, 0.15);
+          if (up) this.addObb((a.x + bq.x) / 2, (a.z + bq.z) / 2, len / 2, 0.08, ang);
         }
         if (parts.length) { const m = new THREE.Mesh(mergeGeoList(parts), wood); m.castShadow = true; m.receiveShadow = true; grp.add(m); }
       }

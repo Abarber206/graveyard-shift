@@ -489,7 +489,7 @@ const G = {
   },
   teardownSite(full) {
     G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke(); G.mists = [];
-    for (const m of G.monsters.values()) R.scene.remove(m.mesh);
+    for (const m of G.monsters.values()) { R.scene.remove(m.mesh); m.dispose(); }
     G.monsters.clear();
     const disposeGroup = (g) => { if (!g) return; R.scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); };
     if (G.fac) { disposeGroup(G.fac.group); G.fac = null; }
@@ -990,7 +990,7 @@ const G = {
     },
     sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); if (e.s === 'charge' && G.ship) G.ship.charging(); },
     monSpawn(e) { G.spawnMonster(e); },
-    monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
+    monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); m.dispose(); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
     leech(e) {
       G.leechOn = e.pid;
       if (e.pid === G.localId) { SFX.play('squelch', null, { vol: 1.2 }); SFX.play('stinger_hi', null, { vol: 0.9 }); HUD.struggle(true); Player.addShake(0.6); }
@@ -1439,6 +1439,12 @@ const G = {
     if (door.open || G.now - (door.lastT || 0) < 600) return;
     door.lastT = G.now;
     G.emit({ e: 'door', id: door.id, open: true, bash: !!bash, dir: G.doorDirFrom(door, m.pos) });
+  },
+  // a creature brushing past an open door's leaf (not the doorway it's going through) knocks it shut behind it
+  monsterShoveDoor(m, door) {
+    if (!door.open || door.broken || door.latch || G.now - (door.lastT || 0) < 600) return;
+    door.lastT = G.now;
+    G.emit({ e: 'door', id: door.id, open: false, dir: door.dir });
   },
   monsterBreakDoor(m, door) {
     if (door.broken) return;
@@ -2160,8 +2166,10 @@ const G = {
         }
       }
       for (const m of G.monsters.values()) m.hostUpdate(dt);
+      Monster.separate(G, dt);
     } else if (G.mode === 'leaving') {
       for (const m of G.monsters.values()) m.hostUpdate(dt);
+      Monster.separate(G, dt);
       G.departT -= dt;
       if (G.departT <= 0) { G.departT = 99; G.hostOrbit(); }
     }

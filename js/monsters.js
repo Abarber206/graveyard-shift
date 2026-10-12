@@ -15,7 +15,7 @@ const MON_DEFS = {
 };
 const BESTIARY = {
   crawler: 'Low, eyeless, mostly mouth. Once it notices you it charges in a straight line and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
-  pale: 'Tall. Patient. It follows from behind and hates being watched. Glance at it and it slinks away. Stare, and it stops being patient. If your light flickers and you feel watched, turn around.',
+  pale: 'Tall. Patient. It follows from behind and hates being watched, if it can see you looking: in the dark, more than a few steps off, it cannot. Glance at it and it slinks away. Stare at it, or keep looking round at it, and it stops being patient; leave it be a while and it settles again. If your light flickers and you feel watched, turn around.',
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and drops onto the head of whoever passes beneath. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound alone. Walk, crouch, keep quiet. They will follow you into the ship if the hatch is open.',
@@ -28,27 +28,55 @@ const BESTIARY = {
 const MonModels = (() => {
   const mc = {};
   const M = (k, f) => mc[k] || (mc[k] = f());
+  // A creature's skin: its texture looked up three ways round in each part's own space, at so many sheets a metre (s),
+  // so it's the same grain on a finger as on a back, never stretched along a limb or pinched into rings at the top of a
+  // round part, and it moves with the part; with relief read off its own tones (b: how deep), as MATS.wear does
+  function tri(m, s = 2.5, b = 1) {
+    const U = { uTriS: { value: s }, uTriB: { value: b } };
+    m.userData.tri = [s, b];
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.vertexShader = 'varying vec3 vTriP; varying vec3 vTriN;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec3 triS = vec3(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz), length(modelMatrix[2].xyz));
+        vTriP = position * triS; vTriN = normal / triS;`);
+      sh.fragmentShader = 'uniform float uTriS, uTriB; varying vec3 vTriP; varying vec3 vTriN;\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', `
+          vec3 tq = vTriP * uTriS, tw = pow(abs(normalize(vTriN)), vec3(4.0)); tw /= tw.x + tw.y + tw.z;
+          vec4 triC = texture2D(map, tq.zy) * tw.x + texture2D(map, tq.xz + 0.37) * tw.y + texture2D(map, tq.xy + 0.71) * tw.z;
+          diffuseColor *= triC;
+          float triH = dot(triC.rgb, vec3(0.3333));`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          { vec3 sp = -vViewPosition, dx = dFdx(sp), dy = dFdy(sp); float hx = dFdx(triH) * uTriB * 0.003, hy = dFdy(triH) * uTriB * 0.003;
+            vec3 r1 = cross(dy, normal), r2 = cross(normal, dx); float dd = dot(dx, r1);
+            normal = normalize(abs(dd) * normal - sign(dd) * (hx * r1 + hy * r2)); }`);
+    };
+    m.customProgramCacheKey = () => 'monTri';
+    return m;
+  }
+  // (a copy of one, for a body going grey, keeps it: three doesn't copy onBeforeCompile)
+  const retri = (c, m) => (m.userData.tri ? tri(c, m.userData.tri[0], m.userData.tri[1]) : c);
+  const S = (o, s, b) => tri(new THREE.MeshStandardMaterial(o), s, b);
   const mats = {
-    pale: () => M('pale', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0xa8a092, roughness: 0.6, emissive: 0x050403 })),
+    pale: () => M('pale', () => S({ map: TEX.get('flesh'), color: 0xa8a092, roughness: 0.6, emissive: 0x050403 }, 3, 1)),
     void: () => M('void', () => new THREE.MeshBasicMaterial({ color: 0x000000 })),
     crawl: () => M('crawl', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x9a8a84, roughness: 0.3, metalness: 0.1 })),
     tooth: () => M('tooth', () => new THREE.MeshStandardMaterial({ color: 0xd8d0b0, roughness: 0.4 })),
     gum: () => M('gum', () => new THREE.MeshStandardMaterial({ color: 0x3a0a0c, roughness: 0.3 })),
-    porc: () => M('porcm', () => new THREE.MeshStandardMaterial({ map: TEX.get('porcelain'), color: 0xa89f92, roughness: 0.32, metalness: 0.05 })),
+    porc: () => M('porcm', () => S({ map: TEX.get('porcelain'), color: 0xa89f92, roughness: 0.32, metalness: 0.05 }, 2, 0.6)),
     joint: () => M('joint', () => new THREE.MeshStandardMaterial({ color: 0x3a3530, roughness: 0.5 })),
     leech: () => M('leech', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0xb09090, roughness: 0.18, metalness: 0.1 })),
     hound: () => M('hound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x6a5450, roughness: 0.6 })),
     leg: () => M('leg', () => new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.6 })),
-    sinew: () => M('sinew', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 })),
+    sinew: () => M('sinew', () => S({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 }, 4, 1)),
     claw: () => M('claw', () => new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.35, metalness: 0.1 })),
-    sisSkin: () => M('sisSkin', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x948884, roughness: 0.55 })),
-    smock: () => M('smock', () => new THREE.MeshStandardMaterial({ map: TEX.get('suitWorn'), color: 0xa89c88, roughness: 0.85 })),
-    dressing: () => M('dressing', () => new THREE.MeshStandardMaterial({ map: TEX.get('tape'), color: 0xd0c0a0, roughness: 0.9 })),
-    scalpel: () => M('scalpel', () => new THREE.MeshStandardMaterial({ map: TEX.get('rust'), color: 0xb0a090, roughness: 0.35, metalness: 0.75 })),
+    sisSkin: () => M('sisSkin', () => S({ map: TEX.get('flesh'), color: 0x948884, roughness: 0.55 }, 3, 1)),
+    smock: () => M('smock', () => S({ map: TEX.get('suitWorn'), color: 0xa89c88, roughness: 0.85, side: THREE.DoubleSide }, 1.6, 0.8)),
+    dressing: () => M('dressing', () => S({ map: TEX.get('tape'), color: 0xd0c0a0, roughness: 0.9 }, 3, 1)),
+    scalpel: () => M('scalpel', () => S({ map: TEX.get('rust'), color: 0xb0a090, roughness: 0.35, metalness: 0.75 }, 6, 0.5)),
     bound: () => M('bound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x9a7a6c, roughness: 0.3, metalness: 0.05 })),
-    iron: () => M('iron', () => new THREE.MeshStandardMaterial({ map: TEX.get('rust'), color: 0x9a7a62, roughness: 0.8, metalness: 0.5 })),
-    apron: () => M('apron', () => new THREE.MeshStandardMaterial({ map: TEX.get('suitWorn'), color: 0x4a3a32, roughness: 0.75 })),
-    deadSkin: () => M('deadSkin', () => new THREE.MeshStandardMaterial({ map: TEX.get('flesh'), color: 0x8a8278, roughness: 0.6 })),
+    iron: () => M('iron', () => S({ map: TEX.get('rust'), color: 0x9a7a62, roughness: 0.8, metalness: 0.5 }, 1.6, 2)),
+    apron: () => M('apron', () => S({ map: TEX.get('suitWorn'), color: 0x4a3a32, roughness: 0.75, side: THREE.DoubleSide }, 1.4, 1)),
+    deadSkin: () => M('deadSkin', () => S({ map: TEX.get('flesh'), color: 0x8a8278, roughness: 0.6 }, 2.2, 1.2)),
     // the Seep: a glossy jelly you can see into, heaving slowly all over, glowing a little at its edges where the light
     // comes through it (its colour in blotches of darker and paler, square-cut like everything else; which colour, a
     // new one every landing: see SLIME_COLORS)
@@ -76,6 +104,9 @@ const MonModels = (() => {
   };
   const cap = (r, l, s = 8) => new THREE.CapsuleGeometry(r, l, 4, s);
   const sph = (r, s = 12) => new THREE.SphereGeometry(r, s, Math.max(6, Math.floor(s * 0.75)));
+  // (a round part of a long body: its poles fore and aft, so a banded skin's bands ring the body like ribs instead of
+  // closing into a bullseye on its back)
+  const sphZ = (r, s) => sph(r, s).rotateX(Math.PI / 2);
   function mk(geo, m, parent, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.set(rx, ry, rz); me.castShadow = true; parent.add(me); return me; }
   function grp(parent, x = 0, y = 0, z = 0) { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; }
   // limb: two segments hanging down (-Y) from pivot
@@ -107,18 +138,18 @@ const MonModels = (() => {
     crawler() {
       const root = new THREE.Group(), P = {};
       P.body = grp(root, 0, 0.75, 0);
-      const torso = mk(sph(0.5, 14), mats.crawl(), P.body); torso.scale.set(0.95, 0.6, 1.5);
+      const torso = mk(sphZ(0.5, 14), mats.crawl(), P.body); torso.scale.set(0.95, 0.6, 1.5);
       for (let i = 0; i < 7; i++) mk(new THREE.ConeGeometry(0.05, 0.22, 5), mats.tooth(), P.body, 0, 0.3 - Math.abs(i - 3) * 0.02, -0.6 + i * 0.2, -0.3);
       P.head = grp(P.body, 0, 0.05, 0.75);
-      const hd = mk(sph(0.32, 14), mats.crawl(), P.head, 0, 0, 0.12); hd.scale.set(1, 0.85, 1.1);
+      const hd = mk(sphZ(0.32, 14), mats.crawl(), P.head, 0, 0, 0.12); hd.scale.set(1, 0.85, 1.1);
       mk(new THREE.CircleGeometry(0.22, 18), mats.gum(), P.head, 0, 0, 0.47);
       mk(new THREE.CircleGeometry(0.12, 14), mats.void(), P.head, 0, 0, 0.475);
       P.teeth = teethRing(P.head, 0.2, 16, 0.12); P.teeth.position.z = 0.46;
       P.teeth2 = teethRing(P.head, 0.13, 10, 0.08); P.teeth2.position.z = 0.43;
-      P.fl = limb(P.body, -0.45, 0.05, 0.45, 0.08, 0.55, 0.06, 0.6, mats.crawl());
-      P.fr = limb(P.body, 0.45, 0.05, 0.45, 0.08, 0.55, 0.06, 0.6, mats.crawl());
-      P.bl = limb(P.body, -0.4, -0.05, -0.55, 0.09, 0.4, 0.07, 0.45, mats.crawl());
-      P.br = limb(P.body, 0.4, -0.05, -0.55, 0.09, 0.4, 0.07, 0.45, mats.crawl());
+      P.fl = limb(P.body, -0.45, 0.05, 0.45, 0.08, 0.44, 0.06, 0.42, mats.crawl());
+      P.fr = limb(P.body, 0.45, 0.05, 0.45, 0.08, 0.44, 0.06, 0.42, mats.crawl());
+      P.bl = limb(P.body, -0.4, -0.05, -0.55, 0.09, 0.4, 0.07, 0.43, mats.crawl());
+      P.br = limb(P.body, 0.4, -0.05, -0.55, 0.09, 0.4, 0.07, 0.43, mats.crawl());
       for (const L of [P.fl, P.fr]) for (let c = -1; c <= 1; c++) mk(new THREE.ConeGeometry(0.02, 0.18, 4), mats.tooth(), L.end, c * 0.04, -0.02, 0.07, Math.PI / 2 + 0.3, 0, 0);
       P.body.scale.setScalar(1.18);
       root.userData.parts = P; return root;
@@ -157,7 +188,7 @@ const MonModels = (() => {
       const root = new THREE.Group(), P = {};
       const m = mats.porc(), j = mats.joint();
       const dark = M('mdark', () => new THREE.MeshStandardMaterial({ color: 0x1a1512, roughness: 0.9 }));
-      P.hips = grp(root, 0, 1.02, 0);
+      P.hips = grp(root, 0, 0.875, 0);
       mk(sph(0.15), m, P.hips).scale.set(1.2, 0.8, 0.9);
       P.ll = limb(P.hips, -0.1, -0.05, 0, 0.065, 0.4, 0.05, 0.42, m);
       P.lr = limb(P.hips, 0.1, -0.05, 0, 0.065, 0.4, 0.05, 0.42, m);
@@ -185,7 +216,7 @@ const MonModels = (() => {
       P.body.scale.setScalar(1.35);
       P.segs = [];
       const rs = [0.12, 0.17, 0.19, 0.18, 0.15, 0.11, 0.07];
-      rs.forEach((r, i) => { const s = mk(sph(r, 10), mats.leech(), P.body, 0, 0, 0.3 - i * 0.12); s.scale.set(1.1, 0.75, 1); P.segs.push(s); });
+      rs.forEach((r, i) => { const s = mk(sphZ(r, 10), mats.leech(), P.body, 0, 0, 0.3 - i * 0.12); s.scale.set(1.1, 0.75, 1); P.segs.push(s); });
       P.strands = [];
       for (let i = 0; i < 7; i++) {
         const st = grp(P.body, (Math.random() - 0.5) * 0.25, 0.08, 0.25 - i * 0.09);
@@ -211,9 +242,9 @@ const MonModels = (() => {
       const root = new THREE.Group(), P = {};
       const m = mats.hound(), sin = mats.sinew(), bone = mats.claw(), gum = mats.gum(), tooth = mats.tooth();
       P.body = grp(root, 0, 1.15, 0);
-      mk(sph(0.4, 18), m, P.body, 0, 0.02, 0.3).scale.set(0.8, 0.98, 1.08);
+      mk(sphZ(0.4, 18), m, P.body, 0, 0.02, 0.3).scale.set(0.8, 0.98, 1.08);
       const waist = mk(cap(0.2, 0.42, 12), m, P.body, 0, 0.04, -0.12, Math.PI / 2); waist.scale.set(1, 1, 0.82);
-      mk(sph(0.32, 16), m, P.body, 0, 0.03, -0.5).scale.set(0.98, 0.92, 1.0);
+      mk(sphZ(0.32, 16), m, P.body, 0, 0.03, -0.5).scale.set(0.98, 0.92, 1.0);
       for (const s of [-1, 1]) mk(sph(0.2, 12), m, P.body, s * 0.2, -0.04, -0.55).scale.set(0.8, 1.15, 1.1);
       // ribs standing out along the flanks
       for (let i = 0; i < 6; i++) for (const s of [-1, 1]) {
@@ -229,7 +260,7 @@ const MonModels = (() => {
       for (const s of [-1, 1]) mk(cap(0.025, 0.4, 6), sin, P.neck, s * 0.1, -0.02, 0.2, Math.PI / 2 + 0.55, 0, 0);
       // head: a long blind skull, skin grown over where the eyes should be, a heavy brow, flared nostrils
       P.head = grp(P.neck, 0, -0.18, 0.5);
-      mk(sph(0.18, 16), m, P.head, 0, 0.06, 0.0).scale.set(0.88, 0.78, 1.3);
+      mk(sphZ(0.18, 16), m, P.head, 0, 0.06, 0.0).scale.set(0.88, 0.78, 1.3);
       for (const s of [-1, 1]) {
         mk(cap(0.028, 0.1, 6), bone, P.head, s * 0.085, 0.14, 0.1, 0.3, 0, Math.PI / 2 + s * 0.2);
         mk(sph(0.03, 8), sin, P.head, s * 0.09, 0.09, 0.15).scale.set(0.6, 0.8, 0.3);
@@ -284,7 +315,7 @@ const MonModels = (() => {
       const skin = mats.sisSkin(), cloth = mats.smock(), band = mats.dressing(), dark = mats.joint();
       P.hips = grp(root, 0, 0.95, 0);
       mk(sph(0.13, 12), cloth, P.hips).scale.set(1.25, 0.8, 0.9);
-      const skirt = mk(new THREE.CylinderGeometry(0.17, 0.26, 0.42, 12, 1, true), cloth, P.hips, 0, -0.16, 0); skirt.material.side = THREE.DoubleSide;
+      mk(new THREE.CylinderGeometry(0.17, 0.26, 0.42, 12, 1, true), cloth, P.hips, 0, -0.16, 0);
       P.ll = limb(P.hips, -0.085, -0.05, 0, 0.05, 0.46, 0.04, 0.46, skin);
       P.lr = limb(P.hips, 0.085, -0.05, 0, 0.05, 0.46, 0.04, 0.46, skin);
       for (const L of [P.ll, P.lr]) { mk(sph(0.045, 8), skin, L.b); mk(new THREE.BoxGeometry(0.06, 0.05, 0.18), dark, L.end, 0, -0.02, 0.04); }
@@ -331,7 +362,7 @@ const MonModels = (() => {
       const skin = mats.deadSkin(), iron = mats.iron(), apron = mats.apron(), dark = mats.joint();
       P.hips = grp(root, 0, 1.25, 0);
       mk(sph(0.28, 14), skin, P.hips).scale.set(1.1, 0.7, 0.85);
-      const skirt = mk(new THREE.CylinderGeometry(0.3, 0.4, 1.15, 12, 1, true), apron, P.hips, 0, -0.52, 0); skirt.scale.set(1.1, 1, 0.85); skirt.material.side = THREE.DoubleSide;
+      const skirt = mk(new THREE.CylinderGeometry(0.3, 0.4, 1.15, 12, 1, true), apron, P.hips, 0, -0.52, 0); skirt.scale.set(1.1, 1, 0.85);
       mk(new THREE.TorusGeometry(0.3, 0.035, 5, 14), dark, P.hips, 0, 0.04, 0, Math.PI / 2).scale.set(1.1, 0.85, 1);
       P.ll = limb(P.hips, -0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
       P.lr = limb(P.hips, 0.17, -0.05, 0, 0.11, 0.6, 0.09, 0.6, skin);
@@ -357,6 +388,7 @@ const MonModels = (() => {
       const bl = mk(new THREE.BoxGeometry(0.05, 0.36, 1.9), iron, P.blade, 0, -0.06, 1.12); bl.scale.set(1, 1, 1);
       mk(new THREE.BoxGeometry(0.02, 0.1, 1.9), iron, P.blade, 0, -0.25, 1.12);
       P.tip = grp(P.blade, 0, -0.2, 2.05);
+      P.blade.scale.setScalar(1.2);
       root.userData.parts = P; return root;
     },
     slime() {
@@ -387,10 +419,17 @@ const MonModels = (() => {
   // crewmate, picked from the landing's seed)
   const SLIME_COLORS = [0x6a7a26, 0x8a1c22, 0x5a2a8a, 0xb07a1a, 0x1f8a80, 0xc8c0a8, 0x2a3f7a, 0x9a3a6a, 0x5aa02a];
   const tintSlime = (seed) => { const m = mats.slime(), c = SLIME_COLORS[new RNG((seed || 1) ^ 0x5eed).int(0, SLIME_COLORS.length - 1)]; m.color.setHex(c); m.emissive.setHex(c).multiplyScalar(0.16); };
-  return { tintSlime, build(type) { const g = B[type](); g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } }); return g; } };
+  // (built in their own units; drawn so they stand as tall as MON_DEFS says: the Pale and the Executioner were 2.95 and
+  // 3.26 m, through every doorway's lintel and, the Executioner, every corridor's 3 m ceiling)
+  const FIT = { pale: 0.8, executioner: 0.8, sister: 0.9, mannequin: 0.87 };
+  return { tintSlime, retri, FIT, build(type) { const g = B[type](); g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } }); if (FIT[type]) g.scale.setScalar(FIT[type]); return g; } };
 })();
 
-const _dp = new THREE.Vector3(), _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3();
+const _dp = new THREE.Vector3(), _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3(), _bx = new THREE.Box3(), _hp = new THREE.Vector3(), _ft = new THREE.Vector3();
+// the long ones' heads, kept out of the walls as well as their middles (how far ahead of its centre, how wide)
+const MON_FRONT = { crawler: [0.85, 0.32], hound: [1.0, 0.3] };
+// which way a body goes down, from its feet (relative to its facing), and how far it reaches lying there
+const MON_FALL = { pale: [Math.PI, 2.4], sister: [0, 1.85], hound: [-Math.PI / 2, 1.5], bound: [Math.PI, 1.8] };
 class Monster {
   constructor(game, id, type, x, y, z) {
     this.g = game; this.id = id; this.type = type; this.def = MON_DEFS[type];
@@ -402,6 +441,7 @@ class Monster {
     this.scanT = Math.random(); this.stuckT = 0; this.spawnT = 0; this.cool = 0; this.lastSeenT = 0; this.observed = false;
     // presentation
     this.mesh = MonModels.build(type); this.P = this.mesh.userData.parts;
+    this.mesh.rotation.order = 'YXZ';
     this.mesh.position.copy(this.pos);
     this.rpos = this.pos.clone(); this.rry = this.ry; this.buf = []; this.vis = { speed: 0, stepAcc: 0, t: Math.random() * 10, sfx: 2 + Math.random() * 4, lastState: this.state, pose: -999 };
     if (type === 'mannequin') this.extra = Math.floor(Math.random() * 1e6);
@@ -428,51 +468,125 @@ class Monster {
       return hit;
     }
     let hit = this.g.ext ? this.g.ext.collide(p, r) : false;
-    if (this.g.ship.collide(p, r)) hit = true;
+    // (a hound squeezes through the hatch after you, and back out again)
+    if (this.g.ship.collide(p, Math.min(r, 0.5))) hit = true;
     p.y = this.g.groundAt(p.x, p.z);
     return hit;
   }
+  // one step toward (tx, tz), in hops no longer than most of its own width (so nothing fast ever skips through a door or
+  // a stair rail), and with something in the way, feeling round it (the side that gets it furthest, kept to a moment)
+  // rather than shoving into it
   stepToward(tx, tz, speed, dt, turnRate = 8) {
     const dx = tx - this.pos.x, dz = tz - this.pos.z, d = Math.hypot(dx, dz);
-    if (d < 0.05) return 0;
+    if (d < 0.05) { this.speedNow = 0; return 0; }
     this.turnTo(Math.atan2(dx, dz), turnRate, dt);
-    const s = Math.min(d, speed * dt);
-    const ox = this.pos.x, oz = this.pos.z;
-    this.pos.x += (dx / d) * s; this.pos.z += (dz / d) * s;
-    this.collide();
+    // (it goes the way it's facing: coming round it slows, and a heavy slow-turning one all but stops to turn, instead
+    // of sliding sideways or backwards while its body swings round)
+    speed *= clamp(0.3 + 0.7 * Math.cos(angDiff(this.ry, Math.atan2(dx, dz))), 0.12, 1);
+    const s = Math.min(d, speed * dt), ox = this.pos.x, oz = this.pos.z, oy = this.pos.y, ux = dx / d, uz = dz / d;
+    let ax = ux, az = uz;
+    if (this.slideT > 0) { this.slideT -= dt; const c = Math.cos(this.slideA), n = Math.sin(this.slideA); ax = ux * c - uz * n; az = ux * n + uz * c; }
+    this.hop(ax, az, s);
+    if (s > 0.003 && (this.pos.x - ox) * ax + (this.pos.z - oz) * az < s * 0.3) {
+      // blocked: try angling off either way, more and more, and keep the first that moves it well
+      let best = null, bs = -Infinity;
+      const pref = this.slideSide || (Math.random() < 0.5 ? 1 : -1);
+      for (const a of [0.6, 1.0, 1.4, 1.75]) {
+        for (const sd of [pref, -pref]) {
+          const c = Math.cos(a * sd), n = Math.sin(a * sd), vx = ux * c - uz * n, vz = ux * n + uz * c;
+          this.pos.set(ox, oy, oz); this.hop(vx, vz, s);
+          const mx = this.pos.x - ox, mz = this.pos.z - oz, moved = Math.hypot(mx, mz), sc = moved + (mx * ux + mz * uz) * 0.5 + (sd === pref ? 0.05 * s : 0);
+          if (moved > s * 0.55 && sc > bs) { bs = sc; best = { a: a * sd, sd, x: this.pos.x, y: this.pos.y, z: this.pos.z }; }
+        }
+        if (best) break;
+      }
+      // an open door's leaf in its way (not the door it's going through): it shoves it shut as it passes
+      const fac = this.def.zone === 'in' && this.g.fac, lf = fac && fac.leafAt(this.pos, this.def.radius);
+      if (lf && (!this.doorPass || this.doorPass.d !== lf) && this.g.monsterShoveDoor) this.g.monsterShoveDoor(this, lf);
+      if (best) { this.pos.set(best.x, best.y, best.z); this.slideA = best.a; this.slideSide = best.sd; this.slideT = 0.35; }
+      else { this.pos.set(ox, oy, oz); this.hop(ux, uz, s); this.slideT = 0; this.slideSide = -pref; }
+    }
     this.speedNow = Math.hypot(this.pos.x - ox, this.pos.z - oz) / Math.max(dt, 1e-4);
     return d;
+  }
+  hop(ux, uz, s) {
+    const n = Math.max(1, Math.ceil(s / Math.max(0.12, this.def.radius * 0.6)));
+    for (let i = 0; i < n; i++) { this.pos.x += ux * s / n; this.pos.z += uz * s / n; this.collide(); }
   }
   // follow a path to (gx,gz). returns remaining straight distance.
   moveTo(gx, gz, speed, dt, opts = {}) {
     const fac = this.g.fac;
     if (this.def.zone !== 'in' || !fac) return this.stepToward(gx, gz, speed, dt);
+    const r = this.def.radius;
+    // a short way round whatever it got stuck on, first
+    if (this.detour && !opts.detour) {
+      const dt0 = this.detour;
+      dt0.t -= dt;
+      if (dt0.t <= 0 || Math.hypot(dt0.x - this.pos.x, dt0.z - this.pos.z) < 0.6) { this.detour = null; this.path = null; }
+      else { const keep = this.path, kg = this.pathGoal; this.path = dt0.path; this.pathGoal = { x: dt0.x, z: dt0.z }; this.moveTo(dt0.x, dt0.z, speed, dt, Object.assign({}, opts, { detour: true, gy: undefined })); dt0.path = this.path; this.path = keep; this.pathGoal = kg; return Math.hypot(gx - this.pos.x, gz - this.pos.z); }
+    }
     this.pathT -= dt;
     const moved = !this.pathGoal || Math.hypot(this.pathGoal.x - gx, this.pathGoal.z - gz) > 1.5;
     if (!this.path || this.pathT <= 0 || moved) {
-      this.path = fac.findPath(this.pos.x, this.pos.z, gx, gz, false, this.pos.y, opts.gy) || [{ x: gx, z: gz }];
+      this.path = fac.findPath(this.pos.x, this.pos.z, gx, gz, false, this.pos.y, opts.gy, r + 0.05) || [{ x: gx, z: gz }];
       this.pathGoal = { x: gx, z: gz }; this.pathT = 0.5 + Math.random() * 0.3;
     }
-    while (this.path.length > 1 && Math.hypot(this.path[0].x - this.pos.x, this.path[0].z - this.pos.z) < 0.5) this.path.shift();
+    while (this.path.length > 1 && Math.hypot(this.path[0].x - this.pos.x, this.path[0].z - this.pos.z) < (this.path[0].hard ? 0.5 : Math.max(0.5, Math.min(1.2, speed * dt * 1.5)))) { this.path.shift(); this.prog = null; }
     const wp = this.path[0];
-    // doors in the way
-    const ci = fac.ti(this.pos.x), cj = fac.tj(this.pos.z), ni = fac.ti(wp.x), nj = fac.tj(wp.z);
-    const di = Math.sign(ni - ci), dj = Math.sign(nj - cj);
     let tx = wp.x, tz = wp.z;
-    if (di || dj) {
-      const ti = di ? ci + di : ci, tj = di ? cj : cj + dj;
-      // (opts.doors false: it can't open one, and only notes the shut door it's come up against)
-      const door = fac.closedDoorBetween(ci, cj, ti, tj);
-      if (door && Math.hypot(door.x - this.pos.x, door.z - this.pos.z) < 1.8) { if (opts.doors === false) this.doorAhead = door; else this.g.monsterOpenDoor(this, door); }
-      // line up square with a doorway before going through it, or it catches on the jamb (or behind the open leaf)
-      const d = fac.doorBetween(ci, cj, ti, tj);
-      if (d) {
-        const lat = (this.pos.x - d.x) * -d.nz + (this.pos.z - d.z) * d.nx, side = Math.sign((this.pos.x - d.x) * d.nx + (this.pos.z - d.z) * d.nz) || 1;
-        if (Math.abs(lat) > 0.3) { tx = d.x + d.nx * side * 1.6; tz = d.z + d.nz * side * 1.6; }
-      }
+    // a doorway on the way to the next waypoint: open it (or, opts.doors false, only note the shut door it's come up
+    // against), then go through it square: onto its centre line where it stands, straight through, and on past the open
+    // leaf before turning toward its hinge
+    let dp = this.doorPass;
+    const hit = fac.doorAlong(this.pos.x, this.pos.z, wp.x, wp.z, 2.6 + r);
+    if (dp && ((hit !== dp.d && dp.near) || this.st - dp.t0 > 5 || this.st < dp.t0)) dp = this.doorPass = null;
+    if (!dp && hit) dp = this.doorPass = { d: hit, side: Math.sign((this.pos.x - hit.x) * hit.nx + (this.pos.z - hit.z) * hit.nz) || 1, t0: this.st, near: true };
+    if (dp) {
+      const d = dp.d, nx = d.nx, nz = d.nz, along = (this.pos.x - d.x) * nx + (this.pos.z - d.z) * nz, lat = (this.pos.x - d.x) * -nz + (this.pos.z - d.z) * nx;
+      if (!d.open && !d.broken && Math.hypot(d.x - this.pos.x, d.z - this.pos.z) < 1.8 + r) { if (opts.doors === false) this.doorAhead = d; else this.g.monsterOpenDoor(this, d); }
+      const s = dp.side, nextW = this.path[1] && Math.hypot(wp.x - d.x, wp.z - d.z) < 2.4 ? this.path[1] : wp;
+      const leaf = d.open && !d.broken && d.dir === -s, hinge = ((nextW.x - d.x) * -nz + (nextW.z - d.z) * nx) < -0.3;
+      const exitD = leaf && hinge ? 1.53 + 0.1 + r : r + 0.4;
+      if (along * s > -r * 0.5) {
+        dp.near = along * s > 0.05;
+        const tol = Math.max(0.06, 0.8 - r - 0.08);
+        if (Math.abs(lat) > tol + (dp.through ? 0.15 : 0)) { dp.through = false; const k = Math.max(r + 0.3, Math.min(1.4, along * s)); tx = d.x + nx * s * k; tz = d.z + nz * s * k; }
+        else { dp.through = true; tx = d.x - nx * s * exitD; tz = d.z - nz * s * exitD; }
+      } else if (-along * s < exitD - 0.15 && Math.abs(lat) < 0.9) { dp.near = false; tx = d.x - nx * s * exitD; tz = d.z - nz * s * exitD; }
+      else dp = this.doorPass = null;
     }
+    // stuck (no headway toward the waypoint for a while): a fresh route, then a few steps somewhere else close by
+    const dw = Math.hypot(tx - this.pos.x, tz - this.pos.z);
+    if (!this.prog || dw < this.prog.d - 0.3 || Math.hypot(tx - this.prog.x, tz - this.prog.z) > 0.6) this.prog = { d: dw, t: 0, x: tx, z: tz }; else this.prog.t += dt;
+    if (this.prog.t > 1.2 && speed > 0.3) {
+      this.prog = null; this.path = null; this.doorPass = null;
+      if ((this.stuckN = (this.stuckN || 0) + 1) >= 2 && !opts.detour) {
+        this.stuckN = 0;
+        const p = fac.randomWalkable(R0, (q) => { const e = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return e > 2 && e < 7 && fac.lvl[fac.idx(q.i, q.j)] === fac.lvl[fac.idx(fac.ti(this.pos.x), fac.tj(this.pos.z))]; }, { x: this.pos.x, z: this.pos.z, r: 7 });
+        if (p) this.detour = { x: p.x, z: p.z, t: 3, path: null };
+      }
+      return Math.hypot(gx - this.pos.x, gz - this.pos.z);
+    }
+    if (this.prog.t === 0) this.stuckN = Math.max(0, (this.stuckN || 0) - dt);
     this.stepToward(tx, tz, speed, dt, opts.turn || 9);
     return Math.hypot(gx - this.pos.x, gz - this.pos.z);
+  }
+  // creatures don't stand inside one another: any two on the same floor closer than their two widths are eased apart
+  // (the Executioner and the Seep give way to nothing; a leech up on the ceiling, or riding someone, is out of it), and
+  // the walls get the last word. Called on the host after every creature has moved.
+  static separate(g, dt) {
+    const L = []; for (const m of g.monsters.values()) if (!m.dead && m.state !== 'attached' && m.state !== 'seep' && !(m.type === 'leech' && m.state !== 'fallen')) L.push(m);
+    const heavy = (m) => m.type === 'executioner' || m.type === 'slime';
+    for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+      const a = L[i], b = L[j];
+      if (a.def.zone !== b.def.zone || Math.abs(a.pos.y - b.pos.y) > 1.6) continue;
+      let dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
+      const r = a.def.radius + b.def.radius; if (d >= r) continue;
+      if (d < 1e-3) { const t = (a.id * 2.399) % TAU; dx = Math.cos(t); dz = Math.sin(t); d = 1; } else { dx /= d; dz /= d; }
+      const wa = heavy(a) ? 0 : heavy(b) ? 1 : 0.5, wb = heavy(b) ? 0 : heavy(a) ? 1 : 0.5, push = Math.min(r - (d === 1 ? 0 : d), 4 * dt);
+      if (wa) { a.pos.x -= dx * push * wa; a.pos.z -= dz * push * wa; a.collide(); }
+      if (wb) { b.pos.x += dx * push * wb; b.pos.z += dz * push * wb; b.collide(); }
+    }
   }
   randomGoal(minD, maxD, filter) {
     if (this.def.zone === 'in' && this.g.fac) {
@@ -526,10 +640,28 @@ class Monster {
     if (this.senses(tgt, sight, cone, near)) { this.memory = memory; this.lastKnown = { x: tgt.pos.x, z: tgt.pos.z, y: tgt.pos.y }; this.aware = true; }
     else { this.aware = false; this.memory = (this.memory || 0) - dt; }
   }
-  nearestPlayer(maxD) {
+  nearestPlayer(maxD, filter) {
     let best = null, bd = maxD;
-    for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z); if (d < bd) { bd = d; best = p; } }
+    for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z); if (d < bd && (!filter || filter(p))) { bd = d; best = p; } }
     return best;
+  }
+  // within reach: near enough, on its own storey, and nothing solid between (a blow or a grab never goes through a wall,
+  // round a corner or across to the flight above)
+  reaches(p, r, dy = 1.5) {
+    if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) >= r || Math.abs(p.pos.y - this.pos.y) >= dy) return false;
+    return this.def.zone !== 'in' || !this.g.fac || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z);
+  }
+  // how far it would have to walk to (x, y, z): along the corridors and up and down the stairs, not as the crow flies
+  // (Infinity if there's no way)
+  walkLen(x, z, y) {
+    const fac = this.g.fac;
+    if (this.def.zone !== 'in' || !fac) return Math.hypot(x - this.pos.x, z - this.pos.z);
+    if (Math.abs(y - this.pos.y) < 1.5 && Math.hypot(x - this.pos.x, z - this.pos.z) < 4 && fac.los(this.pos.x, this.pos.z, x, z)) return Math.hypot(x - this.pos.x, z - this.pos.z);
+    const w = fac.findPath(this.pos.x, this.pos.z, x, z, false, this.pos.y, y);
+    if (!w) return Infinity;
+    let l = 0, px = this.pos.x, pz = this.pos.z, py = this.pos.y;
+    for (const q of w) { const qy = q.y != null ? q.y : py; l += Math.hypot(q.x - px, q.z - pz, qy - py); px = q.x; pz = q.z; py = qy; }
+    return l;
   }
   // ---------------- host AI ----------------
   hostUpdate(dt) {
@@ -569,7 +701,7 @@ class Monster {
         const rem = this.moveTo(this.goal.x, this.goal.z, this.state === 'roam' ? 2.2 : 3.6, dt);
         if (rem < 1) { this.goal = null; if (this.state !== 'roam') this.setState('roam'); }
         const p = scan();
-        if (p) { this.target = p.id; this.setState('spot'); this.extra = p.id; break; }
+        if (p) { this.target = p.id; this.setState('spot'); this.extra = p.id; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; break; }
         const n = hear();
         if (n) { this.goal = { x: n.x, z: n.z }; this.setState('investigate'); }
         break;
@@ -579,6 +711,7 @@ class Monster {
         if (!p || !p.alive || p.zone !== 'in') { this.setState('roam'); break; }
         this.turnTo(Math.atan2(p.pos.x - this.pos.x, p.pos.z - this.pos.z), 6, dt);
         this.speedNow = 0;
+        if (fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
         if (this.st > 0.75) { this.setState('charge'); this.charge = 2.5; this.lastSeenT = 0; }
         break;
       }
@@ -607,7 +740,7 @@ class Monster {
         if (want > 0.05 && got < want * 0.35 && this.charge > 6) { this.stun = 1.4; this.charge = 0; this.g.emitSound('door_slam', this.pos, { vol: 0.8 }); this.setState('search'); this.goal = this.lastKnown || null; break; }
         for (const q of this.playersIn()) {
           if (this.atk > 0) break;
-          if (Math.hypot(q.pos.x - this.pos.x, q.pos.z - this.pos.z) < 1.5) {
+          if (this.reaches(q, 1.5)) {
             const k = clamp(this.charge / 11, 0.5, 1);
             this.g.hurtPlayer(q.id, Math.round(45 * k), 'crawler', f.x * 9 * k, f.z * 9 * k);
             this.atk = 1.2; this.charge *= 0.3;
@@ -622,6 +755,8 @@ class Monster {
   ai_pale(dt) {
     const fac = this.g.fac;
     this.seenCd -= dt; this.cool -= dt;
+    // (what a glance has stirred up settles again in a minute or so: only looks close together tip it over)
+    if (this.state !== 'chase') this.anger = Math.max(0, this.anger - dt * 0.1);
     let tgt = this.target != null ? this.g.players.get(this.target) : null;
     if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
     // it has to find you first: see you, hear you, or wander right into you
@@ -635,10 +770,14 @@ class Monster {
       if (this.memory <= 0) { this.target = null; tgt = null; if (this.state === 'stalk') this.setState('lurk'); }
     }
     this.extra = this.target != null ? this.target : -1;
+    // (a look only counts if there's light to see it by: a lamp near it or a beam on it, or close enough to make it out
+    // in the dark)
     const eye = { x: this.pos.x, y: this.pos.y + 2.1, z: this.pos.z };
-    let seenByTarget = false, seenByAny = false;
+    let seenByTarget = false, seenByAny = false, lit = null;
     for (const p of this.playersIn()) {
-      if (this.g.canSee(p, eye, 28, 0.6)) { seenByAny = true; if (p.id === this.target) seenByTarget = true; }
+      if (!this.g.canSee(p, eye, 28, 0.6)) continue;
+      if (Math.hypot(p.pos.x - eye.x, p.pos.z - eye.z) > 6 && !(lit == null ? (lit = this.g.isLit(eye)) : lit)) continue;
+      seenByAny = true; if (p.id === this.target) seenByTarget = true;
     }
     if (!seenByTarget) this.stare = Math.max(0, this.stare - dt * 0.5);
     switch (this.state) {
@@ -672,7 +811,7 @@ class Monster {
           if (this.anger >= 4) { this.setState('chase'); break; }
           this.fleeGoal = this.hiddenSpot(tgt); this.setState('flee'); break;
         }
-        if (d < 1.4 && !seenByTarget) { this.killAt = { x: tgt.pos.x, z: tgt.pos.z }; this.g.killPlayer(tgt.id, 'pale', this.id); this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; this.anger = 0; this.creep = 0; }
+        if (!seenByTarget && this.reaches(tgt, 1.4)) { this.killAt = { x: tgt.pos.x, z: tgt.pos.z }; this.g.killPlayer(tgt.id, 'pale', this.id); this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; this.anger = 0; this.creep = 0; }
         break;
       }
       case 'flee': {
@@ -687,7 +826,7 @@ class Monster {
         if (!tgt) { this.setState('lurk'); break; }
         if (this.st < 0.05) this.g.emitSound('hiss', this.pos, { vol: 1.2 });
         this.moveTo(tgt.pos.x, tgt.pos.z, 8.6, dt, { gy: tgt.pos.y });
-        if (Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z) < 1.4) { this.killAt = { x: tgt.pos.x, z: tgt.pos.z }; this.g.killPlayer(tgt.id, 'pale', this.id); this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; }
+        if (this.reaches(tgt, 1.4)) { this.killAt = { x: tgt.pos.x, z: tgt.pos.z }; this.g.killPlayer(tgt.id, 'pale', this.id); this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; }
         if (this.st > 9) { this.anger = 0; this.stare = 0; this.fleeGoal = this.hiddenSpot(tgt); this.setState('flee'); }
         break;
       }
@@ -715,15 +854,22 @@ class Monster {
       for (const p of this.playersIn()) {
         const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), lamp = this.g.carriesLight(p);
         if (d > 30 || Math.abs(p.pos.y - this.pos.y) > 3) continue;
-        if ((p.flash && this.g.canSee(p, head, p.flash === 2 ? 30 : 21, 0.93)) || (lamp && d < 11 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) || (d < 1.7)) { lit = p; break; }
+        if ((p.flash && this.g.canSee(p, head, p.flash === 2 ? 30 : 21, 0.93)) || (lamp && d < 11 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) || this.reaches(p, 1.7, 3)) { lit = p; break; }
       }
       if (lit) {
+        const at = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y };
         if (this.state !== 'drawn') {
           this.setState('drawn');
-          // (and the rest of the ward with it)
-          for (const o of this.g.monsters.values()) if (o !== this && o.type === 'sister' && !o.dead && o.state !== 'drawn' && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 16) { o.target = lit.id; o.lastKnown = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y }; o.setState('drawn'); }
+          // (and the rest of the ward with it: those it can see, or that are a short walk off on its own floor)
+          for (const o of this.g.monsters.values()) {
+            if (o === this || o.type !== 'sister' || o.dead || o.state === 'drawn' || Math.abs(o.pos.y - this.pos.y) > 3 || Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) > 20) continue;
+            if (!fac.los(this.pos.x, this.pos.z, o.pos.x, o.pos.z, true) && this.walkLen(o.pos.x, o.pos.z, o.pos.y) > 24) continue;
+            o.target = lit.id; o.lastKnown = at; o.lastLit = 0; o.setState('drawn');
+          }
         }
-        this.target = lit.id; this.lastKnown = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y }; this.lastLit = 0;
+        // (one of them that has the light keeps the whole drawn ward on it)
+        for (const o of this.g.monsters.values()) if (o.type === 'sister' && !o.dead && o.state === 'drawn' && o.target === lit.id) { o.lastKnown = at; o.lastLit = 0; }
+        this.target = lit.id; this.lastKnown = at; this.lastLit = 0;
       }
     }
     this.lastLit = (this.lastLit || 0) + dt;
@@ -736,7 +882,7 @@ class Monster {
         const go = Math.sin(this.st * 6.3 + this.id) > -0.35 ? 1 : 0.1;
         const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 3.7 * go, dt, { gy: this.lastKnown.y });
         const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
-        if (d < 1.35 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && this.atk <= 0) {
+        if (this.atk <= 0 && this.reaches(tgt, 1.35)) {
           this.atk = 1.3; const n = Math.max(d, 0.3);
           this.g.emitSound('sister_slash', this.center(), { vol: 1 });
           this.g.hurtPlayer(tgt.id, 30, 'sister', (tgt.pos.x - this.pos.x) / n * 3, (tgt.pos.z - this.pos.z) / n * 3);
@@ -778,7 +924,7 @@ class Monster {
         this.extra = tgt.id;
         const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
         this.moveTo(this.lastKnown.x, this.lastKnown.z, 2.8 * (0.55 + 0.45 * Math.abs(Math.sin(this.st * 2.6))), dt, { gy: this.lastKnown.y, turn: 5 });
-        if (d < 1.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && this.atk <= 0) {
+        if (this.atk <= 0 && this.reaches(tgt, 1.3)) {
           this.atk = 1.6; const n = Math.max(d, 0.3);
           this.g.emitSound('bound_slam', this.center(), { vol: 1 });
           this.g.hurtPlayer(tgt.id, 22, 'bound', (tgt.pos.x - this.pos.x) / n * 7, (tgt.pos.z - this.pos.z) / n * 7);
@@ -802,15 +948,16 @@ class Monster {
         if (!this.goal) this.goal = this.randomGoal(5, 18);
         const p = this.detect(14, 0.1, 3);
         if (p) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('lurch'); break; }
-        if (this.moveTo(this.goal.x, this.goal.z, 1.3, dt) < 0.8 || this.st > 25) { this.goal = null; this.setState('lie'); }
+        if (this.moveTo(this.goal.x, this.goal.z, 1.3, dt) < 0.8 || this.st > 25) { this.goal = null; this.ry += this.roomiest(this.pos.x, this.pos.y, this.pos.z, this.ry + Math.PI, 1.8); this.setState('lie'); }
         break;
       }
       default: {
-        // lying there like a body
+        // lying there like a body (where it was put down at first, turned so it lies along the floor, not into a wall)
         if (this.state !== 'lie') this.setState('lie');
+        if (!this.laid) { this.laid = true; this.ry += this.roomiest(this.pos.x, this.pos.y, this.pos.z, this.ry + Math.PI, 1.8); }
         this.speedNow = 0; this.extra = -1;
-        const p = this.nearestPlayer(2.6);
-        if (p && Math.abs(p.pos.y - this.pos.y) < 1.5) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('rise'); this.g.emitSound('bound_rise', this.center(), { vol: 1.2 }); }
+        const p = this.nearestPlayer(2.6, (q) => this.reaches(q, 2.6));
+        if (p) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('rise'); this.g.emitSound('bound_rise', this.center(), { vol: 1.2 }); }
         else if (this.st > 60 + (this.id % 5) * 10) this.setState('shamble');
       }
     }
@@ -820,8 +967,23 @@ class Monster {
   // reach) and brings it down
   ai_executioner(dt) {
     const fac = this.g.fac;
-    let tgt = null, bd = Infinity;
-    for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) + Math.abs(p.pos.y - this.pos.y) * 6; if (d < bd) { bd = d; tgt = p; } }
+    // (nearest by the way it would have to walk, through the building and up and down the stairs, weighed again every
+    // couple of seconds; it keeps to the one it chose for a while, and then only turns to another a good deal nearer,
+    // so it never swings back and forth between two of you)
+    let tgt = this.target != null ? this.g.players.get(this.target) : null;
+    if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
+    this.held = (this.held || 0) + dt; this.pickT = (this.pickT || 0) - dt;
+    if (!tgt || (this.pickT <= 0 && this.held > 8)) {
+      this.pickT = 3;
+      // (the walk is never shorter than the straight line, so anyone already too far that way isn't walked to at all)
+      let best = tgt, bd = tgt ? this.walkLen(tgt.pos.x, tgt.pos.z, tgt.pos.y) * 0.75 : Infinity;
+      for (const p of this.playersIn()) {
+        if (p === tgt || Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z, p.pos.y - this.pos.y) >= bd) continue;
+        const d = this.walkLen(p.pos.x, p.pos.z, p.pos.y); if (d < bd) { bd = d; best = p; }
+      }
+      if (!best) best = this.nearestPlayer(Infinity);
+      if (best && best !== tgt) { tgt = best; this.target = best.id; this.held = 0; }
+    }
     if (!tgt) { if (this.state !== 'swing') { this.setState('stand'); this.speedNow = 0; this.extra = -1; } }
     if (this.state === 'swing') {
       this.speedNow = 0;
@@ -831,7 +993,7 @@ class Monster {
         const f = this.forward(); let hit = false;
         for (const p of this.playersIn()) {
           const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
+          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z)) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
         }
         this.g.emitSound(hit ? 'blade_flesh' : 'blade_floor', new THREE.Vector3(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2), { vol: 1.3, ref: 6 });
         this.g.addNoise(this.pos, 30, 'in', null);
@@ -881,7 +1043,7 @@ class Monster {
       this.setState('hunt');
       const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 9.8, dt, { turn: 20, gy: this.lastKnown.y });
       if (!this.aware && rem < 1.2) this.memory -= dt * 3;
-      if (Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z) < 1.05) this.g.killPlayer(tgt.id, 'mannequin', this.id);
+      if (this.reaches(tgt, 1.05)) this.g.killPlayer(tgt.id, 'mannequin', this.id);
     } else {
       this.setState('roam');
       const n = this.hearNoise();
@@ -892,7 +1054,22 @@ class Monster {
   }
   ai_leech(dt) {
     const fac = this.g.fac;
-    const ceilY = () => fac.ceilY(this.pos.x, this.pos.z, this.pos.y - 3) - 0.18, floorY = () => fac.floorY(this.pos.x, this.pos.z, this.pos.y);
+    // (the lowest of the ceiling along its length, and the wall over a doorway it's crossing: where a tall room meets a
+    // corridor it climbs down to it, rather than its front end going on up inside the wall)
+    // (the doors round about, looked up again once it has gone a few metres)
+    if (!this.nearDoors || Math.hypot(this.pos.x - this.nearDoors.x, this.pos.z - this.nearDoors.z) > 3) this.nearDoors = { x: this.pos.x, z: this.pos.z, l: fac.doors.filter((d) => Math.abs(d.x - this.pos.x) < 5.5 && Math.abs(d.z - this.pos.z) < 5.5) };
+    const ceilY = () => {
+      const f = this.forward(), y0 = this.pos.y - 3; let c = Infinity;
+      for (const k of [-0.55, 0, 0.55, 1.1]) { const x = this.pos.x + f.x * k, z = this.pos.z + f.z * k; if (fac.floorAt(fac.ti(x), fac.tj(z))) c = Math.min(c, fac.ceilY(x, z, y0)); }
+      for (const d of this.nearDoors.l) {
+        if (Math.abs(d.x - this.pos.x) > 2 || Math.abs(d.z - this.pos.z) > 2 || Math.abs(d.y - y0) > 3) continue;
+        const along = (this.pos.x - d.x) * d.nx + (this.pos.z - d.z) * d.nz, lat = (this.pos.x - d.x) * -d.nz + (this.pos.z - d.z) * d.nx;
+        if (Math.abs(along) < 1.2 && Math.abs(lat) < 1.5) c = Math.min(c, d.y + Facility.DH);
+      }
+      return (c === Infinity ? fac.ceilY(this.pos.x, this.pos.z, y0) : c) - 0.18;
+    }, floorY = () => fac.floorY(this.pos.x, this.pos.z, this.pos.y);
+    // (it climbs at 4 m/s; a lower ceiling ahead, it stops and climbs down to it first)
+    const cling = () => { const c = ceilY(); this.pos.y += clamp(c - this.pos.y, -4 * dt, 4 * dt); return this.pos.y - c > 0.15; };
     switch (this.state) {
       case 'crawl': {
         if (!this.goal) {
@@ -901,15 +1078,18 @@ class Monster {
           this.goal = this.randomGoal(5, 22, (p) => fac.grid[fac.idx(p.i, p.j)] === 1 && fac.ceilAt(p.x, p.z) <= 3.6 && fac.lvl[fac.idx(p.i, p.j)] === lv) || this.randomGoal(5, 20, (p) => fac.lvl[fac.idx(p.i, p.j)] === lv);
           this.st = 0;
         }
+        if (cling()) { this.speedNow = 0; break; }
+        // (back up off the floor, it hauls itself up to the ceiling first, most of a second, before it crawls on)
+        if (ceilY() - this.pos.y > 0.25) { this.speedNow = 0; break; }
         const rem = this.moveTo(this.goal.x, this.goal.z, 1.6, dt);
-        this.pos.y = ceilY();
+        cling();
         if (rem < 0.6 || this.st > 25) { this.setState('wait'); this.goal = null; }
         break;
       }
       case 'wait': {
-        this.pos.y = ceilY(); this.speedNow = 0;
+        cling(); this.speedNow = 0;
         for (const p of this.playersIn()) {
-          if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 1.05) { this.victim = p.id; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); break; }
+          if (p.pos.y < this.pos.y && this.reaches(p, 1.05, 7)) { this.victim = p.id; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); break; }
         }
         if (this.st > 70) this.setState('crawl');
         break;
@@ -939,7 +1119,7 @@ class Monster {
         this.pos.y = floorY();
         if (!this.goal) this.goal = this.randomGoal(3, 10);
         this.moveTo(this.goal.x, this.goal.z, 2.4, dt);
-        if (this.st > 4) { this.goal = null; this.setState('crawl'); this.pos.y = ceilY(); }
+        if (this.st > 4) { this.goal = null; this.setState('crawl'); }
         break;
       }
       default: this.setState('crawl');
@@ -979,6 +1159,8 @@ class Monster {
     }
     switch (this.state) {
       case 'wander': {
+        // (aboard, after someone it followed in: the way out is along the bay to the airlock and down the ramp)
+        if (this.g.ship.inside(this.pos.x, this.pos.y + 0.5, this.pos.z)) { const dx = (SHIP.doorX0 + SHIP.doorX1) / 2, aisle = Math.abs(this.pos.x - dx) > 0.3 && this.pos.z < 2; this.goal = null; this.stepToward(dx, aisle ? 1.3 : 8.5, 2.2, dt, 6); break; }
         if (!this.goal || this.st > 14) { this.goal = this.randomGoal(10, 40); this.st = 0; }
         if (this.stepToward(this.goal.x, this.goal.z, 2.2, dt, 2.5) < 1.5) this.goal = null;
         break;
@@ -996,7 +1178,7 @@ class Monster {
         const f = this.forward();
         this.turnTo(Math.atan2(this.lunge.x - this.pos.x, this.lunge.z - this.pos.z), 4, dt);
         const ox = this.pos.x, oz = this.pos.z;
-        this.pos.x += f.x * 13 * dt; this.pos.z += f.z * 13 * dt; this.collide();
+        this.hop(f.x, f.z, 13 * dt);
         this.speedNow = Math.hypot(this.pos.x - ox, this.pos.z - oz) / Math.max(dt, 1e-4);
         bite();
         if (this.st > 0.75) { this.goal = { x: this.lunge.x, z: this.lunge.z }; this.setState('chase'); }
@@ -1012,8 +1194,13 @@ class Monster {
       case 'eat': { this.speedNow = 0; if (this.st > 6) this.setState('wander'); break; }
       default: this.setState('wander');
     }
-    // stuck detection
-    if (this.speedNow < 0.3 && (this.state === 'wander' || this.state === 'investigate')) { this.stuckT += dt; if (this.stuckT > 1.5) { this.goal = this.randomGoal(8, 20); this.stuckT = 0; } } else this.stuckT = 0;
+    // stuck (nosing round the ship's legs, or against a wall): no headway toward where it's going for a couple of
+    // seconds, and it gives up on it and goes somewhere else
+    if (this.goal && (this.state === 'wander' || this.state === 'investigate')) {
+      const d = Math.hypot(this.goal.x - this.pos.x, this.goal.z - this.pos.z);
+      if (this.hwGoal !== this.goal || d < this.hw - 0.5) { this.hwGoal = this.goal; this.hw = d; this.stuckT = 0; }
+      else if ((this.stuckT += dt) > 2) { this.goal = this.randomGoal(8, 20); this.stuckT = 0; }
+    } else this.stuckT = 0;
   }
   // The Seep: it feels for crewmates through the floor (anyone near enough on its own level, through walls, or a noise
   // it picks up) and comes after them slowly, without ever stopping; with nobody about it creeps off down a corridor and
@@ -1038,7 +1225,7 @@ class Monster {
     }
     let tgt = this.target != null ? this.g.players.get(this.target) : null;
     if (tgt && (!tgt.alive || tgt.zone !== 'in' || Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z) > 34)) { tgt = null; this.target = null; }
-    if (!tgt) { const p = this.nearestPlayer(22); if (p && Math.abs(p.pos.y - this.pos.y) < 3) { tgt = p; this.target = p.id; } }
+    if (!tgt) { const p = this.nearestPlayer(22, (q) => Math.abs(q.pos.y - this.pos.y) < 3); if (p) { tgt = p; this.target = p.id; } }
     this.doorAhead = null;
     if (tgt) {
       this.setState('hunt'); this.extra = tgt.id;
@@ -1072,7 +1259,7 @@ class Monster {
     const f = this.forward(), sx = f.z, sz = -f.x;
     for (const p of this.playersIn()) {
       const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, along = dx * f.x + dz * f.z, lat = dx * sx + dz * sz;
-      if (Math.abs(p.pos.y - this.pos.y) > 2.5 || along < -0.95 || along > 1.25 || Math.abs(lat) > 1.45) continue;
+      if (Math.abs(p.pos.y - this.pos.y) > 1.6 || along < -0.95 || along > 1.25 || Math.abs(lat) > 1.45 || (this.g.fac && !this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z))) continue;
       this.atk = 0.3;
       this.g.emitSound('slime_burn', p.pos, { vol: 1 });
       if (p.hp <= 9) this.g.killPlayer(p.id, 'slime', this.id);
@@ -1114,24 +1301,26 @@ class Monster {
       for (let i = 0; i < this.buf.length - 1; i++) if (this.buf[i].t <= rt && this.buf[i + 1].t >= rt) { a = this.buf[i]; b = this.buf[i + 1]; break; }
       const t = b.t > a.t ? clamp((rt - a.t) / (b.t - a.t), 0, 1) : 1;
       const tx = lerp(a.x, b.x, t), ty = lerp(a.y, b.y, t), tz = lerp(a.z, b.z, t);
-      if (Math.hypot(tx - this.rpos.x, tz - this.rpos.z) > 6) this.rpos.set(tx, ty, tz); else this.rpos.set(tx, ty, tz);
+      this.rpos.set(tx, ty, tz);
       this.rry = a.ry + angDiff(a.ry, b.ry) * t;
     }
     const v = this.vis;
-    const sp = Math.hypot(this.rpos.x - prevX, this.rpos.z - prevZ) / Math.max(dt, 1e-4);
+    // (a jump of more than a stride in a frame is a teleport: through a door it seeped under, out of a wall, onto a
+    // ceiling; it isn't a burst of speed for its legs to flail at)
+    const moved = Math.hypot(this.rpos.x - prevX, this.rpos.z - prevZ), sp = moved > 1.5 ? v.speed : moved / Math.max(dt, 1e-4);
     v.speed = damp(v.speed, Math.min(sp, 16), 10, dt);
     v.t += dt;
     this.mesh.position.copy(this.rpos);
-    this.mesh.rotation.y = this.rry;
+    this.mesh.rotation.y = this.rry + (this.dead ? v.fallYaw || 0 : 0);
+    if (MON_FRONT[this.type]) { this.headRoom(v, dt); this.mesh.position.x += v.hx; this.mesh.position.z += v.hz; }
     if (v.lastState !== this.state) { this.onStateChange(v.lastState, this.state, localPlayer); v.lastState = this.state; v.sT = 0; } else v.sT = (v.sT || 0) + dt;
     if (this.dead) { v.deathT = (v.deathT || 0) + dt; v.tw = this.twitchK(); }
     this['anim_' + this.type](dt, v, localPlayer);
-    if (this.dead) this.presentDeath(v);
-    // footsteps
-    v.stepAcc += Math.hypot(this.rpos.x - prevX, this.rpos.z - prevZ);
-    const stride = { crawler: 1.1, pale: 1.4, mannequin: 0.5, leech: 99, hound: 1.6, sister: 0.55, bound: 0.8, executioner: 1.25 }[this.type];
-    if (v.stepAcc > stride && v.speed > 0.4) {
-      v.stepAcc = 0;
+    if (this.dead) this.presentDeath(v, dt);
+    // footsteps, as a foot comes down (walk() says when), so the sound lands with the foot
+    if (v.stepNow) {
+      v.stepNow = false;
+      if (!this.dead && v.speed > 0.4) {
       const ln = localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z);
       if (this.type === 'crawler') SFX.play('slap', this.rpos, { vol: 0.9 + v.speed * 0.06 });
       else if (this.type === 'pale') { if (v.speed > 3 || ln < 5) SFX.play('soft', this.rpos, { vol: v.speed > 5 ? 0.9 : 0.35 }); }
@@ -1140,6 +1329,7 @@ class Monster {
       else if (this.type === 'sister') SFX.play('heel', this.rpos, { vol: 0.8 });
       else if (this.type === 'bound') SFX.play('soft', this.rpos, { vol: 0.7 });
       else if (this.type === 'executioner') { SFX.play('heavy_step', this.rpos, { vol: 1.3, ref: 5 }); if (localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z) < 9) Player.addShake(0.08); }
+      }
     }
     // the Executioner's blade, dragging along the floor behind it the whole way, throwing sparks off the concrete
     if (this.type === 'executioner') {
@@ -1184,10 +1374,15 @@ class Monster {
     this.mesh.traverse((o) => {
       if (!o.isMesh || o.userData.scanMark || !o.material || !o.material.isMeshStandardMaterial) return;
       let c = seen.get(o.material);
-      if (!c) { c = o.material.clone(); seen.set(o.material, c); this.deadMats.push({ m: c, col: c.color.clone(), em: c.emissive.clone() }); }
+      if (!c) { c = MonModels.retri(o.material.clone(), o.material); seen.set(o.material, c); this.deadMats.push({ m: c, col: c.color.clone(), em: c.emissive.clone() }); }
       o.material = c;
     });
     const inside = this.def.zone === 'in', grp = inside ? this.g.fac && this.g.fac.group : this.g.ext && this.g.ext.group;
+    // which way it goes down: its own way (back, forward, onto its side) unless that's into a wall, then the nearest way
+    // round from it with room for it (from where it fell, so it falls the same way for everyone)
+    const FL = MON_FALL[this.type];
+    v.fallYaw = 0; v.lift = 0;
+    if (FL && inside && this.g.fac && !(this.type === 'bound' && v.lie > 0.5)) v.fallYaw = this.roomiest(this.rpos.x, this.rpos.y, this.rpos.z, this.rry + FL[0], FL[1]);
     if (grp) {
       const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
       const gy = inside ? this.g.fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5) : this.g.ext.height(this.rpos.x, this.rpos.z);
@@ -1196,12 +1391,135 @@ class Monster {
       grp.add(this.pool);
     }
   }
+  // everything this one made for itself (its parts' shapes, the grey copies of its materials, the pool under it, the
+  // Seep's trail), let go when the site is torn down
+  dispose() {
+    this.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    if (this.deadMats) for (const d of this.deadMats) d.m.dispose();
+    if (this.pool) { if (this.pool.parent) this.pool.parent.remove(this.pool); this.pool.geometry.dispose(); this.pool.material.dispose(); }
+    if (this.trail) for (const tp of this.trail) { if (tp.o.parent) tp.o.parent.remove(tp.o); tp.o.material.dispose(); }
+  }
+  // a long one's head, where it's drawn: a circle out in front of it pushed out of whatever it's in, and how far
+  // that moved it (the model is drawn that much back from the wall; its AI keeps its own small footprint)
+  headRoom(v, dt) {
+    const fr = MON_FRONT[this.type]; if (!fr || this.dead) { v.hx = v.hz = 0; return; }
+    const fx = Math.sin(this.rry), fz = Math.cos(this.rry), q = { x: this.rpos.x + fx * fr[0], y: this.rpos.y + 0.5, z: this.rpos.z + fz * fr[0] }, ox = q.x, oz = q.z;
+    if (this.def.zone === 'in') { if (this.g.fac) this.g.fac.collide(q, fr[1]); } else { if (this.g.ext) this.g.ext.collide(q, fr[1]); if (this.g.ship) this.g.ship.collide(q, fr[1]); }
+    v.hx = damp(v.hx || 0, q.x - ox, 14, dt); v.hz = damp(v.hz || 0, q.z - oz, 14, dt);
+  }
+  // how far a body has room to lie from (x, z) at angle a (out to len), on its own storey
+  lieRoom(x, y, z, a, len) {
+    const fac = this.g.fac; if (!fac) return len;
+    const k0 = fac.idx(fac.ti(x), fac.tj(z)), lv0 = k0 >= 0 ? fac.lvl[k0] : -1, q = { x, y: y + 0.3, z };
+    for (let d = 0.3; d <= len; d += 0.15) {
+      q.x = x + Math.sin(a) * d; q.y = y + 0.3; q.z = z + Math.cos(a) * d;
+      const k = fac.idx(fac.ti(q.x), fac.tj(q.z));
+      if (k < 0 || !fac.grid[k] || (fac.grid[k] !== 4 && fac.lvl[k] !== lv0) || fac.collide(q, 0.2)) return d;
+    }
+    return len + 1;
+  }
+  // its own way (a0), or the nearest way round from it, in eighths of a turn, with room for the body; else the roomiest
+  roomiest(x, y, z, a0, len) {
+    let best = 0, bd = -1;
+    for (const k of [0, 1, -1, 2, -2, 3, -3, 4]) { const d = this.lieRoom(x, y, z, a0 + k * Math.PI / 4, len); if (d > len) return k * Math.PI / 4; if (d > bd) { bd = d; best = k; } }
+    return best * Math.PI / 4;
+  }
+  // ---------------- presentation helpers ----------------
+  // the room it has where it's drawn, for the big ones (every peer works it out for itself, a few times a second): l / r,
+  // how far it is to the nearest thing on its left / right (rock, a doorway's jambs, a shut door, whatever's standing
+  // there), out to 1.8 m; up, the headroom over the floor it covers front to back (half: how far that reaches each way),
+  // a doorway's lintel included from a little before it's under it
+  room(v, dt, half) {
+    const fac = this.g.fac;
+    if (!fac || this.def.zone !== 'in') return null;
+    if (v.room && (v.roomT -= dt) > 0) return v.room;
+    v.roomT = 0.12;
+    const x = this.rpos.x, y = this.rpos.y, z = this.rpos.z, fx = Math.sin(this.rry), fz = Math.cos(this.rry), q = { x, y, z };
+    const k0 = fac.idx(fac.ti(x), fac.tj(z)), lv0 = k0 >= 0 ? fac.lvl[k0] : -1, sh0 = k0 >= 0 && fac.grid[k0] === 4;
+    const reach = (sx, sz) => {
+      for (let d = 0.2; d <= 1.8; d += 0.1) {
+        q.x = x + sx * d; q.y = y + 1.0; q.z = z + sz * d;
+        const k = fac.idx(fac.ti(q.x), fac.tj(q.z));
+        if (k < 0 || !fac.grid[k] || (!sh0 && fac.grid[k] !== 4 && fac.lvl[k] !== lv0) || fac.collide(q, 0.05)) return d - 0.05;
+      }
+      return 1.8;
+    };
+    // (its own +x is its right: (cos yaw, -sin yaw))
+    const r = reach(fz, -fx), l = reach(-fz, fx);
+    let up = Infinity;
+    for (let k = -1; k <= 1; k++) { const px = x + fx * half * k, pz = z + fz * half * k; if (fac.floorAt(fac.ti(px), fac.tj(pz))) up = Math.min(up, fac.ceilY(px, pz, y + 0.5) - y); }
+    for (const d of fac.doors) {
+      if (Math.abs(d.y - y) > 2 || Math.abs(d.x - x) > half + 2.5 || Math.abs(d.z - z) > half + 2.5) continue;
+      const along = (x - d.x) * d.nx + (z - d.z) * d.nz, lat = (x - d.x) * -d.nz + (z - d.z) * d.nx;
+      if (Math.abs(along) < half + 0.9 && Math.abs(lat) < Facility.DW / 2 + 0.4) up = Math.min(up, d.y + Facility.DH - y);
+    }
+    return (v.room = { l, r, up: up === Infinity ? 3 : up });
+  }
+  // a tall one under a doorway's lintel (or a low ceiling) stoops: how far (m) its head has to come down, eased
+  stoop(v, dt, top, half) {
+    const rm = this.room(v, dt, half), want = rm ? Math.max(0, top - (rm.up - 0.08)) : 0;
+    return (v.duck = damp(v.duck || 0, want, 6, dt));
+  }
+  // ...by bending at the knees (up to a quarter of it, legs of two lengths l) and the rest from the hips (Lt: from its
+  // hips to the top of its head), its head tipped back up to look ahead. dm in its own units
+  bow(dm, hips, torso, neck, Lt, legs, l) {
+    const hip = Math.min(dm * 0.25, 0.22), k = Math.acos(clamp(1 - hip / (2 * l), -1, 1));
+    hips.position.y -= hip;
+    for (const L of legs) { L.a.rotation.x -= k; L.b.rotation.x += 2 * k; }
+    const p0 = torso.rotation.x, p1 = Math.acos(clamp(Math.cos(p0) - (dm - hip) / Lt, -1, 1));
+    if (p1 > p0) { torso.rotation.x = p1; if (neck) neck.rotation.x -= (p1 - p0) * 0.6; }
+  }
+  // Legs that walk: each foot set down on the floor (the step under it, on a stair) and left exactly there until it
+  // lifts, so it can't slide, then carried up and through to its next spot half a stride ahead of its hip; the leg's two
+  // joints bent to reach wherever its foot is. legs: [limb, thigh, shin (its own units), knee (1 bends back, -1
+  // forward), phase (0..1), sole (m, joint to the bottom of the foot), sounds (a footstep when it comes down)];
+  // R: half a stride (m), lift: how high a foot's carried (m), duty: how much of a stride each foot is down. The stride's
+  // phase goes on with the ground covered (and a little after it stops, until every foot's down). Returns the phase
+  walk(v, dt, legs, R, lift, duty) {
+    const s = v.speed, fx = Math.sin(this.rry), fz = Math.cos(this.rry), fac = this.g.fac, inside = this.def.zone === 'in';
+    const floor = (x, z) => (inside ? (fac && fac.floorY ? fac.floorY(x, z, this.rpos.y + 0.5) : this.rpos.y) : this.g.groundAt ? this.g.groundAt(x, z) : this.rpos.y);
+    const F = v.feet || (v.feet = legs.map(() => ({ down: true, x: NaN, y: 0, z: 0, lx: 0, ly: 0, lz: 0 })));
+    const swinging = F.some((f) => !f.down);
+    v.ph = (v.ph || 0) + dt * (s > 0.08 ? Math.PI * duty * s / R : swinging ? 6 : 0);
+    legs.forEach(([L, l1, l2, kb, off, sole, snd], i) => {
+      const f = F[i]; let u = (v.ph / TAU + off) % 1; if (u < 0) u += 1;
+      L.a.rotation.x = 0; L.b.rotation.x = 0;
+      L.a.getWorldPosition(_hp);
+      const reach = (l1 + l2) * L.a.parent.matrixWorld.getMaxScaleOnAxis();
+      // (first time, or flung far from it by a teleport: its foot put back under its hip)
+      if (!(Math.hypot(f.x - _hp.x, f.z - _hp.z) < reach * 1.6)) { f.x = _hp.x; f.z = _hp.z; f.y = floor(f.x, f.z); f.down = true; }
+      if (u < duty) {
+        if (!f.down) { f.down = true; f.y = floor(f.x, f.z); if (snd) v.stepNow = true; }
+      } else {
+        if (f.down) { f.down = false; f.lx = f.x; f.ly = f.y; f.lz = f.z; }
+        const k = (u - duty) / (1 - duty), e = k * k * (3 - 2 * k), ax = _hp.x + fx * R, az = _hp.z + fz * R, ay = floor(ax, az);
+        f.x = lerp(f.lx, ax, e); f.z = lerp(f.lz, az, e); f.y = lerp(f.ly, ay, e) + lift * Math.sin(Math.PI * k);
+      }
+      // (its two joints: in the plane the leg swings in, the hip to the foot, bent at the knee by the lengths)
+      _ft.set(f.x, f.y + sole, f.z); L.a.parent.worldToLocal(_ft); _ft.sub(L.a.position);
+      const dz = _ft.z, dy = _ft.y / Math.cos(L.a.rotation.z), d = Math.max(1e-3, Math.min(Math.hypot(dz, dy), (l1 + l2) * 0.999));
+      const A = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1)), K = Math.acos(clamp((l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2), -1, 1));
+      L.a.rotation.x = Math.atan2(-dz, -dy) - kb * A; L.b.rotation.x = kb * (Math.PI - K);
+      // (and the foot kept level with the floor, not tipped up or its toes dug into it with the shin)
+      L.end.rotation.x = -(L.a.rotation.x + L.b.rotation.x) * (f.down ? 1 : 0.6);
+    });
+    return v.ph;
+  }
+  // hips at a height its legs reach the floor from, half a stride out (Lm: a leg's length, its own units; R in m)
+  hipsFor(Lm, R, pivot) { const r = R / this.mesh.scale.y; return Math.sqrt(Math.max(0.01, Lm * Lm - r * r)) * 0.96 - pivot; }
   // 0..1 through the fall: it drops faster and faster, hits, and settles with a small bounce
   deadK() { const t = clamp((this.vis.deathT || 0) / 0.75, 0, 1); return t < 0.8 ? Math.pow(t / 0.8, 2) : 1 - Math.sin(((t - 0.8) / 0.2) * Math.PI) * 0.06; }
   // the nerves firing a few last times: sudden jerks, fewer and smaller, then nothing
   twitchK() { const v = this.vis, k = Math.exp(-(v.deathT || 0) * 1.3); if (Math.random() < 0.07 && v.deathT > 0.6) v.twk = (Math.random() - 0.5) * 1.4 * k; v.twk = (v.twk || 0) * 0.82; return v.twk; }
-  presentDeath(v) {
+  presentDeath(v, dt) {
     const t = v.deathT;
+    // (it comes to rest on the floor under it: its lowest point set down on it, not half through it or over it)
+    if (t < 2.5) {
+      const fac = this.g.fac, fy = this.def.zone === 'in' ? (fac ? fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5) : this.rpos.y) : this.g.ext ? this.g.ext.height(this.rpos.x, this.rpos.z) : this.rpos.y;
+      _bx.setFromObject(this.mesh);
+      v.lift = clamp(damp(v.lift || 0, fy + 0.01 - _bx.min.y, 12, dt || 0.016), -0.5, 0.8);
+    }
+    this.mesh.position.y += v.lift || 0;
     if (this.deadMats && t < 4) { const k = sstep(0, 3.5, t); for (const d of this.deadMats) { d.m.color.copy(d.col).multiplyScalar(1 - 0.55 * k); d.m.emissive.copy(d.em).multiplyScalar(1 - k); } }
     if (this.pool && t < 9) {
       const b = this.P.body || this.P.hips || this.P.torso;
@@ -1211,15 +1529,14 @@ class Monster {
   }
   anim_crawler(dt, v) {
     const P = this.P, t = v.t, s = v.speed;
-    const g = Math.min(1, s / 6), ph = t * (4 + s * 1.3);
-    P.body.position.y = 0.75 + Math.abs(Math.sin(ph)) * 0.12 * g + Math.sin(t * 2) * 0.02;
-    const rear = this.state === 'spot' ? Math.min(1, (this.vis.t % 100) * 0 + 1) : 0;
+    const g = Math.min(1, s / 6);
+    P.body.position.y = 0.72 + Math.sin(t * 2) * 0.02;
     P.body.rotation.x = damp(P.body.rotation.x, this.dead ? 0 : this.state === 'spot' ? -0.55 : this.stunned ? 0.3 : g * 0.15, 8, dt);
-    const sw = Math.sin(ph) * (0.25 + g * 0.9);
-    P.fl.a.rotation.x = sw - 0.4; P.fr.a.rotation.x = -sw - 0.4; P.bl.a.rotation.x = -sw * 0.8 + 0.2; P.br.a.rotation.x = sw * 0.8 + 0.2;
-    P.fl.b.rotation.x = -0.9 + Math.max(0, Math.cos(ph)) * 0.8; P.fr.b.rotation.x = -0.9 + Math.max(0, -Math.cos(ph)) * 0.8;
-    P.bl.b.rotation.x = 0.6; P.br.b.rotation.x = 0.6;
-    for (const L of [P.fl, P.bl]) L.a.rotation.z = -0.35; for (const L of [P.fr, P.br]) L.a.rotation.z = 0.35;
+    // its legs splay two metres across: alongside a wall, or through a doorway, it draws them in on that side
+    const rm = this.room(v, dt, 1.2), fold = (c) => (rm ? clamp((c - 0.5) / 0.55, 0.1, 1) : 1);
+    v.zl = damp(v.zl == null ? -0.35 : v.zl, -0.35 * fold(rm && rm.l), 8, dt); v.zr = damp(v.zr == null ? 0.35 : v.zr, 0.35 * fold(rm && rm.r), 8, dt);
+    P.fl.a.rotation.z = P.bl.a.rotation.z = v.zl; P.fr.a.rotation.z = P.br.a.rotation.z = v.zr;
+    if (!this.dead) this.walk(v, dt, [[P.fl, 0.44, 0.42, -1, 0, 0.07, 1], [P.fr, 0.44, 0.42, -1, 0.5, 0.07, 1], [P.bl, 0.4, 0.43, 1, 0.5, 0.08, 0], [P.br, 0.4, 0.43, 1, 0, 0.08, 0]], Math.min(0.42, 0.14 + s * 0.04), 0.1 + g * 0.12, 0.55);
     const open = this.state === 'spot' || this.state === 'charge' ? 1.25 + Math.sin(t * 30) * 0.08 : 0.9 + Math.sin(t * 3) * 0.05;
     P.teeth.scale.setScalar(damp(P.teeth.scale.x, open, 10, dt));
     P.head.rotation.x = Math.sin(t * 1.3) * 0.08 + (this.state === 'spot' ? -0.3 : 0);
@@ -1238,17 +1555,16 @@ class Monster {
     }
   }
   anim_pale(dt, v, lp) {
-    const P = this.P, t = v.t, s = v.speed;
-    const ph = t * (2 + s * 1.2), g = Math.min(1, s / 3);
+    const P = this.P, t = v.t, s = v.speed, S = this.mesh.scale.y;
     const fleeing = this.state === 'flee' || this.state === 'chase';
     const hunch = this.state === 'chase' ? 0.55 : fleeing ? 0.75 : 0.35;
-    P.torso.rotation.x = damp(P.torso.rotation.x, hunch, 4, dt);
-    P.hips.position.y = 1.5 - (fleeing ? 0.3 : 0.06) + Math.abs(Math.sin(ph)) * 0.05 * g;
-    const sw = Math.sin(ph) * 0.7 * g;
-    P.ll.a.rotation.x = sw - (fleeing ? 0.4 : 0.1); P.lr.a.rotation.x = -sw - (fleeing ? 0.4 : 0.1);
-    P.ll.b.rotation.x = 0.3 + Math.max(0, -Math.sin(ph)) * 1.2 * g + (fleeing ? 0.4 : 0);
-    P.lr.b.rotation.x = 0.3 + Math.max(0, Math.sin(ph)) * 1.2 * g + (fleeing ? 0.4 : 0);
+    // (v.tilt: its lean before any stoop, so a stoop doesn't feed on itself frame after frame)
+    v.tilt = damp(v.tilt == null ? hunch : v.tilt, hunch, 4, dt); P.torso.rotation.x = v.tilt;
+    const R = Math.min(0.5, 0.12 + s * 0.07);
+    v.hip = damp(v.hip || 1.4, this.hipsFor(1.42, R, 0) - (fleeing ? 0.22 : 0), 6, dt);
+    P.hips.position.y = v.hip;
     const reach = this.state === 'chase' || this.state === 'drag' ? -1.3 : fleeing ? 0.6 : 0.05;
+    const sw = Math.sin(v.ph || 0) * Math.min(1, s / 3) * 0.7;
     P.al.a.rotation.x = damp(P.al.a.rotation.x, reach - sw * 0.3, 6, dt); P.ar.a.rotation.x = damp(P.ar.a.rotation.x, reach + sw * 0.3, 6, dt);
     P.al.a.rotation.z = -0.12; P.ar.a.rotation.z = 0.12;
     P.al.b.rotation.x = -0.2 - Math.sin(t * 0.7) * 0.1; P.ar.b.rotation.x = -0.25 + Math.sin(t * 0.8) * 0.1;
@@ -1262,23 +1578,26 @@ class Monster {
     if (this.dead) {
       // it topples backwards like a felled tree, arms flung out, head lolling to one side
       const f = this.deadK(), tw = v.tw;
-      this.mesh.rotation.x = -Math.PI / 2 * f; this.mesh.position.y = this.rpos.y + 0.2 * f;
+      this.mesh.rotation.x = -Math.PI / 2 * f; this.mesh.position.y = this.rpos.y + 0.2 * f * S;
       P.torso.rotation.x = lerp(P.torso.rotation.x, 0.05, f);
       P.al.a.rotation.set(lerp(P.al.a.rotation.x, -0.5 + tw, f), 0, -1.15 * f); P.ar.a.rotation.set(lerp(P.ar.a.rotation.x, -0.3 - tw * 0.6, f), 0, 1.25 * f);
       P.al.b.rotation.x = -0.5 * f; P.ar.b.rotation.x = -0.8 * f;
       P.ll.a.rotation.x = lerp(P.ll.a.rotation.x, 0.1, f); P.lr.a.rotation.x = lerp(P.lr.a.rotation.x, -0.25 + tw * 0.5, f); P.ll.b.rotation.x = 0.15 * f; P.lr.b.rotation.x = 0.5 * f;
       P.head.rotation.set(0, 0.5 * f, 0.7 * f + tw * 0.2); P.mouth.scale.y = 5;
+      return;
     }
+    // under a doorway's lintel it folds itself down to pass
+    const duck = this.stoop(v, dt, 2.32, 0.4);
+    if (duck > 0.005) this.bow(duck / S, P.hips, P.torso, P.neck, 1.45, [], 0.71);
+    this.walk(v, dt, [[P.ll, 0.7, 0.72, 1, 0, 0.02, 1], [P.lr, 0.7, 0.72, 1, 0.5, 0.02, 1]], R, 0.1 + Math.min(0.15, s * 0.03), s > 5 ? 0.42 : 0.58);
   }
   // a Sister: jerky, the limbs snapping from one pose to the next rather than moving through them; the head lolling
   // and wrenching round on its neck; the scalpel arm raised when it's after someone, and slashing when it's close
   anim_sister(dt, v) {
-    const P = this.P, t = v.t, s = v.speed, drawn = this.state === 'drawn';
-    const q = (x, n) => Math.round(x * n) / n;
-    const ph = q(t * (2 + s * 1.5), 3), g = Math.min(1, s / 2.5), sw = Math.sin(ph * 2.6) * 0.55 * g;
-    P.ll.a.rotation.x = sw; P.lr.a.rotation.x = -sw; P.ll.b.rotation.x = 0.1 + Math.max(0, -sw) * 0.9; P.lr.b.rotation.x = 0.1 + Math.max(0, sw) * 0.9;
+    const P = this.P, t = v.t, s = v.speed, drawn = this.state === 'drawn', S = this.mesh.scale.y;
+    const R = Math.min(0.3, 0.08 + s * 0.06);
+    P.hips.position.y = damp(P.hips.position.y, this.hipsFor(0.92, R, 0.05), 6, dt);
     P.ll.a.rotation.z = 0.08; P.lr.a.rotation.z = -0.08;
-    P.hips.position.y = 0.95 + Math.abs(Math.sin(ph * 2.6)) * 0.03 * g;
     P.torso.rotation.x = damp(P.torso.rotation.x, drawn ? 0.25 : 0.12, 5, dt);
     // twitches: now and then a joint snaps somewhere else and holds there
     if (Math.random() < dt * (drawn ? 4 : 1.4)) v.tw2 = { h: (Math.random() - 0.5) * 1.6, n: (Math.random() - 0.5) * 0.9, s: (Math.random() - 0.5) * 0.6, k: 1 };
@@ -1286,17 +1605,23 @@ class Monster {
     P.neck.rotation.set(0.25 + T.n * T.k, 0, 0.5 + Math.sin(t * 0.4) * 0.15 + T.h * T.k);
     P.head.rotation.set(Math.sin(t * 0.7) * 0.1, T.h * T.k * 0.6, 0.2);
     P.torso.rotation.z = T.s * T.k;
+    const sw = Math.sin(v.ph || 0) * Math.min(1, s / 2.5) * 0.55;
     const slash = drawn && v.sT % 1.3 < 0.3 && s < 1.5 ? Math.sin((v.sT % 1.3) / 0.3 * Math.PI) : 0;
     P.ar.a.rotation.x = damp(P.ar.a.rotation.x, drawn ? -1.9 + slash * 2.2 : -0.1 + sw * 0.2, 14, dt); P.ar.b.rotation.x = drawn ? -0.6 : -0.15;
     P.al.a.rotation.x = -sw * 0.3 + (drawn ? -0.4 : 0); P.al.b.rotation.x = -0.3; P.al.a.rotation.z = -0.1; P.ar.a.rotation.z = 0.15;
     if (this.dead) {
-      // down on its knees, then forward onto its face
+      // down on its knees, then forward onto its face, its arms out ahead of it along the floor
       const f = this.deadK(), tw = v.tw;
       this.mesh.rotation.x = Math.PI / 2 * f; this.mesh.position.y = this.rpos.y + 0.12 * f;
       P.ll.a.rotation.x = lerp(P.ll.a.rotation.x, -0.4, f); P.lr.a.rotation.x = lerp(P.lr.a.rotation.x, -0.2 + tw, f);
       P.ll.b.rotation.x = 1.2 * f; P.lr.b.rotation.x = 1.0 * f;
-      P.al.a.rotation.set(-2.6 * f, 0, -0.3); P.ar.a.rotation.set(-2.4 * f + tw * 0.4, 0, 0.4); P.neck.rotation.set(0.6 * f, 0, 0.9 * f);
+      P.al.a.rotation.set(-3.0 * f, 0, -0.3); P.ar.a.rotation.set(-2.95 * f + tw * 0.3, 0, 0.4); P.neck.rotation.set(0.6 * f, 0, 0.9 * f);
+      return;
     }
+    // (jerking from one pose to the next: the legs' stride held, then snapped on)
+    const ph0 = v.ph || 0; this.walk(v, dt, [[P.ll, 0.46, 0.46, 1, 0, 0.045 * S, 1], [P.lr, 0.46, 0.46, 1, 0.5, 0.045 * S, 1]], R, 0.08, 0.6);
+    if (Math.floor(v.ph / 0.87) === Math.floor(ph0 / 0.87) && v.legHold) { P.ll.a.rotation.x = v.legHold[0]; P.ll.b.rotation.x = v.legHold[1]; P.lr.a.rotation.x = v.legHold[2]; P.lr.b.rotation.x = v.legHold[3]; }
+    else v.legHold = [P.ll.a.rotation.x, P.ll.b.rotation.x, P.lr.a.rotation.x, P.lr.b.rotation.x];
   }
   // the Bound: lying flat on its back like a body; getting up all at once from the waist, as if pulled; lurching on
   // its wrong-bent legs, swaying from side to side; rearing back to retch, and pitching forward to spew it out
@@ -1305,10 +1630,9 @@ class Monster {
     const lie = st === 'lie' ? 1 : st === 'rise' ? 1 - sstep(0.1, 1.3, v.sT) : 0;
     v.lie = v.lie == null ? lie : damp(v.lie, lie, st === 'rise' ? 30 : 4, dt);
     this.mesh.rotation.x = -Math.PI / 2 * v.lie; this.mesh.position.y = this.rpos.y + 0.18 * v.lie;
-    const g = Math.min(1, s / 2.5), ph = t * (2.2 + s * 1.6), sw = Math.sin(ph) * 0.6 * g;
-    P.ll.a.rotation.x = sw * (1 - v.lie); P.lr.a.rotation.x = -sw * (1 - v.lie);
-    P.ll.b.rotation.x = (-0.35 - Math.max(0, sw) * 0.6) * (1 - v.lie); P.lr.b.rotation.x = (-0.35 - Math.max(0, -sw) * 0.6) * (1 - v.lie);
-    P.torso.rotation.z = Math.sin(ph * 0.5) * 0.25 * g + Math.sin(t * 0.8) * 0.04;
+    const g = Math.min(1, s / 2.5), R = Math.min(0.32, 0.08 + s * 0.08);
+    P.body.position.y = lerp(this.hipsFor(0.93, R, 0), 0.9, v.lie);
+    P.torso.rotation.z = Math.sin((v.ph || 0) * 0.5) * 0.25 * g + Math.sin(t * 0.8) * 0.04;
     const rear = st === 'spit' ? (v.sT < 0.9 ? -0.5 * sstep(0, 0.9, v.sT) : lerp(-0.5, 0.6, sstep(0.9, 1.05, v.sT)) * (1 - sstep(1.2, 1.7, v.sT))) : 0;
     P.torso.rotation.x = damp(P.torso.rotation.x, rear + (st === 'lurch' ? 0.12 : 0) + (st === 'lie' ? Math.sin(t * 0.6) * 0.01 : 0), 12, dt);
     P.mouth.scale.setScalar(st === 'spit' && v.sT > 0.8 && v.sT < 1.3 ? 1.5 : 1 + Math.sin(t * 3) * 0.05);
@@ -1317,15 +1641,19 @@ class Monster {
       this.mesh.rotation.x = -Math.PI / 2 * Math.max(f, v.lie); this.mesh.position.y = this.rpos.y + 0.18 * f;
       P.ll.a.rotation.x = 0.2 * f + tw * 0.5; P.lr.a.rotation.x = -0.3 * f; P.ll.b.rotation.x = -0.6 * f; P.lr.b.rotation.x = -0.2 * f;
       P.torso.rotation.set(0, 0, 0.3 * f + tw * 0.2);
+      return;
     }
+    // (on its knees that bend the wrong way; lying, its legs just lie there)
+    if (v.lie < 0.05) this.walk(v, dt, [[P.ll, 0.45, 0.48, -1, 0, 0.045, 1], [P.lr, 0.45, 0.48, -1, 0.5, 0.045, 1]], R, 0.12, 0.6);
+    else { v.feet = null; P.ll.a.rotation.x = P.lr.a.rotation.x = 0; P.ll.b.rotation.x = P.lr.b.rotation.x = -0.35 * (1 - v.lie); }
   }
   // the Executioner: a slow heavy walk, the blade hung from its right fist trailing along the floor; lifting it back
   // and up over its shoulder (slowly), and bringing it down all at once
   anim_executioner(dt, v) {
-    const P = this.P, t = v.t, s = v.speed;
-    const g = Math.min(1, s / 2), ph = t * (1.6 + s * 0.9), sw = Math.sin(ph) * 0.45 * g;
-    P.ll.a.rotation.x = sw; P.lr.a.rotation.x = -sw; P.ll.b.rotation.x = 0.1 + Math.max(0, -Math.sin(ph)) * 0.6 * g; P.lr.b.rotation.x = 0.1 + Math.max(0, Math.sin(ph)) * 0.6 * g;
-    P.hips.position.y = 1.25 - Math.abs(Math.cos(ph)) * 0.05 * g;
+    const P = this.P, t = v.t, s = v.speed, S = this.mesh.scale.y, fac = this.g.fac;
+    // (a long slow stride; its feet set down and left where they land, see walk())
+    const g = Math.min(1, s / 2), R = Math.min(0.45, 0.15 + s * 0.13), ph = v.ph || 0, sw = Math.sin(ph) * 0.45 * g;
+    v.hipY = damp(v.hipY == null ? 1.2 : v.hipY, this.hipsFor(1.2, R, 0.05), 6, dt); P.hips.position.y = v.hipY;
     P.hips.rotation.z = Math.sin(ph) * 0.05 * g;
     P.torso.rotation.y = Math.sin(ph) * 0.08 * g;
     P.neck.rotation.x = 0.25 + Math.sin(t * 0.5) * 0.04;
@@ -1334,22 +1662,43 @@ class Monster {
     // over its shoulder, under a corridor's ceiling; and brought down on the floor out in front, as far as it reaches)
     const DRAG = [0.25 + sw * 0.2, -0.1, 0.04 - sw * 0.1, 0.08], UP = [-2.2, -1.6, -1.5, -0.15], DOWN = [-1.0, -0.2, -1.0, 0.35];
     let k = DRAG;
-    if (this.state === 'swing') {
+    const swing = this.state === 'swing';
+    if (swing) {
       const u = v.sT, up = sstep(0, 0.95, u), down = sstep(1.0, 1.2, u), back = sstep(1.6, 2.4, u);
       k = DRAG.map((d, i) => { const a = lerp(lerp(d, UP[i], up), DOWN[i], down); return lerp(a, d, back); });
     }
     const [ax, bx, bl, tx] = k;
-    P.torso.rotation.x = damp(P.torso.rotation.x, tx, this.state === 'swing' ? 30 : 4, dt);
-    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx; P.blade.rotation.x = bl + 2.3;
+    v.tilt = damp(v.tilt == null ? tx : v.tilt, tx, swing ? 30 : 4, dt); P.torso.rotation.x = v.tilt;
+    // stooping through a doorway (it stands 2.6 m; a doorway is 2.4)
+    if (!swing) { const duck = this.stoop(v, dt, 2.62, 0.5); if (duck > 0.005) this.bow(duck / S, P.hips, P.torso, P.neck, 1.9, [], 0.6); }
+    P.ar.a.rotation.set(ax, 0, 0.12); P.ar.b.rotation.x = bx; P.blade.rotation.set(bl + 2.3, 0, 0);
+    if (this.dead) return;
+    this.walk(v, dt, [[P.ll, 0.6, 0.6, 1, 0, 0.08 * S, 1], [P.lr, 0.6, 0.6, 1, 0.5, 0.08 * S, 1]], R, 0.14, 0.62);
+    // the blade is dragged, so it trails along the way it came (v.tow: where its tip is, kept its length behind the
+    // grip): round a corner it follows the floor behind it rather than swinging through the wall, and its tip lies on
+    // the floor under it (on a stair, the step) instead of in it
+    if (swing) { v.tow = null; return; }
+    P.blade.getWorldPosition(_sl);
+    const len = 2.05 * P.blade.scale.z * S, hx = _sl.x, hz = _sl.z, fy0 = fac ? fac.floorY(hx, hz, this.rpos.y + 0.5) : this.rpos.y;
+    const r = Math.sqrt(Math.max(0.25, len * len - (_sl.y - fy0) * (_sl.y - fy0)));
+    if (!v.tow || Math.hypot(v.tow.x - hx, v.tow.z - hz) > r * 1.8) v.tow = { x: hx - Math.sin(this.rry) * r, z: hz - Math.cos(this.rry) * r };
+    const dx = v.tow.x - hx, dz = v.tow.z - hz, dl = Math.hypot(dx, dz) || 1;
+    v.tow.x = hx + dx / dl * r; v.tow.z = hz + dz / dl * r;
+    // (where that would lay it in a wall, it's pulled round in behind)
+    if (fac && !fac.floorAt(fac.ti(v.tow.x), fac.tj(v.tow.z))) { v.tow.x = hx - Math.sin(this.rry) * r; v.tow.z = hz - Math.cos(this.rry) * r; }
+    const fy = fac ? fac.floorY(v.tow.x, v.tow.z, this.rpos.y + 0.5) : this.rpos.y;
+    P.blade.lookAt(_sl2.set(v.tow.x, fy + 0.03 + 0.2 * P.blade.scale.z * S, v.tow.z));
   }
   anim_mannequin(dt, v) {
-    const P = this.P;
+    const P = this.P, S = this.mesh.scale.y;
     if (this.dead) return;
     if (v.speed > 0.6) {
-      const ph = v.t * 18;
+      // (a scurry: it ran in place at walking pace, its feet sliding; now they're set down, see walk())
+      const R = Math.min(0.42, 0.12 + v.speed * 0.03);
       P.torso.rotation.x = 0.35; P.al.a.rotation.x = -1.4; P.ar.a.rotation.x = -1.5; P.al.b.rotation.x = 0; P.ar.b.rotation.x = 0;
-      P.ll.a.rotation.x = Math.sin(ph) * 0.9; P.lr.a.rotation.x = -Math.sin(ph) * 0.9; P.ll.b.rotation.x = 0.6; P.lr.b.rotation.x = 0.6;
       P.head.rotation.set(-0.3, 0, Math.sin(v.t * 40) * 0.2);
+      P.hips.position.y = this.hipsFor(0.82, R, 0.05);
+      this.walk(v, dt, [[P.ll, 0.4, 0.42, 1, 0, 0.055 * S, 1], [P.lr, 0.4, 0.42, 1, 0.5, 0.055 * S, 1]], R, 0.16, 0.45);
       v.pose = -1;
       return;
     }
@@ -1365,13 +1714,18 @@ class Monster {
       P.ll.a.rotation.x = r.range(-0.5, 0.3); P.lr.a.rotation.x = r.range(-0.5, 0.3);
       P.ll.b.rotation.x = r.range(0, 0.5); P.lr.b.rotation.x = r.range(0, 0.5);
       P.neck.rotation.z = r.range(-0.3, 0.3);
+      // (set down on its feet at once: a frozen pose doesn't settle while you watch)
+      P.hips.position.y = 0.875; this.mesh.updateMatrixWorld(true);
+      let lo = Infinity; for (const f of [P.ll.end, P.lr.end]) { f.getWorldPosition(_dp); lo = Math.min(lo, _dp.y); }
+      P.hips.position.y -= (lo - 0.055 * S - this.mesh.position.y) / S; v.gnd = P.hips.position.y - 0.875;
     }
   }
   anim_leech(dt, v, lp) {
     const P = this.P, t = v.t;
     const onCeil = this.state === 'crawl' || this.state === 'wait';
-    this.mesh.rotation.x = damp(this.mesh.rotation.x, onCeil ? Math.PI : this.state === 'attached' ? 1.2 : 0, 10, dt);
-    this.mesh.rotation.z = onCeil ? 0 : 0;
+    // (upside down on the ceiling by rolling over, so it still goes head first: flipped end over end it went tail first)
+    this.mesh.rotation.z = damp(this.mesh.rotation.z, onCeil ? Math.PI : 0, 10, dt);
+    this.mesh.rotation.x = damp(this.mesh.rotation.x, this.state === 'attached' ? 1.2 : 0, 10, dt);
     P.segs.forEach((s, i) => { s.position.x = Math.sin(t * 6 + i * 0.9) * 0.03 * (v.speed > 0.2 || this.state === 'attached' ? 1.5 : 0.3); s.scale.y = 0.75 + Math.sin(t * 3 + i) * 0.05; });
     P.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 14 + i * 1.7) * (v.speed > 0.2 || this.state === 'attached' ? 0.5 : 0.08); });
     P.mouth.rotation.z += dt * (this.state === 'attached' ? 6 : 1);
@@ -1381,8 +1735,9 @@ class Monster {
     if (this.dead) {
       // on its back on the floor, curling up, its legs folding in
       const f = this.deadK();
-      this.mesh.rotation.x = Math.PI * f; this.mesh.position.y = this.rpos.y + 0.12 * f;
+      this.mesh.rotation.z = Math.PI * f; this.mesh.rotation.x = 0; this.mesh.position.y = this.rpos.y + 0.12 * f;
       P.segs.forEach((s, i) => { s.position.x = 0; s.scale.y = lerp(0.75, 0.55, f); s.position.y = Math.sin((i / 6) * Math.PI) * 0.07 * f; });
+      P.strands.forEach((st) => { st.scale.y = lerp(1, 0.12, f); });
       P.legs.forEach((l, i) => { l.rotation.x = 1.3 * f + v.tw * (i % 2 ? 1 : -1); });
     }
   }
@@ -1399,7 +1754,8 @@ class Monster {
     v.jv = (v.jv || 0) + ((v.speed - (v.lastSp || 0)) * 2.2 - (v.jy || 0) * 38 - (v.jv || 0) * 3.2) * dt; v.jy = (v.jy || 0) + v.jv * dt; v.lastSp = v.speed;
     const jig = clamp(v.jy, -0.12, 0.12);
     U.uHeave.value = damp(U.uHeave.value, this.state === 'hunt' ? 1.6 : moving ? 1.25 : 0.8, 2, dt);
-    const H = clamp(fac.ceilAt(this.rpos.x, this.rpos.z) - 0.06, 2.2, 3.4), W0 = 2.74, D0 = 1.7, DW = Facility.DW, DH = Facility.DH;
+    const W0 = 2.74, D0 = 1.7, DW = Facility.DW, DH = Facility.DH, rm = this.room(v, dt, D0 / 2);
+    const H = Math.min(clamp(fac.ceilAt(this.rpos.x, this.rpos.z) - 0.06, 2.2, 3.4), rm ? rm.up - 0.1 : 9);
     // the nearest doorway, looked for now and then
     if ((v.doorT = (v.doorT || 0) - dt) <= 0) {
       v.doorT = 0.25; v.nd = null; let bd = 2.4;
@@ -1408,10 +1764,15 @@ class Monster {
     const seepD = this.state === 'seep' && this.extra >= 0 ? fac.doors[Math.floor(this.extra)] : null;
     for (const k of ['sheet', 'stream', 'drip', 'far']) P[k].visible = false;
     if (!seepD) {
-      let w = W0, h = H;
-      if (v.nd && !v.nd.broken) { const nd = v.nd, dn = Math.abs((this.rpos.x - nd.x) * nd.nx + (this.rpos.z - nd.z) * nd.nz), k = sstep(0.3, 1.9, dn); w = lerp(DW - 0.12, W0, k); h = lerp(DH - 0.04, H, k); }
+      // (as wide as the corridor where it is, wall to wall and no further, and centred in it: it was always 2.74 m, so
+      // off the corridor's middle or across a bend it went on into the rock)
+      let w = rm ? clamp(rm.l + rm.r - 0.12, 0.8, W0) : W0, h = H;
+      const cx = rm ? clamp((rm.r - rm.l) / 2, -0.7, 0.7) : 0;
+      // (squeezing down to a doorway it's going through: one it's only passing, in the wall beside it, it leaves be)
+      const nd = v.nd, lat = nd ? Math.abs((this.rpos.x - nd.x) * -nd.nz + (this.rpos.z - nd.z) * nd.nx) : 9;
+      if (nd && !nd.broken && lat < 1.2) { const dn = Math.abs((this.rpos.x - nd.x) * nd.nx + (this.rpos.z - nd.z) * nd.nz), k = sstep(0.3, 1.9, dn); w = Math.min(w, lerp(DW - 0.12, W0, k)); h = Math.min(h, lerp(DH - 0.08, H, k)); }
       const s = P.body.scale;
-      P.body.position.set(0, 0, 0); P.body.rotation.y = 0;
+      P.body.position.set(damp(P.body.position.x, cx, 6, dt), 0, 0); P.body.rotation.y = 0;
       s.set(damp(s.x, w, 5, dt) * (1 - jig * 0.5), damp(s.y, h, 5, dt) * (1 + jig), D0 * (1 - jig * 0.6));
       v.seepFrom = null;
     } else {
@@ -1478,12 +1839,9 @@ class Monster {
   }
   anim_hound(dt, v) {
     const P = this.P, t = v.t, s = v.speed;
-    const g = Math.min(1, s / 8), ph = t * (3 + s * 1.1);
-    P.body.position.y = 1.15 - (this.state === 'sniff' || this.state === 'investigate' ? 0.15 : 0) + Math.abs(Math.sin(ph)) * 0.12 * g;
-    const sw = Math.sin(ph) * (0.2 + g * 0.8);
-    P.fl.a.rotation.x = sw; P.fr.a.rotation.x = -sw; P.bl.a.rotation.x = -sw * 0.9 + 0.3; P.br.a.rotation.x = sw * 0.9 + 0.3;
-    P.fl.b.rotation.x = -0.3 - Math.max(0, Math.cos(ph)) * 0.7; P.fr.b.rotation.x = -0.3 - Math.max(0, -Math.cos(ph)) * 0.7;
-    P.bl.b.rotation.x = -0.9; P.br.b.rotation.x = -0.9;
+    const g = Math.min(1, s / 8);
+    P.body.position.y = damp(P.body.position.y, 1.02 - (this.state === 'sniff' || this.state === 'investigate' ? 0.12 : 0) - g * 0.08, 6, dt);
+    if (!this.dead) this.walk(v, dt, [[P.fl, 0.5, 0.55, -1, 0, 0.05, 1], [P.fr, 0.5, 0.55, -1, 0.5, 0.05, 1], [P.bl, 0.45, 0.6, -1, 0.5, 0.05, 0], [P.br, 0.45, 0.6, -1, 0, 0.05, 0]], Math.min(0.55, 0.16 + s * 0.045), 0.12 + g * 0.18, s > 6 ? 0.4 : 0.55);
     const roar = this.state === 'lunge' || this.state === 'chase' || this.state === 'eat';
     P.jawL.rotation.x = damp(P.jawL.rotation.x, roar ? 0.9 + Math.sin(t * 20) * 0.1 : 0.08 + Math.sin(t * 2) * 0.05, 10, dt);
     P.jawU.rotation.x = damp(P.jawU.rotation.x, roar ? -0.35 : 0, 10, dt);

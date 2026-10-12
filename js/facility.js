@@ -390,6 +390,7 @@ const Facility = (() => {
       yield; t0 = performance.now();
       for (const _ of this.corridorDressing()) if (busy()) { yield; t0 = performance.now(); }
       for (const s of this.shafts) this.shaftColliders(s);
+      this.pruneIslands();
       this.bloodTrail();
       this._dig = null;
     }
@@ -1069,6 +1070,17 @@ const Facility = (() => {
       for (let n = 1; n < this.levels; n++) if (deep[n].length) { yield; this.lv = n; this.decay(deep[n], FAC_Y0 - n * DROP, n, CH, null); }
       this.lv = 0;
     }
+    // furniture can wall a tile off (a corner behind two cabinets): anything that can't be walked to from the entrance
+    // (blast doors counted open, stairwells as their doorways) is blocked, so nothing is sent there or spawned there
+    pruneIslands() {
+      const W = this.W, seen = new Uint8Array(this.grid.length), ent = this.rooms[0], q = [this.idx(ent.ax, ent.ay)]; seen[q[0]] = 1;
+      while (q.length) {
+        const k = q.pop(), i = k % W, j = Math.floor(k / W);
+        for (const [dx, dy] of DIRS) { const nk = this.idx(i + dx, j + dy); if (nk >= 0 && !seen[nk] && this.walkable(i + dx, j + dy) && this.grid[nk] !== 4 && this.connected(k, nk)) { seen[nk] = 1; q.push(nk); } }
+        const ps = this.portals.get(k); if (ps) for (const p of ps) if (!seen[p.to]) { seen[p.to] = 1; q.push(p.to); }
+      }
+      for (let k = 0; k < this.grid.length; k++) if (this.grid[k] && this.grid[k] !== 4 && !this.block[k] && !seen[k]) this.block[k] = 1;
+    }
     // ---------- blast doors ----------
     // heavy shutters across a few corridors, each stencilled with a code; only the ship's terminal can raise or drop
     // them. They only ever cut a loop, so everything stays reachable some other way, if further round.
@@ -1155,7 +1167,8 @@ const Facility = (() => {
     // a doorway: the point just inside it and the middle of the tile outside
     shaftDoor(s, e) {
       const i = e.side === 'n' ? [1.5, 0.5] : e.side === 'w' ? [0.5, 1.5] : [5.5, 1.5];
-      return { inside: { x: s.x0 + i[0], z: s.z0 + i[1], hard: true }, outside: { x: this.cx(e.out % this.W), z: this.cz(Math.floor(e.out / this.W)), hard: true } };
+      const y = this.shaftY(s, e.lv);
+      return { inside: { x: s.x0 + i[0], z: s.z0 + i[1], y, hard: true }, outside: { x: this.cx(e.out % this.W), z: this.cz(Math.floor(e.out / this.W)), y, hard: true } };
     }
     shaftNearest(s, x, z, y) {
       const P = this.shaftNodes(s); let bi = 0, bd = Infinity;
@@ -1166,7 +1179,13 @@ const Facility = (() => {
     shaftWalk(s, a, b) {
       const P = this.shaftNodes(s), out = [];
       if (b > a) for (let i = a + 1; i <= b; i++) out.push(P[i]); else for (let i = a - 1; i >= b; i--) out.push(P[i]);
-      return out.map((p) => ({ x: p.x, z: p.z, hard: true }));
+      return out.map((p) => ({ x: p.x, z: p.z, y: p.y, hard: true }));
+    }
+    // the nodes of a walk through a stairwell a creature at (x, y, z) is already past: it's nearer the next one (on the same
+    // storey) than the one before it is, so a fresh route mustn't send it back to it
+    shaftTrim(w, x, z, y) {
+      while (w.length > 1 && y != null && w[1].y != null && Math.abs(w[1].y - y) < 0.8 && Math.hypot(w[1].x - x, w[1].z - z) <= Math.hypot(w[1].x - w[0].x, w[1].z - w[0].z) + 0.2) w.shift();
+      return w;
     }
     // in at one doorway, down (or up) the flights, out at another
     shaftPassage(a, b) {
@@ -1778,6 +1797,20 @@ const Facility = (() => {
       }
       return true;
     }
+    // the first doorway a straight line from a to b goes through, within maxD of a (null if none)
+    doorAlong(ax, az, bx, bz, maxD) {
+      const x = (ax - this.ox) / TS, z = (az - this.oz) / TS, ex = (bx - this.ox) / TS, ez = (bz - this.oz) / TS;
+      let i = Math.floor(x), j = Math.floor(z);
+      const ti = Math.floor(ex), tj = Math.floor(ez), dx = ex - x, dz = ez - z, len = Math.hypot(dx, dz) * TS, lim = len > 1e-6 ? Math.min(1, maxD / len) : 0;
+      const si = Math.sign(dx), sj = Math.sign(dz), tdi = si ? Math.abs(1 / dx) : Infinity, tdj = sj ? Math.abs(1 / dz) : Infinity;
+      let tmi = si > 0 ? (i + 1 - x) / dx : si < 0 ? (x - i) / -dx : Infinity, tmj = sj > 0 ? (j + 1 - z) / dz : sj < 0 ? (z - j) / -dz : Infinity, guard = 0;
+      while ((i !== ti || j !== tj) && guard++ < 64) {
+        const pi = i, pj = j;
+        if (tmi < tmj) { if (tmi > lim) break; i += si; tmi += tdi; } else { if (tmj > lim) break; j += sj; tmj += tdj; }
+        const d = this.doorBetween(pi, pj, i, j); if (d) return d;
+      }
+      return null;
+    }
     nearestWalkable(i, j) {
       if (this.walkable(i, j)) return [i, j];
       for (let r = 1; r < 6; r++) for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) if (this.walkable(i + a, j + b)) return [i + a, j + b];
@@ -1793,42 +1826,47 @@ const Facility = (() => {
     // a route from a to b as waypoints ({x, z}). Within a level it follows the corridors; between levels it goes through
     // a stairwell, in at one doorway, down or up the flights (every turn a waypoint that must be reached), out at another.
     // ay / by: the heights of the two ends, which only matter inside a stairwell (its storeys share the same ground).
-    findPath(ax, az, bx, bz, ignoreBlock = false, ay, by) {
+    findPath(ax, az, bx, bz, ignoreBlock = false, ay, by, rad = 0.45) {
       const W = this.W, sa = this.shaftAt(ax, az), sb = this.shaftAt(bx, bz);
-      const goalLv = this.levelAt(bx, bz, by);
       // both ends in the same stairwell: just along its flights
       if (sa && sa === sb) {
         const a = this.shaftNearest(sa, ax, az, ay), b = this.shaftNearest(sa, bx, bz, by);
-        return [...this.shaftWalk(sa, a, b), { x: bx, z: bz }];
+        return this.shaftTrim([...this.shaftWalk(sa, a, b), { x: bx, z: bz, y: by }], ax, az, ay);
       }
-      let pre = [], post = [], start, goal;
+      // from inside a stairwell it can leave by any of its doorways, and a stairwell it's going into can be entered by any
+      // of them: each is a start (or an end) of the search, costed with the walk up or down the flights to it, so the
+      // route is the shortest overall, not just the doorway nearest the goal's level (which sent creatures out of a
+      // stairwell and straight back in again whenever the way on lay through another level)
+      const len = (x, z, w) => { let l = 0; for (const q of w) { l += Math.hypot(q.x - x, q.z - z); x = q.x; z = q.z; } return l / TS; };
+      const starts = new Map(), goals = new Map();
       if (sa) {
-        const e = this.shaftExitFor(sa, goalLv), d = this.shaftDoor(sa, e); this.shaftNodes(sa);
-        pre = [...this.shaftWalk(sa, this.shaftNearest(sa, ax, az, ay), sa.landIdx[e.lv]), d.inside, d.outside];
-        start = e.out;
-      } else { const s = this.nearestWalkable(this.ti(ax), this.tj(az)); if (!s) return null; start = this.idx(s[0], s[1]); }
+        this.shaftNodes(sa); const a0 = this.shaftNearest(sa, ax, az, ay);
+        for (const e of sa.exits) { const d = this.shaftDoor(sa, e), w = this.shaftTrim([...this.shaftWalk(sa, a0, sa.landIdx[e.lv]), d.inside, d.outside], ax, az, ay); starts.set(e.out, { cost: len(ax, az, w), pre: w }); }
+      } else { const s = this.nearestWalkable(this.ti(ax), this.tj(az)); if (!s) return null; starts.set(this.idx(s[0], s[1]), { cost: 0, pre: [] }); }
       if (sb) {
-        const e = this.shaftExitFor(sb, this.levelAt(bx, bz, by)), d = this.shaftDoor(sb, e); this.shaftNodes(sb);
-        const land = sb.landIdx[e.lv], L = sb.nodes[land];
-        post = [d.inside, { x: L.x, z: L.z, hard: true }, ...this.shaftWalk(sb, land, this.shaftNearest(sb, bx, bz, by)), { x: bx, z: bz }];
-        goal = e.out;
-      } else { const t = this.nearestWalkable(this.ti(bx), this.tj(bz)); if (!t) return null; goal = this.idx(t[0], t[1]); }
-      const tg = [goal % W, Math.floor(goal / W)];
+        this.shaftNodes(sb); const b0 = this.shaftNearest(sb, bx, bz, by);
+        for (const e of sb.exits) { const d = this.shaftDoor(sb, e), land = sb.landIdx[e.lv], L = sb.nodes[land], w = [d.inside, { x: L.x, z: L.z, y: L.y, hard: true }, ...this.shaftWalk(sb, land, b0), { x: bx, z: bz, y: by }]; goals.set(e.out, { cost: len(this.cx(e.out % W), this.cz(Math.floor(e.out / W)), w), post: w }); }
+      } else { const t = this.nearestWalkable(this.ti(bx), this.tj(bz)); if (!t) return null; goals.set(this.idx(t[0], t[1]), { cost: 0, post: [] }); }
+      const gl = [...goals.keys()].map((k) => [k % W, Math.floor(k / W)]), h = (k) => { const i = k % W, j = Math.floor(k / W); let m = Infinity; for (const q of gl) m = Math.min(m, Math.abs(i - q[0]) + Math.abs(j - q[1])); return m; };
       // (scratch arrays kept from one search to the next, each search stamped with its own number: a tile whose stamp is
       // old hasn't been reached yet this time)
       // (and a tile once taken off the heap is done with: a later, costlier way to it is skipped)
       const N = this.grid.length, S = this._path || (this._path = { g: new Float64Array(N), came: new Int32Array(N), via: new Array(N).fill(null), at: new Uint32Array(N), shut: new Uint32Array(N), t: 0 });
-      const now = ++S.t, gOf = (k) => (S.at[k] === now ? S.g[k] : Infinity), open = new MinHeap();
-      S.at[start] = now; S.g[start] = 0; S.came[start] = -1; S.via[start] = null; open.push(0, start);
-      let found = start === goal, guard = 0;
-      while (!found && open.size && guard++ < Math.max(8000, N)) {
+      const now = ++S.t, gOf = (k) => (S.at[k] === now ? S.g[k] : Infinity), open = new MinHeap(), END = -1;
+      // (a goal reached is pushed as END at its full cost, walk on to the stairwell's landing included: the search ends
+      // when that comes off the heap, so a cheaper way in by another doorway still wins)
+      let bestEnd = Infinity, goal = -1;
+      const reach = (k, cost) => { const q = goals.get(k); if (q && cost + q.cost < bestEnd) { bestEnd = cost + q.cost; goal = k; open.push(bestEnd, END); } };
+      for (const [k, s0] of starts) if (s0.cost < gOf(k)) { S.at[k] = now; S.g[k] = s0.cost; S.came[k] = -1; S.via[k] = null; open.push(s0.cost + h(k), k); reach(k, s0.cost); }
+      let found = false, guard = 0;
+      while (open.size && guard++ < Math.max(8000, N * 2)) {
         const k = open.pop();
-        if (k === goal) { found = true; break; }
+        if (k === END) { found = true; break; }
         if (S.shut[k] === now) continue;
         S.shut[k] = now;
         const i = k % W, j = Math.floor(k / W), gk = S.g[k];
         const relax = (nk, cost, portal) => {
-          if (cost < gOf(nk)) { S.at[nk] = now; S.g[nk] = cost; S.came[nk] = k; S.via[nk] = portal || null; open.push(cost + Math.abs((nk % W) - tg[0]) + Math.abs(Math.floor(nk / W) - tg[1]), nk); }
+          if (cost < gOf(nk)) { S.at[nk] = now; S.g[nk] = cost; S.came[nk] = k; S.via[nk] = portal || null; open.push(cost + h(nk), nk); reach(nk, cost); }
         };
         for (const [dx, dy] of DIRS) {
           const ni = i + dx, nj = j + dy, nk = this.idx(ni, nj);
@@ -1840,6 +1878,9 @@ const Facility = (() => {
         if (ps) for (const p of ps) relax(p.to, gk + p.cost, p);
       }
       if (!found) return null;
+      const post = goals.get(goal).post;
+      let start = goal; while (S.came[start] >= 0) start = S.came[start];
+      const pre = starts.get(start).pre;
       const tiles = [];
       for (let k = goal; k >= 0 && k !== start; k = S.came[k]) tiles.push(k);
       tiles.reverse();
@@ -1858,9 +1899,12 @@ const Facility = (() => {
         let far = n;
         if (!pts[n].hard) for (let m = n + 1; m < Math.min(pts.length, n + 8); m++) {
           if (pts[m].hard) break;
-          if (this.losWide(cur.x, cur.z, pts[m].x, pts[m].z)) far = m; else break;
+          if (this.losWide(cur.x, cur.z, pts[m].x, pts[m].z) && this.colClear(cur.x, cur.z, pts[m].x, pts[m].z, rad, ay)) far = m; else break;
         }
-        out.push(pts[far]); cur = pts[far]; n = far + 1;
+        const w = pts[far].hard ? pts[far] : this.clearSpot(pts[far], rad, ay);
+        // (even the very next point can have something squarely in the way: the core's pedestal, an open leaf)
+        if (far === n && !w.hard && !cur.hard) { const c = this.detourAround(cur, w, rad, ay); if (c) out.push(...c); }
+        out.push(w); cur = w; n = far + 1;
       }
       out.push(...post);
       return out.length ? out : [{ x: bx, z: bz }];
@@ -1868,6 +1912,73 @@ const Facility = (() => {
     losWide(ax, az, bx, bz) {
       const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1, px = (-dz / l) * 0.45, pz = (dx / l) * 0.45;
       return this.los(ax + px, az + pz, bx + px, bz + pz) && this.los(ax - px, az - pz, bx - px, bz - pz) && !this.blockedLine(ax, az, bx, bz);
+    }
+    // the colliders a circle of radius r at height y would meet (those collide() would push it out of)
+    colLive(c, y) {
+      if (c.door && c.door.open) return false;
+      if (c.leaf) { const dd = c.leaf.door; if (!dd.open || dd.broken || dd.dir !== c.leaf.dir || dd.anim < 0.6) return false; }
+      if (c.blast && c.blast.open && c.blast.anim > 0.7) return false;
+      if (y != null && c.yr && (y < c.yr[0] || y > c.yr[1])) return false;
+      if (y != null && c.ygap && y >= c.ygap[0] && y <= c.ygap[1]) return false;
+      if (y != null && c.h < 0.6 && y > c.y0 + c.h - 0.05) return false;
+      return true;
+    }
+    // can a circle of radius r slide straight from a to b without touching a prop, a jamb, a shut door or an open leaf?
+    // (rock and other levels are los / losWide's business)
+    colClear(ax, az, bx, bz, r, y) {
+      const i0 = this.ti(Math.min(ax, bx) - r), i1 = this.ti(Math.max(ax, bx) + r), j0 = this.tj(Math.min(az, bz) - r), j1 = this.tj(Math.max(az, bz) + r);
+      if ((i1 - i0 + 1) * (j1 - j0 + 1) > 400) return false;
+      const dx = bx - ax, dz = bz - az, seen = new Set();
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const l = this.colHash.get(this.idx(i, j)); if (!l) continue;
+        for (const c of l) {
+          if (seen.has(c)) continue; seen.add(c);
+          if (!this.colLive(c, y)) continue;
+          // the segment against the box grown by r (slabs)
+          let t0 = 0, t1 = 1;
+          const slab = (o, d, lo, hi) => { if (Math.abs(d) < 1e-9) return o > lo && o < hi; let a = (lo - o) / d, b = (hi - o) / d; if (a > b) { const t = a; a = b; b = t; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); return t0 < t1; };
+          // (something it's already up against only counts if the line runs on into it)
+          if (ax > c.x0 - r && ax < c.x1 + r && az > c.z0 - r && az < c.z1 + r && (ax - (c.x0 + c.x1) / 2) * dx + (az - (c.z0 + c.z1) / 2) * dz >= 0) continue;
+          if (slab(ax, dx, c.x0 - r, c.x1 + r) && slab(az, dz, c.z0 - r, c.z1 + r)) { this.lastBlock = c; return false; }
+        }
+      }
+      return true;
+    }
+    // a way round the thing in the way between a and b: the corner of it (grown by r) that's clear both ways and adds the
+    // least (null if there's none)
+    detourAround(a, b, r, y) {
+      this.lastBlock = null;
+      if (this.colClear(a.x, a.z, b.x, b.z, r, y) || !this.lastBlock) return null;
+      const c = this.lastBlock, m = r + 0.15, C = [[c.x0 - m, c.z0 - m], [c.x1 + m, c.z0 - m], [c.x1 + m, c.z1 + m], [c.x0 - m, c.z1 + m]].map(([x, z]) => ({ x, z }));
+      const ok = (p, q) => this.floorAt(this.ti(q.x), this.tj(q.z)) && this.los(p.x, p.z, q.x, q.z) && this.colClear(p.x, p.z, q.x, q.z, r, y);
+      let best = null, bl = Infinity;
+      // one corner, or two neighbouring ones (round the far side of it)
+      for (let i = 0; i < 4; i++) {
+        const p = C[i];
+        if (!ok(a, p)) continue;
+        const l = Math.hypot(p.x - a.x, p.z - a.z);
+        if (ok(p, b) && l + Math.hypot(b.x - p.x, b.z - p.z) < bl) { bl = l + Math.hypot(b.x - p.x, b.z - p.z); best = [p]; }
+        for (const j of [(i + 1) % 4, (i + 3) % 4]) { const q = C[j], l2 = l + Math.hypot(q.x - p.x, q.z - p.z) + Math.hypot(b.x - q.x, b.z - q.z); if (l2 < bl && ok(p, q) && ok(q, b)) { bl = l2; best = [p, q]; } }
+      }
+      return best;
+    }
+    // the door whose open leaf a circle at p is up against (null if none)
+    leafAt(p, r) {
+      const i0 = this.ti(p.x - r), i1 = this.ti(p.x + r), j0 = this.tj(p.z - r), j1 = this.tj(p.z + r);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const l = this.colHash.get(this.idx(i, j)); if (l) for (const c of l) if (c.leaf && this.colLive(c, p.y)) {
+          const cx = clamp(p.x, c.x0, c.x1), cz = clamp(p.z, c.z0, c.z1);
+          if (Math.hypot(p.x - cx, p.z - cz) < r + 0.06) return c.leaf.door;
+        }
+      }
+      return null;
+    }
+    // a waypoint moved out of anything solid it sits in (or too close to)
+    clearSpot(p, r, y) {
+      const l = this.colHash.get(this.idx(this.ti(p.x), this.tj(p.z))); if (!l) return p;
+      const q = { x: p.x, z: p.z };
+      for (let it = 0; it < 2; it++) for (const c of l) if (this.colLive(c, y)) circleBox(q, r + 0.1, c.x0, c.x1, c.z0, c.z1);
+      return q.x === p.x && q.z === p.z ? p : Object.assign({}, p, q);
     }
     blockedLine(ax, az, bx, bz) {
       const n = Math.ceil(Math.hypot(bx - ax, bz - az) / 1.0);

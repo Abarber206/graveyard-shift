@@ -14378,7 +14378,7 @@ const R = (() => {
     rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
     // (the frame's depth, kept so the air can be marched out to whatever each pixel hits)
     rt.depthTexture = new THREE.DepthTexture(16, 16); rt.depthTexture.type = THREE.UnsignedIntType;
-    vol.rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+    vol.rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
     {
       // (tiling 3D noise for the mist and the clouds: smooth value noise on a wrapping lattice, three octaves)
       const S = 32, d = new Uint8Array(S * S * S), r = new RNG(4242), lat = [4, 8, 16].map((P) => ({ P, g: Array.from({ length: P * P * P }, () => r.next()) }));
@@ -14424,8 +14424,10 @@ const R = (() => {
     const ih = RES_LEVELS[clamp(Settings.res, 0, RES_LEVELS.length - 1)].h;
     const rh = Math.min(h, ih), rw = Math.round(rh * a);
     rt.setSize(rw, rh);
-    // (the air at half the frame's size, or a quarter with fewer steps on low: the lighter one, for phones)
-    const vd = Settings.volumetric === 1 ? 4 : 2; vol.rt.setSize(Math.max(4, Math.ceil(rw / vd)), Math.max(4, Math.ceil(rh / vd)));
+    // (the air at the frame's own resolution, pixel for pixel, so the misty distance is exactly as sharp as everything
+    // else at whatever resolution is picked, rather than a smaller picture stretched over the horizon; low takes fewer
+    // steps through it: the lighter one, for phones)
+    vol.rt.setSize(rw, rh);
     if (vol.mat) vol.mat.uniforms.uSteps.value = Settings.volumetric === 1 ? 16 : 30;
     post.uniforms.uRes.value.set(rw, rh);
     const bw = Math.max(4, Math.round(rw / 4)), bh = Math.max(4, Math.round(rh / 4));

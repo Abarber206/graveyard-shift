@@ -110,7 +110,7 @@ const Settings = {
   volumetric: TOUCH_DEVICE ? 0 : 2,
   // voice & mic: which microphone and speakers ('' the default), mic volume, the open-mic threshold (dB), the browser's
   // noise cleanup, and how loud everyone else's voices are
-  micId: '', outId: '', micVol: 1, micGate: -30, micClean: true, voiceVol: 1,
+  micId: '', outId: '', micVol: 1, micGate: -40, micClean: true, voiceVol: 1,
   KEYS: ['sens', 'volume', 'fov', 'res', 'bright', 'name', 'suit', 'voice', 'ptt', 'invertY', 'shadows', 'volumetric', 'touch', 'micId', 'outId', 'micVol', 'micGate', 'micClean', 'voiceVol'],
   load() {
     const o = Store.get('gs_settings', null);

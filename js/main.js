@@ -253,7 +253,7 @@ const Menu = (() => {
       };
       upd(); rows.push(d); return upd;
     };
-    toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (Settings.voice && G.online) Voice.enable(); });
+    toggle('VOICE CHAT (ONLINE)', () => (Settings.voice ? 'ON' : 'OFF'), () => { Settings.voice = !Settings.voice; if (!G.online) return; if (Settings.voice) Voice.enable().then((ok) => { if (!ok) HUD.toast('Microphone unavailable — listening only', 4); }); else Voice.disable(); });
     const micPick = picker('MICROPHONE', 'audioinput', 'micId', 'MIC', () => Voice.restart());
     if (Voice.canPickOutput) picker('SPEAKERS / HEADPHONES', 'audiooutput', 'outId', 'OUTPUT', () => Voice.setOutput(Settings.outId));
     toggle('VOICE MODE', () => (Settings.ptt ? (Touch.on ? 'HOLD TALK' : 'HOLD V') : 'OPEN MIC'), () => { Settings.ptt = !Settings.ptt; Voice.setPTT(false); });

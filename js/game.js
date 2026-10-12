@@ -260,7 +260,8 @@ const G = {
     Net.on('message', (d, c) => G.onMessage(d, c));
     Net.on('leave', (c) => { if (c.pid != null) G.hostPlayerLeft(c.pid); });
     Net.on('close', (why) => G.quit(why || 'Disconnected from host.'));
-    Net.on('call', (call) => { if (Settings.voice) Voice.onCall(call); else call.close(); });
+    // (always answered: with voice chat off, nothing goes out and nothing's heard; see Voice.onCall)
+    Net.on('call', (call) => Voice.onCall(call));
   },
   newRun() { return { credits: 60, quota: 300, sold: 0, daysLeft: 3, cycle: 1, day: 1, route: 'ashgrove', upgrades: {}, totalSold: 0, deaths: 0, collected: 0 }; },
   reset() {
@@ -757,7 +758,7 @@ const G = {
   EV: {
     join(e) { G.addPlayer(e.p); },
     leave(e) { const p = G.players.get(e.id); if (p) HUD.chat('', p.name + ' left the crew.', 'sys'); G.removePlayer(e.id); },
-    peers(e) { if (Settings.voice) Voice.connect(e.list); },
+    peers(e) { Voice.connect(e.list); },
     run(e) { G.run = e.run; G.applyRunVisuals(); },
     chat(e) {
       if (e.sys) { HUD.chat('', e.text, 'sys'); return; }
@@ -2748,7 +2749,7 @@ const G = {
     G.ship.update(dt, performance.now() / 1000, G.mode);
     G.environment(dt);
     G.director(dt);
-    if (G.online) Voice.update(G);
+    if (G.online) Voice.update(G, dt);
     // you hear from where you stand in the ship (all of the ship's own sounds are placed in ship coordinates)
     SFX.listener(G.simCam);
     G.flightSound();

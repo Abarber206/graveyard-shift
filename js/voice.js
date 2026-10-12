@@ -7,6 +7,9 @@
 const Voice = (() => {
   let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0;
   const peers = new Map(); // peerId -> entry
+  // (when each crewmate was first seen without a call, and how many tries in a row haven't come to anything)
+  const seen = new Map(), fails = new Map();
+  let wantT = 0;
   const dbOf = (x) => 20 * Math.log10(Math.max(x, 1e-5));
   function makeChain() {
     if (chain || !SFX.ctx) return chain;
@@ -17,11 +20,15 @@ const Voice = (() => {
     return (chain = c);
   }
   function outStream() { const c = makeChain(); return c ? c.dest.stream : null; }
-  function setup(call) {
-    const e = peers.get(call.peer) || { peerId: call.peer };
-    e.call = call; peers.set(call.peer, e);
+  // (each call has an entry of its own: a newer call to the same crewmate replaces the old one outright, and nothing the
+  // old one does afterwards, closing or failing, touches the new)
+  function setup(call, out) {
+    const old = peers.get(call.peer); if (old) drop(call.peer, true);
+    const e = { peerId: call.peer, call, out, t0: performance.now() };
+    peers.set(call.peer, e);
     call.on('stream', (remote) => {
-      if (e.src || !SFX.ctx) return;
+      if (peers.get(call.peer) !== e || e.src || !SFX.ctx) return;
+      fails.delete(call.peer);
       const ctx = SFX.ctx;
       e.el = new Audio(); e.el.srcObject = remote; e.el.muted = true; e.el.play().catch(() => {});
       e.src = ctx.createMediaStreamSource(remote);
@@ -50,8 +57,8 @@ const Voice = (() => {
       hs.connect(hbp); hbp.connect(e.hiss); e.hiss.connect(SFX.bus); hs.start(); e.hissSrc = hs;
       e.flat = ctx.createGain(); e.flat.gain.value = 0; e.src.connect(e.flat); e.flat.connect(SFX.bus);
     });
-    call.on('close', () => drop(call.peer));
-    call.on('error', () => drop(call.peer));
+    const gone = () => { if (peers.get(call.peer) === e) drop(call.peer); };
+    call.on('close', gone); call.on('error', gone);
   }
   // (a second of white noise for the radio hiss, made once)
   let hissB = null;
@@ -61,11 +68,39 @@ const Voice = (() => {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     return hissB;
   }
-  function drop(peerId) {
+  // (failed: it never got going, or went dead: counted, so the next try waits a little longer)
+  function drop(peerId, replaced) {
     const e = peers.get(peerId); if (!e) return;
-    try { e.src && e.src.disconnect(); e.hissSrc && e.hissSrc.stop(); e.call && e.call.close(); } catch (x) { /* ignore */ }
-    if (e.el) { e.el.srcObject = null; }
     peers.delete(peerId);
+    if (!replaced && !e.src) fails.set(peerId, (fails.get(peerId) || 0) + 1);
+    seen.set(peerId, performance.now());
+    for (const k of ['src', 'prox', 'lp', 'panner', 'rv', 'radio', 'hiss', 'flat']) try { e[k] && e[k].disconnect(); } catch (x) { /* ignore */ }
+    try { e.hissSrc && e.hissSrc.stop(); } catch (x) { /* ignore */ }
+    try { e.call && e.call.close(); } catch (x) { /* ignore */ }
+    if (e.el) { e.el.srcObject = null; }
+  }
+  // Keeping everyone connected. Every crewmate with voice chat on should have a call with every other: whoever's id
+  // sorts first dials, straight away; if nothing has come from the other side after a few seconds, the other dials
+  // too (a call can be lost on the way, or have been turned away while their voice was off). A call that hasn't got
+  // going in ten seconds, or whose link has failed, is hung up and tried again, a little later each time.
+  function reconcile(ids) {
+    const me = Net.myPeerId, peer = Net.peer, now = performance.now();
+    if (!me || !peer || peer.destroyed || peer.disconnected || !SFX.ctx) return;
+    for (const id of [...peers.keys()]) if (!ids.includes(id)) { drop(id, true); seen.delete(id); fails.delete(id); }
+    for (const [id, e] of peers) {
+      const pc = e.call && e.call.peerConnection, st = pc && (pc.connectionState || pc.iceConnectionState);
+      if (st === 'failed' || st === 'closed' || (!e.src && now - e.t0 > 10000)) drop(id);
+    }
+    if (!Settings.voice) return;
+    for (const id of ids) {
+      if (!id || id === me || peers.has(id)) continue;
+      if (!seen.has(id)) seen.set(id, now);
+      const wait = (me < id ? 0 : 4000) + Math.min(30000, 2500 * ((1 << Math.min(4, fails.get(id) || 0)) - 1));
+      if (now - seen.get(id) < wait) continue;
+      const stream = outStream(); if (!stream) return;
+      const call = peer.call(id, stream);
+      if (call) setup(call, true); else seen.set(id, now);
+    }
   }
   return {
     // how loud you are coming in (after the mic volume), as a level and in dB
@@ -93,7 +128,8 @@ const Voice = (() => {
       raw = src = null; enabled = false; level = 0; open = false; if (chain) chain.gate.gain.value = 0;
     },
     // a different microphone, or the cleanup turned on or off: open it again (the calls carry on)
-    async restart() { if (!raw) return false; this.disable(); return this.enable(); },
+    // (and if it never opened, a new pick tries it again)
+    async restart() { if (!raw && !Settings.voice) return false; this.disable(); return this.enable(); },
     setMicVol(v) { if (chain) chain.gain.gain.setTargetAtTime(v, SFX.ctx.currentTime, 0.03); },
     monitor(on) { if (chain) chain.mon.gain.setTargetAtTime(on ? 1 : 0, SFX.ctx.currentTime, 0.03); },
     // the microphones (audioinput) or speakers (audiooutput) there are; their names show once the mic is allowed
@@ -112,29 +148,34 @@ const Voice = (() => {
       let s = 0; for (let i = 0; i < chain.buf.length; i++) s += chain.buf[i] * chain.buf[i];
       level = damp(level, Math.sqrt(s / chain.buf.length), 12, dt);
       // (and keying a walkie-talkie opens it whatever the mode: a keyed radio sends all the while it's held)
-      if (Settings.ptt) open = pttDown;
+      if (!Settings.voice) open = false;
+      else if (Settings.ptt) open = pttDown;
       else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
     },
-    onCall(call) { call.answer(outStream()); setup(call); },
-    // call every peer we know that has a "larger" id (the others call us)
-    connect(peerIds) {
-      const me = Net.myPeerId; if (!me || !Net.peer || !SFX.ctx) return;
-      for (const id of peerIds) {
-        if (!id || id === me || peers.has(id)) continue;
-        if (me < id) { const call = Net.peer.call(id, outStream()); if (call) setup(call); }
-      }
-      for (const id of [...peers.keys()]) if (!peerIds.includes(id)) drop(id);
+    // A call coming in is always answered, voice on or off (turned away, the caller's end would hang there half-open
+    // forever): with it off nothing goes out (the microphone is shut) and nothing is heard (see update). Two calls
+    // crossing (both ends dialling at once): the one dialled by whoever's id sorts first is kept, at both ends.
+    onCall(call) {
+      SFX.init(); const stream = outStream();
+      const e = peers.get(call.peer);
+      if (e && !e.src && e.out && Net.myPeerId && Net.myPeerId < call.peer) { try { call.close(); } catch (x) { /* ignore */ } return; }
+      if (!stream) { try { call.close(); } catch (x) { /* ignore */ } return; }
+      call.answer(stream); setup(call, false);
     },
+    // (who's aboard, as the host has it, straight away; update() keeps checking from then on)
+    connect(peerIds) { reconcile(peerIds); },
     // per-frame: each voice from the speaker's mouth, as it would really reach you. Through the air: falling away with
     // distance, duller from behind them, muffled by whatever's in the way (the facility's walls and shut doors, the
     // floors between levels, the hull of the ship unless the hatch is open), echoing in the room around you. Out on an
     // airless moon or rock there's no air to carry it: outside, you hear each other over the suits' radios instead.
     // Walkie-talkies carry across the whole map; the dead hear everyone, plainly.
-    update(game) {
-      this.tick(1 / 60);
-      const me = game.localPlayer(); if (!me) return;
-      const iHaveWalkie = game.hasItem(me.id, 'walkie'), vv = Settings.voiceVol, t = SFX.ctx.currentTime;
+    update(game, dt = 1 / 60) {
+      this.tick(dt);
+      const me = game.localPlayer(); if (!me || !SFX.ctx) return;
+      if ((wantT -= dt) <= 0) { wantT = 1.5; reconcile([...game.players.values()].map((p) => p.peerId).filter(Boolean)); }
+      // (voice chat turned off: the calls stay up, but nothing of anyone's comes through)
+      const iHaveWalkie = game.hasItem(me.id, 'walkie'), vv = Settings.voice ? Settings.voiceVol : 0, t = SFX.ctx.currentTime;
       const vacuum = !!(G.ext && G.ext.biome && G.ext.biome.airless);
       const ear = { x: me.pos.x, y: me.pos.y + (me.crouch ? 1.0 : 1.6), z: me.pos.z }, earAboard = G.ship.inside(me.pos.x, me.pos.y + 0.5, me.pos.z);
       for (const e of peers.values()) {
@@ -190,6 +231,6 @@ const Voice = (() => {
     },
     // (for checking: how each voice is coming through right now)
     get heard() { return [...peers.values()].filter((e) => e.src).map((e) => ({ peer: e.peerId, prox: +e.prox.gain.value.toFixed(3), lowpass: Math.round(e.lp.frequency.value), echo: +e.rv.gain.value.toFixed(3), radio: +e.radio.gain.value.toFixed(3), occluded: +(e.occ || 0).toFixed(2) })); },
-    reset() { for (const id of [...peers.keys()]) drop(id); },
+    reset() { for (const id of [...peers.keys()]) drop(id, true); seen.clear(); fails.clear(); },
   };
 })();

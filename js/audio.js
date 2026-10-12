@@ -4,7 +4,7 @@ const SFX = (() => {
   let ctx = null, master, comp, muffle, sfxBus, ambBus, revIn, noiseBuf, brownBuf, ready = false;
   let envRev = 0.25, occlusionFn = null;
   const loops = {};
-  const _v = new THREE.Vector3(), _f = new THREE.Vector3(), _u = new THREE.Vector3();
+  const _v = new THREE.Vector3(), _f = new THREE.Vector3(), _u = new THREE.Vector3(), _lq = new THREE.Quaternion();
 
   function makeNoise(sec) {
     const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
@@ -1355,7 +1355,7 @@ const SFX = (() => {
     get envRev() { return envRev; },
     held: false, // true while single player is paused: keep audio suspended
     init() {
-      if (ctx) { if (ctx.state === 'suspended' && !this.held) ctx.resume(); return; }
+      if (ctx) { if (ctx.state !== 'running' && ctx.state !== 'closed' && !this.held) ctx.resume().catch(() => {}); return; }
       try {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
       } catch (e) { console.warn('No WebAudio', e); return; }
@@ -1407,7 +1407,9 @@ const SFX = (() => {
     listener(cam) {
       if (!ready) return;
       const l = ctx.listener;
-      cam.getWorldPosition(_v); cam.getWorldDirection(_f); _u.set(0, 1, 0).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
+      // (facing down its -Z, the way a camera looks: the game's own view is carried by a plain Object3D, whose
+      // getWorldDirection would give +Z and turn every sound round, left for right and front for back)
+      const q = cam.getWorldQuaternion(_lq); cam.getWorldPosition(_v); _f.set(0, 0, -1).applyQuaternion(q); _u.set(0, 1, 0).applyQuaternion(q);
       if (l.positionX) {
         l.positionX.value = _v.x; l.positionY.value = _v.y; l.positionZ.value = _v.z;
         l.forwardX.value = _f.x; l.forwardY.value = _f.y; l.forwardZ.value = _f.z;

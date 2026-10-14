@@ -718,6 +718,13 @@ class Monster {
     if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) >= r || Math.abs(p.pos.y - this.pos.y) >= dy) return false;
     return this.def.zone !== 'in' || !this.g.fac || this.clearTo(p);
   }
+  // A blow from one of the cleverer ones: a killing one once the director's let it loose on p and the warnings have come
+  // (Brain.mayKill); until then a wound it leaves you to run with, never the last of your health. true if it killed
+  strike(p, cause, wound = 30) {
+    if (Brain.mayKill(this, p)) { this.killAt = { x: p.pos.x, z: p.pos.z }; this.g.killPlayer(p.id, cause, this.id); return true; }
+    const f = this.forward(); this.g.hurtPlayer(p.id, Math.max(0, Math.min(wound, p.hp - 6)), cause, f.x * 5, f.z * 5);
+    return false;
+  }
   // nothing solid between it and p: no wall, and not the rail between a stairwell's flights
   clearTo(p) {
     const fac = this.g.fac;
@@ -899,6 +906,12 @@ class Monster {
       this.track(tgt, this.cfg.eye, 25, dt);
       if (this.memory <= 0) { this.target = null; tgt = null; if (this.state === 'stalk') this.setState('lurk'); }
     }
+    // let loose on someone (see Brain's director), it knows where they are, wherever they go
+    const prey = this.state !== 'drag' ? Brain.prey(this) : null;
+    if (prey && prey.alive && prey.zone === 'in') {
+      if (this.target !== prey.id) { this.target = prey.id; this.anger = 0; if (this.state === 'lurk') this.setState('stalk'); }
+      tgt = prey; this.memory = 25; this.aware = true; this.lastKnown = { x: prey.pos.x, z: prey.pos.z, y: prey.pos.y };
+    }
     this.extra = this.target != null ? this.target : -1;
     // (a look only counts if there's light to see it by: a lamp near it or a beam on it, or close enough to make it out
     // in the dark; see Brain.seenBy)
@@ -915,9 +928,9 @@ class Monster {
       case 'stalk': {
         if (!tgt) { this.setState('lurk'); break; }
         if (!this.aware) {
-          // lost you: creep to where it last noticed you and listen
+          // lost you: creep to where it last noticed you and listen; then try where you went to ground last time
           const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 2.8, dt, { gy: this.lastKnown.y });
-          if (rem < 1.5) this.memory -= dt * 2;
+          if (rem < 1.5) { const h = !this.searched && this.hideNear(tgt); if (h) { this.lastKnown = h; this.searched = true; } else this.memory -= dt * 2; }
           if (seenByAny) { this.fleeGoal = this.hiddenSpot(tgt); this.setState('flee'); }
           break;
         }
@@ -926,17 +939,31 @@ class Monster {
         if (!fac.walkable(fac.ti(gx), fac.tj(gz))) { gx = tgt.pos.x; gz = tgt.pos.z; }
         const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
         // lingers behind you... then closes in
+        this.searched = false;
         this.creep = d < 5 && !seenByTarget ? (this.creep || 0) + dt : Math.max(0, (this.creep || 0) - dt * 2);
+        // (let loose but not yet free to kill: it lingers there behind you, breathing, while the warnings come)
+        if (prey === tgt && !Brain.mayKill(this, tgt)) this.creep = Math.min(this.creep, 2.2);
         if (this.creep > 0.9 && !this.breathed) { this.breathed = true; this.g.emitSound('breath', new THREE.Vector3(this.pos.x, this.pos.y + 2.1, this.pos.z), { vol: 1.6, ref: 1.5 }); }
         if (this.creep <= 0) this.breathed = false;
         if (this.creep > 2.6) { gx = tgt.pos.x; gz = tgt.pos.z; }
-        this.moveTo(gx, gz, this.creep > 2.6 ? 2.8 : d > 14 ? 4.6 : d > 5 ? 3.0 : 2.4, dt, { gy: tgt.pos.y });
+        // (unseen and a way off it moves fast; let loose on someone heading home, it gets ahead of them on their way out
+        // and waits there, out of their sight)
+        let sp = this.creep > 2.6 ? 2.8 : d > 14 ? (seenByAny ? 3.0 : 6.5) : d > 5 ? 3.0 : 2.4, gy = tgt.pos.y;
+        if (prey === tgt && d > 14 && Brain.homebound(tgt)) {
+          if ((this.cutT = (this.cutT || 0) - dt) <= 0) { this.cutT = 2; this.cut = Brain.cutoff(this, tgt, 6.5); }
+          if (this.cut) { gx = this.cut.x; gz = this.cut.z; gy = this.cut.y; if (Math.hypot(gx - this.pos.x, gz - this.pos.z) < 1) sp = 0; }
+        } else this.cut = null;
+        if (sp > 0) this.moveTo(gx, gz, sp, dt, { gy });
+        else { this.speedNow = 0; this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 3, dt); }
         if (seenByAny) {
           if (seenByTarget) { if (this.seenCd <= 0) { this.anger += 1; this.seenCd = 1.2; } this.stare += dt; }
           if (this.anger >= 4) { this.setState('chase'); break; }
           this.fleeGoal = this.hiddenSpot(tgt); this.setState('flee'); break;
         }
-        if (!seenByTarget && this.reaches(tgt, 1.4)) { this.killAt = { x: tgt.pos.x, z: tgt.pos.z }; this.g.killPlayer(tgt.id, 'pale', this.id); this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; this.anger = 0; this.creep = 0; }
+        if (!seenByTarget && this.reaches(tgt, 1.4)) {
+          if (this.strike(tgt, 'pale')) { this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; this.anger = 0; this.creep = 0; }
+          else { this.creep = 0; this.cool = 20; this.fleeGoal = this.hiddenSpot(tgt); this.target = null; this.setState('flee'); }
+        }
         break;
       }
       case 'flee': {
@@ -951,7 +978,10 @@ class Monster {
         if (!tgt) { this.setState('lurk'); break; }
         if (this.st < 0.05) this.g.emitSound('hiss', this.pos, { vol: 1.2 });
         this.moveTo(tgt.pos.x, tgt.pos.z, 8.6, dt, { gy: tgt.pos.y });
-        if (this.reaches(tgt, 1.4)) { this.killAt = { x: tgt.pos.x, z: tgt.pos.z }; this.g.killPlayer(tgt.id, 'pale', this.id); this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; }
+        if (this.reaches(tgt, 1.4)) {
+          if (this.strike(tgt, 'pale', 40)) { this.setState('drag'); this.goal = this.randomGoal(15, 35); this.target = null; }
+          else { this.anger = 0; this.stare = 0; this.cool = 20; this.fleeGoal = this.hiddenSpot(tgt); this.target = null; this.setState('flee'); }
+        }
         if (this.st > 9) { this.anger = 0; this.stare = 0; this.fleeGoal = this.hiddenSpot(tgt); this.setState('flee'); }
         break;
       }
@@ -1146,6 +1176,9 @@ class Monster {
       if (!best) best = this.nearestPlayer(Infinity);
       if (best && best !== tgt) { tgt = best; this.target = best.id; this.held = 0; }
     }
+    // let loose on someone (see Brain's director), it goes for them and nobody else
+    const prey = Brain.prey(this);
+    if (prey && prey.alive && prey.zone === 'in' && this.state !== 'swing') { tgt = prey; this.target = prey.id; this.held = 0; }
     if (!tgt) { if (this.state !== 'swing') { this.setState('stand'); this.speedNow = 0; this.extra = -1; } }
     if (this.state === 'swing') {
       this.speedNow = 0;
@@ -1155,7 +1188,7 @@ class Monster {
         const f = this.forward(); let hit = false;
         for (const p of this.playersIn()) {
           const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3 && this.clearTo(p)) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
+          if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3 && this.clearTo(p)) { this.strike(p, 'executioner', 45); hit = true; }
         }
         this.g.emitSound(hit ? 'blade_flesh' : 'blade_floor', new THREE.Vector3(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2), { vol: 1.3, ref: 6 });
         this.g.addNoise(this.pos, 30, 'in', null, 'bang', this.id);
@@ -1164,11 +1197,36 @@ class Monster {
       return;
     }
     if (!tgt) return;
-    if (this.state !== 'walk') this.setState('walk');
     this.extra = tgt.id;
-    this.moveTo(tgt.pos.x, tgt.pos.z, 2.2, dt, { gy: tgt.pos.y, turn: 3 });
-    const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
-    if (d < 2.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('swing'); this.g.emitSound('blade_lift', this.center(), { vol: 1.2, ref: 5 }); }
+    const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), close = d < 4 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z);
+    // Not let loose on them: it comes right up and stands over them a few seconds, blade on the floor, then turns and
+    // walks off a while
+    this.backT = (this.backT || 0) - dt;
+    if (this.backT > 0) { if (this.state !== 'walk') this.setState('walk'); if (!this.away || this.moveTo(this.away.x, this.away.z, 2.2, dt, { gy: this.away.y, turn: 3 }) < 1) this.away = this.randomGoal(15, 30); return; }
+    if (close && !Brain.mayKill(this, tgt)) {
+      if (this.state !== 'stand') this.setState('stand');
+      this.speedNow = 0; this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 1.4, dt);
+      if (this.st > 4) { this.backT = 12; this.away = this.randomGoal(15, 30); }
+      return;
+    }
+    if (this.state !== 'walk') this.setState('walk');
+    // (it walks while it's watched; unwatched it covers the ground a good deal faster; let loose on someone heading home,
+    // it goes to meet them on their way out)
+    const seen = Brain.seenBy(this, { eye: 2.2, range: 35, dot: 0.55 }, this.seers || (this.seers = [])).length > 0;
+    let gx = tgt.pos.x, gz = tgt.pos.z, gy = tgt.pos.y, sp = seen ? 2.2 : 4.0;
+    if (prey === tgt && d > 14 && Brain.homebound(tgt)) {
+      if ((this.cutT = (this.cutT || 0) - dt) <= 0) { this.cutT = 2; this.cut = Brain.cutoff(this, tgt, 4.0); }
+      if (this.cut) { gx = this.cut.x; gz = this.cut.z; gy = this.cut.y; if (Math.hypot(gx - this.pos.x, gz - this.pos.z) < 1) sp = 0; }
+    } else this.cut = null;
+    if (sp > 0) this.moveTo(gx, gz, sp, dt, { gy, turn: 3 });
+    else { this.speedNow = 0; this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 1.4, dt); }
+    if (d < 2.3 && close) { this.setState('swing'); this.g.emitSound('blade_lift', this.center(), { vol: 1.2, ref: 5 }); }
+  }
+  // the nearest place on its floor within 25 m where p went to ground after a fright before (Brain.hides), or null
+  hideNear(p) {
+    const fac = this.g.fac, W = fac.W; let best = null, bd = 25;
+    for (const k of Brain.hides(p.id)) { const x = fac.cx(k % W), z = fac.cz((k - (k % W)) / W), y = fac.tileY(k); const d = Math.hypot(x - this.pos.x, z - this.pos.z); if (d < bd && Math.abs(y - this.feetY()) < 2.5) { bd = d; best = { x, z, y }; } }
+    return best;
   }
   // somewhere on its own floor, a walk of 6 to 24 m, out of tgt's sight and well away from them
   hiddenSpot(tgt) {
@@ -1179,7 +1237,7 @@ class Monster {
   ai_mannequin(dt) {
     // (watched: someone looking its way, with light to see it by; and for a moment after, since what's on a crewmate's
     // screen is a little behind)
-    if (Brain.seenBy(this, { eye: 1.4, range: 45, dot: 0.5 }, this.seers || (this.seers = [])).length || this.spawnT < 2.5) this.obsT = 0.15;
+    if (Brain.seenBy(this, { eye: 1.4, range: 45, dot: 0.5 }, this.seers || (this.seers = [])).length || this.spawnT < 2.5) this.obsT = Math.max(this.obsT || 0, 0.15);
     else this.obsT = (this.obsT || 0) - dt;
     const observed = this.obsT > 0;
     if (observed) {
@@ -1192,11 +1250,17 @@ class Monster {
     if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
     if (!tgt) { const p = this.detect(this.cfg.eye); if (p) { tgt = p; this.target = p.id; this.memory = 12; } }
     if (tgt) { this.track(tgt, this.cfg.eye, 12, dt); if (this.memory <= 0) { tgt = null; this.target = null; } }
+    // let loose on someone (see Brain's director), it knows where they are
+    const prey = Brain.prey(this);
+    if (prey && prey.alive && prey.zone === 'in') { tgt = prey; this.target = prey.id; this.memory = 12; this.aware = true; this.lastKnown = { x: prey.pos.x, z: prey.pos.z, y: prey.pos.y }; }
     if (tgt) {
       this.setState('hunt');
-      const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 9.8, dt, { turn: 20, gy: this.lastKnown.y });
+      // (close to any of you it keeps to a pace a crewmate's screen, a moment behind, can't catch it covering)
+      let near = Infinity; for (const p of this.playersIn()) near = Math.min(near, Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z));
+      const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, near < 6 ? 4.5 : 9.8, dt, { turn: 20, gy: this.lastKnown.y });
       if (!this.aware && rem < 1.2) this.memory -= dt * 3;
-      if (this.reaches(tgt, 1.05)) this.g.killPlayer(tgt.id, 'mannequin', this.id);
+      // (not let loose on you: it has its hands on you a moment, then stands stock still a while, and is gone)
+      if (this.reaches(tgt, 1.05) && !this.strike(tgt, 'mannequin', 25)) { this.obsT = 6; this.target = null; this.goal = this.randomGoal(10, 25); }
     } else {
       this.setState('roam');
       const n = Brain.hear(this, this.cfg.ear);

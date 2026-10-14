@@ -223,7 +223,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 12;
+const PROTO = 13;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -994,6 +994,8 @@ const G = {
       if (G.leechOn === p.id) G.leechOn = null;
     },
     sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); if (e.s === 'charge' && G.ship) G.ship.charging(); },
+    // a warning from the director (see Brain): your light stutters a moment
+    cue(e) { if (e.pid === G.localId && e.k === 'light') G.cueT = 1.8; },
     monSpawn(e) { G.spawnMonster(e); },
     monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); m.dispose(); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
     leech(e) {
@@ -3220,6 +3222,7 @@ const G = {
       if (d.radio <= 0) { const k = 1 - radioD / 15; d.radio = lerp(1.1, 0.12, k) * (0.5 + Math.random()); SFX.play('static', null, { dur: 0.08 + Math.random() * 0.5 * k, vol: 0.4 + k * 1.1 }); }
     }
     R.fx.fear = damp(R.fx.fear, me.alive ? clamp(fear, 0, 1) : 0, fear > R.fx.fear ? 3 : 0.4, dt);
+    if (G.cueT > 0) { G.cueT -= dt; flicker = Math.max(flicker, 0.3); }
     G.flicker = flicker + (R.fx.fear > 0.7 ? 0.01 : 0);
     // heartbeat: quickening with fear, and racing (over two hundred a minute) with something right behind you
     d.beat -= dt;

@@ -18,6 +18,7 @@ const Brain = (() => {
   B.reset = (f) => {
     fac = f || null; P.clear(); cache.clear(); pool.length = 0; heat = lit = tmp = null; now = 0; bbT = heatT = decT = lastR = 0;
     B.dbg = { fields: 0, fallbacks: 0, heard: 0 };
+    resetDir();
   };
   // each host frame, before the creatures move
   B.tick = (dt) => {
@@ -28,6 +29,7 @@ const Brain = (() => {
     budget = Touch.on ? 1 : 2;
     if ((bbT -= dt) <= 0) { bbT = 0.1; refresh(); }
     if ((heatT -= dt) <= 0) { heatT = 0.5; warm(); }
+    if ((D.dt += dt) >= 0.25) { direct(D.dt); D.dt = 0; }
     for (const [key, c] of cache) if (now - c.t > 1.2) { free(c.F); cache.delete(key); }
   };
   // ---------------- the crew, as the creatures have them ----------------
@@ -221,6 +223,109 @@ const Brain = (() => {
       if (d < R) { fn(o, d); n++; }
     }
     return n;
+  };
+  // ---------------- the director ----------------
+  // The cleverer ones (the Pale, the Executioner, the Mannequin) don't kill whoever they happen to reach. A round goes
+  // in swells: quiet a while; then building (they shadow you, show themselves, back off); then one of them is let loose
+  // on one of you, whoever's furthest from help or heading home alone; then it eases off again. Before it comes for
+  // you there's always warning, a sound somewhere out of sight, your light stuttering, a door slammed down the
+  // corridor, the first of it a good six seconds before; it never takes two of you inside a minute; and now and then it
+  // only toys with you. Until it's let loose, one that gets its hands on you hurts you and lets you go.
+  const SMART = { pale: 1, executioner: 1, mannequin: 1 }, CUE_SND = { pale: 'breath', executioner: 'blade_drag', mannequin: 'creak' };
+  const D = { phase: 'calm', t: 0, len: 60, tok: null, lastKill: -1e9, dt: 0, log: [] };
+  // where each of you went to ground after a fright (searched first next time they lose you)
+  const H = new Map();
+  B.smart = (m) => !!SMART[m.type];
+  B.dir = D;
+  const go = (ph, len) => { D.phase = ph; D.t = 0; D.len = len; D.log.push([+now.toFixed(1), ph]); if (D.log.length > 60) D.log.shift(); };
+  const resetDir = () => { D.phase = 'calm'; D.t = 0; D.len = 55 + Math.random() * 35; D.tok = null; D.lastKill = -1e9; D.log.length = 0; H.clear(); };
+  // heading home: hands full, hurt, or late
+  const homebound = (p) => p.hp < 40 || p.slots.every((id) => id != null) || (G.round && G.round.time > 21 * 60);
+  B.homebound = homebound;
+  function direct(dt) {
+    D.t += dt;
+    for (const e of P.values()) {
+      // how frightening it is where they are: anything close, on their floor
+      let near = 0;
+      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === e.zone && Math.abs(m.pos.y - e.y) < 3) { const d = Math.hypot(m.pos.x - e.x, m.pos.z - e.z); if (d < 14) near = Math.max(near, 1 - d / 14); }
+      e.I = Math.max((e.I || 0) - dt * 0.03, near);
+      if (e.I > 0.5) e.hot = now;
+      // gone to ground after a fright: remembered
+      if (e.zone === 'in' && e.k >= 0 && e.still > 4 && now - (e.hot || -99) < 20 && e.hidK !== e.k) {
+        e.hidK = e.k; const h = H.get(e.id) || []; if (!h.includes(e.k)) { h.push(e.k); if (h.length > 6) h.shift(); } H.set(e.id, h);
+      }
+    }
+    const smart = []; for (const m of G.monsters.values()) if (!m.dead && SMART[m.type] && m.def.zone === 'in') smart.push(m);
+    let maxI = 0; for (const e of P.values()) maxI = Math.max(maxI, e.I || 0);
+    switch (D.phase) {
+      case 'calm': if (D.t > D.len && maxI < 0.6) go('build', 25 + Math.random() * 30); break;
+      case 'build': if (D.t > D.len && now - D.lastKill > 60 && !grant(smart)) D.t = D.len - 8; break;
+      case 'peak': {
+        const k = D.tok, p = k && G.players.get(k.pid), m = k && G.monsters.get(k.mid);
+        if (!k || !p || !p.alive || p.zone !== 'in' || !m || m.dead || D.t > (k.toy ? 25 : 50)) {
+          if (p && !p.alive) D.lastKill = now;
+          D.tok = null; go('relax', 40 + Math.random() * 30);
+        } else cue(k, p, m);
+        break;
+      }
+      case 'relax': if (D.t > D.len) go('calm', 30 + Math.random() * 40); break;
+    }
+  }
+  function grant(smart) {
+    if (!smart.length) return false;
+    const crew = []; for (const p of G.players.values()) if (p.alive && p.zone === 'in') crew.push(p);
+    // the prey: furthest from help (a floor between you counts for a lot), more so heading home
+    let prey = null, ps = -1;
+    for (const p of crew) {
+      let iso = 60; for (const q of crew) if (q !== p) iso = Math.min(iso, Math.hypot(q.pos.x - p.pos.x, q.pos.z - p.pos.z) + Math.abs(q.pos.y - p.pos.y) * 4);
+      const s = iso + (homebound(p) ? 15 : 0) + Math.random() * 6; if (s > ps) { ps = s; prey = p; }
+    }
+    if (!prey) return false;
+    let m = null, md = Infinity;
+    for (const o of smart) { const d = Math.hypot(o.pos.x - prey.pos.x, o.pos.z - prey.pos.z) + Math.abs(o.pos.y - prey.pos.y) * 3; if (d < md) { md = d; m = o; } }
+    D.tok = { mid: m.id, pid: prey.id, t0: now, cues: 0, first: -1, next: now + 1 + Math.random() * 3, toy: Math.random() < 0.3 };
+    go('peak', 0); D.log.push([+now.toFixed(1), 'let loose', m.type, prey.id, D.tok.toy ? 'toy' : 'kill']);
+    return true;
+  }
+  // the warnings, a few seconds apart: a sound out of sight near them, their light stuttering, a door slammed near by
+  function cue(k, p, m) {
+    if (k.cues >= 3 || now < k.next) return;
+    const kind = ['sound', 'light', 'door'][k.cues];
+    k.cues++; if (k.first < 0) k.first = now; k.next = now + 3 + Math.random() * 3;
+    D.log.push([+now.toFixed(1), 'cue', kind, p.id]);
+    const lv = fac.lvl[fac.idx(fac.ti(p.pos.x), fac.tj(p.pos.z))];
+    if (kind === 'sound') {
+      const s = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - p.pos.x, q.z - p.pos.z); return d > 6 && d < 14 && fac.lvl[fac.idx(q.i, q.j)] === lv && !fac.los(p.pos.x, p.pos.z, q.x, q.z, true); }, { x: p.pos.x, z: p.pos.z, r: 14 });
+      G.emitSound(CUE_SND[m.type], s ? new THREE.Vector3(s.x, p.pos.y + 1.2, s.z) : m.center(), { vol: 0.8, ref: 4 });
+      return;
+    }
+    if (kind === 'door') {
+      let best = null, bd = 16;
+      for (const d of fac.doors) { if (!d.open || d.broken || d.latch || d.lv !== lv) continue; const dd = Math.hypot(d.x - p.pos.x, d.z - p.pos.z); if (dd > 4 && dd < bd) { bd = dd; best = d; } }
+      if (best) { G.monsterShoveDoor(m, best); return; }
+    }
+    G.emit({ e: 'cue', pid: p.id, k: 'light' });
+  }
+  // whom it's been let loose on (null: nobody, or it isn't the one)
+  B.prey = (m) => { const k = D.tok; return k && k.mid === m.id ? G.players.get(k.pid) || null : null; };
+  // whether it may kill p now: always for the animals; for the cleverer ones, only its prey, once warned
+  B.mayKill = (m, p) => { if (!SMART[m.type]) return true; const k = D.tok; return !!(k && !k.toy && k.mid === m.id && k.pid === p.id && k.cues >= 2 && now - k.first >= 6); };
+  // where p went to ground before, nearest first (tiles)
+  B.hides = (pid) => H.get(pid) || [];
+  // Somewhere ahead of p on their way out that m can reach first, out of their sight, to wait for them there (null if
+  // nowhere will do). speed: how fast m goes unseen
+  B.cutoff = (m, p, speed) => {
+    const e = P.get(p.id); if (!e || e.k < 0) return null;
+    const Fm = B.from(m, 90, 'walk', true); if (!Fm) return null;
+    const route = fac.route(fac.homeField(), e.k, 60), v = Math.max(1.5, e.spd);
+    let cum = 0, prev = e.k;
+    for (let i = 1; i < route.length; i++) {
+      const k = route[i], W = fac.W, x = fac.cx(k % W), z = fac.cz((k - (k % W)) / W);
+      cum += Math.hypot(x - fac.cx(prev % W), z - fac.cz((prev - (prev % W)) / W)); prev = k;
+      if (cum < 8) continue; if (cum > 45) break;
+      if (Fm[k] / speed + 1.5 < cum / v && !fac.los(p.pos.x, p.pos.z, x, z, true)) return { x, z, y: fac.tileY(k), k };
+    }
+    return null;
   };
   return B;
 })();

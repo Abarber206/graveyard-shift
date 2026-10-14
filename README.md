@@ -108,6 +108,12 @@ Dead players can still listen in, but the living can't hear them. Sound you make
   - **Crawlers** are eyeless. One feels movement in the air in front of it and hears footsteps, so someone keeping still a few steps off isn't there to it. Once it has you it screeches, and another crawler that hears comes round by another way. It charges at where you're going to be, and if it loses you it runs on the way you went, then noses through the nearest rooms.
   - **Ceiling leeches** wait where people have to pass under them: over the middle of a doorway, or a corridor the crew have been using. One that hears footsteps further off creeps over to meet them.
   - **Hounds** are blind and go by sound. Close up, though, one can smell you: keep still beside it and it noses round to you and bites. Move off quietly. A hound that lunges howls, and that brings the rest of the pack. They go round the ship rather than into its hull, and through the hatch only after someone they heard inside.
+- **The cleverer ones** (the Pale, the Mannequins, the Executioner) don't just kill whoever they reach. A landing goes in swells: quiet for a while, then building (they shadow you, show themselves and back off), then one of them is let loose on one of you, then it eases off again.
+  - They pick whoever is furthest from help: alone, on another floor, or heading home with their hands full. Stay together and they hang back, waiting for someone to wander off.
+  - There's always warning before one comes for you: a sound somewhere out of sight, your flashlight stuttering, a door slamming shut down the corridor. The first comes a good six seconds before. They never take two of you within a minute, and now and then they only toy with you.
+  - Until one is let loose on you, getting caught hurts, but it lets you go. Once it's let loose, it knows where you are.
+  - Unwatched, they cover the ground fast. While you watch, they walk. If you're heading out, the one that's after you gets ahead of you on your way out and waits there.
+  - They remember where you hid last time, and look there first.
 - **The Seep** turns up in some facilities.
   - It's a wall of jelly as wide as the corridor and as high as the ceiling.
   - It's slow, but it never stops, and nothing hurts it.

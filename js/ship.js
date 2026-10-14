@@ -95,6 +95,249 @@ const Ship = (() => {
   const RAMP = { z0: 4.47, y0: -0.14, len: 3.2 };
   RAMP.ang = Math.asin((RAMP.y0 - SHIP.ground) / RAMP.len);
 
+  // ---- the weather seen from orbit ----
+  // Each world's sky has its own character, and each day its own weather on top of it (see setWeather): how much of
+  // it is cloud (cover), how stormy (storm: how many lows wind up and how hard), how much of that is tropical storms
+  // (trop: tight spirals round a clear eye), fields of cells (cells), streaks along the jet streams (jet), how tall
+  // the heaps stand (tall), the thin high wisps over it all (cirrus), and the cloud's own colour where it isn't white
+  // (Vesper's is ash). great: one vast storm that never blows itself out (the Hollow's).
+  const WEATHER = {
+    ashgrove: { cover: 0.5, storm: 0.6, trop: 0.35, cells: 0.5, jet: 0.6, tall: 0.6, cirrus: 0.5 },
+    verdigris: { cover: 0.62, storm: 0.7, trop: 0.9, cells: 0.25, jet: 0.4, tall: 0.95, cirrus: 0.7 },
+    kessler: { cover: 0.56, storm: 0.8, trop: 0.5, cells: 0.4, jet: 0.7, tall: 0.7, cirrus: 0.5 },
+    rimefall: { cover: 0.36, storm: 0.45, trop: 0, cells: 0.3, jet: 1, tall: 0.3, cirrus: 1 },
+    agnes: { cover: 0.72, storm: 0.45, trop: 0.1, cells: 1, jet: 0.3, tall: 0.3, cirrus: 0.25 },
+    nadir: { cover: 0.58, storm: 1, trop: 0.4, cells: 0.3, jet: 0.8, tall: 0.8, cirrus: 0.6 },
+    brinewell: { cover: 0.6, storm: 0.9, trop: 1, cells: 0.6, jet: 0.5, tall: 0.85, cirrus: 0.5 },
+    saltreach: { cover: 0.12, storm: 0.15, trop: 0.2, cells: 0.15, jet: 0.4, tall: 0.5, cirrus: 0.35 },
+    hollow: { cover: 0.7, storm: 1, trop: 0.5, cells: 0.3, jet: 0.6, tall: 1, cirrus: 0.4, great: 1 },
+    vesper: { cover: 0.3, storm: 0.3, trop: 0.1, cells: 0.2, jet: 0.5, tall: 0.6, cirrus: 0.2, col: [0.6, 0.55, 0.52] },
+  };
+  // the cloud shell's span, in the world's radii: from its base up to the tallest tops, and the high wisps above
+  const CLOUD = { base: 1.004, top: 1.016, cirrus: 1.0195, hull: 1.0215, NV: 10 };
+  // how much the clouds cost, by the picture setting: (RETRO, LOW) a smaller weather map, a few steps through the
+  // shell and a short look toward the sun; (MEDIUM) more; (HIGH, ULTRA) the most
+  const cloudTier = () => (Settings.res <= 1 ? 0 : Settings.res === 2 ? 1 : 2);
+  const CLOUD_TIER = [{ w: 1024, steps: 4, taps: 2, detail: 1, band: 32 }, { w: 2048, steps: 8, taps: 3, detail: 2, band: 32 }, { w: 2048, steps: 12, taps: 4, detail: 3, band: 32 }];
+  // The storms turn while you watch: everything within a storm's reach is looked up turned back round its middle
+  // (the nearest storm's, smoothly less toward the edge of its reach), so its spiral slowly winds on. Shared by the
+  // cloud and the shadows it throws on the ground. (uVort: middle and radius, in the cloud's own frame; uVturn: how
+  // far it has turned)
+  const CLOUD_SPIN = `uniform vec4 uVort[${CLOUD.NV}]; uniform float uVturn[${CLOUD.NV}];
+    vec4 cloudSpinAt(vec3 n){
+      float best = 0.0, ang = 0.0; vec3 ax = vec3(0.0, 1.0, 0.0);
+      for (int i = 0; i < ${CLOUD.NV}; i++){ vec4 v = uVort[i]; if (v.w <= 0.0) continue;
+        float w = 1.0 - smoothstep(1.0, 5.0, (2.0 - 2.0 * dot(n, v.xyz)) / (v.w * v.w));
+        if (w > best){ best = w; ax = v.xyz; ang = uVturn[i]; } }
+      return vec4(ax, ang * best);
+    }
+    vec3 cloudTurn(vec3 n, vec4 s){ float c = cos(s.w), si = sin(s.w); return n * c + cross(s.xyz, n) * si + s.xyz * dot(s.xyz, n) * (1.0 - c); }
+    vec2 cloudUV(vec3 n){ return vec2(fract(atan(n.z, -n.x) / 6.2831853), 1.0 - acos(clamp(n.y, -1.0, 1.0)) / 3.14159265); }
+  `;
+  // The day's weather map, worked out on the graphics card (a band of rows a frame, see stepWeather): for each point of
+  // the sphere, r how much cloud, g how high its tops stand, b the high wisps, a how much shadow it throws. It starts
+  // from swirled noise (noise looked up through noise, so it curls and folds the way air does), drawn out along the
+  // latitudes where the westerlies shear it. Over that: the belts of weather round a world, a band of towering cloud
+  // along the equator where the trade winds meet, clear belts either side, the storm tracks further out; the storms,
+  // everything near each one wound round it (opposite ways either side of the equator) with its own shape added in: a
+  // low's comma wound into its middle and the long curve of its cold front trailing off toward the equator, a tropical
+  // storm's tight bands round a clear eye; fields of cells (closed, puffs filling each; or open, walls round clear
+  // middles); popcorn cumulus over the clear belts; ragged, streaky edges; the jet streams' streaks of high cloud.
+  const WX_GEN_FS = `precision highp float;
+    uniform vec2 uSize; uniform vec3 uSeed; uniform vec4 uLook, uLook2, uJet; uniform vec4 uVort[${CLOUD.NV}], uVk[${CLOUD.NV}]; uniform float uDet;
+    vec3 h33(vec3 p){ p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx) * 2.0 - 1.0; }
+    float gn(vec3 p){ vec3 i = floor(p), f = fract(p), u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+      return mix(mix(mix(dot(h33(i), f), dot(h33(i + vec3(1.0, 0.0, 0.0)), f - vec3(1.0, 0.0, 0.0)), u.x),
+                     mix(dot(h33(i + vec3(0.0, 1.0, 0.0)), f - vec3(0.0, 1.0, 0.0)), dot(h33(i + vec3(1.0, 1.0, 0.0)), f - vec3(1.0, 1.0, 0.0)), u.x), u.y),
+                 mix(mix(dot(h33(i + vec3(0.0, 0.0, 1.0)), f - vec3(0.0, 0.0, 1.0)), dot(h33(i + vec3(1.0, 0.0, 1.0)), f - vec3(1.0, 0.0, 1.0)), u.x),
+                     mix(dot(h33(i + vec3(0.0, 1.0, 1.0)), f - vec3(0.0, 1.0, 1.0)), dot(h33(i + vec3(1.0, 1.0, 1.0)), f - vec3(1.0, 1.0, 1.0)), u.x), u.y), u.z); }
+    const mat3 ROT = mat3(0.0, 0.8, 0.6, -0.8, 0.36, -0.48, -0.6, -0.48, 0.64);
+    float fbm(vec3 p, int oct){ float s = 0.0, a = 0.5; for (int i = 0; i < 7; i++){ if (i >= oct) break; s += a * gn(p); p = ROT * p * 2.03; a *= 0.5; } return s; }
+    vec2 worley(vec3 p){ vec3 i = floor(p), f = fract(p); float d1 = 9.0, d2 = 9.0;
+      for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){
+        vec3 o = vec3(float(x), float(y), float(z)), r = o + 0.5 + 0.45 * h33(i + o) - f; float d = dot(r, r);
+        if (d < d1){ d2 = d1; d1 = d; } else if (d < d2) d2 = d; }
+      return sqrt(vec2(d1, d2)); }
+    void main(){
+      vec2 uv = gl_FragCoord.xy / uSize;
+      float ph = uv.x * 6.2831853, th = (1.0 - uv.y) * 3.14159265;
+      vec3 p = vec3(-cos(ph) * sin(th), cos(th), sin(ph) * sin(th));
+      float lat = asin(clamp(p.y, -1.0, 1.0)), alat = abs(lat);
+      // the storms
+      vec3 q = p; float st = 0.0, stTop = 0.0, eye = 1.0, cir = 0.0;
+      for (int i = 0; i < ${CLOUD.NV}; i++){
+        vec4 v = uVort[i], k = uVk[i]; if (v.w <= 0.0) continue;
+        float cd = dot(p, v.xyz); if (cd < 0.3) continue;
+        vec3 e1 = normalize(cross(vec3(0.0, 1.0, 0.0), v.xyz)), e2 = cross(v.xyz, e1);
+        vec2 l = vec2(dot(p, e1), dot(p, e2)) / v.w; float rho = length(l), phi = atan(l.y, l.x);
+        if (rho > 5.5) continue;
+        float tw = k.x * exp(-rho * rho * 0.6), c = cos(tw), s = sin(tw);
+        q = q * c + cross(v.xyz, q) * s + v.xyz * dot(v.xyz, q) * (1.0 - c);
+        float sg = sign(k.x), lr = log(max(rho, 0.02));
+        if (k.y < 0.5) {
+          float arm = smoothstep(0.3, 0.95, 0.5 + 0.5 * cos(phi - k.w - sg * 1.5 * lr)) * exp(-rho * rho * 0.55);
+          float dphi = phi - k.w - sg * 0.5 * lr; dphi -= 6.2831853 * floor(dphi / 6.2831853 + 0.5);
+          float fr = exp(-pow(dphi * rho / 0.2, 2.0)) * smoothstep(0.4, 1.0, rho) * smoothstep(5.0, 2.2, rho) * k.z;
+          st += arm * 0.8 + fr * 0.75 - exp(-rho * rho * 3.0) * 0.15; stTop = max(stTop, max(arm * 0.7, fr * 0.6));
+          cir += fr * 0.5 + arm * 0.3;
+        } else {
+          float bands = smoothstep(0.25, 0.9, 0.5 + 0.5 * cos(2.0 * (phi - k.w - sg * 2.3 * lr))) * exp(-rho * 0.8) * smoothstep(0.15, 0.4, rho);
+          float core = exp(-pow(rho / 0.45, 2.0)), e = smoothstep(0.04, 0.085, rho);
+          st += (core * 1.4 + bands * 1.0) * e - (1.0 - e) * 2.0; stTop = max(stTop, (core * 1.1 + bands * 0.6) * e);
+          eye = min(eye, e); cir += exp(-rho * rho * 0.3) * 0.7 * e;
+        }
+      }
+      // swirled noise, drawn out along the latitudes
+      vec3 Q = q * 2.1 + uSeed;
+      float sh = 1.0 + 1.1 * smoothstep(0.3, 0.85, alat) * (1.0 - smoothstep(1.15, 1.45, alat));
+      vec3 Qs = vec3(Q.x, q.y * 2.1 * sh + uSeed.y, Q.z); // (stretched about the world's own frame, not the day's offset into the noise)
+      vec3 w = vec3(fbm(Qs * 1.2 + vec3(1.7, 9.2, 3.1), 4), fbm(Qs * 1.2 + vec3(8.3, 2.8, 5.5), 4), fbm(Qs * 1.2 + vec3(4.1, 6.3, 1.2), 4));
+      float f = fbm(Qs * 2.0 + w * 2.4, 6);
+      // the belts of weather
+      float itcz = 0.07 * sin(ph * 2.0 + uSeed.x) + 0.04 * sin(ph * 5.0 + uSeed.y);
+      float tro = exp(-pow((lat - itcz) / 0.1, 2.0));
+      float zon = 0.22 * tro - 0.24 * exp(-pow((alat - 0.47) / 0.15, 2.0)) + 0.14 * exp(-pow((alat - 0.95) / 0.22, 2.0)) - 0.06 * smoothstep(1.25, 1.5, alat);
+      float F = f * 1.6 + zon + st * uLook.y + (uLook.x - 0.42) * 0.9;
+      float cov = smoothstep(-0.04, 0.3, F);
+      // ragged, streaky edges
+      float wsp = fbm(vec3(q.x * 7.0, q.y * 10.0, q.z * 7.0) + w * 3.0 + uSeed, 4);
+      cov = clamp(cov + wsp * 1.8 * cov * (1.0 - cov), 0.0, 1.0);
+      // fields of cells
+      vec2 wo = worley(q * 34.0 + uSeed * 1.7);
+      float creg = smoothstep(-0.05, 0.25, fbm(Q * 0.8 + 17.0, 3)) * exp(-pow((alat - 0.55) / 0.3, 2.0)) * uLook.z;
+      float closed = smoothstep(0.03, 0.22, wo.y - wo.x) * smoothstep(0.85, 0.3, wo.x), open = 1.0 - smoothstep(0.02, 0.11, wo.y - wo.x);
+      float cells = mix(closed * 0.9, open * 0.8, smoothstep(-0.1, 0.1, gn(Q * 0.6 + 5.0)));
+      cov = mix(cov, max(cov, cells * smoothstep(-0.45, -0.05, F)), creg);
+      // popcorn cumulus over the clear belts
+      float pop = smoothstep(0.22, 0.5, gn(q * uDet + uSeed * 3.1)) * smoothstep(0.1, -0.2, F) * smoothstep(-0.75, -0.3, F);
+      pop *= (0.35 + 0.65 * exp(-pow(lat / 0.6, 2.0))) * (0.4 + uLook2.z * 0.6) * smoothstep(-0.1, 0.2, fbm(Q * 1.4 + 9.0, 3));
+      cov = max(cov, pop * 0.85) * eye;
+      // how tall: heaped up where it's thick, highest in the storms and along the equator, cauliflower tops
+      float bil = abs(gn(q * 26.0 + uSeed)) * 0.6 + abs(gn(q * 61.0 - uSeed)) * 0.4;
+      float top = mix(0.22, 0.62, smoothstep(0.1, 0.9, F)) + stTop * 0.4 + tro * 0.25 * smoothstep(0.0, 0.5, F) + pop * 0.3;
+      top = mix(top, 0.18 + 0.12 * cells, creg * (1.0 - smoothstep(0.1, 0.6, F)));
+      top = clamp(top * (0.62 + 0.75 * bil) * uLook.w, 0.05, 1.0);
+      // the jet streams' streaks
+      float lj = uJet.x + uJet.y * sin(ph * uJet.z + uJet.w + sign(lat) * 1.3);
+      float jb = exp(-pow((alat - lj) / 0.12, 2.0));
+      float streak = fbm(vec3(p.x * 4.0, (alat - lj) * 60.0 + sign(lat) * 7.0, p.z * 4.0) + w * 0.6 + uSeed, 3) + fbm(Q * 1.6 + 31.0, 3) * 0.8;
+      cir = clamp((cir * 0.6 + jb * smoothstep(0.1, 0.45, streak) * uLook2.x * 0.55) * uLook2.y * (0.5 + 0.5 * smoothstep(-0.2, 0.2, f + 0.1)), 0.0, 1.0);
+      float sha = clamp(cov * (0.55 + 0.45 * smoothstep(0.1, 0.6, top)) + cir * 0.2, 0.0, 1.0);
+      gl_FragColor = vec4(cov, top, cir, sha);
+    }`;
+  // The cloud itself, from orbit or falling through it: each pixel's line of sight marched through the shell between
+  // the cloud's base and the tallest tops, the cloud there as thick as the map says and standing as tall, so its edges
+  // are thin and soft with the ground showing through, the heaps stand up off the deck and toward the limb crowd
+  // together and hide what's behind them. It's lit the way cloud is: darker the deeper into it the sunlight has to
+  // come (bright tops, dim undersides), the faces of the heaps turned to the sun brighter than their far faces, and in
+  // the shadow of any taller heap between it and the sun (stepped toward the sun over the map, so under a low sun the
+  // shadows run long). Toward the terminator the light comes in long and low and turns orange, and the tallest tops
+  // still catch it after the deck below has gone dark; thin cloud lit from behind glows. Sky light fills in the shade.
+  // Over it all, the high wisps in a thin sheet, thicker seen edge-on. Finer detail fades in as it comes close enough
+  // to show (falling through it). As before, the moons and the rings throw their shadows on it, and diving in, it
+  // opens over the site.
+  const CLOUD_VS = 'varying vec3 vPos; varying vec3 vWP; void main(){ vPos = position; vec4 w = modelMatrix * vec4(position, 1.0); vWP = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
+  const CLOUD_FS = () => `precision highp sampler3D;
+    ${Rings.GLSL}${CLOUD_SPIN}
+    uniform sampler2D uMap; uniform sampler3D uNoise;
+    uniform vec3 uCamL, uSunL, uAmb, uCol; uniform vec4 uShell; uniform float uFade, uCirRot, uSunI, uTexel;
+    uniform vec4 uHole; uniform vec2 uHoleR; uniform vec4 uPdCast[3]; uniform vec3 uPdSunW;
+    varying vec3 vPos; varying vec3 vWP;
+    vec3 sunCol(float m){ return mix(vec3(1.0, 0.34, 0.1), vec3(1.0, 0.96, 0.9), smoothstep(0.0, 0.3, m)) * smoothstep(-0.02, 0.05, m); }
+    vec3 dW;
+    float det(vec3 P){
+      float d = 0.0;
+      #if DETAIL > 0
+      if (dW.x > 0.0) d += (textureLod(uNoise, P * 0.0417, 0.0).r - 0.5) * dW.x;
+      #endif
+      #if DETAIL > 1
+      if (dW.y > 0.0) d += (textureLod(uNoise, P * 0.125 + 0.37, 0.0).r - 0.5) * dW.y * 0.7;
+      #endif
+      #if DETAIL > 2
+      if (dW.z > 0.0) d += (textureLod(uNoise, P * 0.4 + 0.71, 0.0).r - 0.5) * dW.z * 0.5;
+      #endif
+      return d * 1.6;
+    }
+    void main(){
+      vec3 ro = uCamL, rd = normalize(vPos - uCamL);
+      float Rb = uShell.x, Rt = uShell.y, Rc = uShell.z, Rp = uShell.w, span = Rt - Rb;
+      float b = dot(ro, rd), c0 = dot(ro, ro), dT = b * b - c0 + Rt * Rt, sq = sqrt(max(dT, 0.0));
+      float t0 = max(-b - sq, 0.0), t1 = -b + sq, dB = b * b - c0 + Rb * Rb, dP = b * b - c0 + Rp * Rp;
+      if (dB > 0.0) { float tb = -b - sqrt(dB); if (tb > 0.0) t1 = min(t1, tb); }
+      float tP = dP > 0.0 && -b - sqrt(dP) > 0.0 ? -b - sqrt(dP) : 1e9;
+      // (the footprint of this pixel on the cloud: for filtering the map, and fading in the fine detail)
+      vec3 Pe = ro + rd * t0, dpx = dFdx(Pe), dpy = dFdy(Pe), n0 = normalize(Pe);
+      vec2 uv0 = cloudUV(n0), gx = cloudUV(normalize(Pe + dpx)) - uv0, gy = cloudUV(normalize(Pe + dpy)) - uv0;
+      gx.x -= floor(gx.x + 0.5); gy.x -= floor(gy.x + 0.5);
+      float fp = max(length(dpx), length(dpy));
+      dW = vec3(1.0) - smoothstep(vec3(0.5), vec3(1.0), fp / vec3(3.0, 1.0, 0.3));
+      vec4 sp = cloudSpinAt(n0);
+      float T = 1.0, ww = 0.0, sw = 0.0, accA = 0.0; vec3 accS = vec3(0.0), Pw = vec3(0.0);
+      if (dT > 0.0 && t1 > t0) {
+        float dt = (t1 - t0) / float(STEPS), jit = 0.35 + 0.3 * fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+        for (int i = 0; i < STEPS; i++) {
+          float t = t0 + (float(i) + jit) * dt;
+          vec3 P = ro + rd * t; float r = length(P); vec3 n = P / r;
+          vec4 m = textureGrad(uMap, cloudUV(cloudTurn(n, sp)), gx, gy);
+          float dn = det(P), cv = clamp(m.r + dn * (0.3 + 0.5 * (1.0 - m.r)), 0.0, 1.0), tp = m.g * (1.0 + dn * 0.35), h = (r - Rb) / span;
+          float dens = cv * cv * smoothstep(0.0, 0.08, h) * (1.0 - smoothstep(tp * 0.5, tp, h));
+          dens *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y * (0.8 + dn), 1.0 - dot(n, uHole.xyz)));
+          if (dens < 0.002) continue;
+          float a = 1.0 - exp(-dens * dt * 0.9), mu = dot(n, uSunL), muE = mu + sqrt(2.0 * max(r - Rp, 0.0) / Rp);
+          // (the sunlight comes down into it from the tops, and is the dimmer the deeper in it has to come)
+          float sunT = exp(-cv * max(tp - h, 0.0) * span * 0.45 / max(mu, 0.12)), wg = T * a;
+          accS += wg * sunCol(muE) * sunT; accA += wg * (0.3 + 0.7 * clamp(h / max(tp, 0.05), 0.0, 1.0));
+          Pw += wg * P; ww += wg; sw += wg * m.g * smoothstep(0.05, 0.5, m.r);
+          T *= 1.0 - a; if (T < 0.02) break;
+        }
+      }
+      float alpha = 1.0 - T; vec3 col = vec3(0.0);
+      if (ww > 1e-4) {
+        Pw /= ww; sw /= ww; float rw = length(Pw); vec3 nw = Pw / rw; float hw = (rw - Rb) / span;
+        float mu = dot(nw, uSunL); vec3 st = uSunL - nw * mu; float stl = length(st); st /= max(stl, 1e-4);
+        float tanE = mu / max(stl, 0.04);
+        // (how the cloud slopes toward the sun, a little way off; then stepping on toward the sun over the map: any
+        // heap standing up into the sunbeam between here and the sun shades this)
+        float d0 = max(uTexel * 1.5, fp * 1.5);
+        float s0 = textureGrad(uMap, cloudUV(cloudTurn(normalize(nw + st * (d0 / rw)), sp)), gx, gy).g;
+        float slope = (s0 - sw) * span / d0, shadow = 1.0, reach = clamp(span * 0.9 / max(tanE, 0.06), span * 0.6, span * 6.0), tj = fract(sin(dot(floor(gl_FragCoord.xy), vec2(39.346, 11.135))) * 43758.5453);
+        for (int k = 1; k <= TAPS; k++) {
+          float d = reach * pow((float(k) - tj) / float(TAPS), 1.7);
+          vec4 mk = textureGrad(uMap, cloudUV(cloudTurn(normalize(nw + st * (d / rw)), sp)), gx, gy);
+          float sk = mk.g * smoothstep(0.05, 0.5, mk.r), yk = hw + (d * tanE + d * d / (2.0 * rw)) / span;
+          shadow *= 1.0 - smoothstep(-0.06, 0.2, sk - yk) * smoothstep(0.15, 0.7, mk.r) * 0.6;
+        }
+        // (the faces of the heaps turned to the sun brighter, their far faces dimmer)
+        float NL = (mu - slope * stl) / sqrt(1.0 + slope * slope), lam = clamp((NL + 0.25) / 1.25, 0.0, 1.0);
+        // (the moons' shadows, and the rings')
+        vec3 wp = cameraPosition + normalize(vWP - cameraPosition) * length(Pw - ro);
+        float shd = 1.0;
+        for (int i = 0; i < 3; i++) { vec4 c = uPdCast[i]; if (c.w > 0.0) { vec3 rel = c.xyz - wp; float tt = dot(rel, uPdSunW);
+          if (tt > 0.0) { float d = length(rel - uPdSunW * tt), pen = c.w * 0.04 + tt * 0.0093; shd *= mix(0.05, 1.0, smoothstep(c.w - pen, c.w + pen, d)); } } }
+        shd *= mix(0.12, 1.0, ringThrough(wp, uPdSunW));
+        float g = max(dot(rd, uSunL), 0.0), fwd = 1.0 + 2.0 * pow(g, 6.0) * (1.0 - alpha * 0.7);
+        vec3 amb = uAmb * 0.3 * smoothstep(-0.12, 0.4, mu) + vec3(0.0008, 0.001, 0.0016);
+        col = (accS * lam * shadow * shd * fwd * uSunI + amb * accA) * uCol;
+      }
+      // the high wisps: a thin sheet over it all (or, from under it, behind it)
+      float dc = b * b - c0 + Rc * Rc;
+      if (dc > 0.0) {
+        float sc = sqrt(dc), tc = c0 > Rc * Rc ? -b - sc : -b + sc;
+        if (tc > 0.0 && tc < tP) {
+          vec3 nc = normalize(ro + rd * tc);
+          float cr = cos(uCirRot), sr = sin(uCirRot); vec3 ncr = vec3(cr * nc.x + sr * nc.z, nc.y, -sr * nc.x + cr * nc.z);
+          float ci = textureGrad(uMap, cloudUV(cloudTurn(ncr, sp)), gx, gy).b;
+          ci *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y, 1.0 - dot(nc, uHole.xyz)));
+          float ca = 1.0 - exp(-ci * 0.45 / max(abs(dot(rd, nc)), 0.1));
+          float mu = dot(nc, uSunL), muE = mu + sqrt(2.0 * (Rc - Rp) / Rp);
+          vec3 cc = (sunCol(muE) * clamp((mu + 0.5) / 1.5, 0.0, 1.0) * uSunI * 0.8 + uAmb * 0.25 * smoothstep(-0.3, 0.4, mu)) * ca * uCol;
+          if (c0 > Rc * Rc) { col = cc + col * (1.0 - ca); alpha = ca + alpha * (1.0 - ca); }
+          else { col += cc * (1.0 - alpha); alpha += ca * (1.0 - alpha); }
+        }
+      }
+      gl_FragColor = vec4(col, alpha) * uFade;
+    }`;
+
   class ShipObj {
     constructor() {
       this.group = new THREE.Group(); this.group.name = 'ship';
@@ -2072,8 +2315,6 @@ const Ship = (() => {
       this.tilt = new THREE.Group(); this.pgroup.add(this.tilt);
       this.planetMat = new THREE.MeshStandardMaterial({ map: TEX.get('planet'), roughness: 0.95, metalness: 0, fog: false });
       this.planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 96, 64), this.planetMat); this.tilt.add(this.planet);
-      this.clouds = new THREE.Mesh(new THREE.SphereGeometry(this.R * 1.007, 96, 64), new THREE.MeshStandardMaterial({ map: TEX.get('clouds'), transparent: true, opacity: 0.45, depthWrite: false, roughness: 1, fog: false }));
-      this.tilt.add(this.clouds);
       // Rings (Nadir's, the Hollow's), round this world or round the world in the sky over its moon or rock: drawn on a
       // dome round the eye, each point of it following its line of sight out to the sheet (see Rings), so they're right
       // however near or far they reach, out past the end of the view or in round the ship. They sit at their true depth,
@@ -2181,7 +2422,13 @@ const Ship = (() => {
     // resolving as you fall: each finer octave fades in once it is a few pixels across (so nothing ever shimmers),
     // and lights the land as relief. Low over it, the air thickens into haze toward the horizon.
     planetDetail() {
-      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: TEX.get('clouds') }, crot: { value: 0 }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) }, gas: { value: 0 }, scar: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) } };
+      // (the day's weather map, drawn into by stepWeather; until the first is done the cloud isn't shown. The storms in
+      // it: where, and how far round they've turned since)
+      const tier = CLOUD_TIER[this.wxTier = cloudTier()];
+      this.wxRT = new THREE.WebGLRenderTarget(tier.w, tier.w / 2, { minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, generateMipmaps: true, depthBuffer: false });
+      this.wxRT.texture.anisotropy = 4;
+      this.vortU = { value: Array.from({ length: CLOUD.NV }, () => new THREE.Vector4()) }; this.vturnU = { value: new Array(CLOUD.NV).fill(0) };
+      const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: this.wxRT.texture }, crot: { value: 0 }, cfade: { value: 0 }, cres: { value: tier.w / TAU }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) }, gas: { value: 0 }, scar: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) } };
       const NOISE = `varying vec3 vPDir; float pdHeight = 0.0;
         float pdh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
         float pdn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -2213,10 +2460,10 @@ const Ship = (() => {
         `;
       const vert = (sh) => { sh.vertexShader = 'varying vec3 vPDir;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vPDir = position;'); };
       this.planetMat.onBeforeCompile = (sh) => {
-        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW; sh.uniforms.uPdGas = U.gas; sh.uniforms.uPdScar = U.scar;
+        sh.uniforms.uPdHaze = U.haze; sh.uniforms.uPdTint = U.tint; sh.uniforms.uPdBump = U.bump; sh.uniforms.uPdCMap = U.cmap; sh.uniforms.uPdCRot = U.crot; sh.uniforms.uPdCFade = U.cfade; sh.uniforms.uPdCRes = U.cres; sh.uniforms.uVort = this.vortU; sh.uniforms.uVturn = this.vturnU; sh.uniforms.uPdSun = U.sunObj; sh.uniforms.uPdAir = U.air; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW; sh.uniforms.uPdGas = U.gas; sh.uniforms.uPdScar = U.scar;
         Object.assign(sh.uniforms, this.ringU);
         vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdAir, uPdGas; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3], uPdScar[4]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + CLOUD_SPIN + 'uniform float uPdHaze, uPdBump, uPdCRot, uPdCFade, uPdCRes, uPdAir, uPdGas; uniform vec3 uPdTint, uPdSun, uPdSunW; uniform vec4 uPdCast[3], uPdScar[4]; varying vec3 vWP; uniform sampler2D uPdCMap;\nvoid main() {')
           .replace('#include <map_fragment>', `#include <map_fragment>
             {
               // land (bright in the texture) gets rough, mottled ground and real relief; the sea stays nearly flat
@@ -2250,13 +2497,14 @@ const Ship = (() => {
                 diffuseColor.rgb *= (1.0 - 0.35 * fl) * (1.0 + 0.9 * rim + 0.45 * halo + 0.8 * rays);
                 pdHeight += sc.w * (-0.5 * fl * (1.0 - a * a) + 0.25 * rim);
               }
-              // the clouds' shadows, thrown a little way off toward the sun (looked up in the cloud shell's own frame)
-              vec3 cs = normalize(pp + uPdSun * 0.01);
+              // the clouds' shadows, thrown off away from the sun, the further the lower it is (looked up where the
+              // cloud is, toward the sun, in the cloud shell's own frame, turned with its storms)
+              float smu = dot(pp, uPdSun);
+              vec3 cs = normalize(pp + (uPdSun - pp * smu) * (0.009 / max(smu, 0.18)));
               float ca = cos(uPdCRot), sa = sin(uPdCRot);
               cs = vec3(ca * cs.x + sa * cs.z, cs.y, -sa * cs.x + ca * cs.z);
-              vec2 cuv = vec2(fract(atan(cs.z, -cs.x) / 6.28318), 1.0 - acos(clamp(cs.y, -1.0, 1.0)) / 3.14159);
-              float cov = textureLod(uPdCMap, cuv, log2(max(1.0, length(fwidth(pp)) * 163.0))).a;
-              diffuseColor.rgb *= 1.0 - 0.6 * smoothstep(0.1, 0.7, cov) * uPdAir * (1.0 - uPdGas);
+              float cov = textureLod(uPdCMap, cloudUV(cloudTurn(cs, cloudSpinAt(cs))), log2(max(1.0, length(fwidth(pp)) * uPdCRes))).a;
+              diffuseColor.rgb *= 1.0 - 0.62 * smoothstep(0.05, 0.75, cov) * uPdAir * (1.0 - uPdGas) * uPdCFade;
             }`)
           .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
             {
@@ -2285,52 +2533,111 @@ const Ship = (() => {
             #include <opaque_fragment>`);
       };
       this.planetMat.customProgramCacheKey = () => 'planetDetail';
-      // The clouds are three thin shells, the higher ones showing only where the cloud is thick and their tops lit
-      // brighter. Toward the horizon, seen edge-on, they part into layers, so the cloud has depth; under a low sun
-      // its own thickness reads as relief and the heaps stand out. They cast their shadows on the ground below.
-      const bump = (k) => `#include <normal_fragment_maps>
-            {
-              vec3 sp = -vViewPosition, dx = dFdx(sp), dy = dFdy(sp);
-              float hx = dFdx(pdHeight) * ${k}, hy = dFdy(pdHeight) * ${k};
-              vec3 r1 = cross(dy, normal), r2 = cross(normal, dx); float dt = dot(dx, r1);
-              normal = normalize(abs(dt) * normal - sign(dt) * (hx * r1 + hy * r2));
-            }`;
-      this.cloudLayers = [this.clouds];
-      for (let i = 1; i < 4; i++) { const c = new THREE.Mesh(this.clouds.geometry, this.clouds.material.clone()); this.tilt.add(c); this.cloudLayers.push(c); }
-      // (diving in, the cloud breaks over the site, so you come down through a gap toward the ground and what's on it:
-      // xyz is the site's direction in each layer's own frame, w how open the gap is; its edge is ragged with the cloud)
-      const holeR = { value: new THREE.Vector2(1 - Math.cos(0.036), 1 - Math.cos(0.11)) };
-      this.cloudLayers.forEach((c, i) => {
-        const layer = { value: i }, hole = { value: new THREE.Vector4() }; c.userData.hole = hole;
-        // (three shells make the main deck; the fourth is a thin high layer above it, its own wisps drifting faster)
-        c.scale.setScalar([0.999, 1.0002, 1.0014, 1.0085][i]); c.renderOrder = i;
-        c.material.opacity = [0.6, 0.45, 0.35, 0.34][i];
-        c.material.onBeforeCompile = (sh) => {
-          sh.uniforms.uLayer = layer; sh.uniforms.uHole = hole; sh.uniforms.uHoleR = holeR; sh.uniforms.uPdCast = U.cast; sh.uniforms.uPdSunW = U.sunW;
-          Object.assign(sh.uniforms, this.ringU);
-          vert(sh); sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-          sh.fragmentShader = sh.fragmentShader.replace('void main() {', NOISE + Rings.GLSL + 'uniform float uLayer; uniform vec4 uHole; uniform vec2 uHoleR; uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; varying vec3 vWP;\nvoid main() {')
-            // (the clouds lie in the moons' shadows too, and the rings')
-            .replace('#include <opaque_fragment>', `for (int i = 0; i < 3; i++) { vec4 c = uPdCast[i]; if (c.w > 0.0) { vec3 rel = c.xyz - vWP; float tt = dot(rel, uPdSunW);
-                if (tt > 0.0) { float d = length(rel - uPdSunW * tt), pen = c.w * 0.04 + tt * 0.0093; outgoingLight *= mix(0.05, 1.0, smoothstep(c.w - pen, c.w + pen, d)); } } }
-              outgoingLight *= mix(0.12, 1.0, ringThrough(vWP, uPdSunW));
-              #include <opaque_fragment>`)
-            .replace('#include <map_fragment>', `#include <map_fragment>
-              {
-                float hgt, det = pdFbm(normalize(vPDir) + 3.7 + uLayer * 0.61, 26.0, 2.5, 0.8, hgt);
-                float base = sampledDiffuseColor.a, dens = base * (0.9 + det * 1.8), th = uLayer * 0.17;
-                dens *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y * (0.8 + det * 0.5), 1.0 - dot(normalize(vPDir), uHole.xyz)));
-                diffuseColor.a = opacity * smoothstep(th, th + 0.5, dens);
-                diffuseColor.rgb *= 0.76 + 0.16 * uLayer;
-                pdHeight = base + det * 0.12;
-              }`)
-            .replace('#include <normal_fragment_maps>', bump((this.R * 0.012).toFixed(2)));
-        };
-        c.material.customProgramCacheKey = () => 'cloudDetail';
+      // (the sky over a moon still draws its world's weather from the painted map: made now, at the start, rather than
+      // in the middle of a landing)
+      TEX.get('clouds');
+      // The cloud deck: one shell round the world, its weather from the day's map, drawn as a volume (see CLOUD_FS)
+      const Rw = this.R, cu = this.cloudU = Object.assign({
+        uMap: { value: this.wxRT.texture }, uNoise: { value: R.vol.noise || null }, uCamL: { value: V() }, uSunL: { value: V(1, 0, 0) },
+        uAmb: { value: new THREE.Color() }, uCol: { value: new THREE.Color(1, 1, 1) }, uShell: { value: new THREE.Vector4(Rw * CLOUD.base, Rw * CLOUD.top, Rw * CLOUD.cirrus, Rw) },
+        uFade: { value: 0 }, uCirRot: { value: 0 }, uSunI: { value: 1.55 }, uTexel: { value: TAU * Rw * CLOUD.top / tier.w },
+        // (diving in, the cloud breaks over the site, so you come down through a gap toward the ground and what's on
+        // it: xyz is the site's direction in the cloud's own frame, w how open the gap is; its edge is ragged)
+        uHole: { value: new THREE.Vector4() }, uHoleR: { value: new THREE.Vector2(1 - Math.cos(0.036), 1 - Math.cos(0.11)) },
+        uPdCast: U.cast, uPdSunW: U.sunW, uVort: this.vortU, uVturn: this.vturnU,
+      }, this.ringU);
+      const cm = new THREE.ShaderMaterial({ uniforms: cu, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS(), defines: {}, transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false });
+      this.clouds = new THREE.Mesh(new THREE.SphereGeometry(Rw * CLOUD.hull, 96, 48), cm); this.clouds.visible = false; this.tilt.add(this.clouds);
+      // (where the eye and the sun are in the cloud's own frame, for whichever view is drawing it)
+      const inv = new THREE.Matrix4(), cp = V();
+      this.clouds.onBeforeRender = (r, sc, cam) => {
+        inv.copy(this.clouds.matrixWorld).invert(); cu.uCamL.value.copy(cp.setFromMatrixPosition(cam.matrixWorld)).applyMatrix4(inv);
+        cu.uSunL.value.copy(this.sunDir).transformDirection(inv);
+        // (from inside the shell, falling through it, its far side is what's drawn, over everything behind it)
+        const inside = cu.uCamL.value.length() < Rw * CLOUD.hull * 0.999;
+        cm.side = inside ? THREE.BackSide : THREE.FrontSide; cm.depthTest = !inside;
+      };
+      // the day's weather is worked out by WX_GEN_FS into wxRT, a band of rows at a time
+      this.wxMat = new THREE.ShaderMaterial({
+        uniforms: { uSize: { value: new THREE.Vector2(tier.w, tier.w / 2) }, uSeed: { value: V() }, uLook: { value: new THREE.Vector4() }, uLook2: { value: new THREE.Vector4() }, uJet: { value: new THREE.Vector4() },
+          uVort: this.vortU, uVk: { value: Array.from({ length: CLOUD.NV }, () => new THREE.Vector4()) }, uDet: { value: 60 } },
+        vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: WX_GEN_FS, depthTest: false, depthWrite: false,
       });
+      const tri = new THREE.BufferGeometry(); tri.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+      const wm = new THREE.Mesh(tri, this.wxMat); wm.frustumCulled = false;
+      this.wxScene = new THREE.Scene(); this.wxScene.add(wm); this.wxCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      this.wx = { want: null, row: -1, fade: 0, t: 0, ready: false, warm: 0 };
+      this.setCloudTier(this.wxTier);
+    }
+    // the clouds' cost, by the picture setting (CLOUD_TIER): their shader's loops, and the size of the weather map
+    setCloudTier(k) {
+      const t = CLOUD_TIER[k], m = this.clouds.material;
+      m.defines.STEPS = t.steps; m.defines.TAPS = t.taps; m.defines.DETAIL = t.detail; m.needsUpdate = true;
+      m.customProgramCacheKey = () => 'cloudDeck' + k;
+      if (this.wxRT.width !== t.w) { this.wxRT.setSize(t.w, t.w / 2); this.wxMat.uniforms.uSize.value.set(t.w, t.w / 2); }
+      this.pdU.cres.value = t.w / TAU; this.cloudU.uTexel.value = TAU * this.R * CLOUD.top / t.w; this.wxMat.uniforms.uDet.value = t.w > 1024 ? 64 : 40;
+    }
+    // The day's weather over the world we're circling, decided by the day and the world (seed: the orbit's), so every
+    // crewmate sees the same sky: its character (WEATHER) give or take, and today's storms. The lows ride the storm
+    // tracks, winding the opposite way either side of the equator; the tropical storms keep to the tropics; none
+    // overlaps another. (key: the world; it's worked out over the next few frames, see stepWeather)
+    setWeather(seed, key) {
+      const W = WEATHER[key] || WEATHER.ashgrove, r = new RNG((seed ^ 0x2f6b9e3d) >>> 0), g = this.wxMat.uniforms;
+      g.uSeed.value.set(r.range(-40, 40), r.range(-40, 40), r.range(-40, 40));
+      g.uLook.value.set(clamp(W.cover + r.range(-0.12, 0.12), 0.04, 0.9), W.storm * r.range(0.8, 1.2), W.cells * r.range(0.6, 1.2), clamp(W.tall * r.range(0.85, 1.15), 0.2, 1));
+      g.uLook2.value.set(W.jet, W.cirrus * r.range(0.7, 1.2), W.trop, 0);
+      g.uJet.value.set(r.range(0.72, 0.95), r.range(0.04, 0.13), r.int(3, 6), r.range(0, TAU));
+      const list = [], place = (latA, latB, rad, kind, spin) => {
+        for (let k = 0; k < 30; k++) {
+          const lat = r.range(latA, latB) * (r.chance(0.5) ? 1 : -1), lon = r.range(0, TAU), c = V(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat));
+          if (list.some((o) => o.c.angleTo(c) < (o.rad + rad) * 2.2)) continue;
+          return list.push({ c, rad, kind, spin: spin * (lat > 0 ? -1 : 1), front: kind ? 0 : r.range(0.5, 1), arm: r.range(0, TAU) });
+        }
+      };
+      if (W.great) place(0.3, 0.5, 0.42, 1, 4.5);
+      for (let i = Math.round(W.storm * W.trop * r.range(0, 3.5)); i > 0; i--) place(0.2, 0.42, r.range(0.06, 0.11), 1, r.range(5, 7.5));
+      for (let i = Math.round(W.storm * r.range(2, 6.5)); i > 0 && list.length < CLOUD.NV; i--) place(0.62, 1.05, r.range(0.14, 0.26), 0, r.range(2.5, 4.2) * (0.6 + 0.4 * W.storm));
+      this.wxStorms = list;
+      for (let i = 0; i < CLOUD.NV; i++) {
+        const s = list[i], v = this.vortU.value[i], k = g.uVk.value[i];
+        if (!s) { v.set(0, 0, 0, 0); k.set(0, 0, 0, 0); continue; }
+        v.set(s.c.x, s.c.y, s.c.z, s.rad); k.set(s.spin, s.kind, s.front, s.arm);
+        // (a tropical storm's middle goes round in about ten minutes, a low's in twenty-odd: either way slowly enough
+        // that it's only ever seen winding on, never spinning)
+        s.w = Math.sign(s.spin) * TAU / (s.kind ? 600 : 1400);
+      }
+      this.cloudU.uCol.value.setRGB(...(W.col || [1, 1, 1]));
+      this.wx.want = true;
+    }
+    // Each frame in orbit: today's weather map drawn a band of rows at a time (never a stall), once its shader's ready,
+    // then faded in; a new day's fades the old out first. The storms wind on.
+    stepWeather(dt) {
+      const X = this.wx, rr = R.renderer; if (!rr) return;
+      if (!this.cloudU.uNoise.value) this.cloudU.uNoise.value = R.vol.noise;
+      const tier = cloudTier();
+      if (tier !== this.wxTier) { this.wxTier = tier; X.want = true; X.fade = Math.min(X.fade, 0.001); X.warm = 0; this.setCloudTier(tier); }
+      if (X.want) {
+        X.fade = Math.max(0, X.fade - dt * 3);
+        if (X.fade <= 0) { X.want = false; X.row = 0; X.ready = false; }
+      }
+      if (X.row >= 0) {
+        // (both shaders compiled first, off the main thread where the browser can)
+        if (X.warm === 0) { X.warm = 1; let n = 0; const ok = () => { if (++n === 2) X.warm = 2; }; R.precompile(this.wxScene, ok, this.wxScene); R.precompile(this.clouds, ok, R.bgScene); }
+        if (X.warm === 2) {
+          const T = this.wxRT, H = T.height, n = Math.min(CLOUD_TIER[tier].band, H - X.row), keep = rr.getRenderTarget();
+          T.scissor.set(0, X.row, T.width, n); T.scissorTest = true; T.texture.generateMipmaps = X.row + n >= H;
+          rr.setRenderTarget(T); rr.render(this.wxScene, this.wxCam); rr.setRenderTarget(keep);
+          X.row += n; if (X.row >= H) { X.row = -1; X.ready = true; X.t = 0; }
+        }
+      }
+      if (X.ready && !X.want) X.fade = Math.min(1, X.fade + dt / 1.5);
+      X.t += dt;
+      if (this.wxStorms) this.wxStorms.forEach((s, i) => { this.vturnU.value[i] = s.w * X.t; });
+      this.cloudU.uFade.value = this.pdU.cfade.value = X.fade * X.fade * (3 - 2 * X.fade);
+      this.clouds.visible = this.cloudsOn && X.fade > 0;
     }
     setPlanet(tint, atmo, airless, giant) {
-      this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo);
+      this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo); this.cloudU.uAmb.value.set(atmo);
       // (an airless moon or rock: cratered grey dust, no cloud, no air to glow at the limb or to burn coming down)
       this.airless = !!airless;
       // (its night side is black, like the world's: nothing but the stars behind it to show where it ends)
@@ -2338,7 +2645,7 @@ const Ship = (() => {
       const map = TEX.get(airless ? 'moonmap' : giant || 'planet'), pm = this.planetMat;
       if (pm.map !== map) { pm.map = map; pm.normalMap = airless ? TEX.normal('moonmap', 3) : null; pm.normalScale.set(2.4, 2.4); pm.needsUpdate = true; }
       this.pdU.air.value = airless ? 0 : 1; this.pdU.gas.value = giant ? 1 : 0;
-      for (const c of this.cloudLayers) c.visible = !airless && !giant;
+      this.cloudsOn = !airless && !giant; this.clouds.visible = this.cloudsOn && this.wx.fade > 0;
       this.atmo.visible = !airless;
     }
     // the fresh craters on the moon or rock we're circling (G.run.scars): where round it, in its own frame, and how wide
@@ -2565,6 +2872,8 @@ const Ship = (() => {
       this.turn = 0; this.dip = 1;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
+      // (and its own weather today: the same seed, the world's own character)
+      if (!look.airless && !look.giant) this.setWeather(seed, typeof SITE_LOOK === 'undefined' ? null : Object.keys(SITE_LOOK).find((k) => SITE_LOOK[k] === look));
       // (rings: only round the worlds that have them; never round an airless moon or rock)
       this.ringOwn = !!look.rings && !look.airless; this.ringPlanet = null; this.hold = 0;
     }
@@ -2607,8 +2916,9 @@ const Ship = (() => {
       // wind carrying it along a touch behind; the high layer drifts on slowly by itself. The angle along the orbit is
       // taken unwrapped, so it never jumps a little once a lap)
       const nuU = nu + TAU * Math.round((E - nu) / TAU);
-      this.cloudLayers.forEach((c, i) => { c.rotation.y = nuU * 0.997 + t * o.spin * 0.92 + (i === 3 ? 1.7 + t * o.spin * 0.1 : 0); });
+      this.clouds.rotation.y = nuU * 0.997 + t * o.spin * 0.92; this.cloudU.uCirRot.value = t * o.spin * 0.03;
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
+      this.stepWeather(dt);
       const sa = o.sunPhase - nu;
       this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);
       this.sunCore.position.copy(this.sunDir).multiplyScalar(15000);
@@ -2669,12 +2979,12 @@ const Ship = (() => {
       // (a few degrees off dead ahead, so the windshield's middle pillar, right on the line of the dive, isn't over it)
       {
         const k = this.approach > 0 && !this.inWarp ? sstep(R * 0.2, R * 0.06, this.alt) : 0;
-        for (const c of this.cloudLayers) c.userData.hole.value.w = 0;
+        const h = this.cloudU.uHole.value; h.w = 0;
         if (k > 0.002) {
           const dir = _dh.copy(D).applyAxisAngle(_up0, 0.05), cosA = dir.dot(D), dc = this.alt + R;
           _sw.copy(dir).multiplyScalar(dc * cosA - Math.sqrt(Math.max(0, R * R - dc * dc * (1 - cosA * cosA))));
           this.space.updateMatrixWorld(); _sw.applyMatrix4(this.space.matrixWorld);
-          for (const c of this.cloudLayers) { const h = c.userData.hole.value; c.updateMatrixWorld(); const l = c.worldToLocal(_sl.copy(_sw)).normalize(); h.set(l.x, l.y, l.z, sstep(0, 0.35, k)); }
+          this.clouds.updateMatrixWorld(); const l = this.clouds.worldToLocal(_sl.copy(_sw)).normalize(); h.set(l.x, l.y, l.z, sstep(0, 0.35, k));
         }
       }
       // eclipse when the sun slips behind the planet's disc

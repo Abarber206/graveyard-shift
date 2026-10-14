@@ -3,7 +3,9 @@
 const TEX = (() => {
   const cache = {};
   const r = new RNG(1337);
-  function C(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+  // (kept in ordinary memory rather than on the graphics card: nearly every texture reads its pixels back to add grain
+  // or relief, which on a GPU canvas means waiting on the card each time, a big part of a landing's build on a phone)
+  function C(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d', { willReadFrequently: true })]; }
   // a few of the ship's own surfaces (its insulation, ceiling panels, pegboard) are drawn at twice the pixels: same layout
   // in the same coordinates, finer and sharper (everything else keeps the old, grainier resolution)
   const Q = 2;

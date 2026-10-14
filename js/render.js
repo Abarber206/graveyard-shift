@@ -394,6 +394,8 @@ const R = (() => {
         return l(l(l(at(L, ix, iy, iz), at(L, ix + 1, iy, iz), u), l(at(L, ix, iy + 1, iz), at(L, ix + 1, iy + 1, iz), u), v), l(l(at(L, ix, iy, iz + 1), at(L, ix + 1, iy, iz + 1), u), l(at(L, ix, iy + 1, iz + 1), at(L, ix + 1, iy + 1, iz + 1), u), v), w); };
       for (let k = 0; k < S; k++) for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = i / S, y = j / S, z = k / S; d[(k * S + j) * S + i] = Math.round((vn(lat[0], x, y, z) * 0.55 + vn(lat[1], x, y, z) * 0.3 + vn(lat[2], x, y, z) * 0.15) * 255); }
       const nt = new THREE.Data3DTexture(d, S, S, S); nt.format = THREE.RedFormat; nt.type = THREE.UnsignedByteType; nt.minFilter = nt.magFilter = THREE.LinearFilter; nt.wrapS = nt.wrapT = nt.wrapR = THREE.RepeatWrapping; nt.needsUpdate = true;
+      // (the planets' clouds take their fine detail from it too, close up)
+      vol.noise = nt;
       const blank = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType); blank.needsUpdate = true;
       const U = (x) => ({ value: x });
       vol.mat = new THREE.ShaderMaterial({

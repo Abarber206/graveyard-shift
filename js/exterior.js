@@ -277,7 +277,8 @@ const Exterior = (() => {
       this.buildPath();
       this.flats = [
         { x: 0, z: 0, r: 19, r2: 32, h: SHIP.ground },
-        { x: this.center.x, z: this.center.z, r: 50, r2: 68, h: this.entrance.h },
+        // (the plant's yard: wide enough that its outbuildings, tanks and graveyard all stand on the level)
+        { x: this.center.x, z: this.center.z, r: 56, r2: 74, h: this.entrance.h },
         { x: this.fire.x, z: this.fire.z, r: 6, r2: 13, h: this.fire.h },
       ];
       this.cols = []; this.obbs = []; this.hash = new Map();
@@ -347,7 +348,24 @@ const Exterior = (() => {
       for (let i = 0; i < P.length - 1; i++) if (P[i + 1].t >= t) { const u = (t - P[i].t) / ((P[i + 1].t - P[i].t) || 1); return { x: lerp(P[i].x, P[i + 1].x, u), z: lerp(P[i].z, P[i + 1].z, u), dx: P[i + 1].x - P[i].x, dz: P[i + 1].z - P[i].z }; }
       const l = P[P.length - 1]; return { x: l.x, z: l.z, dx: 1, dz: 0 };
     }
+    // The ground as it's drawn: the terrain is a mesh of 2 m cells, each split into two triangles from its (x0, z1)
+    // corner to its (x1, z0) one, and between its corners it's flat, not the land's true shape (shapeH), which can bulge
+    // or dip a hand's breadth away from it (a metre at a canyon's riser). Everything stands on this, so nothing floats
+    // over a dip or sinks into a rise: players, the crew, creatures, what's dropped, and every post, rock and tree.
+    // (in a supply pod's crater, the bowl laid over it, which follows the true shape)
     height(x, z) {
+      const G = this.grid; if (!G || !G.ready) return this.shapeH(x, z);
+      const c = G.size / (G.n - 1), fx = (x + G.size / 2) / c, fz = (z + G.size / 2) / c;
+      if (!(fx >= 0 && fz >= 0 && fx < G.n - 1 && fz < G.n - 1)) return this.shapeH(x, z);
+      for (const k of this.impacts) if (Math.abs(x - k.x) < k.R && Math.abs(z - k.z) < k.R) return this.shapeH(x, z);
+      const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, H = G.h, n = G.n, k = j * n + i;
+      return u + v <= 1 ? H[k] + u * (H[k + 1] - H[k]) + v * (H[k + n] - H[k]) : H[k + n + 1] + (1 - u) * (H[k + n] - H[k + n + 1]) + (1 - v) * (H[k + 1] - H[k + n + 1]);
+    }
+    // the lowest the drawn ground goes round a spot, out to r: what something r across has to be sunk to, to stand
+    // in it on a slope without a gap on the downhill side
+    footY(x, z, r) { let m = this.height(x, z); for (let k = 0; k < 6; k++) m = Math.min(m, this.height(x + Math.cos(k * 1.047) * r, z + Math.sin(k * 1.047) * r)); return m; }
+    // the land's true shape, which the terrain mesh is built from
+    shapeH(x, z) {
       let h = this.baseH(x, z) - this.base0;
       const dc = Math.hypot(x, z);
       if (dc > 140) h += Math.min(26, (dc - 140) * (dc - 140) * 0.03);
@@ -372,13 +390,13 @@ const Exterior = (() => {
     // bowl is laid over it), and keep anything from growing in it. (fresh: a meteor's, on an airless moon: not scorched
     // but ringed with bright spray thrown out in rays, the floor a little darker)
     addCrater(x, z, r, d, fresh) {
-      this.impacts.push({ x, z, r, d });
       // (coarse vertices inside rd sink well below the bowl; the bowl reaches a full grid diagonal past them, so no
       // coarse triangle that dips can show outside it)
       const rd = r + 0.6, R = fresh ? Math.max(rd + 3, r * 2.6) : rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
+      this.impacts.push({ x, z, r, d, R });
       for (let i = 0; i < pos.count; i++) {
         const vx = pos.getX(i), vz = pos.getZ(i), q = Math.hypot(vx - x, vz - z); if (q > R + 2.2) continue;
-        const h = this.height(vx, vz);
+        const h = this.shapeH(vx, vz);
         pos.setY(i, h - (q < rd ? 0.4 : 0)); G2.h[i] = h; if (q < r * 1.5) G2.bare[i] = 1;
       }
       pos.needsUpdate = true; g.computeVertexNormals();
@@ -393,7 +411,7 @@ const Exterior = (() => {
       };
       for (let i = 0; i < bp.count; i++) {
         const vx = bp.getX(i) + x, vz = bp.getZ(i) + z, q = Math.hypot(vx - x, vz - z) / r;
-        bp.setX(i, vx); bp.setZ(i, vz); bp.setY(i, this.height(vx, vz) + 0.01); buv.setXY(i, vx / 5, vz / 5);
+        bp.setX(i, vx); bp.setZ(i, vz); bp.setY(i, this.shapeH(vx, vz) + 0.01); buv.setXY(i, vx / 5, vz / 5);
         const c = sampleCol(vx, vz), burn = sstep(1.15, 0.25, q), lip = Math.exp(-((q - 1.0) ** 2) / 0.04) * 0.35;
         if (fresh) {
           const an = Math.atan2(vz - z, vx - x), ph = x * 0.37 + z * 0.11, rays = Math.pow(Math.max(0, Math.sin(an * 9 + ph) * Math.sin(an * 5.3 + ph * 1.7)), 2) * sstep(2.6, 1.1, q) * sstep(0.9, 1.15, q);
@@ -450,7 +468,7 @@ const Exterior = (() => {
       const trails = new Float32Array(pos.count), yards = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) {
         if (i % 9000 === 8999) yield;
-        const x = pos.getX(i), z = pos.getZ(i), h = this.height(x, z);
+        const x = pos.getX(i), z = pos.getZ(i), h = this.shapeH(x, z);
         pos.setY(i, h); this.grid.h[i] = h;
         uv.setXY(i, x / 5, z / 5);
         trails[i] = sstep(3.2, 1.2, this.pathInfo(x, z).d) * (0.75 + 0.25 * this.noise.noise(x * 0.4, z * 0.4));
@@ -458,6 +476,7 @@ const Exterior = (() => {
         const pads = Math.max(sstep(19, 14, Math.hypot(x, z)), sstep(8, 5, Math.hypot(x - this.fire.x, z - this.fire.z)));
         this.grid.bare[i] = Math.max(sstep(0.15, 0.45, trails[i]), sstep(0.3, 0.7, yards[i]), pads);
       }
+      this.grid.ready = true;
       geo.computeVertexNormals();
       yield;
       const nrm = geo.attributes.normal, BI = this.biome, P = BI.ground, W = this.water;
@@ -533,13 +552,15 @@ const Exterior = (() => {
         if (!this.clearOf(x, z, 0)) continue;
         if (this.noise.noise(x * 0.02, z * 0.02) < -0.15 && r.chance(0.7)) continue;
         const roll = r.next(), v = roll < T.snag ? r.int(0, 1) : roll < T.snag + T.swamp ? r.int(4, 5) : r.int(2, 3), s = r.range(0.8, 1.4);
-        (r.chance(T.charred) ? lists[v].char : lists[v].bark).push({ x, z, s, ry: r.range(0, TAU), lean: r.range(-0.07, 0.07) }); count++;
+        (r.chance(T.charred) ? lists[v].char : lists[v].bark).push({ x, z, s, ry: r.range(0, TAU), lean: r.range(-0.07, 0.07), fr: (v >= 4 ? 1.1 : 0.4) * s }); count++;
         this.addCircle(x, z, 0.32 * s);
       }
       const plant = (geo, list, m) => {
         if (!list.length || !geo) return;
         const im = new THREE.InstancedMesh(geo, m, list.length);
-        list.forEach((p, n) => im.setMatrixAt(n, mat(p.x, this.height(p.x, p.z) - 0.3, p.z, p.lean, p.ry, p.lean, p.s, p.s, p.s)));
+        // (sunk to the lowest of the ground round the trunk, or round a swamp tree's buttress roots, so none stands
+        // on a slope with daylight under its downhill side)
+        list.forEach((p, n) => im.setMatrixAt(n, mat(p.x, this.footY(p.x, p.z, p.fr) - 0.3, p.z, p.lean, p.ry, p.lean, p.s, p.s, p.s)));
         im.castShadow = true; im.receiveShadow = true; grp.add(im);
       };
       kinds.forEach((k, v) => { plant(k.geo, lists[v].bark, treeMat); plant(k.geo, lists[v].char, charMat); if (k.moss) plant(k.moss, lists[v].bark, mossMat); });
@@ -580,7 +601,8 @@ const Exterior = (() => {
       rps.forEach((list, v) => {
         if (!list.length) return;
         const im = new THREE.InstancedMesh(rockGeos[v], this.rockMat, list.length);
-        list.forEach((p, n) => im.setMatrixAt(n, mat(p.x, this.height(p.x, p.z) - p.s * 0.25 + (p.sy > 1 ? p.s * p.sy * 0.55 : 0), p.z, 0, p.ry, 0, p.s, p.s * p.sy, p.s)));
+        // (bedded in the lowest of the ground under them; a spire's narrow foot well down in it, not balanced on its tip)
+        list.forEach((p, n) => im.setMatrixAt(n, mat(p.x, this.footY(p.x, p.z, p.s * 0.7) - p.s * 0.25 + (p.sy > 1 ? p.s * p.sy * 0.42 : 0), p.z, 0, p.ry, 0, p.s, p.s * p.sy, p.s)));
         im.castShadow = true; im.receiveShadow = true; grp.add(im);
       });
       this.group = grp;
@@ -879,13 +901,15 @@ const Exterior = (() => {
       const li = new THREE.InstancedMesh(logGeo, bark, logs.length);
       logs.forEach((l, n) => {
         const c = Math.cos(l.ry), s = Math.sin(l.ry), hx = c * l.len / 2, hz = -s * l.len / 2;
-        const h0 = this.height(l.x - hx, l.z - hz), h1 = this.height(l.x + hx, l.z + hz);
-        li.setMatrixAt(n, mat(l.x, (h0 + h1) / 2 + l.rad * 0.6, l.z, 0, l.ry, Math.atan2(h1 - h0, l.len), l.len, l.rad, l.rad));
+        // (lying along the ground: resting on whichever is lower, the line between its ends or the ground at its middle,
+        // so neither its ends nor its middle hang in the air)
+        const h0 = this.height(l.x - hx, l.z - hz), h1 = this.height(l.x + hx, l.z + hz), hm = Math.min(this.height(l.x - hx / 2, l.z - hz / 2), this.height(l.x, l.z), this.height(l.x + hx / 2, l.z + hz / 2));
+        li.setMatrixAt(n, mat(l.x, Math.min((h0 + h1) / 2, hm) + l.rad * 0.55, l.z, 0, l.ry, Math.atan2(h1 - h0, l.len), l.len, l.rad, l.rad));
         this.addObb(l.x, l.z, l.len / 2, l.rad + 0.05, l.ry);
       });
       li.castShadow = true; li.receiveShadow = true; grp.add(li);
       const si = new THREE.InstancedMesh(stumpGeo, bark, stumps.length);
-      stumps.forEach((p, n) => { si.setMatrixAt(n, mat(p.x, this.height(p.x, p.z) - 0.1, p.z, 0, p.ry, 0, p.s, p.s, p.s)); this.addCircle(p.x, p.z, 0.38 * p.s); });
+      stumps.forEach((p, n) => { si.setMatrixAt(n, mat(p.x, this.footY(p.x, p.z, 0.4 * p.s) - 0.12, p.z, 0, p.ry, 0, p.s, p.s, p.s)); this.addCircle(p.x, p.z, 0.38 * p.s); });
       si.castShadow = true; si.receiveShadow = true; grp.add(si);
     }
     // bilinear sample of a 2 m terrain grid
@@ -1019,7 +1043,7 @@ const Exterior = (() => {
         // grass grows in patches: thick in some places, gone in others
         const patch = this.noise.noise(x * 0.07, z * 0.07) * 0.5 + this.noise.noise(x * 0.23 + 5, z * 0.23) * 0.2;
         const GR = this.biome.grass, W = this.water;
-        const y = this.gridAt(this.grid.h, x, z);
+        const y = this.height(x, z);
         let dens = GR.dens - bare * 0.9 + patch * 0.6;
         // reeds crowd the waterline and stand in the shallows, never out in deep water
         if (W != null) { if (y < W - 0.35) dens = -1; else dens += sstep(W + 1.0, W, y) * 0.6; }
@@ -1045,9 +1069,9 @@ const Exterior = (() => {
         for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
           const x = (i + hash(i, j, 21)) * cell, z = (j + hash(i, j, 22)) * cell, d = Math.hypot(x - cx, z - cz);
           if (d > 30) continue;
-          const y = this.gridAt(this.grid.h, x, z), bare = this.gridAt(this.grid.bare, x, z);
+          const y = this.height(x, z), bare = this.gridAt(this.grid.bare, x, z);
           if (this.water != null && y < this.water + 0.05) continue;
-          nrm.set(this.gridAt(this.grid.h, x - 0.7, z) - this.gridAt(this.grid.h, x + 0.7, z), 1.4, this.gridAt(this.grid.h, x, z - 0.7) - this.gridAt(this.grid.h, x, z + 0.7)).normalize();
+          nrm.set(this.height(x - 0.7, z) - this.height(x + 0.7, z), 1.4, this.height(x, z - 0.7) - this.height(x, z + 0.7)).normalize();
           q.setFromUnitVectors(up, nrm);
           const patch = this.noise.noise(x * 0.11 + 30, z * 0.11) * 0.5 + 0.5;
           if (hash(i, j, 23) < LD[0] * (1 - bare * 0.6) * (0.4 + patch) && nl < 1600) {
@@ -1075,14 +1099,18 @@ const Exterior = (() => {
     // in the rain: standing water in the ruts and low spots of the trail and the yards, black and shining
     buildPuddles(grp) {
       if (!(this.weather === 'rain' || this.weather === 'storm') || this.biome.airless || this.water != null) return;
-      const r = new RNG(this.seed + 808), m = MATS.get('puddle'), geo = new THREE.CircleGeometry(1, 14); geo.rotateX(-Math.PI / 2);
+      // (each a disc draped over the ground as it's drawn, a couple of centimetres up; all of them one mesh)
+      const r = new RNG(this.seed + 808), parts = [];
       for (let t = 0, n = 0; t < 400 && n < 34; t++) {
         const x = r.range(-150, 150), z = r.range(-150, 150);
         if (this.gridAt(this.grid.bare, x, z) < 0.45 || Math.hypot(x, z) < 15) continue;
         const h = this.height(x, z), lo = Math.min(this.height(x + 1.5, z), this.height(x - 1.5, z), this.height(x, z + 1.5), this.height(x, z - 1.5));
         if (h - lo > 0.12) continue;
-        const pm = new THREE.Mesh(geo, m), s = r.range(0.4, 1.3); pm.scale.set(s * r.range(1, 1.8), 1, s); pm.rotation.y = r.range(0, TAU); pm.position.set(x, h + 0.025, z); pm.receiveShadow = true; grp.add(pm); n++;
+        const g = new THREE.RingGeometry(0, 1, 14, 3), s = r.range(0.4, 1.3); g.rotateX(-Math.PI / 2); g.scale(s * r.range(1, 1.8), 1, s); g.rotateY(r.range(0, TAU)); g.translate(x, 0, z);
+        const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, this.height(p.getX(i), p.getZ(i)) + 0.02);
+        parts.push(g); n++;
       }
+      if (parts.length) { const pm = new THREE.Mesh(mergeGeoList(parts), MATS.get('puddle')); pm.receiveShadow = true; grp.add(pm); }
     }
     // a few crows wheeling slowly high over the place by day (none where there's no air, gone to roost by night)
     buildCrows(grp) {
@@ -1226,7 +1254,7 @@ const Exterior = (() => {
         // the flare stack, off behind the hall, still burning off the gas; distillation columns on the roof
         this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.3, 58, 12), MATS.rep('painted', 1, 8, 0xb8b0a0)), 24, 29, -46, b); this.circLocal(b, 24, -46, 1.4);
         // (its guy wires, out to the ground on four sides)
-        for (let k = 0; k < 4; k++) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 30, 4), dark), 24 + Math.cos(k * 1.57) * 3, 15, -46 + Math.sin(k * 1.57) * 3, b, -Math.sin(k * 1.57) * 0.2, 0, Math.cos(k * 1.57) * 0.2);
+        for (let k = 0; k < 4; k++) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 32, 4), dark), 24 + Math.cos(k * 1.57) * 3, 15, -46 + Math.sin(k * 1.57) * 3, b, -Math.sin(k * 1.57) * 0.2, 0, Math.cos(k * 1.57) * 0.2);
         this.flame(grp, b, 24, 59.2, -46, 1.6);
         for (const [x, z, h] of [[-15, -32, 24], [-8.5, -32, 30]]) {
           this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, h, 16), MATS.rep('painted', 2, 6, 0xd0c8b4)), x, 25.2 + h / 2, z, b);
@@ -1272,7 +1300,7 @@ const Exterior = (() => {
         for (const [x, z] of [[-33, 7], [-44, 4]]) {
           const tm = MATS.rep('painted', 3, 1, 0xdfe6ea);
           this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 10, 20), tm), x, 3.6, z, b, Math.PI / 2);
-          for (const s2 of [-1, 1]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(2.4, 20, 10), tm); cap.scale.set(1, 1, 0.45); this.place(grp, cap, x, 3.6, z + s2 * 5, b); this.place(grp, B(4.4, 1.6, 0.8, dark), x, 0.8, z + s2 * 3.4, b); }
+          for (const s2 of [-1, 1]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(2.4, 20, 10), tm); cap.scale.set(1, 1, 0.45); this.place(grp, cap, x, 3.6, z + s2 * 5, b); this.place(grp, B(4.4, 2.4, 0.8, dark), x, 0.4, z + s2 * 3.4, b); }
           this.place(grp, new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.5, 11), snow), x, 6.1, z, b);
           this.obbLocal(b, x, z, 2.5, 6.2);
         }
@@ -1287,17 +1315,17 @@ const Exterior = (() => {
       } else if (PL === 'asylum') {
         // the chapel: a small gabled hall with a bell-cote over the door, beside the graveyard
         const cx = -40, cz = 8;
-        this.place(grp, B(10, 7, 14, conc(10, 7)), cx, 3.5, cz, b); this.obbLocal(b, cx, cz, 5.2, 7.2);
+        this.place(grp, B(10, 9, 14, conc(10, 9)), cx, 2.5, cz, b); this.obbLocal(b, cx, cz, 5.2, 7.2);
         this.place(grp, this.gable(11, 4.6, 14.8, roof), cx, 7, cz, b);
         this.place(grp, B(1.6, 2.4, 1.6, conc(2, 2)), cx, 12.4, cz + 6.4, b); this.place(grp, new THREE.Mesh(new THREE.ConeGeometry(1.3, 2.2, 4), roof), cx, 14.7, cz + 6.4, b, 0, Math.PI / 4);
-        this.place(grp, B(1.8, 3.2, 0.1, MATS.get('wood')), cx, 1.6, cz + 7.03, b);
+        this.place(grp, B(1.8, 3.6, 0.1, MATS.get('wood')), cx, 1.4, cz + 7.03, b);
         for (const z of [cz - 4, cz, cz + 4]) for (const sx of [-1, 1]) this.place(grp, this.plane(1.1, 2.6, new THREE.MeshStandardMaterial({ map: TEX.get('dirtGlass'), roughness: 0.2, metalness: 0.5 })), cx + sx * 5.02, 3.8, z, b, 0, sx * Math.PI / 2);
       } else if (PL === 'refinery') {
         // spheres for the gas, up on their legs, a walkway round each one's middle
         for (const [x, z] of [[-33, 7], [-44, 4]]) {
           this.place(grp, new THREE.Mesh(new THREE.SphereGeometry(4.4, 24, 16), MATS.rep('painted', 3, 2, 0xe8e2d0)), x, 7.4, z, b);
           this.place(grp, new THREE.Mesh(new THREE.TorusGeometry(4.6, 0.12, 6, 28), dark), x, 7.4, z, b, Math.PI / 2);
-          for (let k = 0; k < 8; k++) { const a = k * TAU / 8, lx = x + Math.cos(a) * 3.9, lz = z + Math.sin(a) * 3.9; this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 7.4, 6), dark), lx, 3.7, lz, b); this.circLocal(b, lx, lz, 0.3); }
+          for (let k = 0; k < 8; k++) { const a = k * TAU / 8, lx = x + Math.cos(a) * 3.9, lz = z + Math.sin(a) * 3.9; this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 8.4, 6), dark), lx, 3.2, lz, b); this.circLocal(b, lx, lz, 0.3); }
         }
       } else if (PL === 'foundry') {
         // the blast furnace: a tapering stack of riveted plate, its tap hole glowing at the foot
@@ -1388,20 +1416,33 @@ const Exterior = (() => {
         this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 14, 8), dark), -24, 32, -30, b);
         for (const y of [35, 38]) this.place(grp, B(3, 0.1, 0.1, dark), -24, y, -30, b);
         this.blinkLight(grp, b, -24, 39.3, -30, 0xff2010, 1.3);
-        const ft = TEX.get('fence').clone(); ft.wrapS = ft.wrapT = THREE.RepeatWrapping; ft.repeat.set(9, 1.3); ft.needsUpdate = true;
-        const fm = new THREE.MeshStandardMaterial({ map: ft, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 });
+        // The quarantine fence across the front of the yard: posts every 2 m, the chain-link hung straight between their
+        // tops and running right down into the ground under it however the ground lies, a rail along the top, the
+        // warning signs every few lengths; a gap left wherever the trail runs through. (One mesh for the link, one for
+        // the steel, one for the signs.)
+        const fm = new THREE.MeshStandardMaterial({ map: TEX.get('fence'), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 });
         const warn = new THREE.MeshStandardMaterial({ map: TEX.sign('BIOHAZARD\nQUARANTINE ZONE\nNO UNAUTHORISED ENTRY', { w: 256, h: 160, size: 24, bg: '#d8b020', fg: '#141414' }), roughness: 0.8 });
-        // 4 m panels that follow the ground; a gap is left wherever the trail runs through
         const FZ = 31, gy = (x) => { const w = this.toWorld(b, x, FZ); return this.height(w.x, w.z) - b.y; };
+        const lp = [], lu = [], steel = [], signs = [], postG = new THREE.CylinderGeometry(0.06, 0.06, 1, 6), railG = new THREE.CylinderGeometry(0.03, 0.03, 1, 6), signG = new THREE.PlaneGeometry(1.2, 0.75);
+        railG.rotateZ(Math.PI / 2);
         let k = 0;
-        for (let x = -38; x < 38; x += 4) {
-          const w = this.toWorld(b, x + 2, FZ); if (this.pathInfo(w.x, w.z).d < 4.5) continue;
-          const y0 = gy(x), y1 = gy(x + 4), ym = (y0 + y1) / 2, tilt = Math.atan2(y1 - y0, 4);
-          this.place(grp, this.plane(4, 2.6, fm), x + 2, ym + 1.3, FZ, b, 0, 0, tilt);
-          this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 4, 6), dark), x + 2, ym + 2.62, FZ, b, 0, 0, Math.PI / 2 + tilt);
-          for (const [px, py] of [[x, y0], [x + 4, y1]]) this.place(grp, new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.9, 6), dark), px, py + 1.4, FZ, b);
-          if (k++ % 3 === 1) this.place(grp, this.plane(1.2, 0.75, warn), x + 2, ym + 1.6, FZ + 0.04, b, 0, 0, tilt);
-          this.obbLocal(b, x + 2, FZ, 2, 0.12);
+        for (let x = -38; x < 38; x += 2) {
+          const w = this.toWorld(b, x + 1, FZ); if (this.pathInfo(w.x, w.z).d < 4.5) continue;
+          const y0 = gy(x), y1 = gy(x + 2), t0 = y0 + 2.62, t1 = y1 + 2.62;
+          // (the link: five strips a span, its foot just under the ground at each, its top straight from post to post)
+          for (let c = 0; c < 5; c++) {
+            const xa = x + c * 0.4, xb = xa + 0.4, ba = gy(xa) - 0.12, bb = gy(xb) - 0.12, ta = lerp(t0, t1, c / 5), tb = lerp(t0, t1, (c + 1) / 5);
+            for (const [px, py] of [[xa, ba], [xb, bb], [xb, tb], [xa, ba], [xb, tb], [xa, ta]]) { lp.push(px, py, FZ); lu.push(px * 2.25, (py - lerp(y0, y1, (px - x) / 2)) * 0.5); }
+          }
+          for (const [px, py] of [[x, y0], [x + 2, y1]]) steel.push({ geo: postG, matrix: mat(px, py + 1.17, FZ, 0, 0, 0, 1, 2.95, 1) });
+          steel.push({ geo: railG, matrix: mat(x + 1, (t0 + t1) / 2, FZ, 0, 0, Math.atan2(y1 - y0, 2), 2.02, 1, 1) });
+          if (k++ % 4 === 1) signs.push({ geo: signG, matrix: mat(x + 1, (y0 + y1) / 2 + 1.6, FZ + 0.04, 0, 0, Math.atan2(y1 - y0, 2)) });
+          this.obbLocal(b, x + 1, FZ, 1, 0.12);
+        }
+        if (lp.length) {
+          const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(lu, 2)); g.computeVertexNormals();
+          this.place(grp, new THREE.Mesh(g, fm), 0, 0, 0, b); this.place(grp, new THREE.Mesh(mergeGeoList(steel), dark), 0, 0, 0, b);
+          if (signs.length) this.place(grp, new THREE.Mesh(mergeGeoList(signs), warn), 0, 0, 0, b);
         }
         const drum = MATS.rep('painted', 1, 1, 0xc49a1e), band = MATS.get('dark');
         for (const [cx, cz] of [[-22, 12], [22, 5], [14, 20]]) for (let k = 0; k < 4; k++) {
@@ -1425,7 +1466,7 @@ const Exterior = (() => {
             y = Math.max(gy + 3.2 + yo, y - 0.8); pts.push(new THREE.Vector3(p.x, y, p.z));
             // a trestle under each joint (none standing in the trail: it runs underneath)
             const leg = y - r0 - gy;
-            if (leg > 0.3 && this.pathInfo(p.x, p.z).d > 3) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.3, leg, 0.3), dark); m.position.set(p.x, gy + leg / 2, p.z); m.castShadow = true; grp.add(m); this.addCircle(p.x, p.z, 0.3); }
+            if (leg > 0.3 && this.pathInfo(p.x, p.z).d > 3) { const g0 = this.footY(p.x, p.z, 0.2) - 0.35, m = new THREE.Mesh(new THREE.BoxGeometry(0.3, y - r0 - g0, 0.3), dark); m.position.set(p.x, (g0 + y - r0) / 2, p.z); m.castShadow = true; grp.add(m); this.addCircle(p.x, p.z, 0.3); }
           }
           const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 6, r0, 12, false), rustMat); tube.castShadow = true; tube.receiveShadow = true; grp.add(tube);
           for (const q of pts) { const fl = new THREE.Mesh(new THREE.TorusGeometry(r0 + 0.05, 0.08, 6, 16), dark); fl.position.copy(q); fl.lookAt(q.x + 1, q.y, q.z); grp.add(fl); }
@@ -1477,7 +1518,7 @@ const Exterior = (() => {
       } else if (PL === 'dock') {
         // a gantry crane straddling the stacked containers, and a ship's hull run aground beyond the yard
         const yl = MATS.rep('painted', 1, 4, 0xc8a020);
-        for (const [x, z] of [[20, 6], [34, 6], [20, 21], [34, 21]]) { this.place(grp, B(0.9, 18, 0.9, yl), x, 9, z, b); this.circLocal(b, x, z, 0.6); }
+        for (const [x, z] of [[20, 6], [34, 6], [20, 21], [34, 21]]) { this.place(grp, B(0.9, 19, 0.9, yl), x, 8.5, z, b); this.circLocal(b, x, z, 0.6); }
         for (const z of [6, 21]) this.place(grp, B(15.6, 1.3, 1.1, yl), 27, 18.5, z, b);
         for (const x of [20, 34]) this.place(grp, B(1.1, 1.3, 16.2, yl), x, 18.5, 13.5, b);
         this.place(grp, B(3, 2.2, 3.4, yl), 25, 20.4, 13.5, b);
@@ -1486,10 +1527,13 @@ const Exterior = (() => {
         const hp = this.toWorld(b, -52, 24);
         if (Math.hypot(hp.x - this.fire.x, hp.z - this.fire.z) > 28) {
           const hull = MATS.rep('rust', 6, 2, 0x6a5a50);
-          this.place(grp, B(30, 8, 9, hull), -52, 2.2, 24, b, 0.04, 0.6, 0.16);
+          // (down by the stern, the bow up out of the mud; let down until its keel is in the ground all along it)
+          const gl = (t) => { const w = this.toWorld(b, -52 + Math.cos(0.6) * t, 24 - Math.sin(0.6) * t); return this.footY(w.x, w.z, 3) - b.y; };
+          const dy = Math.min(0, gl(14) + 1.2 - 2.2, gl(0) + 3.4 - 2.2, gl(-14) + 5.8 - 2.2);
+          this.place(grp, B(30, 8, 9, hull), -52, 2.2 + dy, 24, b, 0.04, 0.6, 0.16);
           const bow = new THREE.Mesh(new THREE.ConeGeometry(6.4, 10, 4), hull); bow.scale.set(0.7, 1, 1);
-          this.place(grp, bow, -52 + Math.cos(0.6) * 19.5, 2.6, 24 - Math.sin(0.6) * 19.5, b, 0.04, 0.6 + Math.PI / 4, 0.16 - Math.PI / 2);
-          this.place(grp, B(8, 5, 6, MATS.rep('rust', 2, 1, 0x8a8a84)), -56, 8, 26, b, 0.04, 0.6, 0.16);
+          this.place(grp, bow, -52 + Math.cos(0.6) * 19.5, 2.6 + dy, 24 - Math.sin(0.6) * 19.5, b, 0.04, 0.6 + Math.PI / 4, 0.16 - Math.PI / 2);
+          this.place(grp, B(8, 5, 6, MATS.rep('rust', 2, 1, 0x8a8a84)), -56, 8 + dy, 26, b, 0.04, 0.6, 0.16);
           this.obbLocal(b, -52, 24, 15, 4.5, 0.6);
         }
       } else if (PL === 'refinery') {
@@ -1499,15 +1543,18 @@ const Exterior = (() => {
       } else if (PL === 'foundry') {
         // a channel of slag still glowing as it runs off from the furnace to the heap
         const hot = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.0, 0.55, 0.12) });
-        const pts = [[-36, 10], [-39, 14], [-44, 16], [-49, 15]];
+        // (in short lengths, each laid along the ground under it, a kerb of iron down either side)
+        const pts = [[-36, 10], [-39, 14], [-44, 16], [-49, 15]], y = (x, z) => { const w = this.toWorld(b, x, z); return this.height(w.x, w.z) - b.y; };
         for (let i = 0; i < pts.length - 1; i++) {
-          const [x0, z0] = pts[i], [x1, z1] = pts[i + 1], l = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(-(z1 - z0), x1 - x0);
-          const y = (x, z) => { const w = this.toWorld(b, x, z); return this.height(w.x, w.z) - b.y; };
-          this.place(grp, B(l, 0.1, 0.8, hot), (x0 + x1) / 2, y((x0 + x1) / 2, (z0 + z1) / 2) + 0.06, (z0 + z1) / 2, b, 0, ry);
-          this.place(grp, B(l, 0.4, 0.3, dark), (x0 + x1) / 2, y((x0 + x1) / 2, (z0 + z1) / 2) + 0.1, (z0 + z1) / 2 + 0.55, b, 0, ry);
+          const [x0, z0] = pts[i], [x1, z1] = pts[i + 1], l = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(-(z1 - z0), x1 - x0), n = Math.ceil(l / 1.5), px = -(z1 - z0) / l, pz = (x1 - x0) / l;
+          for (let k = 0; k < n; k++) {
+            const xa = lerp(x0, x1, k / n), za = lerp(z0, z1, k / n), xb = lerp(x0, x1, (k + 1) / n), zb = lerp(z0, z1, (k + 1) / n), xm = (xa + xb) / 2, zm = (za + zb) / 2;
+            for (const o of [0, -0.55, 0.55]) { const ya = y(xa + px * o, za + pz * o), yb = y(xb + px * o, zb + pz * o), tilt = Math.atan2(yb - ya, l / n);
+              this.place(grp, o ? B(l / n + 0.04, 0.4, 0.3, dark) : B(l / n + 0.04, 0.1, 0.8, hot), xm + px * o, (ya + yb) / 2 + (o ? 0.08 : 0.04), zm + pz * o, b, 0, ry, tilt); }
+          }
         }
         const mw = this.toWorld(b, -43, 15); this.lights.push({ x: mw.x, y: b.y + 1.2, z: mw.z, color: 0xff5a18, power: 1.6, state: 'flicker', phase: 5, zone: 'out', range: 14, lit: 1 });
-        const heap = new THREE.Mesh(new THREE.ConeGeometry(7, 6, 12), MATS.rep('rock', 3, 2, 0x2a2624)); this.place(grp, heap, -52, 2.5, 17, b); this.circLocal(b, -52, 17, 6.5);
+        const heap = new THREE.Mesh(new THREE.ConeGeometry(7, 6, 12), MATS.rep('rock', 3, 2, 0x2a2624)), hw = this.toWorld(b, -52, 17); this.place(grp, heap, -52, Math.min(0, this.footY(hw.x, hw.z, 6.5) - b.y) + 2.5, 17, b); this.circLocal(b, -52, 17, 6.5);
       } else if (PL === 'ruin') {
         // the front of the hall has caved in at the top; part of the roof is gone; rubble in the yard
         const wall = MATS.rep('bunker', 1, 1, 0x4a4542);
@@ -1540,20 +1587,43 @@ const Exterior = (() => {
     buildWorldExtras(grp) {
       const r = new RNG(this.seed + 909);
       if (this.key === 'ashgrove') {
-        // old split-rail fences running beside the trail, broken in places
-        const parts = [], wood = MATS.get('wood');
-        const off = (p, side) => { const l = Math.hypot(p.dx, p.dz) || 1; return { x: p.x - p.dz / l * side * 4.8, z: p.z + p.dx / l * side * 4.8 }; };
-        for (const side of [-1, 1]) for (let t = 0.12; t < 0.9; t += 0.028) {
-          if (r.chance(0.18)) continue;
-          const a = off(this.pathPoint(t), side), bq = off(this.pathPoint(t + 0.028), side);
-          if (Math.hypot(a.x, a.z) < 30 || Math.hypot(a.x - this.center.x, a.z - this.center.z) < 56) continue;
-          const ha = this.height(a.x, a.z), hb = this.height(bq.x, bq.z), len = Math.hypot(bq.x - a.x, bq.z - a.z), ang = Math.atan2(-(bq.z - a.z), bq.x - a.x);
-          parts.push({ geo: new THREE.BoxGeometry(0.14, 1.3, 0.14), matrix: mat(a.x, ha + 0.55, a.z, r.range(-0.08, 0.08), 0, r.range(-0.08, 0.08)) });
-          // (a stretch with a rail still up is solid; only where both have fallen can you step through)
-          let up = 0;
-          for (const y of [0.55, 1.0]) if (!r.chance(0.12)) { up++; parts.push({ geo: new THREE.BoxGeometry(len, 0.1, 0.06), matrix: mat((a.x + bq.x) / 2, (ha + hb) / 2 + y, (a.z + bq.z) / 2, 0, ang, Math.atan2(hb - ha, len)) }); }
-          this.addCircle(a.x, a.z, 0.15);
-          if (up) this.addObb((a.x + bq.x) / 2, (a.z + bq.z) / 2, len / 2, 0.08, ang);
+        // Old split-rail fences running beside the trail, broken in places. A post every couple of metres, sunk well into
+        // the ground and leaning a little off true, and two rails from each post to the next, so the fence rides over the
+        // land the way it lies; here and there a few lengths are gone altogether, or a rail has come down into the grass.
+        const parts = [], wood = MATS.get('wood'), P = this.path, postG = new THREE.BoxGeometry(0.14, 1.55, 0.14), railG = new THREE.BoxGeometry(1, 0.1, 0.06);
+        postG.translate(0, 0.425, 0);
+        for (const side of [-1, 1]) {
+          // (the line 4.8 m out from the trail, its direction averaged at each point so the line bends smoothly, walked
+          // a post at a time)
+          const line = P.map((q, i) => { const a = P[Math.max(0, i - 1)], c = P[Math.min(P.length - 1, i + 1)], l = Math.hypot(c.x - a.x, c.z - a.z) || 1; return { x: q.x - (c.z - a.z) / l * side * 4.8, z: q.z + (c.x - a.x) / l * side * 4.8, t: q.t }; });
+          const posts = []; let s0 = 0, want = 0, gap = 0;
+          for (let i = 0; i < line.length - 1; i++) {
+            const a = line[i], c = line[i + 1], L = Math.hypot(c.x - a.x, c.z - a.z);
+            for (; want <= s0 + L; want += r.range(1.9, 2.4)) {
+              const u = (want - s0) / (L || 1), x = lerp(a.x, c.x, u), z = lerp(a.z, c.z, u), t = lerp(a.t, c.t, u);
+              const ok = t > 0.12 && t < 0.9 && Math.hypot(x, z) > 30 && Math.hypot(x - this.center.x, z - this.center.z) > 58 && this.pathInfo(x, z).d > 3.8;
+              if (ok && gap <= 0 && r.chance(0.06)) gap = r.int(1, 3);
+              posts.push(ok && gap-- <= 0 ? { x, z, y: this.height(x, z) } : null);
+            }
+            s0 += L;
+          }
+          posts.forEach((p, i) => {
+            if (!p) return;
+            parts.push({ geo: postG, matrix: mat(p.x, p.y, p.z, r.range(-0.06, 0.06), r.range(0, TAU), r.range(-0.06, 0.06)) });
+            this.addCircle(p.x, p.z, 0.15);
+            const q = posts[i + 1]; if (!q) return;
+            // the rails to the next post (a stretch with a rail still up is solid; only where both are down can you step
+            // through)
+            const len = Math.hypot(q.x - p.x, q.z - p.z), ang = Math.atan2(-(q.z - p.z), q.x - p.x), tilt = Math.atan2(q.y - p.y, len);
+            let up = 0;
+            for (const y of [0.55, 1.0]) {
+              if (!r.chance(0.12)) { up++; parts.push({ geo: railG, matrix: mat((p.x + q.x) / 2, (p.y + q.y) / 2 + y, (p.z + q.z) / 2, 0, ang, tilt, len + 0.1, 1, 1) }); continue; }
+              // (a rail that's come down, lying in the grass under where it was)
+              if (r.chance(0.5)) { const o = r.range(-0.5, 0.5), mx = (p.x + q.x) / 2 + Math.sin(ang) * o, mz = (p.z + q.z) / 2 + Math.cos(ang) * o, a2 = ang + r.range(-0.35, 0.35), hx = Math.cos(a2) * len * 0.5, hz = -Math.sin(a2) * len * 0.5, h0 = this.height(mx - hx, mz - hz), h1 = this.height(mx + hx, mz + hz);
+                parts.push({ geo: railG, matrix: mat(mx, (h0 + h1) / 2 + 0.03, mz, r.range(-0.8, 0.8), a2, Math.atan2(h1 - h0, len), len, 1, 1) }); }
+            }
+            if (up) this.addObb((p.x + q.x) / 2, (p.z + q.z) / 2, len / 2, 0.08, ang);
+          });
         }
         if (parts.length) { const m = new THREE.Mesh(mergeGeoList(parts), wood); m.castShadow = true; m.receiveShadow = true; grp.add(m); }
       }
@@ -1641,10 +1711,13 @@ const Exterior = (() => {
         const x = nrm.x * off + dir.x * n * 55, z = nrm.z * off + dir.z * n * 55;
         if (Math.hypot(x, z) > 160) continue;
         if (Math.hypot(x - this.center.x, z - this.center.z) < 64 || Math.hypot(x - this.fire.x, z - this.fire.z) < 14 || this.pathInfo(x, z).d < 6) continue;
-        const y = this.height(x, z), leaning = this.key === 'hollow';
+        // (stood on the lowest of its four feet, those on the uphill side sunk deeper, so none hangs over a slope)
+        const leaning = this.key === 'hollow', yaw = -(a + Math.PI / 2), cs = Math.cos(yaw), sn = Math.sin(yaw);
+        let y = Infinity; for (const [fx, fz] of [[-1.32, -1.32], [1.32, -1.32], [-1.32, 1.32], [1.32, 1.32]]) y = Math.min(y, this.height(x + fx * cs + fz * sn, z - fx * sn + fz * cs));
+        y -= leaning ? 0.25 : 0;
         const m = new THREE.Mesh(pg, MATS.get('darkmetal')); m.position.set(x, y - 0.5, z);
         // in the Hollow the towers have buckled and lean; their lines are down
-        m.rotation.set(leaning ? r.range(-0.14, 0.14) : 0, -(a + Math.PI / 2), leaning ? r.range(-0.12, 0.12) : 0, 'YXZ'); m.castShadow = true; grp.add(m);
+        m.rotation.set(leaning ? r.range(-0.14, 0.14) : 0, yaw, leaning ? r.range(-0.12, 0.12) : 0, 'YXZ'); m.castShadow = true; grp.add(m);
         this.addCircle(x, z, 2.2);
         tops.push({ x, y: y + H - 2.3, z });
       }
@@ -1657,12 +1730,12 @@ const Exterior = (() => {
     }
     // ---------------- abandoned vehicles ----------------
     vehicle(grp, x, z, ry, rr) {
-      // sit on the ground: pitch and roll follow the terrain under the wheels
-      const fx = Math.sin(ry), fz = Math.cos(ry), rx = Math.cos(ry), rz = -Math.sin(ry);
-      const hF = this.height(x + fx * 1.7, z + fz * 1.7), hB = this.height(x - fx * 1.6, z - fz * 1.6);
-      const hR = this.height(x + rx * 0.92, z + rz * 0.92), hL = this.height(x - rx * 0.92, z - rz * 0.92);
-      const g = new THREE.Group(); g.position.set(x, (hF + hB + hR + hL) / 4 - 0.04, z);
-      g.rotation.set(Math.atan2(hB - hF, 3.3), ry, Math.atan2(hR - hL, 1.84) + rr.range(-0.02, 0.02), 'YXZ');
+      // sit on the ground: pitch and roll follow the terrain under the four wheels, and where the ground's twisted under
+      // it, the car settles until the wheel that would hang is down on it (the others pressed into the dirt)
+      const fx = Math.sin(ry), fz = Math.cos(ry), rx = Math.cos(ry), rz = -Math.sin(ry), W = (a, b) => this.height(x + rx * a + fx * b, z + rz * a + fz * b);
+      const fr = W(0.92, 1.7), fl = W(-0.92, 1.7), br = W(0.92, -1.55), bl = W(-0.92, -1.55), hF = (fr + fl) / 2, hB = (br + bl) / 2, hR = (fr + br) / 2, hL = (fl + bl) / 2;
+      const g = new THREE.Group(); g.position.set(x, (hF + hB) / 2 - 0.04 - Math.abs(fr - fl - br + bl) / 4, z);
+      g.rotation.set(Math.atan2(hB - hF, 3.25), ry, Math.atan2(hR - hL, 1.84) + rr.range(-0.02, 0.02), 'YXZ');
       // burnt-out shells in the Hollow: blackened paint, no glass, no tyres
       const VB = this.biome.vehicles, burnt = VB.burnt;
       const paint = MATS.rep('painted', 1, 1, rr.pick(VB.colors));
@@ -1759,7 +1832,7 @@ const Exterior = (() => {
       // the tyres that came off, in the grass beside it (one leaning on the car)
       g.updateMatrixWorld(true);
       for (const l of loose) {
-        const w = g.localToWorld(new THREE.Vector3(l.x, 0, l.z)), tg = new THREE.Group(), h = this.height(w.x, w.z);
+        const w = g.localToWorld(new THREE.Vector3(l.x, 0, l.z)), tg = new THREE.Group(), h = l.lean ? this.height(w.x, w.z) : this.footY(w.x, w.z, 0.4);
         const tyre = new THREE.Mesh(Cy(0.42, 0.26, 18), rubber), rim = new THREE.Mesh(Cy(0.26, 0.27, 14), steel), hub = new THREE.Mesh(Cy(0.09, 0.28, 10), dark);
         for (const m of [tyre, rim, hub]) { m.castShadow = m.receiveShadow = true; tg.add(m); }
         if (l.lean) { tg.position.set(w.x, h + 0.41, w.z); tg.rotation.set(0, ry + rr.range(-0.3, 0.3), Math.PI / 2 - 0.35, 'YXZ'); }

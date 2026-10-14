@@ -223,7 +223,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 11;
+const PROTO = 12;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -449,6 +449,8 @@ const G = {
     b.steps = [
       () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); },
       pieces(() => b.fac.generateGen(), () => {}),
+      // (and the host works out the plan of it the creatures go by: see Facility.nav)
+      pieces(() => (G.isHost ? b.fac.navGen() : [].values()), () => {}),
       pieces(() => b.fac.buildGen(), (v) => { b.facG = v; }),
       () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); },
       pieces(() => b.ext.landGen(), () => {}),
@@ -713,7 +715,8 @@ const G = {
   encodeFlags(me) {
     return (me.crouch ? 1 : 0) | (me.sprint ? 2 : 0) | (me.moving ? 4 : 0) | (me.flash ? 8 : 0) | (me.flash === 2 ? 16 : 0) | (me.radio ? 32 : 0) | (Voice.talking ? 64 : 0) | (me.zone === 'in' ? 128 : 0)
       | ((me.seat != null ? me.seat + 1 : 0) << 8)   // which seat they're sitting in (0: standing)
-      | (me.air ? 4096 : 0);                          // off the ground (jumping or falling, not walking a slope)
+      | (me.air ? 4096 : 0)                           // off the ground (jumping or falling, not walking a slope)
+      | (Math.round(clamp(me.loud || 0, 0, 1) * 15) << 13);   // how loud they're talking (see Voice.loudness)
   },
   decodeFlags(p) {
     const f = p.flags;
@@ -721,6 +724,7 @@ const G = {
     p.zone = f & 128 ? 'in' : 'out';
     const s = (f >> 8) & 15; p.seat = s ? s - 1 : null;
     p.air = !!(f & 4096);
+    p.loud = p.talking ? ((f >> 13) & 15) / 15 : 0;
   },
   netTick(dt) {
     if (!G.online) return;
@@ -830,13 +834,14 @@ const G = {
       const d = G.fac && G.fac.doors[e.id]; if (!d) return;
       const at = new THREE.Vector3(d.x, d.y + 1.2, d.z);
       if (e.broken) {
-        G.fac.breakDoor(d);
+        G.fac.breakDoor(d); G.fac.doorVer = (G.fac.doorVer | 0) + 1;
         SFX.play('door_slam', at, { vol: 1.6, ref: 4 }); SFX.play('crunch', at, { vol: 1.1 }); SFX.play('hit_metal', at, { vol: 1 });
         const me = G.me(); if (me && me.zone === 'in' && me.pos.distanceTo(at) < 12) Player.addShake(0.45);
         return;
       }
       if (d.broken) return;
       G.fac.setDoor(d, e.open, e.dir);
+      G.fac.doorVer = (G.fac.doorVer | 0) + 1;   // (the way sound carries has changed: see Brain.hear)
       SFX.play(e.bash ? 'door_slam' : e.open ? 'door_open' : 'door_close', at, { vol: e.bash ? 1.3 : 0.9 });
     },
     // a blast door raised or dropped from the ship's terminal: a warning tone, hydraulics, a heavy seat at the bottom
@@ -848,7 +853,7 @@ const G = {
       SFX.play('servo', at, { vol: 1.5, ref: 6, dur: e.open ? 2.4 : 1.3, pitch: 0.45, delay: 0.5 });
       SFX.play('shutter', at, { vol: 0.9, ref: 6, dur: e.open ? 2.4 : 1.3, delay: 0.5 });
       if (!e.open) SFX.play('door_slam', at, { vol: 1.4, ref: 8, delay: 1.75 });
-      if (G.isHost) G.addNoise(at, 22, 'in', null);
+      if (G.isHost) G.addNoise(at, 22, 'in', null, 'bang');
     },
     box(e) {
       const c = G.fac && G.fac.containers[e.id]; if (!c) return;
@@ -1159,7 +1164,7 @@ const G = {
         const it = G.items.get(r.item); if (!it || it.holder !== pid) return;
         const inShip = p.zone === 'out' && G.ship.inside(r.x, r.y + 0.3, r.z);
         G.emit({ e: 'drop', item: it.id, x: r.x, y: r.y, z: r.z, ry: r.ry, inShip, battery: r.battery, on: r.on });
-        G.addNoise(new THREE.Vector3(r.x, r.y, r.z), ITEMS[it.type].weight > 4 ? 10 : 5, p.zone, pid);
+        G.addNoise(new THREE.Vector3(r.x, r.y, r.z), ITEMS[it.type].weight > 4 ? 10 : 5, p.zone, pid, 'item');
         break;
       }
       case 'swing': G.hostSwing(pid, r); break;
@@ -1169,7 +1174,7 @@ const G = {
         const d = ITEMS[it.type]; if (!d.noise) return;
         const pos = p.pos.clone().setY(p.pos.y + 1.2);
         G.emitSound(d.noise, pos, { vol: 1.3, ref: 4 });
-        G.addNoise(pos, d.noiseR || 20, p.zone, pid);
+        G.addNoise(pos, d.noiseR || 20, p.zone, pid, 'item');
         break;
       }
       case 'door': {
@@ -1182,11 +1187,11 @@ const G = {
         if (!d.open) {
           d.latch = true;
           G.emitSound('click', by, { vol: 0.9 });
-          G.timers.push({ t: 0.32, fn: () => { d.latch = false; if (G.fac !== fac || d.open || d.broken) return; G.emit({ e: 'door', id: d.id, open: true, dir }); G.addNoise(by, 10, 'in', pid); } });
+          G.timers.push({ t: 0.32, fn: () => { d.latch = false; if (G.fac !== fac || d.open || d.broken) return; G.emit({ e: 'door', id: d.id, open: true, dir }); G.addNoise(by, 10, 'in', pid, 'door'); } });
           break;
         }
         G.emit({ e: 'door', id: d.id, open: false, dir });
-        G.addNoise(by, 10, 'in', pid);
+        G.addNoise(by, 10, 'in', pid, 'door');
         break;
       }
       case 'box': {
@@ -1199,18 +1204,18 @@ const G = {
           c.latch = true;
           G.emitSound('click', by, { vol: 0.7 });
           // rusty hinges and a rattling steel door: anything nearby hears you rummaging
-          G.timers.push({ t: 0.25, fn: () => { c.latch = false; if (G.fac !== fac || c.open) return; G.emit({ e: 'box', id: c.id, open: true }); G.addNoise(by, 9, 'in', pid); } });
+          G.timers.push({ t: 0.25, fn: () => { c.latch = false; if (G.fac !== fac || c.open) return; G.emit({ e: 'box', id: c.id, open: true }); G.addNoise(by, 9, 'in', pid, 'door'); } });
           break;
         }
         G.emit({ e: 'box', id: c.id, open: false });
-        G.addNoise(by, 9, 'in', pid);
+        G.addNoise(by, 9, 'in', pid, 'door');
         break;
       }
       case 'hatch': {
         // it opens on the ground, and in the air while the ship is low; never in space or up high
         if ((G.mode !== 'site' && G.mode !== 'leaving') || (G.fp && G.fp.y > FLY.doorAlt)) { G.sendTo(pid, { t: 'ev', e: { e: 'toast', text: 'Hatch locked.' } }); return; }
         G.emit({ e: 'hatch', open: !G.ship.door.open });
-        G.addNoise(new THREE.Vector3(-2.5, 1, 4.5), 22, 'out', pid);
+        G.addNoise(new THREE.Vector3(-2.5, 1, 4.5), 22, 'out', pid, 'door');
         break;
       }
       case 'engage': {
@@ -1241,7 +1246,7 @@ const G = {
       case 'pod': {
         const pod = Pods.get(r.id); if (!pod || pod.opened || !pod.hit || p.zone !== 'out' || Math.hypot(at.x - pod.x, at.z - pod.z) > 6) return;
         G.emit({ e: 'podOpen', id: pod.id });
-        G.addNoise(new THREE.Vector3(pod.x, pod.gy + 1, pod.z), 20, 'out', pid);
+        G.addNoise(new THREE.Vector3(pod.x, pod.gy + 1, pod.z), 20, 'out', pid, 'bang');
         const spots = Pods.dropSpots(pod, pod.items.length);
         pod.items.forEach((it, i) => G.emit({ e: 'itemSpawn', d: { id: it.id, type: it.type, value: 0, x: spots[i].x, y: spots[i].y, z: spots[i].z, ry: Math.random() * TAU, inShip: false, battery: 1, fy: 0.5 } }));
         break;
@@ -1311,7 +1316,7 @@ const G = {
       case 'roverHorn': {
         const R0 = Rover.state; if (R0.driver !== pid) return;
         G.emitSound('toot', new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), { vol: 1.2 });
-        G.addNoise(new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), 16, R0.zone, pid);
+        G.addNoise(new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), 16, R0.zone, pid, 'bang');
         break;
       }
       case 'basketPut': {
@@ -1340,14 +1345,16 @@ const G = {
         const R0 = Rover.state; if (R0.carrier !== pid) return;
         const x = +r.x, y = +r.y, z = +r.z; if (![x, y, z].every(Number.isFinite) || Math.hypot(x - p.pos.x, z - p.pos.z) > 3) return;
         G.emit({ e: 'roverCarry', pid: null, x, y, z, yaw: +r.yaw || 0, zone: p.zone });
-        G.addNoise(new THREE.Vector3(x, y, z), 8, p.zone, pid);
+        G.addNoise(new THREE.Vector3(x, y, z), 8, p.zone, pid, 'item');
         break;
       }
       default: break;
     }
   },
   emitSound(s, pos, o) { G.emit({ e: 'sound', s, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), z: +pos.z.toFixed(2), o }); },
-  addNoise(pos, r, zone, pid) { G.noises.push({ x: pos.x, y: pos.y, z: pos.z, r, zone, pid, age: 0 }); },
+  // something the creatures might hear (see Brain.hear): how far it carries, and what kind of noise it is (step, voice,
+  // item, door, bang); src: the creature that made it, which doesn't go after its own din
+  addNoise(pos, r, zone, pid, kind = 'bang', src) { G.noises.push({ x: pos.x, y: pos.y, z: pos.z, r, zone, pid, age: 0, kind, src }); },
   hurtPlayer(pid, dmg, cause, kx = 0, kz = 0, silent = false) {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     const hp = Math.max(0, p.hp - dmg);
@@ -1449,7 +1456,7 @@ const G = {
   monsterBreakDoor(m, door) {
     if (door.broken) return;
     G.emit({ e: 'door', id: door.id, open: true, broken: true });
-    G.addNoise(new THREE.Vector3(door.x, door.y + 1, door.z), 26, 'in', null);
+    G.addNoise(new THREE.Vector3(door.x, door.y + 1, door.z), 26, 'in', null, 'bang', m && m.id);
   },
   monsterDied() { },
   leechAttach(m, pid) { G.emit({ e: 'leech', pid, mid: m.id }); },
@@ -1503,7 +1510,7 @@ const G = {
     const zone = p.zone, at = pos.clone();
     G.timers.push({ t: 1.8, fn: () => {
       G.emit({ e: 'stunFx', x: at.x, y: at.y + 0.2, z: at.z });
-      G.addNoise(at, 30, zone, pid);
+      G.addNoise(at, 30, zone, pid, 'bang');
       for (const m of G.monsters.values()) {
         if (m.dead || m.def.zone !== zone) continue;
         const d = Math.hypot(m.pos.x - at.x, m.pos.z - at.z);
@@ -1562,7 +1569,7 @@ const G = {
   },
   hostExplode(at, zone, id, pid) {
     G.emit({ e: 'boom', x: +at.x.toFixed(2), y: +at.y.toFixed(2), z: +at.z.toFixed(2), zone, id });
-    G.addNoise(at, 45, zone, null);
+    G.addNoise(at, 45, zone, null, 'bang');
     const sees = (x, z) => zone !== 'in' || !G.fac || G.fac.los(at.x, at.z, x, z);
     for (const p of G.alivePlayers()) {
       if (p.zone !== zone) continue;
@@ -2130,8 +2137,11 @@ const G = {
       p.noiseT -= dt;
       if (p.noiseT <= 0 && (p.moving || p.talking)) {
         p.noiseT = 0.33;
-        if (p.moving) G.addNoise(p.pos, p.sprint ? 20 : p.crouch ? 2 : 7.5, p.zone, p.id);
-        if (p.talking) G.addNoise(p.pos.clone().setY(p.pos.y + 1.6), 24, p.zone, p.id);
+        if (p.moving) G.addNoise(p.pos, p.sprint ? 20 : p.crouch ? 2 : 7.5, p.zone, p.id, 'step');
+        // (a voice carries as far as it's loud: a whisper only to whoever's at your shoulder, a shout down most of the
+        // floor. Out on an airless moon or rock it doesn't carry at all: there it's the suits' radios)
+        const vr = p.talking ? Brain.voiceR(p.loud || 0) : 0;
+        if (vr > 0.5 && !(p.zone === 'out' && G.ext && G.ext.biome.airless && !G.inShip(p))) G.addNoise(p.pos.clone().setY(p.pos.y + 1.6), vr, p.zone, p.id, 'voice');
       }
       // slow recovery once nothing has hurt you for a while
       if (p.hp < 100 && G.now - (p.lastHurt || 0) > 9000) {
@@ -2165,9 +2175,11 @@ const G = {
           else { r.blackout = false; r.blackoutT = 200 + Math.random() * 260; G.emit({ e: 'power', on: true }); }
         }
       }
+      Brain.tick(dt);
       for (const m of G.monsters.values()) m.hostUpdate(dt);
       Monster.separate(G, dt);
     } else if (G.mode === 'leaving') {
+      Brain.tick(dt);
       for (const m of G.monsters.values()) m.hostUpdate(dt);
       Monster.separate(G, dt);
       G.departT -= dt;
@@ -2760,7 +2772,7 @@ const G = {
     if (G.sendoff) G.updateSendoff(dt);
     Rover.update(dt);
     G.carryCamera();
-    me.talking = G.online && Voice.talking;
+    me.talking = G.online && Voice.talking; me.loud = me.talking ? Voice.loudness : 0;
     if (G.isHost) { G.hostTick(dt); Bots.update(dt); }
     G.netTick(dt);
     G.presentPlayers(dt);
@@ -3276,7 +3288,8 @@ const G = {
       for (const p of G.players.values()) if (p.id !== me.id && p.alive && p.zone === me.zone) add(p.rpos.x, p.rpos.z, p.speed || 0, false);
       HUD.tracker(true, blips);
     } else HUD.tracker(false);
-    HUD.voice(G.online && Voice.enabled ? (Voice.talking ? (me.radio ? '((( RADIO )))' : '(( MIC ))') : '') : '');
+    // (how far you're carrying: a whisper, talking, a shout)
+    HUD.voice(G.online && Voice.enabled ? (Voice.talking ? (me.radio ? '((( RADIO )))' : me.loud > 0.8 ? '((( MIC )))' : me.loud > 0.3 ? '(( MIC ))' : '( MIC )') : '') : '');
     HUD.update(dt);
   },
 };

@@ -105,6 +105,8 @@ const Bots = (() => {
   function settle(p, ox, oz) {
     if (p.zone === 'in' && G.fac) {
       const f = G.fac;
+      // (the Seep is a wall across the corridor to them too)
+      for (const m of G.monsters.values()) if (m.type === 'slime') Monster.push(m, p.pos, RAD);
       f.collide(p.pos, RAD); f.collide(p.pos, RAD);
       if (!f.floorAt(f.ti(p.pos.x), f.tj(p.pos.z))) {
         if (f.floorAt(f.ti(ox), f.tj(oz))) { p.pos.x = ox; p.pos.z = oz; }

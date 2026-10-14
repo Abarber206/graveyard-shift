@@ -262,8 +262,8 @@ const Menu = (() => {
     toggle('NOISE SUPPRESSION', () => (Settings.micClean ? 'ON' : 'OFF'), () => { Settings.micClean = !Settings.micClean; return Voice.restart(); });
     slider('VOICES VOLUME', 'voiceVol', 0, 2, 0.05, (v) => Math.round(v * 100) + '%');
     // the test: a meter of your voice, the threshold marked on it
-    const meter = html(`<div class="setrow"><span>MIC TEST</span><div style="position:relative;width:200px;height:16px;border:1px solid var(--amber-dim);flex:none"><div class="vfill" style="position:absolute;left:0;top:0;bottom:0;width:0"></div><div class="vmark" style="position:absolute;top:-4px;bottom:-4px;width:2px;background:#e8dccb"></div></div></div>`);
-    const fill = meter.querySelector('.vfill'), mark = meter.querySelector('.vmark'), pos = (db) => clamp((db + 60) / 60, 0, 1) * 100 + '%';
+    const meter = html(`<div class="setrow"><span>MIC TEST</span><div style="position:relative;width:200px;height:16px;border:1px solid var(--amber-dim);flex:none"><div class="vfill" style="position:absolute;left:0;top:0;bottom:0;width:0"></div><div class="vmark" style="position:absolute;top:-4px;bottom:-4px;width:2px;background:#e8dccb"></div></div><span class="vcarry" style="width:80px;flex:none;text-align:right"></span></div>`);
+    const fill = meter.querySelector('.vfill'), mark = meter.querySelector('.vmark'), carry = meter.querySelector('.vcarry'), pos = (db) => clamp((db + 60) / 60, 0, 1) * 100 + '%';
     rows.push(meter);
     const testBtn = btn('TEST MIC', async () => {
       say('Asking for the microphone...');
@@ -281,6 +281,8 @@ const Menu = (() => {
       fill.style.width = on ? pos(Voice.db) : '0';
       fill.style.background = Voice.gateOpen ? 'var(--amber-hi)' : 'var(--amber-dim)';
       mark.style.left = pos(Settings.micGate); mark.style.display = Settings.ptt ? 'none' : '';
+      // (how far that would carry down there: what's listening hears a shout from the far end of a floor)
+      const L = on ? Voice.carry : 0; carry.textContent = !Voice.gateOpen ? '' : L > 0.8 ? 'SHOUT' : L > 0.3 ? 'TALK' : L > 0 ? 'WHISPER' : '';
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);

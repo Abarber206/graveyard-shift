@@ -2025,6 +2025,245 @@ const Facility = (() => {
       }
       return best;
     }
+
+    // ---------- the lie of the land, as the creatures know it (host only) ----------
+    // Worked out once the layout is done (a piece a frame while the site is put together, or all at once the first time
+    // something asks): every tile you can stand on, joined to its neighbours on its floor (diagonally where both sides
+    // are open floor too), through the doorways (each joint knows its door) and from each stairwell doorway to the
+    // stairwell's others (the walk down the flights). Sound gets about by a few more ways: through one tile of rock
+    // into the room beyond, muffled. Only the grid, levels, rooms, doors, blast doors, stairwells and exits are read.
+    nav() { if (!this._nav) { const g = this.navGen(); while (!g.next().done); } return this._nav; }
+    *navGen() {
+      if (this._nav) return;
+      const W = this.W, N = this.grid.length, isN = new Uint8Array(N), grid = this.grid, lvl = this.lvl;
+      for (let k = 0; k < N; k++) isN[k] = grid[k] > 0 && grid[k] !== 4 && !this.block[k] ? 1 : 0;
+      // the joints, gathered per tile then packed (to, metres, door, blast, kind: 0 floor, 1 stairwell, 2 sound only)
+      const E = [], dk = (a, b) => { const d = this.doorEdge.get(this.edgeKey(a, b)); return d ? d.id : -1; }, bk = (a, b) => { const d = this.blastEdge.get(this.edgeKey(a, b)); return d ? d.id : -1; };
+      const ok = (a, b) => isN[b] && this.connected(a, b);
+      let ne = 0;
+      for (let k = 0; k < N; k++) {
+        if (!isN[k]) continue;
+        const i = k % W, j = (k - i) / W, L = [];
+        for (const [dx, dy] of DIRS) {
+          const ni = i + dx, nj = j + dy, nk = this.idx(ni, nj); if (nk < 0) continue;
+          if (ok(k, nk)) L.push(nk, 3, dk(k, nk), bk(k, nk), 0);
+          // (a single tile of rock with the same floor beyond it: a thin wall that sound comes through, dulled)
+          else if (!grid[nk]) { const fk = this.idx(ni + dx, nj + dy); if (fk >= 0 && isN[fk] && lvl[fk] === lvl[k]) L.push(fk, 16, -1, -1, 2); }
+        }
+        for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
+          const a = this.idx(i + dx, j), b = this.idx(i, j + dy), c = this.idx(i + dx, j + dy);
+          if (a < 0 || b < 0 || c < 0 || !ok(k, a) || !ok(k, b) || !ok(a, c) || !ok(b, c)) continue;
+          if (dk(k, a) >= 0 || dk(k, b) >= 0 || dk(a, c) >= 0 || dk(b, c) >= 0 || bk(k, a) >= 0 || bk(k, b) >= 0 || bk(a, c) >= 0 || bk(b, c) >= 0) continue;
+          L.push(c, 4.243, -1, -1, 0);
+        }
+        const ps = this.portals.get(k);
+        // (the walk through a stairwell, along its landings and flights, as far as it really is)
+        if (ps) for (const p of ps) if (isN[p.to]) { let l = 0, px = this.cx(i), pz = this.cz(j), py = this.tileY(k); for (const w of this.shaftPassage(p.a, p.b)) { const wy = w.y != null ? w.y : py; l += Math.hypot(w.x - px, w.z - pz, wy - py); px = w.x; pz = w.z; py = wy; } L.push(p.to, l, -1, -1, 1); }
+        E[k] = L; ne += L.length / 5;
+        if ((k & 2047) === 2047) yield;
+      }
+      yield;
+      const off = new Int32Array(N + 1), to = new Int32Array(ne), len = new Float32Array(ne), door = new Int16Array(ne), blast = new Int16Array(ne), kind = new Uint8Array(ne);
+      let e = 0;
+      for (let k = 0; k < N; k++) {
+        off[k] = e; const L = E[k]; if (!L) continue;
+        for (let q = 0; q < L.length; q += 5) { to[e] = L[q]; len[e] = L[q + 1]; door[e] = L[q + 2]; blast[e] = L[q + 3]; kind[e] = L[q + 4]; e++; }
+      }
+      off[N] = e;
+      const nv = (this._navB = { N, isN, off, to, len, door, blast, kind, hk: new Float32Array(1024), hv: new Int32Array(1024), vis: new Int32Array(N), nvis: 0, seen: new Uint32Array(N), stamp: 0, visC: new Map() });
+      yield;
+      // where the ways out are: the main door, the fire exit, and on every floor below the ground each stairwell doorway
+      // that leads up
+      const tileOf = (x, z) => { const t = this.nearestWalkable(this.ti(x), this.tj(z)); return t ? this.idx(t[0], t[1]) : -1; };
+      const main = this.exits.find((q) => q.kind === 'main'), fire = this.exits.find((q) => q.kind === 'fire');
+      nv.exitK = [main, fire].filter(Boolean).map((q) => tileOf(q.spawn.x, q.spawn.z)).filter((k) => k >= 0);
+      nv.up = new Uint8Array(N);
+      for (const s of this.shafts) for (const x of s.exits) if (x.lv === s.bot && isN[x.out]) nv.up[x.out] = 1;
+      nv.upList = []; for (let k = 0; k < N; k++) if (nv.up[k]) nv.upList.push(k);
+      // the areas: each room, and the corridors cut into runs at their junctions (each junction an area of its own)
+      const area = new Int16Array(N).fill(-1), A = [];
+      const deg = (k) => { let n = 0; for (let q = off[k]; q < off[k + 1]; q++) if (kind[q] === 0 && len[q] === 3) n++; return n; };
+      const flood = (k0, same) => {
+        const a = { id: A.length, room: this.room[k0], lv: lvl[k0], tiles: [], nb: new Map() }; A.push(a);
+        const st = [k0]; area[k0] = a.id;
+        while (st.length) { const k = st.pop(); a.tiles.push(k); for (let q = off[k]; q < off[k + 1]; q++) { const n = to[q]; if (kind[q] === 0 && area[n] < 0 && same(n)) { area[n] = a.id; st.push(n); } } }
+        return a;
+      };
+      for (const r of this.rooms) { let k0 = -1; for (let j = r.j; j < r.j + r.h && k0 < 0; j++) for (let i = r.i; i < r.i + r.w; i++) { const k = this.idx(i, j); if (k >= 0 && isN[k] && this.room[k] === r.id && area[k] < 0) { k0 = k; break; } } if (k0 >= 0) flood(k0, (n) => this.room[n] === r.id); }
+      const junc = new Uint8Array(N); for (let k = 0; k < N; k++) if (isN[k] && this.room[k] < 0 && deg(k) >= 3) junc[k] = 1;
+      for (let k = 0; k < N; k++) if (isN[k] && area[k] < 0) flood(k, junc[k] ? (n) => junc[n] && this.room[n] < 0 : (n) => !junc[n] && this.room[n] < 0);
+      for (const a of A) {
+        let sx = 0, sz = 0; for (const k of a.tiles) { sx += k % W; sz += (k - (k % W)) / W; }
+        sx /= a.tiles.length; sz /= a.tiles.length; let bd = Infinity;
+        for (const k of a.tiles) { const d = Math.hypot(k % W - sx, (k - (k % W)) / W - sz); if (d < bd) { bd = d; a.k = k; } }
+        for (const k of a.tiles) for (let q = off[k]; q < off[k + 1]; q++) { if (kind[q] === 2) continue; const b = area[to[q]]; if (b >= 0 && b !== a.id && !a.nb.has(b)) a.nb.set(b, { k, n: to[q], door: door[q] }); }
+      }
+      nv.area = area; nv.areas = A;
+      yield;
+      // the way out from everywhere (by the walk), and how much of the building's traffic home goes through each tile:
+      // the route out from every room, counted; doorways and the stairs up count for more
+      nv.home = this.field(nv.exitK, Infinity, 'walk'); nv.homeVer = this.blastKey();
+      const pass = new Float32Array(N); let pm = 1;
+      for (const r of this.rooms) {
+        let k = this.idx(r.cx, r.cy); if (k < 0 || !isN[k]) { const a = A.find((q) => q.room === r.id); if (!a) continue; k = a.k; }
+        for (let g = 0; g < 4000 && k >= 0 && nv.home[k] > 0 && nv.home[k] < Infinity; g++) { pm = Math.max(pm, ++pass[k]); k = this.descend(nv.home, k); }
+      }
+      const choke = (nv.choke = new Float32Array(N));
+      for (let k = 0; k < N; k++) if (isN[k]) choke[k] = pass[k] / pm + (nv.up[k] ? 1 : 0);
+      for (const d of this.doors) { choke[d.a] += 0.5; choke[d.b] += 0.5; }
+      // (and the corners: a corridor tile where it turns or branches, round which nobody sees what's waiting)
+      const bend = (nv.bend = new Uint8Array(N));
+      for (let k = 0; k < N; k++) {
+        if (!isN[k] || this.room[k] >= 0) continue;
+        const i = k % W, j = (k - i) / W;
+        let m = 0, c = 0; for (let q = 0; q < 4; q++) { const [dx, dy] = DIRS[q], nk = this.idx(i + dx, j + dy); if (nk >= 0 && isN[nk] && this.connected(k, nk)) { m |= 1 << q; c++; } }
+        bend[k] = c >= 3 || (c === 2 && m !== 3 && m !== 12) ? 1 : 0;
+      }
+      yield;
+      // pockets: the parts of the building with only one way in (a room off a corridor, a wing past a single junction),
+      // found as what hangs off a cut point of the area graph (Tarjan), away from the ways out. pocket[a]: the area at its
+      // mouth, -1 if it isn't in one
+      const nA = A.length, disc = new Int32Array(nA).fill(-1), low = new Int32Array(nA), fin = new Int32Array(nA), par = new Int32Array(nA).fill(-1), it = new Int32Array(nA), anc = new Uint8Array(nA), roots = [];
+      for (const k of nv.exitK) anc[area[k]] = 1;
+      for (let k = 0; k < N; k++) if (nv.up[k] && area[k] >= 0) anc[area[k]] = 1;
+      const nbs = A.map((a) => [...a.nb.keys()]);
+      let time = 0; const r0 = nv.exitK.length ? area[nv.exitK[0]] : 0, st = [r0]; disc[r0] = low[r0] = time++;
+      while (st.length) {
+        const a = st[st.length - 1];
+        if (it[a] < nbs[a].length) { const b = nbs[a][it[a]++]; if (disc[b] < 0) { par[b] = a; disc[b] = low[b] = time++; st.push(b); } else if (b !== par[a]) low[a] = Math.min(low[a], disc[b]); continue; }
+        st.pop(); fin[a] = time;
+        const p = par[a]; if (p < 0) continue;
+        low[p] = Math.min(low[p], low[a]); if (anc[a]) anc[p] = 1;
+        if (low[a] >= disc[p] && !anc[a]) roots.push([a, p]);
+      }
+      const pocket = (nv.pocket = new Int16Array(nA).fill(-1));
+      roots.sort((x, y) => disc[x[0]] - disc[y[0]]);
+      for (const [a, p] of roots) for (let b = 0; b < nA; b++) if (disc[b] >= disc[a] && disc[b] < fin[a]) pocket[b] = p;
+      yield;
+      this.litMap(true); yield;
+      this.litMap(false);
+      this._nav = nv;
+    }
+    // how far it is from the sources (tiles, or { k, d } to start a tile off further away) to every tile, in metres, out
+    // to maxM (Infinity past that, or where there's no way). mode 'walk': as a creature walks it (doors are opened as it
+    // goes, shut blast doors are walls); 'floor': the same, but on its own floor only; 'sound': as a noise carries, a shut
+    // door taking 9 m off it (6 through bars), a shut blast door 25, and through a thin wall
+    field(src, maxM = Infinity, mode = 'walk', out) {
+      const nv = this._navB || this.nav(), F = out || new Float32Array(nv.N), { off, to, len, door, blast, kind } = nv;
+      F.fill(Infinity);
+      let hk = nv.hk, hv = nv.hv, n = 0, nvis = 0;
+      const push = (key, v) => {
+        if (n >= hk.length) { const a = new Float32Array(hk.length * 2), b = new Int32Array(hk.length * 2); a.set(hk); b.set(hv); nv.hk = hk = a; nv.hv = hv = b; }
+        let i = n++; while (i > 0) { const p = (i - 1) >> 1; if (hk[p] <= key) break; hk[i] = hk[p]; hv[i] = hv[p]; i = p; } hk[i] = key; hv[i] = v;
+      };
+      for (const s of src) { const k = typeof s === 'number' ? s : s.k, d = typeof s === 'number' ? 0 : s.d || 0; if (k >= 0 && d < F[k]) { F[k] = d; push(d, k); } }
+      const snd = mode === 'sound', one = mode === 'floor', st = ++nv.stamp, seen = nv.seen;
+      while (n) {
+        const d = hk[0], k = hv[0], lk = hk[--n], lv = hv[n];
+        let i = 0; for (;;) { let c = 2 * i + 1; if (c >= n) break; if (c + 1 < n && hk[c + 1] < hk[c]) c++; if (hk[c] >= lk) break; hk[i] = hk[c]; hv[i] = hv[c]; i = c; } hk[i] = lk; hv[i] = lv;
+        if (seen[k] === st || d > F[k]) continue;
+        seen[k] = st; nv.vis[nvis++] = k;
+        for (let e = off[k]; e < off[k + 1]; e++) {
+          const kd = kind[e]; if ((kd === 2 && !snd) || (kd === 1 && one)) continue;
+          let c = len[e];
+          const b = blast[e]; if (b >= 0) { const bd = this.blasts[b]; if (!(bd.open && bd.anim > 0.6)) { if (!snd) continue; c += 25; } }
+          const di = door[e];
+          if (di >= 0) { const dd = this.doors[di]; if (snd) { if (!dd.open && !dd.broken) c += dd.pane === 'bars' ? 6 : 9; } else c += 1.5; }
+          const nd = d + c, m = to[e]; if (nd < F[m] && nd <= maxM) { F[m] = nd; push(nd, m); }
+        }
+      }
+      nv.nvis = nvis;
+      return F;
+    }
+    // the tile the creatures' map has for somewhere (in a stairwell: the doorway out of it on that storey's floor; -1 if
+    // there's nothing near)
+    nodeAt(x, z, y) {
+      const nv = this._navB || this.nav(), s = this.shaftAt(x, z);
+      if (s) return this.shaftExitFor(s, this.levelAt(x, z, y)).out;
+      const k = this.idx(this.ti(x), this.tj(z)); if (k >= 0 && nv.isN[k]) return k;
+      const t = this.nearestWalkable(this.ti(x), this.tj(z)); return t ? this.idx(t[0], t[1]) : -1;
+    }
+    // the next tile from k down a field (the neighbour it's least far on from), -1 at the bottom
+    descend(F, k) {
+      const nv = this._navB || this.nav(); let best = -1, bv = F[k];
+      for (let e = nv.off[k]; e < nv.off[k + 1]; e++) { if (nv.kind[e] === 2) continue; const v = F[nv.to[e]] + nv.len[e] * 0.01; if (v < bv) { bv = v; best = nv.to[e]; } }
+      return best;
+    }
+    route(F, k, n = 400) { const out = []; while (k >= 0 && out.length < n) { out.push(k); if (!(F[k] > 0)) break; k = this.descend(F, k); } return out; }
+    // the way out from everywhere, kept up to date with the blast doors
+    homeField() { const nv = this.nav(), b = this.blastKey(); if (nv.homeVer !== b) { nv.home = this.field(nv.exitK, Infinity, 'walk', nv.home); nv.homeVer = b; } return nv.home; }
+    blastKey() { let b = 1; for (const d of this.blasts) b = b * 2 + (d.open && d.anim > 0.6 ? 1 : 0); return b; }
+    // somewhere to wander to on its own floor (or, with mode 'walk', up or down a stairwell too if one's near enough),
+    // between minM and maxM of walking from (x, y, z): picked at random, each tile weighted by score(k, metres) if there
+    // is one (0: never; null if nothing scores). It never looks beyond maxM (with no score and nothing in the ring, the
+    // furthest tile it reached)
+    localGoal(x, z, y, minM, maxM, rng, score, mode = 'floor') {
+      const nv = this.nav(), k0 = this.nodeAt(x, z, y); if (k0 < 0) return null;
+      const F = this.field([k0], maxM, mode, nv.tmp || (nv.tmp = new Float32Array(nv.N)));
+      let tot = 0, pick = -1, far = -1, fd = -1;
+      for (let q = 0; q < nv.nvis; q++) {
+        const k = nv.vis[q], d = F[k];
+        if (d > fd) { fd = d; far = k; }
+        if (d < minM) continue;
+        const w = score ? score(k, d) : 1; if (!(w > 0)) continue;
+        tot += w; if (rng.next() * tot < w) pick = k;
+      }
+      const k = pick >= 0 ? pick : score ? -1 : far; if (k < 0) return null;
+      const i = k % this.W, j = (k - i) / this.W;
+      return { x: this.cx(i), z: this.cz(j), y: this.tileY(k), i, j, k, d: F[k] };
+    }
+    // whether nobody at tile k could get out (to an exit, by any floor) with the tiles in `blocked` shut off; or, given
+    // an array of tiles, which of them couldn't (one search from the exits does for all of them)
+    trapped(k, blocked) {
+      const nv = this.nav(), st = ++nv.stamp, seen = nv.seen, bs = nv.bs || (nv.bs = new Uint32Array(nv.N));
+      for (const b of blocked || []) if (b >= 0) bs[b] = st;
+      const q = nv.vis; let h = 0, t = 0;
+      for (const e of nv.exitK) if (bs[e] !== st) { seen[e] = st; q[t++] = e; }
+      while (h < t) {
+        const c = q[h++];
+        for (let e = nv.off[c]; e < nv.off[c + 1]; e++) {
+          const m = nv.to[e]; if (nv.kind[e] === 2 || seen[m] === st || bs[m] === st) continue;
+          const b = nv.blast[e]; if (b >= 0) { const bd = this.blasts[b]; if (!(bd.open && bd.anim > 0.6)) continue; }
+          seen[m] = st; q[t++] = m;
+        }
+      }
+      return Array.isArray(k) ? k.map((x) => x >= 0 && seen[x] !== st) : seen[k] !== st;
+    }
+    // the tiles lit well enough to see someone by: near a working lamp (on the emergency circuit, with the power off),
+    // with nothing in the way. Worked out again whenever the lamps or the power change
+    litMap(power) {
+      const nv = this._navB || this.nav(); let key = power ? 7 : 3;
+      for (const l of this.lamps) key = (key * 31 + (l.state === 'off' ? 1 : l.state === 'emergency' ? 2 : 5)) % 1000000007;
+      // (kept for the last few states the lamps have been in: the power going off and on again costs nothing)
+      const C = nv.litC || (nv.litC = new Map());
+      let L = C.get(key); if (L) return L;
+      if (C.size >= 4) { const [k0, old] = C.entries().next().value; C.delete(k0); L = old; L.fill(0); } else L = new Uint8Array(nv.N);
+      C.set(key, L);
+      for (const l of this.lamps) {
+        if (l.state === 'off' || (!power && l.state !== 'emergency') || l.shaft != null) continue;
+        for (let j = l.j - 2; j <= l.j + 2; j++) for (let i = l.i - 2; i <= l.i + 2; i++) {
+          const k = this.idx(i, j); if (k < 0 || !nv.isN[k] || L[k] || Math.abs(this.tileY(k) - l.fy) > 1) continue;
+          if (Math.hypot(this.cx(i) - l.x, this.cz(j) - l.z) < 4.5 && this.los(l.x, l.z, this.cx(i), this.cz(j), true)) L[k] = 1;
+        }
+      }
+      return L;
+    }
+    // the tiles that can be seen from tile k (out to 25 m, on its floor, through a door's window too), kept once asked for
+    visFrom(k) {
+      const nv = this.nav(); let v = nv.visC.get(k); if (v) return v;
+      const W = this.W, i0 = k % W, j0 = (k - i0) / W, x = this.cx(i0), z = this.cz(j0), out = [];
+      for (let j = j0 - 8; j <= j0 + 8; j++) for (let i = i0 - 8; i <= i0 + 8; i++) {
+        const n = this.idx(i, j); if (n < 0 || !nv.isN[n] || this.lvl[n] !== this.lvl[k]) continue;
+        if (Math.hypot(i - i0, j - j0) * TS <= 25 && this.los(x, z, this.cx(i), this.cz(j), true)) out.push(n);
+      }
+      v = new Int32Array(out); nv.visC.set(k, v); return v;
+    }
+    // how much room there is either side of (x, z) across a heading ry (to the left and right of facing it), out to max
+    freeHalf(x, z, ry, max = 3) {
+      const k0 = this.idx(this.ti(x), this.tj(z)), lv = k0 >= 0 ? this.lvl[k0] : -1, sx = Math.cos(ry), sz = -Math.sin(ry);
+      const go = (s) => { let d = 0; while (d < max) { const k = this.idx(this.ti(x + sx * s * (d + 0.1)), this.tj(z + sz * s * (d + 0.1))); if (k < 0 || !this.grid[k] || this.grid[k] === 4 || this.lvl[k] !== lv) break; d = Math.min(max, d + 0.1); } return d; };
+      return [go(-1), go(1)];
+    }
   }
   function mat4(x, y, z, ry = 0, rx = 0, rz = 0) { return mat(x, y, z, rx, ry, rz); }
   // (a doorway's size, for anything that has to squeeze through one)

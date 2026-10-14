@@ -271,7 +271,7 @@ const Rover = (() => {
   function hostTick(dt) {
     noiseT -= dt;
     const moving = driving ? Math.abs(v) > 0.4 : spd > 0.4;
-    if (noiseT <= 0 && moving && S.driver != null && G.mode !== 'orbit') { noiseT = 0.7; G.addNoise(V(S.x, S.y + 0.2, S.z), 6, S.zone, null); }
+    if (noiseT <= 0 && moving && S.driver != null && G.mode !== 'orbit') { noiseT = 0.7; G.addNoise(V(S.x, S.y + 0.2, S.z), 6, S.zone, null, 'step'); }
   }
   // ---------- drawing it ----------
   function present(dt) {

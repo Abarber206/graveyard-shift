@@ -358,11 +358,7 @@ const Player = (() => {
       const ox = me.pos.x, oz = me.pos.z;
       me.pos.x += (vel.x + kick.x) * dt; me.pos.z += (vel.z + kick.z) * dt; me.pos.y += vel.y * dt;
       // creatures push you, then the world gets the final say (so a shove can never put you inside a wall)
-      for (const m of G.monsters.values()) {
-        if (m.dead || m.def.zone !== me.zone || (m.type === 'leech')) continue;
-        const dx = me.pos.x - m.rpos.x, dz = me.pos.z - m.rpos.z, d = Math.hypot(dx, dz), r = m.def.radius + 0.3;
-        if (d < r && d > 1e-3) { me.pos.x = m.rpos.x + (dx / d) * r; me.pos.z = m.rpos.z + (dz / d) * r; }
-      }
+      for (const m of G.monsters.values()) if (m.def.zone === me.zone) Monster.push(m, me.pos, 0.3);
       Rover.push(me.pos, 0.3, me.zone);
       // up on the roof deck the rail keeps you on it, and the hatch coaming is in the way
       if (me.roof) {

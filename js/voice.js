@@ -5,7 +5,7 @@
 // you talk (open mic: while you're louder than the threshold; push-to-talk: while V is held). The calls carry what comes
 // out of the gate, so changing microphone, or turning the mic on halfway through a game, needs no new calls.
 const Voice = (() => {
-  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0;
+  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0, held = 0;
   const peers = new Map(); // peerId -> entry
   // (when each crewmate was first seen without a call, and how many tries in a row haven't come to anything)
   const seen = new Map(), fails = new Map();
@@ -14,7 +14,7 @@ const Voice = (() => {
   function makeChain() {
     if (chain || !SFX.ctx) return chain;
     const ctx = SFX.ctx, c = { gain: ctx.createGain(), gate: ctx.createGain(), send: ctx.createGain(), an: ctx.createAnalyser(), dest: ctx.createMediaStreamDestination(), mon: ctx.createGain() };
-    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.send.gain.value = 0; c.mon.gain.value = 0;
+    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.fbuf = new Float32Array(c.an.frequencyBinCount); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.send.gain.value = 0; c.mon.gain.value = 0;
     // (the mic test can play you back to yourself: straight to the speakers, past the game's own effects; and with voice
     // chat off nothing goes out over the calls, though the meter and the playback still work)
     c.gain.connect(c.an); c.gain.connect(c.gate); c.gate.connect(c.send); c.send.connect(c.dest); c.gate.connect(c.mon); c.mon.connect(ctx.destination);
@@ -113,6 +113,10 @@ const Voice = (() => {
     // (talking: what the others hear, and what the game counts as noise; gateOpen: the mic test's meter)
     get talking() { return enabled && open && Settings.voice; },
     get gateOpen() { return enabled && open; },
+    // how loud you're talking, as far as anything listening is concerned (0..1: a whisper under 0.2, talking up to
+    // about 0.55, a shout over 0.8; see Brain.voiceR); `carry` is the same with voice chat off, for the mic test
+    get loudness() { return this.talking ? held : 0; },
+    get carry() { return enabled && open ? held : 0; },
     setPTT(d) { pttDown = d; },
     async enable() {
       if (raw) return true;
@@ -130,7 +134,7 @@ const Voice = (() => {
     },
     disable() {
       if (src) src.disconnect(); if (raw) raw.getTracks().forEach((t) => t.stop());
-      raw = src = null; enabled = false; level = 0; open = false; if (chain) chain.gate.gain.value = 0;
+      raw = src = null; enabled = false; level = 0; held = 0; open = false; if (chain) chain.gate.gain.value = 0;
     },
     // a different microphone, or the cleanup turned on or off: open it again (the calls carry on)
     // (and if it never opened, a new pick tries it again)
@@ -156,6 +160,23 @@ const Voice = (() => {
       if (Settings.ptt) open = pttDown;
       else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
+      // How loud that is, out in the building. The level is taken as it is (after the mic volume, not above the gate, or
+      // raising the gate would make a shout count as a whisper), and the voice's colour helps where the browser's own
+      // level evening flattens it: a whisper is breath with no voicing in it, low notes missing and the energy high up;
+      // a shout brightens the voice. Held a moment (a shout counts for half a second after it), and nothing at all for a
+      // push-to-talk key held in silence
+      let L = 0;
+      const db = dbOf(level);
+      if (open && db > -56) {
+        chain.an.getFloatFrequencyData(chain.fbuf);
+        const bw = SFX.ctx.sampleRate / chain.an.fftSize, fb = chain.fbuf;
+        let lo = 0, tot = 0, cen = 0;
+        for (let i = 1; i < fb.length; i++) { const f = i * bw; if (f < 80 || f > 8000) continue; const pw = Math.pow(10, fb[i] / 10); tot += pw; cen += pw * f; if (f >= 100 && f <= 900) lo += pw; }
+        cen = tot > 0 ? cen / tot : 0;
+        const lvl = clamp((db + 52) / 40, 0, 1), bright = clamp((cen - 700) / 1500, 0, 1);
+        L = tot > 0 && lo / tot < 0.3 && cen > 1800 ? 0.08 + 0.1 * lvl : clamp(0.15 + 0.6 * lvl + 0.3 * bright * lvl, 0.15, 1);
+      }
+      held = Math.max(L, held - 1.5 * dt);
       chain.send.gain.setTargetAtTime(Settings.voice ? 1 : 0, SFX.ctx.currentTime, 0.02);
     },
     // A call coming in is always answered, voice on or off (turned away, the caller's end would hang there half-open

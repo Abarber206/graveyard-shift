@@ -6103,11 +6103,479 @@ const Facility = (() => {
       }
       return best;
     }
+
+    // ---------- the lie of the land, as the creatures know it (host only) ----------
+    // Worked out once the layout is done (a piece a frame while the site is put together, or all at once the first time
+    // something asks): every tile you can stand on, joined to its neighbours on its floor (diagonally where both sides
+    // are open floor too), through the doorways (each joint knows its door) and from each stairwell doorway to the
+    // stairwell's others (the walk down the flights). Sound gets about by a few more ways: through one tile of rock
+    // into the room beyond, muffled. Only the grid, levels, rooms, doors, blast doors, stairwells and exits are read.
+    nav() { if (!this._nav) { const g = this.navGen(); while (!g.next().done); } return this._nav; }
+    *navGen() {
+      if (this._nav) return;
+      const W = this.W, N = this.grid.length, isN = new Uint8Array(N), grid = this.grid, lvl = this.lvl;
+      for (let k = 0; k < N; k++) isN[k] = grid[k] > 0 && grid[k] !== 4 && !this.block[k] ? 1 : 0;
+      // the joints, gathered per tile then packed (to, metres, door, blast, kind: 0 floor, 1 stairwell, 2 sound only)
+      const E = [], dk = (a, b) => { const d = this.doorEdge.get(this.edgeKey(a, b)); return d ? d.id : -1; }, bk = (a, b) => { const d = this.blastEdge.get(this.edgeKey(a, b)); return d ? d.id : -1; };
+      const ok = (a, b) => isN[b] && this.connected(a, b);
+      let ne = 0;
+      for (let k = 0; k < N; k++) {
+        if (!isN[k]) continue;
+        const i = k % W, j = (k - i) / W, L = [];
+        for (const [dx, dy] of DIRS) {
+          const ni = i + dx, nj = j + dy, nk = this.idx(ni, nj); if (nk < 0) continue;
+          if (ok(k, nk)) L.push(nk, 3, dk(k, nk), bk(k, nk), 0);
+          // (a single tile of rock with the same floor beyond it: a thin wall that sound comes through, dulled)
+          else if (!grid[nk]) { const fk = this.idx(ni + dx, nj + dy); if (fk >= 0 && isN[fk] && lvl[fk] === lvl[k]) L.push(fk, 16, -1, -1, 2); }
+        }
+        for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
+          const a = this.idx(i + dx, j), b = this.idx(i, j + dy), c = this.idx(i + dx, j + dy);
+          if (a < 0 || b < 0 || c < 0 || !ok(k, a) || !ok(k, b) || !ok(a, c) || !ok(b, c)) continue;
+          if (dk(k, a) >= 0 || dk(k, b) >= 0 || dk(a, c) >= 0 || dk(b, c) >= 0 || bk(k, a) >= 0 || bk(k, b) >= 0 || bk(a, c) >= 0 || bk(b, c) >= 0) continue;
+          L.push(c, 4.243, -1, -1, 0);
+        }
+        const ps = this.portals.get(k);
+        // (the walk through a stairwell, along its landings and flights, as far as it really is)
+        if (ps) for (const p of ps) if (isN[p.to]) { let l = 0, px = this.cx(i), pz = this.cz(j), py = this.tileY(k); for (const w of this.shaftPassage(p.a, p.b)) { const wy = w.y != null ? w.y : py; l += Math.hypot(w.x - px, w.z - pz, wy - py); px = w.x; pz = w.z; py = wy; } L.push(p.to, l, -1, -1, 1); }
+        E[k] = L; ne += L.length / 5;
+        if ((k & 2047) === 2047) yield;
+      }
+      yield;
+      const off = new Int32Array(N + 1), to = new Int32Array(ne), len = new Float32Array(ne), door = new Int16Array(ne), blast = new Int16Array(ne), kind = new Uint8Array(ne);
+      let e = 0;
+      for (let k = 0; k < N; k++) {
+        off[k] = e; const L = E[k]; if (!L) continue;
+        for (let q = 0; q < L.length; q += 5) { to[e] = L[q]; len[e] = L[q + 1]; door[e] = L[q + 2]; blast[e] = L[q + 3]; kind[e] = L[q + 4]; e++; }
+      }
+      off[N] = e;
+      const nv = (this._navB = { N, isN, off, to, len, door, blast, kind, hk: new Float32Array(1024), hv: new Int32Array(1024), vis: new Int32Array(N), nvis: 0, seen: new Uint32Array(N), stamp: 0, visC: new Map() });
+      yield;
+      // where the ways out are: the main door, the fire exit, and on every floor below the ground each stairwell doorway
+      // that leads up
+      const tileOf = (x, z) => { const t = this.nearestWalkable(this.ti(x), this.tj(z)); return t ? this.idx(t[0], t[1]) : -1; };
+      const main = this.exits.find((q) => q.kind === 'main'), fire = this.exits.find((q) => q.kind === 'fire');
+      nv.exitK = [main, fire].filter(Boolean).map((q) => tileOf(q.spawn.x, q.spawn.z)).filter((k) => k >= 0);
+      nv.up = new Uint8Array(N);
+      for (const s of this.shafts) for (const x of s.exits) if (x.lv === s.bot && isN[x.out]) nv.up[x.out] = 1;
+      nv.upList = []; for (let k = 0; k < N; k++) if (nv.up[k]) nv.upList.push(k);
+      // the areas: each room, and the corridors cut into runs at their junctions (each junction an area of its own)
+      const area = new Int16Array(N).fill(-1), A = [];
+      const deg = (k) => { let n = 0; for (let q = off[k]; q < off[k + 1]; q++) if (kind[q] === 0 && len[q] === 3) n++; return n; };
+      const flood = (k0, same) => {
+        const a = { id: A.length, room: this.room[k0], lv: lvl[k0], tiles: [], nb: new Map() }; A.push(a);
+        const st = [k0]; area[k0] = a.id;
+        while (st.length) { const k = st.pop(); a.tiles.push(k); for (let q = off[k]; q < off[k + 1]; q++) { const n = to[q]; if (kind[q] === 0 && area[n] < 0 && same(n)) { area[n] = a.id; st.push(n); } } }
+        return a;
+      };
+      for (const r of this.rooms) { let k0 = -1; for (let j = r.j; j < r.j + r.h && k0 < 0; j++) for (let i = r.i; i < r.i + r.w; i++) { const k = this.idx(i, j); if (k >= 0 && isN[k] && this.room[k] === r.id && area[k] < 0) { k0 = k; break; } } if (k0 >= 0) flood(k0, (n) => this.room[n] === r.id); }
+      const junc = new Uint8Array(N); for (let k = 0; k < N; k++) if (isN[k] && this.room[k] < 0 && deg(k) >= 3) junc[k] = 1;
+      for (let k = 0; k < N; k++) if (isN[k] && area[k] < 0) flood(k, junc[k] ? (n) => junc[n] && this.room[n] < 0 : (n) => !junc[n] && this.room[n] < 0);
+      for (const a of A) {
+        let sx = 0, sz = 0; for (const k of a.tiles) { sx += k % W; sz += (k - (k % W)) / W; }
+        sx /= a.tiles.length; sz /= a.tiles.length; let bd = Infinity;
+        for (const k of a.tiles) { const d = Math.hypot(k % W - sx, (k - (k % W)) / W - sz); if (d < bd) { bd = d; a.k = k; } }
+        for (const k of a.tiles) for (let q = off[k]; q < off[k + 1]; q++) { if (kind[q] === 2) continue; const b = area[to[q]]; if (b >= 0 && b !== a.id && !a.nb.has(b)) a.nb.set(b, { k, n: to[q], door: door[q] }); }
+      }
+      nv.area = area; nv.areas = A;
+      yield;
+      // the way out from everywhere (by the walk), and how much of the building's traffic home goes through each tile:
+      // the route out from every room, counted; doorways and the stairs up count for more
+      nv.home = this.field(nv.exitK, Infinity, 'walk'); nv.homeVer = this.blastKey();
+      const pass = new Float32Array(N); let pm = 1;
+      for (const r of this.rooms) {
+        let k = this.idx(r.cx, r.cy); if (k < 0 || !isN[k]) { const a = A.find((q) => q.room === r.id); if (!a) continue; k = a.k; }
+        for (let g = 0; g < 4000 && k >= 0 && nv.home[k] > 0 && nv.home[k] < Infinity; g++) { pm = Math.max(pm, ++pass[k]); k = this.descend(nv.home, k); }
+      }
+      const choke = (nv.choke = new Float32Array(N));
+      for (let k = 0; k < N; k++) if (isN[k]) choke[k] = pass[k] / pm + (nv.up[k] ? 1 : 0);
+      for (const d of this.doors) { choke[d.a] += 0.5; choke[d.b] += 0.5; }
+      // (and the corners: a corridor tile where it turns or branches, round which nobody sees what's waiting)
+      const bend = (nv.bend = new Uint8Array(N));
+      for (let k = 0; k < N; k++) {
+        if (!isN[k] || this.room[k] >= 0) continue;
+        const i = k % W, j = (k - i) / W;
+        let m = 0, c = 0; for (let q = 0; q < 4; q++) { const [dx, dy] = DIRS[q], nk = this.idx(i + dx, j + dy); if (nk >= 0 && isN[nk] && this.connected(k, nk)) { m |= 1 << q; c++; } }
+        bend[k] = c >= 3 || (c === 2 && m !== 3 && m !== 12) ? 1 : 0;
+      }
+      yield;
+      // pockets: the parts of the building with only one way in (a room off a corridor, a wing past a single junction),
+      // found as what hangs off a cut point of the area graph (Tarjan), away from the ways out. pocket[a]: the area at its
+      // mouth, -1 if it isn't in one
+      const nA = A.length, disc = new Int32Array(nA).fill(-1), low = new Int32Array(nA), fin = new Int32Array(nA), par = new Int32Array(nA).fill(-1), it = new Int32Array(nA), anc = new Uint8Array(nA), roots = [];
+      for (const k of nv.exitK) anc[area[k]] = 1;
+      for (let k = 0; k < N; k++) if (nv.up[k] && area[k] >= 0) anc[area[k]] = 1;
+      const nbs = A.map((a) => [...a.nb.keys()]);
+      let time = 0; const r0 = nv.exitK.length ? area[nv.exitK[0]] : 0, st = [r0]; disc[r0] = low[r0] = time++;
+      while (st.length) {
+        const a = st[st.length - 1];
+        if (it[a] < nbs[a].length) { const b = nbs[a][it[a]++]; if (disc[b] < 0) { par[b] = a; disc[b] = low[b] = time++; st.push(b); } else if (b !== par[a]) low[a] = Math.min(low[a], disc[b]); continue; }
+        st.pop(); fin[a] = time;
+        const p = par[a]; if (p < 0) continue;
+        low[p] = Math.min(low[p], low[a]); if (anc[a]) anc[p] = 1;
+        if (low[a] >= disc[p] && !anc[a]) roots.push([a, p]);
+      }
+      const pocket = (nv.pocket = new Int16Array(nA).fill(-1));
+      roots.sort((x, y) => disc[x[0]] - disc[y[0]]);
+      for (const [a, p] of roots) for (let b = 0; b < nA; b++) if (disc[b] >= disc[a] && disc[b] < fin[a]) pocket[b] = p;
+      yield;
+      this.litMap(true); yield;
+      this.litMap(false);
+      this._nav = nv;
+    }
+    // how far it is from the sources (tiles, or { k, d } to start a tile off further away) to every tile, in metres, out
+    // to maxM (Infinity past that, or where there's no way). mode 'walk': as a creature walks it (doors are opened as it
+    // goes, shut blast doors are walls); 'floor': the same, but on its own floor only; 'sound': as a noise carries, a shut
+    // door taking 9 m off it (6 through bars), a shut blast door 25, and through a thin wall
+    field(src, maxM = Infinity, mode = 'walk', out) {
+      const nv = this._navB || this.nav(), F = out || new Float32Array(nv.N), { off, to, len, door, blast, kind } = nv;
+      F.fill(Infinity);
+      let hk = nv.hk, hv = nv.hv, n = 0, nvis = 0;
+      const push = (key, v) => {
+        if (n >= hk.length) { const a = new Float32Array(hk.length * 2), b = new Int32Array(hk.length * 2); a.set(hk); b.set(hv); nv.hk = hk = a; nv.hv = hv = b; }
+        let i = n++; while (i > 0) { const p = (i - 1) >> 1; if (hk[p] <= key) break; hk[i] = hk[p]; hv[i] = hv[p]; i = p; } hk[i] = key; hv[i] = v;
+      };
+      for (const s of src) { const k = typeof s === 'number' ? s : s.k, d = typeof s === 'number' ? 0 : s.d || 0; if (k >= 0 && d < F[k]) { F[k] = d; push(d, k); } }
+      const snd = mode === 'sound', one = mode === 'floor', st = ++nv.stamp, seen = nv.seen;
+      while (n) {
+        const d = hk[0], k = hv[0], lk = hk[--n], lv = hv[n];
+        let i = 0; for (;;) { let c = 2 * i + 1; if (c >= n) break; if (c + 1 < n && hk[c + 1] < hk[c]) c++; if (hk[c] >= lk) break; hk[i] = hk[c]; hv[i] = hv[c]; i = c; } hk[i] = lk; hv[i] = lv;
+        if (seen[k] === st || d > F[k]) continue;
+        seen[k] = st; nv.vis[nvis++] = k;
+        for (let e = off[k]; e < off[k + 1]; e++) {
+          const kd = kind[e]; if ((kd === 2 && !snd) || (kd === 1 && one)) continue;
+          let c = len[e];
+          const b = blast[e]; if (b >= 0) { const bd = this.blasts[b]; if (!(bd.open && bd.anim > 0.6)) { if (!snd) continue; c += 25; } }
+          const di = door[e];
+          if (di >= 0) { const dd = this.doors[di]; if (snd) { if (!dd.open && !dd.broken) c += dd.pane === 'bars' ? 6 : 9; } else c += 1.5; }
+          const nd = d + c, m = to[e]; if (nd < F[m] && nd <= maxM) { F[m] = nd; push(nd, m); }
+        }
+      }
+      nv.nvis = nvis;
+      return F;
+    }
+    // the tile the creatures' map has for somewhere (in a stairwell: the doorway out of it on that storey's floor; -1 if
+    // there's nothing near)
+    nodeAt(x, z, y) {
+      const nv = this._navB || this.nav(), s = this.shaftAt(x, z);
+      if (s) return this.shaftExitFor(s, this.levelAt(x, z, y)).out;
+      const k = this.idx(this.ti(x), this.tj(z)); if (k >= 0 && nv.isN[k]) return k;
+      const t = this.nearestWalkable(this.ti(x), this.tj(z)); return t ? this.idx(t[0], t[1]) : -1;
+    }
+    // the next tile from k down a field (the neighbour it's least far on from), -1 at the bottom
+    descend(F, k) {
+      const nv = this._navB || this.nav(); let best = -1, bv = F[k];
+      for (let e = nv.off[k]; e < nv.off[k + 1]; e++) { if (nv.kind[e] === 2) continue; const v = F[nv.to[e]] + nv.len[e] * 0.01; if (v < bv) { bv = v; best = nv.to[e]; } }
+      return best;
+    }
+    route(F, k, n = 400) { const out = []; while (k >= 0 && out.length < n) { out.push(k); if (!(F[k] > 0)) break; k = this.descend(F, k); } return out; }
+    // the way out from everywhere, kept up to date with the blast doors
+    homeField() { const nv = this.nav(), b = this.blastKey(); if (nv.homeVer !== b) { nv.home = this.field(nv.exitK, Infinity, 'walk', nv.home); nv.homeVer = b; } return nv.home; }
+    blastKey() { let b = 1; for (const d of this.blasts) b = b * 2 + (d.open && d.anim > 0.6 ? 1 : 0); return b; }
+    // somewhere to wander to on its own floor (or, with mode 'walk', up or down a stairwell too if one's near enough),
+    // between minM and maxM of walking from (x, y, z): picked at random, each tile weighted by score(k, metres) if there
+    // is one (0: never; null if nothing scores). It never looks beyond maxM (with no score and nothing in the ring, the
+    // furthest tile it reached)
+    localGoal(x, z, y, minM, maxM, rng, score, mode = 'floor') {
+      const nv = this.nav(), k0 = this.nodeAt(x, z, y); if (k0 < 0) return null;
+      const F = this.field([k0], maxM, mode, nv.tmp || (nv.tmp = new Float32Array(nv.N)));
+      let tot = 0, pick = -1, far = -1, fd = -1;
+      for (let q = 0; q < nv.nvis; q++) {
+        const k = nv.vis[q], d = F[k];
+        if (d > fd) { fd = d; far = k; }
+        if (d < minM) continue;
+        const w = score ? score(k, d) : 1; if (!(w > 0)) continue;
+        tot += w; if (rng.next() * tot < w) pick = k;
+      }
+      const k = pick >= 0 ? pick : score ? -1 : far; if (k < 0) return null;
+      const i = k % this.W, j = (k - i) / this.W;
+      return { x: this.cx(i), z: this.cz(j), y: this.tileY(k), i, j, k, d: F[k] };
+    }
+    // whether nobody at tile k could get out (to an exit, by any floor) with the tiles in `blocked` shut off; or, given
+    // an array of tiles, which of them couldn't (one search from the exits does for all of them)
+    trapped(k, blocked) {
+      const nv = this.nav(), st = ++nv.stamp, seen = nv.seen, bs = nv.bs || (nv.bs = new Uint32Array(nv.N));
+      for (const b of blocked || []) if (b >= 0) bs[b] = st;
+      const q = nv.vis; let h = 0, t = 0;
+      for (const e of nv.exitK) if (bs[e] !== st) { seen[e] = st; q[t++] = e; }
+      while (h < t) {
+        const c = q[h++];
+        for (let e = nv.off[c]; e < nv.off[c + 1]; e++) {
+          const m = nv.to[e]; if (nv.kind[e] === 2 || seen[m] === st || bs[m] === st) continue;
+          const b = nv.blast[e]; if (b >= 0) { const bd = this.blasts[b]; if (!(bd.open && bd.anim > 0.6)) continue; }
+          seen[m] = st; q[t++] = m;
+        }
+      }
+      return Array.isArray(k) ? k.map((x) => x >= 0 && seen[x] !== st) : seen[k] !== st;
+    }
+    // the tiles lit well enough to see someone by: near a working lamp (on the emergency circuit, with the power off),
+    // with nothing in the way. Worked out again whenever the lamps or the power change
+    litMap(power) {
+      const nv = this._navB || this.nav(); let key = power ? 7 : 3;
+      for (const l of this.lamps) key = (key * 31 + (l.state === 'off' ? 1 : l.state === 'emergency' ? 2 : 5)) % 1000000007;
+      // (kept for the last few states the lamps have been in: the power going off and on again costs nothing)
+      const C = nv.litC || (nv.litC = new Map());
+      let L = C.get(key); if (L) return L;
+      if (C.size >= 4) { const [k0, old] = C.entries().next().value; C.delete(k0); L = old; L.fill(0); } else L = new Uint8Array(nv.N);
+      C.set(key, L);
+      for (const l of this.lamps) {
+        if (l.state === 'off' || (!power && l.state !== 'emergency') || l.shaft != null) continue;
+        for (let j = l.j - 2; j <= l.j + 2; j++) for (let i = l.i - 2; i <= l.i + 2; i++) {
+          const k = this.idx(i, j); if (k < 0 || !nv.isN[k] || L[k] || Math.abs(this.tileY(k) - l.fy) > 1) continue;
+          if (Math.hypot(this.cx(i) - l.x, this.cz(j) - l.z) < 4.5 && this.los(l.x, l.z, this.cx(i), this.cz(j), true)) L[k] = 1;
+        }
+      }
+      return L;
+    }
+    // the tiles that can be seen from tile k (out to 25 m, on its floor, through a door's window too), kept once asked for
+    visFrom(k) {
+      const nv = this.nav(); let v = nv.visC.get(k); if (v) return v;
+      const W = this.W, i0 = k % W, j0 = (k - i0) / W, x = this.cx(i0), z = this.cz(j0), out = [];
+      for (let j = j0 - 8; j <= j0 + 8; j++) for (let i = i0 - 8; i <= i0 + 8; i++) {
+        const n = this.idx(i, j); if (n < 0 || !nv.isN[n] || this.lvl[n] !== this.lvl[k]) continue;
+        if (Math.hypot(i - i0, j - j0) * TS <= 25 && this.los(x, z, this.cx(i), this.cz(j), true)) out.push(n);
+      }
+      v = new Int32Array(out); nv.visC.set(k, v); return v;
+    }
+    // how much room there is either side of (x, z) across a heading ry (to the left and right of facing it), out to max
+    freeHalf(x, z, ry, max = 3) {
+      const k0 = this.idx(this.ti(x), this.tj(z)), lv = k0 >= 0 ? this.lvl[k0] : -1, sx = Math.cos(ry), sz = -Math.sin(ry);
+      const go = (s) => { let d = 0; while (d < max) { const k = this.idx(this.ti(x + sx * s * (d + 0.1)), this.tj(z + sz * s * (d + 0.1))); if (k < 0 || !this.grid[k] || this.grid[k] === 4 || this.lvl[k] !== lv) break; d = Math.min(max, d + 0.1); } return d; };
+      return [go(-1), go(1)];
+    }
   }
   function mat4(x, y, z, ry = 0, rx = 0, rz = 0) { return mat(x, y, z, rx, ry, rz); }
   // (a doorway's size, for anything that has to squeeze through one)
   Fac.DW = DW; Fac.DH = DH;
   return Fac;
+})();
+
+</script>
+<script type="text/x-gs" data-file="brain">
+'use strict';
+// What the creatures know (host only). Seeing you wants light: a lamp near you, a light in your hands, or being close
+// enough to be made out in the dark (closer still if you crouch or keep still, further off if you run). Sound goes the
+// way sound does, along the corridors and round the corners, dulled through a shut door (less through a barred window),
+// up and down a stairwell and a little through a thin wall: a shout carries along a floor, a whisper not past the next
+// door. What they've seen or heard of you they remember, less and less sure of it as it gets older. The plan of the
+// building is Facility.nav's; this keeps what it says about the crew (where each of you is, how fast you're going,
+// whether you're lit, where you've been walking) a few times a second.
+const Brain = (() => {
+  const B = { dbg: { fields: 0, fallbacks: 0, heard: 0 } };
+  let fac = null, now = 0, budget = 2, bbT = 0, heatT = 0, decT = 0, lastR = 0, lit = null, heat = null, tmp = null;
+  const P = new Map(), cache = new Map(), pool = [];
+  const N = () => fac.nav().N;
+  const buf = () => pool.pop() || new Float32Array(N());
+  const free = (F) => { if (F && pool.length < 24 && F.length === N()) pool.push(F); };
+  B.P = P;
+  B.now = () => now;
+  B.reset = (f) => {
+    fac = f || null; P.clear(); cache.clear(); pool.length = 0; heat = lit = tmp = null; now = 0; bbT = heatT = decT = lastR = 0;
+    B.dbg = { fields: 0, fallbacks: 0, heard: 0 };
+  };
+  // each host frame, before the creatures move
+  B.tick = (dt) => {
+    if (fac !== G.fac) B.reset(G.fac);
+    if (!fac) return;
+    now += dt;
+    // (how many of the costlier sound and route workings-out a frame may have; the rest wait, or make do)
+    budget = Touch.on ? 1 : 2;
+    if ((bbT -= dt) <= 0) { bbT = 0.1; refresh(); }
+    if ((heatT -= dt) <= 0) { heatT = 0.5; warm(); }
+    for (const [key, c] of cache) if (now - c.t > 1.2) { free(c.F); cache.delete(key); }
+  };
+  // ---------------- the crew, as the creatures have them ----------------
+  function refresh() {
+    const ddt = Math.max(1e-3, now - lastR); lastR = now;
+    lit = fac.litMap(!G.round || G.round.power);
+    for (const p of G.players.values()) {
+      if (!p.alive) { P.delete(p.id); continue; }
+      let e = P.get(p.id);
+      if (!e) { e = { id: p.id, x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: 0, vz: 0, spd: 0, still: 0, yaw: p.yaw, yr: 0, k: -1, lit: false, inT: 0, zone: p.zone }; P.set(p.id, e); }
+      let vx = (p.pos.x - e.x) / ddt, vz = (p.pos.z - e.z) / ddt;
+      // (a jump, not a walk: spawned somewhere, or through the hatch)
+      if (Math.hypot(vx, vz) > 10 || e.zone !== p.zone) vx = vz = 0;
+      e.vx += (vx - e.vx) * 0.5; e.vz += (vz - e.vz) * 0.5; e.spd = Math.hypot(e.vx, e.vz);
+      e.still = e.spd < 0.3 ? e.still + ddt : 0;
+      e.yr = angDiff(e.yaw, p.yaw) / ddt; e.yaw = p.yaw;
+      e.x = p.pos.x; e.y = p.pos.y; e.z = p.pos.z; e.zone = p.zone;
+      e.k = p.zone === 'in' ? fac.nodeAt(p.pos.x, p.pos.z, p.pos.y) : -1;
+      const sh = p.zone === 'in' && fac.shaftAt(p.pos.x, p.pos.z);
+      e.lit = !!p.flash || G.carriesLight(p) || (e.k >= 0 && (sh ? shaftLit(sh, p) : !!lit[e.k]));
+      e.inT = p.zone === 'in' ? e.inT + ddt : 0;
+    }
+  }
+  // (a stairwell's own caged lamps light the landing or flight they hang over)
+  function shaftLit(s, p) {
+    const power = !G.round || G.round.power;
+    for (const l of fac.lamps) if (l.shaft === s.id && l.state !== 'off' && (power || l.state === 'emergency') && Math.abs(l.fy - p.pos.y) < 2 && Math.hypot(l.x - p.pos.x, l.z - p.pos.z) < 4.5) return true;
+    return false;
+  }
+  // where the crew have been walking: a little warmth left on each tile they cross, fading over a couple of minutes
+  function warm() {
+    if (!heat) heat = new Float32Array(N());
+    for (const e of P.values()) if (e.zone === 'in' && e.k >= 0) heat[e.k] += 1;
+    if ((decT += 0.5) >= 5) { decT = 0; for (let k = 0; k < heat.length; k++) if (heat[k]) heat[k] *= 0.9715; }
+  }
+  B.heat = (k) => (heat && k >= 0 ? Math.min(1, heat[k] / 6) : 0);
+  B.lit = (k) => !!(lit && k >= 0 && lit[k]);
+  B.node = (x, z, y) => (fac ? fac.nodeAt(x, z, y) : -1);
+  // ---------------- seeing ----------------
+  // How sure it is it sees p (0: not at all). o: range, cone (the least cos of the angle off its facing; -1 all round),
+  // dark (how near it makes someone out without light), touch (bumped into: no light needed, but never through a wall)
+  B.sees = (m, p, o) => {
+    if (!p.alive || p.zone !== m.def.zone) return 0;
+    const inside = m.def.zone === 'in' && fac;
+    if (inside && Math.abs(p.pos.y - m.feetY()) > 2.5) return 0;
+    const dx = p.pos.x - m.pos.x, dz = p.pos.z - m.pos.z, d = Math.hypot(dx, dz);
+    if (o.touch && d < o.touch) return !inside || m.clearTo(p) ? 1 : 0;
+    if (d > o.range) return 0;
+    if (o.cone != null && o.cone > -1 && d > 0.05) { const f = m.forward(); if ((dx * f.x + dz * f.z) / d < o.cone) return 0; }
+    if (inside && !fac.los(m.pos.x, m.pos.z, p.pos.x, p.pos.z, true)) return 0;
+    const e = P.get(p.id);
+    if (e ? e.lit : p.flash) return 1;
+    const dark = (o.dark || 0) * (p.crouch ? 0.55 : 1) * (p.sprint ? 1.5 : 1) * (e && e.still > 0.5 ? 0.7 : 1);
+    return d < dark ? 1 - 0.5 * d / dark : 0;
+  };
+  // the best of the crew it sees right now: { p, c } (or null)
+  B.look = (m, o, filter) => {
+    let best = null, bc = 0;
+    for (const p of G.players.values()) { if (filter && !filter(p)) continue; const c = B.sees(m, p, o); if (c > bc) { bc = c; best = p; } }
+    return best ? { p: best, c: bc } : null;
+  };
+  // Those of the crew who see m. Someone has to be looking its way (with nothing in between), and there has to be light
+  // to see it by (close to, a lamp over it, their beam on it, or its own glow). The cone is widened by how far each of
+  // them is turning in a quarter of a second, so what's drawn on a crewmate's screen, a moment behind, never shows it
+  // moving while they look at it. o: eye (its height), range, dot, glow
+  B.seenBy = (m, o = {}, out = []) => {
+    out.length = 0;
+    const eye = { x: m.pos.x, y: m.pos.y + (o.eye || 1.6), z: m.pos.z }, range = o.range || 40, d0 = Math.acos(clamp(o.dot != null ? o.dot : 0.55, -1, 1));
+    let here = null;
+    for (const p of G.players.values()) {
+      if (!p.alive || p.zone !== m.def.zone) continue;
+      const e = P.get(p.id), dd = Math.hypot(p.pos.x - eye.x, p.pos.z - eye.z); if (dd > range) continue;
+      const widen = 0.1 + Math.min(1.2, Math.abs(e ? e.yr : 0) * 0.25);
+      if (!G.canSee(p, eye, range, Math.cos(Math.min(Math.PI, d0 + widen)))) continue;
+      if (dd < 6 || o.glow) { out.push(p); continue; }
+      if (here === null) here = (fac && m.def.zone === 'in' && B.lit(fac.nodeAt(m.pos.x, m.pos.z, m.feetY()))) || G.isLit(eye);
+      if (here || (p.flash && dd < (p.flash === 2 ? 30 : 21) && G.canSee(p, eye, 30, Math.cos(Math.min(Math.PI, Math.acos(0.9) + widen))))) out.push(p);
+    }
+    return out;
+  };
+  // ---------------- hearing ----------------
+  // The way a noise carries from where it was made, worked out once and shared for a moment by any noise from about the
+  // same place of about the same loudness (feet on the same tile). With this frame's share of the working used up, null.
+  // (need: as far as this listener could hear it from)
+  function noiseField(n, mode, need) {
+    if (n.k === undefined) n.k = fac.nodeAt(n.x, n.z, n.y);
+    if (n.k < 0) return null;
+    const rb = Math.min(127, Math.ceil(n.r / 2)), ver = fac.doorVer | 0, key = (n.k * 128 + rb) * 2 + (mode === 'floor' ? 1 : 0);
+    const c = cache.get(key);
+    if (c && c.ver === ver && c.max >= need) { c.t = now; return c.F; }
+    if (budget <= 0) { B.dbg.fallbacks++; return null; }
+    budget--; B.dbg.fields++;
+    const max = Math.max(need, rb * 2 * 1.6 + 2), F = fac.field([n.k], max, mode, c ? c.F : buf());
+    cache.set(key, { F, t: now, ver, max });
+    return F;
+  }
+  // The loudest thing m can hear right now (or null): a noise made in its zone in the last moment, heard out to its
+  // range times sens (times K[kind], its ear for that kind of noise: step, voice, item, door, bang), measured the way the
+  // sound has to come: along the floor plan, round corners, through doors. Outside, across open ground (the hull of the
+  // ship in between, with the hatch shut, dulls it to a third). o.mode 'floor': felt through the floor (the Seep): along
+  // its own floor only, doors no matter. o.max: nothing heard further than that. { n, pid, loud (1 at the source, 0 at the edge), pd (how far it came), x, y, z }
+  B.hear = (m, sens = 1, K, o) => {
+    const zone = m.def.zone, mode = (o && o.mode) || 'sound';
+    if (zone === 'in' && !fac) return null;
+    let best = null, bl = 0, mk;
+    const my = m.feetY();
+    for (const n of G.noises) {
+      if (n.zone !== zone || n.age > 0.4 || n.src === m.id) continue;
+      const kk = K ? (K[n.kind] != null ? K[n.kind] : K.other != null ? K.other : 1) : 1;
+      let R = Math.min(n.r * sens * kk, (o && o.max) || Infinity); if (R < 0.3) continue;
+      const d = Math.hypot(n.x - m.pos.x, n.z - m.pos.z);
+      let pd;
+      if (zone === 'out') {
+        if (G.ship && !G.ship.door.open && G.ship.inside(n.x, n.y, n.z) !== G.ship.inside(m.pos.x, m.pos.y + 0.5, m.pos.z)) R *= 0.3;
+        if (d >= R) continue;
+        pd = d;
+      } else {
+        if (d >= R) continue;
+        const same = Math.abs(n.y - (n.kind === 'voice' ? 1.6 : 0) - my) < 2.6, inS = fac.shaftAt(n.x, n.z) || fac.shaftAt(m.pos.x, m.pos.z);
+        // (close by on its floor, the straight line, a little further round a corner; otherwise the way it carries)
+        let F = null;
+        if (mode === 'floor' || R > 9 || !same || inS) { F = noiseField(n, mode, R); if (F && mk === undefined) mk = fac.nodeAt(m.pos.x, m.pos.z, my); }
+        pd = F ? (mk >= 0 ? F[mk] : Infinity) : !same ? Infinity : mode === 'floor' ? d : d + (fac.los(m.pos.x, m.pos.z, n.x, n.z) ? 0 : 6);
+        if (!(pd < R)) continue;
+      }
+      const loud = 1 - pd / R;
+      if (loud > bl) { bl = loud; best = { n, pid: n.pid, loud, pd, R, x: n.x, y: n.y - (n.kind === 'voice' ? 1.6 : 0), z: n.z, kind: n.kind }; }
+    }
+    if (best) B.dbg.heard++;
+    return best;
+  };
+  // how far a voice carries at a loudness L (0..1, see Voice.loudness): a whisper only right next to you, ordinary talk
+  // a room or two, a shout most of a floor
+  B.voiceR = (L) => (L < 0.03 ? 0 : L <= 0.12 ? 3.5 : L <= 0.3 ? lerp(5, 9, (L - 0.12) / 0.18) : L <= 0.55 ? lerp(9, 15, (L - 0.3) / 0.25) : L <= 0.8 ? lerp(15, 30, (L - 0.55) / 0.25) : lerp(30, 45, Math.min(1, (L - 0.8) / 0.2)));
+  // ---------------- memory ----------------
+  // what it last knew of p: where, which way they were going, how sure it was then (fading with the creature's own tau)
+  B.remember = (m, p, conf, how) => {
+    const mem = m.mem || (m.mem = new Map()), e = P.get(p.id), r = mem.get(p.id) || {};
+    const c = Math.min(1, Math.max(conf, B.conf(m, r)));
+    Object.assign(r, { pid: p.id, x: p.pos.x, y: p.pos.y, z: p.pos.z, k: e ? e.k : -1, t: now, vx: e ? e.vx : 0, vz: e ? e.vz : 0, conf: c, how });
+    mem.set(p.id, r); return r;
+  };
+  // a noise heard: where it came from (not where whoever made it is now)
+  B.noted = (m, h, conf) => {
+    if (h.pid == null) return null;
+    const mem = m.mem || (m.mem = new Map()), r = mem.get(h.pid) || {};
+    const c = Math.min(1, Math.max(conf, B.conf(m, r)));
+    Object.assign(r, { pid: h.pid, x: h.x, y: h.y, z: h.z, k: h.n.k != null ? h.n.k : -1, t: now, vx: 0, vz: 0, conf: c, how: 'heard' });
+    mem.set(h.pid, r); return r;
+  };
+  B.conf = (m, r) => (r && r.t != null ? r.conf * Math.exp(-(now - r.t) / ((m.cfg && m.cfg.tau) || 10)) : 0);
+  B.age = (r) => now - r.t;
+  B.recall = (m, pid) => {
+    const r = m.mem && m.mem.get(pid); if (!r) return null;
+    const p = G.players.get(pid);
+    if (!p || !p.alive || p.zone !== m.def.zone || B.conf(m, r) < 0.05) { m.mem.delete(pid); return null; }
+    return r;
+  };
+  B.forget = (m, pid) => { if (m.mem) { if (pid == null) m.mem.clear(); else m.mem.delete(pid); } };
+  // its surest memory of anyone
+  B.freshest = (m) => {
+    let best = null, bc = 0;
+    if (m.mem) for (const r of [...m.mem.values()]) { if (!B.recall(m, r.pid)) continue; const c = B.conf(m, r); if (c > bc) { bc = c; best = r; } }
+    return best;
+  };
+  // where someone going that way would be in T seconds (stopping short at a wall)
+  B.ahead = (x, z, vx, vz, T) => {
+    const s = Math.hypot(vx, vz); if (s < 0.3 || !fac) return { x, z };
+    let px = x, pz = z; const n = Math.max(1, Math.ceil((s * T) / 1.5));
+    for (let i = 1; i <= n; i++) { const qx = x + (vx * T * i) / n, qz = z + (vz * T * i) / n; if (!fac.walkable(fac.ti(qx), fac.tj(qz)) || !fac.los(x, z, qx, qz)) break; px = qx; pz = qz; }
+    return { x: px, z: pz };
+  };
+  // ---------------- the building, from where the creature stands ----------------
+  // a walk (or floor) field from m out to maxM, in a buffer kept for it (null with the frame's share used up, unless
+  // it's a choice made now and then that can't wait: force)
+  B.from = (m, maxM, mode = 'walk', force) => {
+    if (!fac || (budget <= 0 && !force)) return null;
+    const k = fac.nodeAt(m.pos.x, m.pos.z, m.feetY()); if (k < 0) return null;
+    budget--; B.dbg.fields++;
+    return fac.field([k], maxM, mode, tmp || (tmp = new Float32Array(N())));
+  };
+  // Calling the others of its kind within R (by the way it would have to walk): fn(mate, metres) for each that hears
+  B.call = (m, R, fn) => {
+    const mates = []; for (const o of G.monsters.values()) if (o !== m && o.type === m.type && !o.dead && o.def.zone === m.def.zone && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < R) mates.push(o);
+    if (!mates.length) return 0;
+    const inside = m.def.zone === 'in' && fac, F = inside ? B.from(m, R) : null;
+    let n = 0;
+    for (const o of mates) {
+      // (no working it out this frame: those in plain sight of it)
+      const d = F ? F[fac.nodeAt(o.pos.x, o.pos.z, o.feetY())] : !inside || (Math.abs(o.pos.y - m.pos.y) < 2.5 && fac.los(m.pos.x, m.pos.z, o.pos.x, o.pos.z)) ? Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) : Infinity;
+      if (d < R) { fn(o, d); n++; }
+    }
+    return n;
+  };
+  return B;
 })();
 
 </script>
@@ -11915,15 +12383,15 @@ const MON_DEFS = {
   executioner: { name: 'The Executioner', hp: 9999, zone: 'in', power: 4, radius: 0.55, height: 2.6, radio: true },
 };
 const BESTIARY = {
-  crawler: 'Low, eyeless, mostly mouth. Once it notices you it charges in a straight line and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
+  crawler: 'Low, eyeless, mostly mouth. It feels movement and hears footsteps: keep still and it may pass you by. Once it notices you it screams, and others come. It charges in a straight line at where you are going and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
   pale: 'Tall. Patient. It follows from behind and hates being watched, if it can see you looking: in the dark, more than a few steps off, it cannot. Glance at it and it slinks away. Stare at it, or keep looking round at it, and it stops being patient; leave it be a while and it settles again. If your light flickers and you feel watched, turn around.',
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
-  leech: 'Clings to ceilings above corridors and drops onto the head of whoever passes beneath. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
-  hound: 'Roams the surface after dark. Completely blind; hunts by sound alone. Walk, crouch, keep quiet. They will follow you into the ship if the hatch is open.',
+  leech: 'Clings to ceilings above corridors and doorways, where people pass, and drops onto the head of whoever passes beneath. It moves to where it hears footsteps. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
+  hound: 'Roams the surface after dark. Completely blind; hunts by sound, and close to, by smell: do not stand still next to one, move away quietly. Walk, crouch, keep quiet. One that howls is calling the others. They will follow you into the ship if the hatch is open.',
   sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
-  bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
+  bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway, round a corner, where people pass; it hears you coming and lies down in your way. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
   executioner: 'Nobody has a body cam recording of it from the front. Pulling a core sets off the alarm, and sometimes the alarm brings it up from below: a great figure in an iron hood, dragging a blade longer than you are. You will hear it before you see it. It does not run, it does not stop, and nothing we have so much as marks it. When it lifts the blade, get out of reach. Then get out of the building.',
-  slime: 'A wall of slime as wide as the corridor and as high as the ceiling. Slow, but it never stops, and nothing we have hurts it. It feels you through the floor. Left alone it settles across a corridor and waits. Shut a door on it: it cannot open doors, but it will seep under one, or through a barred window, a little at a time, and gather itself again on your side. Touching it burns. Do not let it back you into a dead end.',
+  slime: 'A wall of slime as wide as the corridor and as high as the ceiling. Slow, but it never stops, and nothing we have hurts it. It feels your footsteps through the floor. Left alone it settles across a corridor you use and waits. Shut a door on it: it cannot open doors, but it will seep under one, or through a barred window, a little at a time, and gather itself again on your side. Touching it burns. Do not let it back you into a dead end.',
 };
 
 const MonModels = (() => {
@@ -12331,9 +12799,23 @@ const _dp = new THREE.Vector3(), _sl = new THREE.Vector3(), _sl2 = new THREE.Vec
 const MON_FRONT = { crawler: [0.85, 0.32], hound: [1.0, 0.3] };
 // which way a body goes down, from its feet (relative to its facing), and how far it reaches lying there
 const MON_FALL = { pale: [Math.PI, 2.4], sister: [0, 1.85], hound: [-Math.PI / 2, 1.5], bound: [Math.PI, 1.8] };
+// What each one goes by (host; see Brain). tau: how long what it knows of you stays good (s). ear: how keen its hearing
+// is, K its ear for each kind of noise (step, voice, item, door, bang). eye: what it sees by, keeping hold of you; find:
+// noticing you in the first place (range, cone, dark: how near it makes you out without light, touch)
+const MON_CFG = {
+  crawler: { tau: 6, ear: 0.9, K: { step: 1.3 } },
+  pale: { tau: 40, ear: 1, eye: { range: 26, cone: -0.35, dark: 8, touch: 1.2 }, find: { range: 20, cone: -0.2, dark: 8, touch: 1.2 } },
+  mannequin: { tau: 20, ear: 0.8, eye: { range: 30, cone: -1, dark: 8, touch: 1.0 } },
+  leech: { tau: 8, ear: 2.4, K: { voice: 0.6 } },
+  hound: { tau: 8, ear: 1 },
+  slime: { tau: 15, ear: 1, K: { step: 1.5, voice: 0.3, door: 0.6 } },
+  sister: { tau: 10, ear: 1 },
+  bound: { tau: 12, ear: 0.6, eye: { range: 18, cone: -0.3, dark: 6, touch: 1.5 }, find: { range: 14, cone: 0.1, dark: 6, touch: 1.5 } },
+  executioner: { tau: 60, ear: 1 },
+};
 class Monster {
   constructor(game, id, type, x, y, z) {
-    this.g = game; this.id = id; this.type = type; this.def = MON_DEFS[type];
+    this.g = game; this.id = id; this.type = type; this.def = MON_DEFS[type]; this.cfg = MON_CFG[type]; this.mem = new Map();
     this.pos = new THREE.Vector3(x, y, z); this.ry = Math.random() * TAU;
     this.state = type === 'leech' ? 'crawl' : type === 'hound' ? 'wander' : type === 'pale' ? 'lurk' : type === 'sister' ? 'stand' : type === 'bound' ? 'lie' : type === 'executioner' ? 'walk' : 'roam';
     this.st = 0; this.hp = this.def.hp; this.extra = -1;
@@ -12472,6 +12954,28 @@ class Monster {
     this.stepToward(tx, tz, speed, dt, opts.turn || 9);
     return Math.hypot(gx - this.pos.x, gz - this.pos.z);
   }
+  // Keeping one of the crew (at pos, radius r) out of a creature's body, on every peer, against where it's drawn: a
+  // ring round most of them. The Seep fills the corridor it's in wall to wall, a slab as deep as its body: there's no
+  // getting past it there (in a room, round it). A leech is nobody's obstacle
+  static push(m, pos, r) {
+    if (m.dead || m.type === 'leech') return;
+    const at = m.rpos, dx = pos.x - at.x, dz = pos.z - at.z;
+    if (m.type === 'slime' && m.state !== 'seep' && G.fac) {
+      const ry = m.rry, fx = Math.sin(ry), fz = Math.cos(ry), sx = Math.cos(ry), sz = -Math.sin(ry), al = dx * fx + dz * fz, la = dx * sx + dz * sz, A = 0.85 + r;
+      if (Math.abs(al) >= A || Math.abs(la) > 3.4 || Math.abs(pos.y - at.y) > 2) return;
+      const fh = G.fac.freeHalf(at.x, at.z, ry), L = Math.min(fh[0], 1.45), Rr = Math.min(fh[1], 1.45);
+      if (la <= -L - r || la >= Rr + r) return;
+      // (out by the nearest face it can: in front, behind, or to a side with room to stand there)
+      let da = A - al, dl = 0;
+      if (al + A < Math.abs(da)) da = -A - al;
+      if (fh[0] > L + 2 * r && la + L + r < Math.abs(da)) { dl = -L - r - la; da = 0; }
+      if (fh[1] > Rr + 2 * r && Rr + r - la < Math.abs(da || dl || Infinity)) { dl = Rr + r - la; da = 0; }
+      pos.x += fx * da + sx * dl; pos.z += fz * da + sz * dl;
+      return;
+    }
+    const d = Math.hypot(dx, dz), rr = m.def.radius + r;
+    if (d < rr && d > 1e-3) { pos.x = at.x + (dx / d) * rr; pos.z = at.z + (dz / d) * rr; }
+  }
   // creatures don't stand inside one another: any two on the same floor closer than their two widths are eased apart
   // (the Executioner and the Seep give way to nothing; a leech up on the ceiling, or riding someone, is out of it), and
   // the walls get the last word. Called on the host after every creature has moved.
@@ -12489,17 +12993,16 @@ class Monster {
       if (wb) { b.pos.x += dx * push * wb; b.pos.z += dz * push * wb; b.collide(); }
     }
   }
-  randomGoal(minD, maxD, filter) {
+  // somewhere to go: indoors, a walk of between minD and maxD (never off across the building; see Facility.localGoal),
+  // mostly on its own floor but now and then up or down the nearest stairwell, so what roams a floor drifts on to the
+  // next in time; each tile weighted by score(k, metres) if given (filter: a yes or no on each, and its own floor only);
+  // outdoors, a point at that range
+  randomGoal(minD, maxD, filter, score) {
     if (this.def.zone === 'in' && this.g.fac) {
-      // (looked for round about here: the building is far too big to find somewhere close by picking anywhere in it)
-      const fac = this.g.fac, near = { x: this.pos.x, z: this.pos.z, r: maxD };
-      for (let t = 0; t < 30; t++) {
-        const p = fac.randomWalkable(R0, null, near);
-        if (!p) break;
-        const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
-        if (d >= minD && d <= maxD && (!filter || filter(p))) return p;
-      }
-      return fac.randomWalkable(R0, null, { x: this.pos.x, z: this.pos.z, r: maxD * 2 }) || fac.randomWalkable(R0) || { x: this.pos.x, z: this.pos.z };
+      const fac = this.g.fac, W = fac.W;
+      const sc = filter || score ? (k, d) => { if (filter) { const i = k % W, j = (k - i) / W; if (!filter({ x: fac.cx(i), z: fac.cz(j), i, j, k })) return 0; } return score ? score(k, d) : 1; } : null;
+      const g = fac.localGoal(this.pos.x, this.pos.z, this.feetY(), minD, maxD * 1.25, R0, sc, !filter && R0.next() < 0.2 ? 'walk' : 'floor');
+      return g || (filter || score ? null : { x: this.pos.x, z: this.pos.z });
     }
     const a = Math.random() * TAU, d = minD + Math.random() * (maxD - minD);
     let x = this.pos.x + Math.cos(a) * d, z = this.pos.z + Math.sin(a) * d;
@@ -12507,44 +13010,76 @@ class Monster {
     return { x, z };
   }
   playersIn() { return this.g.alivePlayers().filter((p) => p.zone === this.def.zone); }
-  // perception: sight (range + forward cone + line of sight), bumping into you, or hearing you
-  senses(p, sight, cone, near = 4) {
-    const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-    if (d < near) return true;
-    if (d < sight) {
-      const f = this.forward(), dot = (dx * f.x + dz * f.z) / (d || 1);
-      if (dot > cone && (!this.g.fac || this.def.zone !== 'in' || this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true))) return true;
-    }
-    for (const n of this.g.noises) if (n.pid === p.id && n.zone === this.def.zone && n.age < 0.4 && Math.hypot(n.x - this.pos.x, n.z - this.pos.z) < n.r) return true;
-    return false;
+  // what its feet are on (a leech up on the ceiling: the floor under it)
+  feetY() { return this.type === 'leech' && this.state !== 'fallen' && this.state !== 'dead' && this.g.fac ? this.g.fac.floorY(this.pos.x, this.pos.z, this.pos.y - 2.5) : this.pos.y; }
+  // perception (see Brain): the one of the crew it notices first, seen (by eye o) or heard; where they were is
+  // remembered (lastKnown). null if nobody
+  detect(o) {
+    const s = Brain.look(this, o, (p) => p.zone === this.def.zone);
+    if (s) { const r = Brain.remember(this, s.p, s.c, 'seen'); this.lastKnown = { x: r.x, z: r.z, y: r.y }; return s.p; }
+    const h = Brain.hear(this, this.cfg.ear, this.cfg.K);
+    const p = h && h.pid != null && this.g.players.get(h.pid);
+    if (p && p.alive && p.zone === this.def.zone) { const r = Brain.noted(this, h, 0.4 + 0.4 * h.loud); this.lastKnown = { x: r.x, z: r.z, y: r.y }; return p; }
+    return null;
   }
-  detect(sight, cone, near) {
-    let best = null, bd = Infinity;
-    for (const p of this.playersIn()) {
-      if (!this.senses(p, sight, cone, near)) continue;
-      const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
-      if (d < bd) { bd = d; best = p; }
-    }
-    return best;
-  }
-  hearNoise(scale = 1) {
-    let best = null, bd = Infinity;
-    for (const n of this.g.noises) {
-      if (n.zone !== this.def.zone || n.age > 0.35) continue;
-      const d = Math.hypot(n.x - this.pos.x, n.z - this.pos.z);
-      if (d < n.r * scale && d < bd) { bd = d; best = n; }
-    }
-    return best;
-  }
-  // keep a fading memory of where the target was last perceived
-  track(tgt, sight, cone, near, memory, dt) {
-    if (this.senses(tgt, sight, cone, near)) { this.memory = memory; this.lastKnown = { x: tgt.pos.x, z: tgt.pos.z, y: tgt.pos.y }; this.aware = true; }
-    else { this.aware = false; this.memory = (this.memory || 0) - dt; }
+  // keeping hold of tgt: seen or heard, where they are is remembered (aware); neither, and memory (s) runs down
+  track(tgt, o, memory, dt) {
+    const c = Brain.sees(this, tgt, o);
+    let h = null;
+    if (!c) { h = Brain.hear(this, this.cfg.ear, this.cfg.K); if (h && h.pid !== tgt.id) h = null; }
+    if (c > 0 || h) {
+      const r = c > 0 ? Brain.remember(this, tgt, c, 'seen') : Brain.noted(this, h, 0.4 + 0.4 * h.loud);
+      this.memory = memory; this.lastKnown = { x: r.x, z: r.z, y: r.y }; this.aware = true;
+    } else { this.aware = false; this.memory = (this.memory || 0) - dt; }
   }
   nearestPlayer(maxD, filter) {
     let best = null, bd = maxD;
     for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z); if (d < bd && (!filter || filter(p))) { bd = d; best = p; } }
     return best;
+  }
+  // Places on its own floor to lie in wait, a walk of up to maxM away: just inside or beside a doorway, or round the
+  // corner of a corridor, each scored by how much the crew come by (where they've been walking, the building's narrow
+  // places, `route`: tiles they'll walk) and how late whoever comes along would see it. near ({ x, z, r }): only round
+  // there. ceiling: up on the ceiling instead, where it's low enough to drop from, over a doorway's middle (everyone who
+  // comes through passes under it) or a corridor that's walked. Best first; null if it can't look just now
+  ambushSpots(maxM, near, route, ceiling) {
+    const fac = this.g.fac, nv = fac.nav(), W = fac.W, F = Brain.from(this, maxM, 'floor', true); if (!F) return null;
+    const my = this.feetY(), out = [], seen = new Set(), q = { x: 0, y: 0, z: 0 };
+    const add = (x, z, k, base) => {
+      if (!(F[k] <= maxM) || (near && Math.hypot(x - near.x, z - near.z) > near.r)) return;
+      const key = Math.round(x * 2) * 100003 + Math.round(z * 2); if (seen.has(key)) return; seen.add(key);
+      if (ceiling) { if (fac.ceil[k] > 3.6) return; }
+      else { q.x = x; q.z = z; q.y = fac.tileY(k); if (fac.collide(q, 0.45)) return; }
+      out.push({ x, z, y: fac.tileY(k), k, base });
+    };
+    for (const d of fac.doors) {
+      if (d.broken || Math.abs(d.y - my) > 1 || Math.abs(d.x - this.pos.x) > maxM || Math.abs(d.z - this.pos.z) > maxM) continue;
+      for (const s of [1, -1]) for (const lat of ceiling ? [0] : [-1, 1]) {
+        const x = d.x + d.nx * s * (ceiling ? 0.65 : 0.95) - d.nz * lat * 1.05, z = d.z + d.nz * s * (ceiling ? 0.65 : 0.95) + d.nx * lat * 1.05;
+        const k = fac.idx(fac.ti(x), fac.tj(z)); if (k >= 0 && nv.isN[k]) add(x, z, k, ceiling ? 1.6 : 1.1);
+      }
+    }
+    for (let i = 0; i < nv.nvis; i++) {
+      const k = nv.vis[i]; if (fac.room[k] >= 0) continue;
+      if (nv.bend[k]) add(fac.cx(k % W), fac.cz((k - (k % W)) / W), k, 0.9);
+      else if (nv.choke[k] > 0.25 || Brain.heat(k) > 0.1) add(fac.cx(k % W), fac.cz((k - (k % W)) / W), k, 0.6);
+    }
+    for (const c of out) { const k = c.k; c.s = c.base * (0.3 + 2 * Brain.heat(k) + Math.min(1.5, nv.choke[k])) + (route && route.has(k) ? 2 : 0); }
+    out.sort((a, b) => b.s - a.s);
+    // (seen from a way off along where people come, it's less use: looked at for the likeliest few only)
+    if (!ceiling) for (const c of out.slice(0, 10)) {
+      let ex = 0; const v = fac.visFrom(c.k), i0 = c.k % W, j0 = (c.k - i0) / W;
+      for (const n of v) { const i = n % W, j = (n - i) / W; if ((i - i0) * (i - i0) + (j - j0) * (j - j0) > 2.3 && (nv.choke[n] > 0.25 || Brain.heat(n) > 0.1)) ex++; }
+      c.s /= 1 + ex / 4;
+    }
+    return out.sort((a, b) => b.s - a.s);
+  }
+  // one of the best few of them, at random (the better the likelier)
+  pickSpot(list) {
+    if (!list || !list.length) return null;
+    const top = list.slice(0, 5); let tot = 0; for (const c of top) tot += c.s * c.s;
+    let x = R0.next() * tot; for (const c of top) { x -= c.s * c.s; if (x <= 0) return c; }
+    return top[0];
   }
   // within reach: near enough, on its own storey, and nothing solid between (a blow or a grab never goes through a wall,
   // round a corner or across to the flight above)
@@ -12582,34 +13117,48 @@ class Monster {
     }
     this['ai_' + this.type](dt);
   }
+  // The Crawler: eyeless. It feels movement in the air ahead of it (anyone moving about in front of it, lit or not;
+  // someone keeping still a few steps off isn't there to it) and it hears, footsteps best. Once it has you it screeches,
+  // which brings any other of its kind near enough to hear (round by another way), then charges at where you're going,
+  // dead straight, turning badly. Lose it and it runs on the way you were going, then noses through the nearest rooms.
   ai_crawler(dt) {
     const fac = this.g.fac;
     this.scanT -= dt;
-    const scan = () => {
+    const feel = () => {
       if (this.scanT > 0) return null;
-      this.scanT = 0.25;
-      const f = this.forward();
+      this.scanT = 0.2;
+      const f = this.forward(); let best = null, bd = Infinity;
       for (const p of this.playersIn()) {
         const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-        if (d > 22) continue;
-        const dot = (dx * f.x + dz * f.z) / (d || 1);
-        if ((dot > 0.15 || d < 5) && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) return p;
+        if (d > 22 || Math.abs(p.pos.y - this.pos.y) > 2.5) continue;
+        const e = Brain.P.get(p.id);
+        if (d > 3 && !(e ? e.spd > 1 : p.moving)) continue;
+        if (d > 5 && (dx * f.x + dz * f.z) / (d || 1) < 0.15) continue;
+        if (d < bd && this.clearTo(p)) { bd = d; best = p; }
       }
-      return null;
-    };
-    const hear = () => {
-      for (const n of this.g.noises) if (n.zone === 'in' && n.age < 0.3 && Math.hypot(n.x - this.pos.x, n.z - this.pos.z) < n.r * 0.8) return n;
-      return null;
+      if (best) Brain.remember(this, best, 1, 'felt');
+      return best;
     };
     switch (this.state) {
       case 'roam': case 'search': case 'investigate': {
-        if (!this.goal || this.st > (this.state === 'roam' ? 18 : 9)) { if (this.state !== 'roam') this.setState('roam'); this.goal = this.randomGoal(6, 30); this.st = 0; }
-        const rem = this.moveTo(this.goal.x, this.goal.z, this.state === 'roam' ? 2.2 : 3.6, dt);
-        if (rem < 1) { this.goal = null; if (this.state !== 'roam') this.setState('roam'); }
-        const p = scan();
-        if (p) { this.target = p.id; this.setState('spot'); this.extra = p.id; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; break; }
-        const n = hear();
-        if (n) { this.goal = { x: n.x, z: n.z }; this.setState('investigate'); }
+        const p = feel();
+        if (p) { this.spotted(p); break; }
+        const h = Brain.hear(this, this.cfg.ear, this.cfg.K);
+        if (h && (this.state !== 'investigate' || h.loud > (this.heardL || 0) + 0.1 || this.st > 3)) {
+          this.setState('investigate'); this.goal = { x: h.x, z: h.z, y: h.y }; this.heardL = h.loud; this.flank = null;
+          if (h.pid != null) { this.target = h.pid; Brain.noted(this, h, 0.3 + 0.5 * h.loud); }
+        }
+        if (this.state === 'roam') {
+          // (wandering, it keeps to where the crew have been)
+          if (!this.goal || this.st > 18) { this.goal = this.randomGoal(6, 30, null, (k) => 1 + 4 * Brain.heat(k)); this.st = 0; }
+          if (this.moveTo(this.goal.x, this.goal.z, 2.2, dt) < 1) this.goal = null;
+        } else if (this.state === 'investigate') {
+          const rem = this.moveTo(this.goal.x, this.goal.z, 3.6, dt, { gy: this.goal.y });
+          if (rem < 1.2 || this.st > 9) {
+            if (this.flank) { this.goal = this.flank; this.flank = null; this.st = 0; }
+            else { this.setState('search'); this.plan = this.sweepPlan(this.goal); this.planT = 0; }
+          }
+        } else this.searching(dt, 3.6);
         break;
       }
       case 'spot': {
@@ -12617,18 +13166,22 @@ class Monster {
         if (!p || !p.alive || p.zone !== 'in') { this.setState('roam'); break; }
         this.turnTo(Math.atan2(p.pos.x - this.pos.x, p.pos.z - this.pos.z), 6, dt);
         this.speedNow = 0;
-        if (fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
+        if (this.clearTo(p)) { Brain.remember(this, p, 1, 'felt'); this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; }
         if (this.st > 0.75) { this.setState('charge'); this.charge = 2.5; this.lastSeenT = 0; }
         break;
       }
       case 'charge': {
         const p = this.g.players.get(this.target);
         if (!p || !p.alive || p.zone !== 'in') { this.setState('roam'); this.goal = null; break; }
-        const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
-        const sees = fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true);
+        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
+        const sees = d < 22 && Math.abs(p.pos.y - this.pos.y) < 2.5 && this.clearTo(p);
         this.lastSeenT = sees ? 0 : this.lastSeenT + dt;
-        if (sees) this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
-        const aim = this.lastKnown || p.pos;
+        // (at where you'll be by the time it gets there, as near as it can tell from which way you're going)
+        let aim = this.lastKnown || p.pos;
+        if (sees) {
+          Brain.remember(this, p, 1, 'felt'); this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
+          const e = Brain.P.get(p.id), k = Math.min(0.6, d / 11); aim = { x: p.pos.x + (e ? e.vx * k : 0), z: p.pos.z + (e ? e.vz * k : 0) };
+        }
         this.turnTo(Math.atan2(aim.x - this.pos.x, aim.z - this.pos.z), 1.7, dt);
         this.charge = Math.min(11, this.charge + 7 * dt);
         const f = this.forward(), ox = this.pos.x, oz = this.pos.z, want = this.charge * dt;
@@ -12637,13 +13190,12 @@ class Monster {
         // a door slammed in its face: it goes straight through, and is left reeling
         if (ni !== ci || nj !== cj) {
           const door = fac.closedDoorBetween(ci, cj, ni, nj);
-          if (door) { this.g.monsterBreakDoor(this, door); this.stun = 2.5; this.charge = 0; this.speedNow = 0; this.setState('search'); this.goal = this.lastKnown || null; break; }
+          if (door) { this.g.monsterBreakDoor(this, door); this.stun = 2.5; this.charge = 0; this.speedNow = 0; this.setState('search'); this.plan = this.sweepPlan(); this.planT = 0; break; }
         }
-        this.pos.x += f.x * want; this.pos.z += f.z * want;
-        this.collide();
+        this.hop(f.x, f.z, want);
         const got = Math.hypot(this.pos.x - ox, this.pos.z - oz);
         this.speedNow = got / Math.max(dt, 1e-4);
-        if (want > 0.05 && got < want * 0.35 && this.charge > 6) { this.stun = 1.4; this.charge = 0; this.g.emitSound('door_slam', this.pos, { vol: 0.8 }); this.setState('search'); this.goal = this.lastKnown || null; break; }
+        if (want > 0.05 && got < want * 0.35 && this.charge > 6) { this.stun = 1.4; this.charge = 0; this.g.emitSound('door_slam', this.pos, { vol: 0.8 }); this.setState('search'); this.plan = this.sweepPlan(); this.planT = 0; break; }
         for (const q of this.playersIn()) {
           if (this.atk > 0) break;
           if (this.reaches(q, 1.5)) {
@@ -12652,11 +13204,52 @@ class Monster {
             this.atk = 1.2; this.charge *= 0.3;
           }
         }
-        if (this.lastSeenT > 1.6 || this.st > 7) { this.setState('search'); this.goal = this.lastKnown || null; this.extra = -1; }
+        if (this.lastSeenT > 1.6 || this.st > 7) { this.setState('search'); this.plan = this.sweepPlan(); this.planT = 0; this.extra = -1; }
         break;
       }
       default: this.setState('roam');
     }
+  }
+  // found you: the screech, and any other of its kind within earshot comes too, round by another way
+  spotted(p) {
+    this.target = p.id; this.extra = p.id; this.setState('spot'); this.plan = null; this.flank = null;
+    this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y };
+    Brain.call(this, 25, (o) => { if (o.state === 'roam' || o.state === 'search' || o.state === 'investigate') o.flankTo(p, this); });
+  }
+  // called in on p by another: it makes for whichever way into where p is lies furthest from the one that called it
+  flankTo(p, lead) {
+    const fac = this.g.fac, nv = fac.nav(), W = fac.W, e = Brain.P.get(p.id);
+    let best = null, bs = -Infinity;
+    const a = e && e.k >= 0 && nv.areas[nv.area[e.k]];
+    if (a) for (const { n } of a.nb.values()) {
+      const x = fac.cx(n % W), z = fac.cz((n - (n % W)) / W), s = Math.hypot(x - lead.pos.x, z - lead.pos.z) - 0.5 * Math.hypot(x - this.pos.x, z - this.pos.z);
+      if (s > bs) { bs = s; best = { x, z, y: fac.tileY(n) }; }
+    }
+    Brain.remember(this, p, 0.7, 'called');
+    this.target = p.id; this.setState('investigate'); this.heardL = 1;
+    this.goal = best || { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.flank = best ? { x: p.pos.x, z: p.pos.z, y: p.pos.y } : null;
+  }
+  // where to look for someone it's lost: where it last had them, on along the way they were going, then the nearest
+  // rooms and corridors round there
+  sweepPlan(from) {
+    const fac = this.g.fac, nv = fac.nav(), W = fac.W, r = this.target != null ? Brain.recall(this, this.target) : null, o = r || from || this.lastKnown, pts = [];
+    if (!o) return pts;
+    pts.push({ x: o.x, z: o.z, y: o.y });
+    if (r) { const a = Brain.ahead(r.x, r.z, r.vx, r.vz, Math.min(6, Brain.age(r) + 2)); if (Math.hypot(a.x - r.x, a.z - r.z) > 2) pts.push({ x: a.x, z: a.z, y: r.y }); }
+    const last = pts[pts.length - 1], k = fac.nodeAt(last.x, last.z, last.y), ar = k >= 0 && nv.areas[nv.area[k]];
+    if (ar) {
+      const nb = [...ar.nb.keys()].map((b) => nv.areas[b]).filter((b) => b.lv === ar.lv);
+      const at = (b) => ({ x: fac.cx(b.k % W), z: fac.cz((b.k - (b.k % W)) / W), y: fac.tileY(b.k) });
+      nb.sort((p, q) => { const a1 = at(p), a2 = at(q); return Math.hypot(a1.x - last.x, a1.z - last.z) - Math.hypot(a2.x - last.x, a2.z - last.z); });
+      for (const b of nb.slice(0, 2)) pts.push(at(b));
+    }
+    return pts;
+  }
+  // going over a search plan, a few seconds at most to each place; done, it gives up and wanders
+  searching(dt, speed) {
+    if (!this.plan || !this.plan.length) { this.setState('roam'); this.goal = null; this.target = null; this.extra = -1; return; }
+    const g = this.plan[0]; this.planT = (this.planT || 0) + dt;
+    if (this.moveTo(g.x, g.z, speed, dt, { gy: g.y }) < 1.2 || this.planT > 8) { this.plan.shift(); this.planT = 0; }
   }
   ai_pale(dt) {
     const fac = this.g.fac;
@@ -12667,24 +13260,19 @@ class Monster {
     if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
     // it has to find you first: see you, hear you, or wander right into you
     if (!tgt && this.cool <= 0 && this.state !== 'drag') {
-      const p = this.detect(20, -0.2, 4);
-      if (p) { this.target = p.id; tgt = p; this.memory = 25; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; if (this.state === 'lurk') this.setState('stalk'); }
-      else if (this.state === 'lurk') { const n = this.hearNoise(); if (n) { this.goal = { x: n.x, z: n.z }; this.st = 0; } }
+      const p = this.detect(this.cfg.find);
+      if (p) { this.target = p.id; tgt = p; this.memory = 25; if (this.state === 'lurk') this.setState('stalk'); }
+      else if (this.state === 'lurk') { const n = Brain.hear(this, this.cfg.ear); if (n) { this.goal = { x: n.x, z: n.z }; this.st = 0; } }
     }
     if (tgt) {
-      this.track(tgt, 26, -0.35, 9, 25, dt);
+      this.track(tgt, this.cfg.eye, 25, dt);
       if (this.memory <= 0) { this.target = null; tgt = null; if (this.state === 'stalk') this.setState('lurk'); }
     }
     this.extra = this.target != null ? this.target : -1;
     // (a look only counts if there's light to see it by: a lamp near it or a beam on it, or close enough to make it out
-    // in the dark)
-    const eye = { x: this.pos.x, y: this.pos.y + 2.1, z: this.pos.z };
-    let seenByTarget = false, seenByAny = false, lit = null;
-    for (const p of this.playersIn()) {
-      if (!this.g.canSee(p, eye, 28, 0.6)) continue;
-      if (Math.hypot(p.pos.x - eye.x, p.pos.z - eye.z) > 6 && !(lit == null ? (lit = this.g.isLit(eye)) : lit)) continue;
-      seenByAny = true; if (p.id === this.target) seenByTarget = true;
-    }
+    // in the dark; see Brain.seenBy)
+    const seers = Brain.seenBy(this, { eye: 2.1, range: 28, dot: 0.6 }, this.seers || (this.seers = []));
+    const seenByAny = seers.length > 0, seenByTarget = seers.some((p) => p.id === this.target);
     if (!seenByTarget) this.stare = Math.max(0, this.stare - dt * 0.5);
     switch (this.state) {
       case 'lurk': {
@@ -12746,10 +13334,10 @@ class Monster {
       default: this.setState('lurk');
     }
   }
-  // The Sisters: blind, and drawn to light: a beam turned on one, a lamp carried past it, any light at all right up
-  // against it. Noise only makes them turn their heads. Once one's drawn, the others near it come too, jerking along,
-  // stopping, jerking on. Put the light out and keep still and they lose you, and stand where they stopped, twitching.
-  // Close enough to touch, they find you anyway
+  // The Sisters: blind, and drawn to light: a beam turned on one, a lamp carried past it, someone moving about under a
+  // lamp close by, any light at all right up against it. Noise only turns their heads, a twitch toward it and no more.
+  // Once one's drawn, the others a short walk from it come too, jerking along, stopping, jerking on. Put the light out
+  // and keep still and they lose you, and stand where they stopped, twitching. Close enough to touch, they find you anyway
   ai_sister(dt) {
     const fac = this.g.fac;
     this.scanT -= dt;
@@ -12758,24 +13346,26 @@ class Monster {
       const head = { x: this.pos.x, y: this.pos.y + 1.5, z: this.pos.z };
       let lit = null;
       for (const p of this.playersIn()) {
-        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), lamp = this.g.carriesLight(p);
+        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
         if (d > 30 || Math.abs(p.pos.y - this.pos.y) > 3) continue;
-        if ((p.flash && this.g.canSee(p, head, p.flash === 2 ? 30 : 21, 0.93)) || (lamp && d < 11 && fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true)) || this.reaches(p, 1.7, 3)) { lit = p; break; }
+        const e = Brain.P.get(p.id), sight = () => fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true);
+        if ((p.flash && this.g.canSee(p, head, p.flash === 2 ? 30 : 21, 0.93)) || (d < 11 && this.g.carriesLight(p) && sight())
+          || (d < 8 && e && e.spd > 1 && Brain.lit(e.k) && sight()) || this.reaches(p, 1.7, 3)) { lit = p; break; }
       }
       if (lit) {
         const at = { x: lit.pos.x, z: lit.pos.z, y: lit.pos.y };
         if (this.state !== 'drawn') {
           this.setState('drawn');
-          // (and the rest of the ward with it: those it can see, or that are a short walk off on its own floor)
-          for (const o of this.g.monsters.values()) {
-            if (o === this || o.type !== 'sister' || o.dead || o.state === 'drawn' || Math.abs(o.pos.y - this.pos.y) > 3 || Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) > 20) continue;
-            if (!fac.los(this.pos.x, this.pos.z, o.pos.x, o.pos.z, true) && this.walkLen(o.pos.x, o.pos.z, o.pos.y) > 24) continue;
-            o.target = lit.id; o.lastKnown = at; o.lastLit = 0; o.setState('drawn');
-          }
+          // (and the rest of the ward with it: those a short walk off, on its own floor)
+          Brain.call(this, 16, (o) => { if (o.state === 'drawn' || Math.abs(o.pos.y - this.pos.y) > 3) return; o.target = lit.id; o.lastKnown = at; o.lastLit = 0; o.setState('drawn'); });
         }
         // (one of them that has the light keeps the whole drawn ward on it)
         for (const o of this.g.monsters.values()) if (o.type === 'sister' && !o.dead && o.state === 'drawn' && o.target === lit.id) { o.lastKnown = at; o.lastLit = 0; }
         this.target = lit.id; this.lastKnown = at; this.lastLit = 0;
+      } else if (this.state !== 'drawn' && !(this.jerk && this.jerk.t > 0)) {
+        // a noise: the head goes round to it, and a twitch or two that way
+        const h = Brain.hear(this, this.cfg.ear);
+        if (h && h.loud > 0.15) this.jerk = { a: Math.atan2(h.x - this.pos.x, h.z - this.pos.z), t: 1.1, n: 1 + (this.id % 2) };
       }
     }
     this.lastLit = (this.lastLit || 0) + dt;
@@ -12801,19 +13391,28 @@ class Monster {
       default: {
         if (this.state !== 'stand') this.setState('stand');
         this.extra = -1;
-        // now and then a few steps somewhere, slowly
+        const j = this.jerk;
+        if (j && j.t > 0) {
+          j.t -= dt; this.turnTo(j.a, 9, dt);
+          // (a twitch: a jolt of a step, then still again)
+          if (Math.sin(((1.1 - j.t) / 1.1) * j.n * TAU) > 0.7) this.stepToward(this.pos.x + Math.sin(j.a), this.pos.z + Math.cos(j.a), 2.2, dt, 9); else this.speedNow = 0;
+          break;
+        }
+        // now and then a few steps somewhere close by on its own floor, slowly
         if (!this.goal && this.st > 10 + (this.id % 7) * 2) { this.goal = this.randomGoal(2, 8); this.st = 0; }
         if (this.goal) { if (this.moveTo(this.goal.x, this.goal.z, 0.8, dt) < 0.6 || this.st > 12) { this.goal = null; this.st = 0; } }
         else this.speedNow = 0;
       }
     }
   }
-  // The Bound: lies still where it fell until someone's near enough to touch it, then gets up and comes for them,
-  // lurching, swaying, retching up a caustic mist at whoever keeps out of its reach. Loses you, and it goes and lies
-  // down again somewhere
+  // The Bound: lies still like a body, across a corridor or just inside a doorway where people pass, and gets up when
+  // someone's close enough to touch it, or makes a noise right by it. It listens, lying there: footsteps a way off and
+  // nobody coming its way, it gets up and goes to lie down again where they'll come by (round a corner, beside a doorway:
+  // somewhere you don't see it till you're on it). Up, it lurches after you, retching a caustic mist at where you're
+  // headed when you keep out of its reach. Lose it, and it lies down again across the way you'll go back
   ai_bound(dt) {
     const fac = this.g.fac;
-    this.cool -= dt;
+    this.cool -= dt; this.moveCd = (this.moveCd || 0) - dt;
     let tgt = this.target != null ? this.g.players.get(this.target) : null;
     if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
     switch (this.state) {
@@ -12824,9 +13423,9 @@ class Monster {
         break;
       }
       case 'lurch': {
-        if (!tgt) { this.setState('shamble'); this.goal = this.randomGoal(4, 14); break; }
-        this.track(tgt, 18, -0.3, 5, 10, dt);
-        if (this.memory <= 0) { this.target = null; this.extra = -1; this.setState('shamble'); this.goal = this.randomGoal(4, 14); break; }
+        if (!tgt) { this.setState('shamble'); this.goal = this.lieSpot(); break; }
+        this.track(tgt, this.cfg.eye, 10, dt);
+        if (this.memory <= 0) { const r = Brain.recall(this, tgt.id); this.target = null; this.extra = -1; this.setState('shamble'); this.goal = this.lieSpot(r); break; }
         this.extra = tgt.id;
         const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
         this.moveTo(this.lastKnown.x, this.lastKnown.z, 2.8 * (0.55 + 0.45 * Math.abs(Math.sin(this.st * 2.6))), dt, { gy: this.lastKnown.y, turn: 5 });
@@ -12835,7 +13434,11 @@ class Monster {
           this.g.emitSound('bound_slam', this.center(), { vol: 1 });
           this.g.hurtPlayer(tgt.id, 22, 'bound', (tgt.pos.x - this.pos.x) / n * 7, (tgt.pos.z - this.pos.z) / n * 7);
         }
-        if (this.aware && d > 3 && d < 9 && this.cool <= 0 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('spit'); this.spitAt = { x: tgt.pos.x, y: tgt.pos.y, z: tgt.pos.z }; this.spat = false; }
+        // (the mist goes where you'll be when it lands, a moment after the retch)
+        if (this.aware && d > 3 && d < 9 && this.cool <= 0 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) {
+          const e = Brain.P.get(tgt.id), a = e ? Brain.ahead(tgt.pos.x, tgt.pos.z, e.vx, e.vz, 0.9) : tgt.pos;
+          this.setState('spit'); this.spitAt = { x: a.x, y: tgt.pos.y, z: a.z }; this.spat = false;
+        }
         break;
       }
       case 'spit': {
@@ -12851,10 +13454,10 @@ class Monster {
       }
       case 'shamble': {
         this.extra = -1;
-        if (!this.goal) this.goal = this.randomGoal(5, 18);
-        const p = this.detect(14, 0.1, 3);
-        if (p) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('lurch'); break; }
-        if (this.moveTo(this.goal.x, this.goal.z, 1.3, dt) < 0.8 || this.st > 25) { this.goal = null; this.ry += this.roomiest(this.pos.x, this.pos.y, this.pos.z, this.ry + Math.PI, 1.8); this.setState('lie'); }
+        if (!this.goal) this.goal = this.lieSpot() || this.randomGoal(5, 18);
+        const p = this.detect(this.cfg.find);
+        if (p) { this.target = p.id; this.memory = 10; this.setState('lurch'); break; }
+        if (this.moveTo(this.goal.x, this.goal.z, 1.3, dt) < 0.7 || this.st > 30) { this.goal = null; this.ry += this.roomiest(this.pos.x, this.pos.y, this.pos.z, this.ry + Math.PI, 1.8); this.setState('lie'); this.passT = 0; }
         break;
       }
       default: {
@@ -12862,11 +13465,33 @@ class Monster {
         if (this.state !== 'lie') this.setState('lie');
         if (!this.laid) { this.laid = true; this.ry += this.roomiest(this.pos.x, this.pos.y, this.pos.z, this.ry + Math.PI, 1.8); }
         this.speedNow = 0; this.extra = -1;
-        const p = this.nearestPlayer(2.6, (q) => this.reaches(q, 2.6));
-        if (p) { this.target = p.id; this.memory = 10; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('rise'); this.g.emitSound('bound_rise', this.center(), { vol: 1.2 }); }
-        else if (this.st > 60 + (this.id % 5) * 10) this.setState('shamble');
+        let p = this.nearestPlayer(2.6, (q) => this.reaches(q, 2.6));
+        if (!p && this.nearestPlayer(6, (q) => Math.abs(q.pos.y - this.pos.y) < 2)) this.passT = 0; else this.passT = (this.passT || 0) + dt;
+        // (listening: a footstep or a word right by it is as good as a touch; further off, it goes to lie in their way)
+        this.scanT -= dt;
+        const h = !p && this.scanT <= 0 ? ((this.scanT = 0.3), Brain.hear(this, 2.4)) : null;
+        if (h && h.pd < 3 && h.pid != null) p = this.g.players.get(h.pid);
+        if (p && p.alive) { this.target = p.id; this.memory = 10; Brain.remember(this, p, 1, 'touch'); this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.setState('rise'); this.g.emitSound('bound_rise', this.center(), { vol: 1.2 }); break; }
+        if (h && h.kind === 'step' && h.pd > 6 && this.passT > 6 && this.moveCd <= 0) {
+          const g = this.lieSpot(null, h);
+          this.moveCd = g ? 20 : 4;
+          if (g && Math.hypot(g.x - this.pos.x, g.z - this.pos.z) > 2) { this.goal = g; this.setState('shamble'); break; }
+        }
+        if (this.passT > 90 + (this.id % 5) * 15) { this.goal = this.lieSpot(); this.setState('shamble'); }
       }
     }
+  }
+  // somewhere to lie: by a doorway or round a corner on its floor, where the crew come by and see it late. r: someone
+  // it lost (lying across their way back out, within reach). h: footsteps it heard (near where they were made, out of
+  // sight of there)
+  lieSpot(r, h) {
+    const fac = this.g.fac;
+    const route = r && r.k >= 0 ? new Set(fac.route(fac.homeField(), r.k, 14)) : null;
+    let C = this.ambushSpots(h ? Math.min(32, h.pd + 10) : 22, h ? { x: h.x, z: h.z, r: 10 } : null, route);
+    // (not right where they were, and better somewhere they couldn't see it from there)
+    if (C && h) { C = C.filter((c) => Math.hypot(c.x - h.x, c.z - h.z) > 3); for (const c of C) if (fac.los(c.x, c.z, h.x, h.z)) c.s *= 0.4; C.sort((a, b) => b.s - a.s); }
+    const c = this.pickSpot(C);
+    return c ? { x: c.x, z: c.z, y: c.y } : null;
   }
   // The Executioner: no senses to speak of, and it needs none: it walks toward the nearest of you, wherever you are in
   // the building, never hurrying, never stopping; up close it lifts the blade (slowly: there's a moment to get out of
@@ -12902,7 +13527,7 @@ class Monster {
           if (d < 2.9 && Math.abs(p.pos.y - this.pos.y) < 1.6 && (dx * f.x + dz * f.z) / (d || 1) > 0.3 && this.clearTo(p)) { this.g.killPlayer(p.id, 'executioner', this.id); hit = true; }
         }
         this.g.emitSound(hit ? 'blade_flesh' : 'blade_floor', new THREE.Vector3(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2), { vol: 1.3, ref: 6 });
-        this.g.addNoise(this.pos, 30, 'in', null);
+        this.g.addNoise(this.pos, 30, 'in', null, 'bang', this.id);
       }
       if (this.st > 2.5) { this.struck = false; this.setState(tgt ? 'walk' : 'stand'); }
       return;
@@ -12914,27 +13539,18 @@ class Monster {
     const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z);
     if (d < 2.3 && Math.abs(tgt.pos.y - this.pos.y) < 1.5 && fac.los(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z)) { this.setState('swing'); this.g.emitSound('blade_lift', this.center(), { vol: 1.2, ref: 5 }); }
   }
+  // somewhere on its own floor, a walk of 6 to 24 m, out of tgt's sight and well away from them
   hiddenSpot(tgt) {
-    const fac = this.g.fac;
-    let best = null, bs = -Infinity;
-    for (let t = 0; t < 14; t++) {
-      const p = fac.randomWalkable(R0, (q) => { const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z); return d > 6 && d < 24; }, { x: this.pos.x, z: this.pos.z, r: 24 });
-      if (!p) continue;
-      const vis = tgt ? fac.los(tgt.pos.x, tgt.pos.z, p.x, p.z, true) : false;
-      const s = (vis ? -100 : 0) + (tgt ? Math.hypot(p.x - tgt.pos.x, p.z - tgt.pos.z) : 0) - Math.hypot(p.x - this.pos.x, p.z - this.pos.z) * 0.3;
-      if (s > bs) { bs = s; best = p; }
-    }
-    return best || this.randomGoal(6, 20);
+    const fac = this.g.fac, W = fac.W;
+    const score = (k) => { const x = fac.cx(k % W), z = fac.cz((k - (k % W)) / W); if (!tgt) return 1; return (fac.los(tgt.pos.x, tgt.pos.z, x, z, true) ? 0.02 : 1) * (1 + Math.min(20, Math.hypot(x - tgt.pos.x, z - tgt.pos.z)) / 10); };
+    return this.randomGoal(6, 24, null, score) || this.randomGoal(6, 20);
   }
   ai_mannequin(dt) {
-    let observed = false;
-    const c = { x: this.pos.x, y: this.pos.y + 1.4, z: this.pos.z };
-    for (const p of this.playersIn()) {
-      const d = Math.hypot(p.pos.x - c.x, p.pos.z - c.z);
-      if (d > 45) continue;
-      if (this.g.canSee(p, c, 45, 0.5) && (d < 6 || this.g.isLit(c))) { observed = true; break; }
-    }
-    if (this.spawnT < 2.5) observed = true;
+    // (watched: someone looking its way, with light to see it by; and for a moment after, since what's on a crewmate's
+    // screen is a little behind)
+    if (Brain.seenBy(this, { eye: 1.4, range: 45, dot: 0.5 }, this.seers || (this.seers = [])).length || this.spawnT < 2.5) this.obsT = 0.15;
+    else this.obsT = (this.obsT || 0) - dt;
+    const observed = this.obsT > 0;
     if (observed) {
       if (!this.observed) this.speedNow = 0;
       this.observed = true; this.speedNow = 0; return;
@@ -12943,8 +13559,8 @@ class Monster {
     this.observed = false;
     let tgt = this.target != null ? this.g.players.get(this.target) : null;
     if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
-    if (!tgt) { const p = this.detect(30, -1, 3); if (p) { tgt = p; this.target = p.id; this.memory = 12; this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; } }
-    if (tgt) { this.track(tgt, 30, -1, 3, 12, dt); if (this.memory <= 0) { tgt = null; this.target = null; } }
+    if (!tgt) { const p = this.detect(this.cfg.eye); if (p) { tgt = p; this.target = p.id; this.memory = 12; } }
+    if (tgt) { this.track(tgt, this.cfg.eye, 12, dt); if (this.memory <= 0) { tgt = null; this.target = null; } }
     if (tgt) {
       this.setState('hunt');
       const rem = this.moveTo(this.lastKnown.x, this.lastKnown.z, 9.8, dt, { turn: 20, gy: this.lastKnown.y });
@@ -12952,7 +13568,7 @@ class Monster {
       if (this.reaches(tgt, 1.05)) this.g.killPlayer(tgt.id, 'mannequin', this.id);
     } else {
       this.setState('roam');
-      const n = this.hearNoise();
+      const n = Brain.hear(this, this.cfg.ear);
       if (n) { this.goal = { x: n.x, z: n.z }; this.st = 0; }
       if (!this.goal || this.st > 15) { this.goal = this.randomGoal(8, 30); this.st = 0; }
       if (this.moveTo(this.goal.x, this.goal.z, n ? 6 : 3.5, dt) < 1) this.goal = null;
@@ -12979,36 +13595,54 @@ class Monster {
     switch (this.state) {
       case 'crawl': {
         if (!this.goal) {
-          // somewhere along a low corridor ceiling on its own level (it never crawls down a stairwell)
-          const lv = fac.levelAt(this.pos.x, this.pos.z, this.pos.y - 3);
-          this.goal = this.randomGoal(5, 22, (p) => fac.grid[fac.idx(p.i, p.j)] === 1 && fac.ceilAt(p.x, p.z) <= 3.6 && fac.lvl[fac.idx(p.i, p.j)] === lv) || this.randomGoal(5, 20, (p) => fac.lvl[fac.idx(p.i, p.j)] === lv);
-          this.st = 0;
+          // somewhere on a low ceiling on its own floor (it never crawls down a stairwell) where the crew will pass under
+          this.goal = this.perch(this.heardAt) || this.randomGoal(4, 16, (p) => fac.ceilAt(p.x, p.z) <= 3.6) || this.randomGoal(3, 10);
+          this.hurry = !!this.heardAt; this.heardAt = null; this.st = 0;
         }
         if (cling()) { this.speedNow = 0; break; }
         // (back up off the floor, it hauls itself up to the ceiling first, most of a second, before it crawls on)
         if (ceilY() - this.pos.y > 0.25) { this.speedNow = 0; break; }
-        const rem = this.moveTo(this.goal.x, this.goal.z, 1.6, dt);
+        // (scuttling, when it's heard someone)
+        const rem = this.moveTo(this.goal.x, this.goal.z, this.hurry ? 2.3 : 1.6, dt);
         cling();
-        if (rem < 0.6 || this.st > 25) { this.setState('wait'); this.goal = null; }
+        if (rem < 0.5 || this.st > 25) { this.setState('wait'); this.goal = null; this.nearT = 0; }
         break;
       }
       case 'wait': {
         cling(); this.speedNow = 0;
+        // whoever's below it and about to pass under: it lets go (reaching for where they'll be as it falls)
+        let close = false;
         for (const p of this.playersIn()) {
-          if (p.pos.y < this.pos.y && this.reaches(p, 1.05, 7)) { this.victim = p.id; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); break; }
+          const dy = this.pos.y - p.pos.y; if (dy <= 0 || dy > 7) continue;
+          const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), e = Brain.P.get(p.id);
+          const ax = p.pos.x + (e ? e.vx * 0.3 : 0), az = p.pos.z + (e ? e.vz * 0.3 : 0);
+          if (d < 8 && dy < 5) close = true;
+          if ((d < 1.05 || Math.hypot(ax - this.pos.x, az - this.pos.z) < 0.9) && this.clearTo(p)) { this.victim = p.id; this.dropTo = { x: ax, z: az }; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); break; }
         }
-        if (this.st > 70) this.setState('crawl');
+        if (this.state !== 'wait') break;
+        this.nearT = close ? 0 : (this.nearT || 0) + dt;
+        // footsteps somewhere off, and nobody's come by here a while: it goes to meet them
+        this.scanT -= dt;
+        if (this.scanT <= 0) {
+          this.scanT = 0.5;
+          const h = this.st > 5 && this.nearT > 4 ? Brain.hear(this, this.cfg.ear, this.cfg.K) : null;
+          if (h && h.pd > 6) { this.heardAt = { x: h.x, z: h.z, y: h.y, pd: h.pd }; this.setState('crawl'); break; }
+        }
+        if (this.st > 90 || (this.st > 35 && this.nearT > 30)) this.setState('crawl');
         break;
       }
       case 'drop': {
         const v = this.g.players.get(this.victim);
         const targetY = v ? v.pos.y + 1.75 : floorY() + 0.2;
         this.pos.y = Math.max(targetY, this.pos.y - dt * 14);
+        // (falling, it reaches out a little for them)
+        if (this.dropTo) { const dx = this.dropTo.x - this.pos.x, dz = this.dropTo.z - this.pos.z, dd = Math.hypot(dx, dz), s = Math.min(dd, 4 * dt); if (dd > 0.01) { this.pos.x += dx / dd * s; this.pos.z += dz / dd * s; fac.collide(this.pos, this.def.radius); } }
         if (this.st > 0.3) {
-          if (v && v.alive && v.zone === 'in' && Math.hypot(v.pos.x - this.pos.x, v.pos.z - this.pos.z) < 1.4) {
+          if (v && v.alive && v.zone === 'in' && Math.hypot(v.pos.x - this.pos.x, v.pos.z - this.pos.z) < 1.4 && Math.abs(v.pos.y + 1.75 - this.pos.y) < 1) {
             this.setState('attached'); this.grip = 100; this.extra = v.id; this.dmgAcc = 0;
             this.g.leechAttach(this, v.id);
           } else { this.setState('fallen'); this.pos.y = floorY(); }
+          this.dropTo = null;
         }
         break;
       }
@@ -13031,6 +13665,12 @@ class Monster {
       default: this.setState('crawl');
     }
   }
+  // somewhere on the ceiling to wait (see ambushSpots): over the middle of a doorway, where whoever comes through passes
+  // right under it, or a corridor the crew use; having heard someone, as near there as it can get
+  perch(heard) {
+    const c = this.pickSpot(this.ambushSpots(heard ? Math.min(30, heard.pd + 8) : 22, heard ? { x: heard.x, z: heard.z, r: 9 } : null, null, true));
+    return c ? { x: c.x, z: c.z, y: c.y } : null;
+  }
   detach() {
     if (this.state !== 'attached') return;
     const vid = this.victim;
@@ -13038,62 +13678,73 @@ class Monster {
     this.setState('fallen'); this.pos.y = this.g.fac ? this.g.fac.floorY(this.pos.x, this.pos.z, this.pos.y) : this.pos.y; this.goal = null;
     this.g.leechDetach(this, vid);
   }
+  // The Hollow Hound: blind, it goes by sound. A noise near enough and it lunges at it, howling (and the howl brings the
+  // rest of the pack); further off, it goes to see. Close to someone keeping still it smells them: it noses about a
+  // moment, then bites, if they're still there (moving off quietly is how to live). It goes round the ship, not into
+  // its hull; through the hatch only after someone it heard inside
   ai_hound(dt) {
-    this.scanT -= dt;
-    const loud = () => {
-      let best = null, bd = Infinity;
-      for (const n of this.g.noises) {
-        if (n.zone !== 'out' || n.age > 0.35) continue;
-        const d = Math.hypot(n.x - this.pos.x, n.z - this.pos.z);
-        if (d < n.r && d < bd) { bd = d; best = n; }
-      }
-      return best ? { n: best, d: bd } : null;
+    const h = Brain.hear(this, this.cfg.ear);
+    const near = (r) => { let best = null, bd = r; for (const p of this.playersIn()) { const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z); if (d < bd && Math.abs(p.pos.y - this.pos.y) < 2) { bd = d; best = p; } } return best; };
+    const bite = (p) => {
+      if (this.atk > 0 || !p) return;
+      const f = this.forward(); this.g.hurtPlayer(p.id, 60, 'hound', f.x * 6, f.z * 6); this.atk = 1.5;
+      if (!p.alive) this.setState('eat');
     };
-    const bite = () => {
-      if (this.atk > 0) return;
-      for (const p of this.playersIn()) if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 1.6 && Math.abs(p.pos.y - this.pos.y) < 2) {
-        const f = this.forward(); this.g.hurtPlayer(p.id, 60, 'hound', f.x * 6, f.z * 6); this.atk = 1.5;
-        if (!p.alive) { this.setState('eat'); }
-        return;
-      }
+    // (someone at its jaws: heard just now, or moving, it has them; keeping still, it has to find them by the smell)
+    const jaws = () => {
+      const p = near(2.2); if (!p) return;
+      const e = Brain.P.get(p.id), moving = (e ? e.spd > 0.6 : p.moving) || (h && h.pid === p.id && h.loud > 0.3);
+      if (moving) { if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 1.6) bite(p); }
+      else if (this.state !== 'sniff') { this.setState('sniff'); this.scent = p.id; }
     };
-    const h = loud();
     if (h && this.state !== 'lunge' && this.state !== 'eat') {
-      if (h.d < 9) { this.lunge = { x: h.n.x, z: h.n.z }; this.setState('lunge'); this.g.emitSound('hound_roar', this.pos, { vol: 1.4 }); }
-      else if (this.state !== 'chase') { this.goal = { x: h.n.x, z: h.n.z }; if (this.state !== 'investigate') { this.setState('investigate'); this.g.emitSound('hound_growl', this.pos, { vol: 1.1 }); } }
-      else this.goal = { x: h.n.x, z: h.n.z };
+      if (h.pd < 9) this.lungeAt(h.x, h.z);
+      else if (this.state !== 'chase') { this.goal = { x: h.x, z: h.z }; if (this.state !== 'investigate') { this.setState('investigate'); this.g.emitSound('hound_growl', this.pos, { vol: 1.1 }); } }
+      else this.goal = { x: h.x, z: h.z };
     }
     switch (this.state) {
       case 'wander': {
         // (aboard, after someone it followed in: the way out is along the bay to the airlock and down the ramp)
         if (this.g.ship.inside(this.pos.x, this.pos.y + 0.5, this.pos.z)) { const dx = (SHIP.doorX0 + SHIP.doorX1) / 2, aisle = Math.abs(this.pos.x - dx) > 0.3 && this.pos.z < 2; this.goal = null; this.stepToward(dx, aisle ? 1.3 : 8.5, 2.2, dt, 6); break; }
         if (!this.goal || this.st > 14) { this.goal = this.randomGoal(10, 40); this.st = 0; }
-        if (this.stepToward(this.goal.x, this.goal.z, 2.2, dt, 2.5) < 1.5) this.goal = null;
+        if (this.steer(this.goal.x, this.goal.z, 2.2, dt, 2.5) < 1.5) this.goal = null;
+        jaws();
         break;
       }
       case 'investigate': {
         if (!this.goal) { this.setState('wander'); break; }
-        const rem = this.stepToward(this.goal.x, this.goal.z, 5.2, dt, 3);
-        if (rem < 1.5) { this.goal = null; this.setState('sniff'); }
+        const rem = this.steer(this.goal.x, this.goal.z, 5.2, dt, 3);
+        if (rem < 1.5) { this.goal = null; this.setState('sniff'); this.scent = null; }
         if (this.st > 15) this.setState('wander');
-        bite();
+        jaws();
         break;
       }
-      case 'sniff': { this.speedNow = 0; if (this.st > 3.5) this.setState('wander'); bite(); break; }
+      case 'sniff': {
+        // nosing about: whoever's keeping still close by, it creeps up on by the smell, and after a moment bites
+        const p = this.scent != null ? this.g.players.get(this.scent) : near(2.2);
+        if (p && p.alive && p.zone === 'out') {
+          const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
+          if (d > 2.6) { this.scent = null; this.speedNow = 0; }
+          else { if (d > 1.2) this.stepToward(p.pos.x, p.pos.z, 0.7, dt, 3); else { this.turnTo(Math.atan2(p.pos.x - this.pos.x, p.pos.z - this.pos.z), 3, dt); this.speedNow = 0; } if (this.st > 1.2 && d < 1.6) bite(p); }
+        } else this.speedNow = 0;
+        if (this.st > 3.5) { this.scent = null; this.setState('wander'); }
+        break;
+      }
       case 'lunge': {
         const f = this.forward();
         this.turnTo(Math.atan2(this.lunge.x - this.pos.x, this.lunge.z - this.pos.z), 4, dt);
         const ox = this.pos.x, oz = this.pos.z;
         this.hop(f.x, f.z, 13 * dt);
         this.speedNow = Math.hypot(this.pos.x - ox, this.pos.z - oz) / Math.max(dt, 1e-4);
-        bite();
+        // (committed, at what it heard: whoever's in its way gets bitten)
+        const p = near(1.6); if (p) bite(p);
         if (this.st > 0.75) { this.goal = { x: this.lunge.x, z: this.lunge.z }; this.setState('chase'); }
         break;
       }
       case 'chase': {
         if (!this.goal) { this.setState('wander'); break; }
-        this.stepToward(this.goal.x, this.goal.z, 8.5, dt, 4);
-        bite();
+        this.steer(this.goal.x, this.goal.z, 8.5, dt, 4);
+        jaws();
         if (this.st > 3) { this.setState('investigate'); }
         break;
       }
@@ -13101,18 +13752,66 @@ class Monster {
       default: this.setState('wander');
     }
     // stuck (nosing round the ship's legs, or against a wall): no headway toward where it's going for a couple of
-    // seconds, and it gives up on it and goes somewhere else
-    if (this.goal && (this.state === 'wander' || this.state === 'investigate')) {
+    // seconds, whatever it's doing, and it gives up on it and goes somewhere else
+    if (this.goal && (this.state === 'wander' || this.state === 'investigate' || this.state === 'chase')) {
       const d = Math.hypot(this.goal.x - this.pos.x, this.goal.z - this.pos.z);
       if (this.hwGoal !== this.goal || d < this.hw - 0.5) { this.hwGoal = this.goal; this.hw = d; this.stuckT = 0; }
-      else if ((this.stuckT += dt) > 2) { this.goal = this.randomGoal(8, 20); this.stuckT = 0; }
+      else if ((this.stuckT += dt) > 2) { this.goal = this.randomGoal(8, 20); this.stuckT = 0; if (this.state === 'chase') this.setState('investigate'); }
     } else this.stuckT = 0;
   }
-  // The Seep: it feels for crewmates through the floor (anyone near enough on its own level, through walls, or a noise
-  // it picks up) and comes after them slowly, without ever stopping; with nobody about it creeps off down a corridor and
-  // settles across it, a wall in the way, until something comes near. It never opens a door. At a shut one it seeps
-  // through, under it or through the bars of its window, a little at a time, and gathers itself on the other side (all
-  // at once if somebody opens the door on it). extra: who it's after, or while seeping the door's id plus how far through
+  // at a noise near enough: the lunge, and the howl that brings the rest of the pack within a long way to look
+  lungeAt(x, z) {
+    this.lunge = { x, z }; this.setState('lunge'); this.g.emitSound('hound_roar', this.pos, { vol: 1.4 });
+    Brain.call(this, 60, (o) => { if (o.state === 'wander' || o.state === 'sniff' || o.state === 'investigate') { o.goal = { x, z }; o.setState('investigate'); } });
+  }
+  // outdoors, straight at (tx, tz), unless the ship's hull is in the way: round the nearer end of it. Somewhere aboard:
+  // up the ramp and in at the hatch. Returns how far it still is
+  steer(tx, tz, speed, dt, turn) {
+    const ship = this.g.ship, dx = (SHIP.doorX0 + SHIP.doorX1) / 2, x = this.pos.x, z = this.pos.z;
+    let wx = tx, wz = tz;
+    if (!ship.inside(x, this.pos.y + 0.5, z)) {
+      if (ship.inside(tx, 0.5, tz)) {
+        // (in by the ramp: to its foot, then straight up it)
+        const onRamp = Math.abs(x - dx) < 0.7 && z > 3.6 && z < 9.5;
+        if (onRamp) { wx = dx; wz = 2.6; } else { wx = dx; wz = 8.6; }
+      }
+      const w = Monster.rectDetour(x, z, wx, wz, -7.55, 8.6, -4.45, 4.45, 1.5);
+      if (w) { wx = w.x; wz = w.z; }
+    }
+    this.stepToward(wx, wz, speed, dt, turn);
+    return Math.hypot(tx - this.pos.x, tz - this.pos.z);
+  }
+  // the way round a box (x0..x1, z0..z1) in the way of a straight walk from a to b: the corner (grown by m) to make for
+  // first, or null if the box isn't in the way (or a is in it)
+  static rectDetour(ax, az, bx, bz, x0, x1, z0, z1, m) {
+    const cross = (px, pz, qx, qz) => {
+      // (the segment against the box, by slabs; just touching it doesn't count)
+      let t0 = 0, t1 = 1; const dx = qx - px, dz = qz - pz;
+      for (const [o, d, lo, hi] of [[px, dx, x0, x1], [pz, dz, z0, z1]]) {
+        if (Math.abs(d) < 1e-9) { if (o <= lo || o >= hi) return false; continue; }
+        let a = (lo - o) / d, b = (hi - o) / d; if (a > b) { const t = a; a = b; b = t; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b); if (t0 >= t1) return false;
+      }
+      return t1 - t0 > 1e-6;
+    };
+    if ((ax > x0 && ax < x1 && az > z0 && az < z1) || !cross(ax, az, bx, bz)) return null;
+    const C = [[x0 - m, z0 - m], [x1 + m, z0 - m], [x1 + m, z1 + m], [x0 - m, z1 + m]];
+    let best = null, bl = Infinity;
+    for (let i = 0; i < 4; i++) {
+      // (one it's already at doesn't count: on to the next leg from there)
+      const [px, pz] = C[i], l = Math.hypot(px - ax, pz - az); if (l < 0.8 || cross(ax, az, px, pz)) continue;
+      if (!cross(px, pz, bx, bz)) { const L = l + Math.hypot(bx - px, bz - pz); if (L < bl) { bl = L; best = { x: px, z: pz }; } }
+      for (const j of [(i + 1) % 4, (i + 3) % 4]) { const [qx, qz] = C[j], L = l + Math.hypot(qx - px, qz - pz) + Math.hypot(bx - qx, bz - qz); if (L < bl && !cross(qx, qz, bx, bz)) { bl = L; best = { x: px, z: pz }; } }
+    }
+    return best;
+  }
+  // The Seep: it feels for crewmates through the floor (footsteps on its own floor, through walls and doors, a run from
+  // further off, a voice hardly at all; anyone right up against it whether they move or not) and comes after them slowly,
+  // without ever stopping, to where it last felt them. With nobody about it creeps off and settles across a corridor the
+  // crew use, between them and the way out, a wall in the way, until something comes near; but never where it would shut
+  // anybody in. It never opens a door. At a shut one it seeps through, under it or through the bars of its window, a
+  // little at a time, and gathers itself on the other side (all at once if somebody opens the door on it). extra: who
+  // it's after, or while seeping the door's id plus how far through
   ai_slime(dt) {
     const fac = this.g.fac;
     if (this.state === 'seep') {
@@ -13130,23 +13829,34 @@ class Monster {
       return;
     }
     let tgt = this.target != null ? this.g.players.get(this.target) : null;
-    if (tgt && (!tgt.alive || tgt.zone !== 'in' || Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z) > 34)) { tgt = null; this.target = null; }
-    if (!tgt) { const p = this.nearestPlayer(22, (q) => Math.abs(q.pos.y - this.pos.y) < 3); if (p) { tgt = p; this.target = p.id; } }
+    if (tgt && (!tgt.alive || tgt.zone !== 'in')) { tgt = null; this.target = null; }
+    this.scanT -= dt;
+    if (this.scanT <= 0) {
+      this.scanT = 0.25;
+      const h = Brain.hear(this, this.cfg.ear, this.cfg.K, { mode: 'floor', max: 22 });
+      const p = h && h.pid != null && this.g.players.get(h.pid);
+      if (p && p.alive && p.zone === 'in' && (!tgt || p === tgt || h.loud > 0.5)) { tgt = p; this.target = p.id; Brain.noted(this, h, 0.5 + 0.5 * h.loud); }
+      for (const q of this.playersIn()) if (Math.hypot(q.pos.x - this.pos.x, q.pos.z - this.pos.z) < 2.5 && Math.abs(q.pos.y - this.pos.y) < 1.6 && this.clearTo(q)) { tgt = q; this.target = q.id; Brain.remember(this, q, 1, 'touch'); break; }
+    }
+    const r = tgt ? Brain.recall(this, tgt.id) : null;
+    if (tgt && !r) { tgt = null; this.target = null; }
     this.doorAhead = null;
-    if (tgt) {
+    if (r) {
       this.setState('hunt'); this.extra = tgt.id;
-      this.moveTo(tgt.pos.x, tgt.pos.z, 1.25, dt, { doors: false, turn: 2.5, gy: tgt.pos.y });
+      const rem = this.moveTo(r.x, r.z, 1.25, dt, { doors: false, turn: 2.5, gy: r.y });
+      // (where it last felt them, and nothing since: it gives them up)
+      if (rem < 1 && Brain.age(r) > 4) { Brain.forget(this, tgt.id); this.target = null; }
     } else {
       this.extra = -1;
-      const n = this.hearNoise(0.8);
-      if (n) { this.goal = { x: n.x, z: n.z }; this.setState('creep'); }
-      if (this.state === 'block') this.speedNow = 0;
+      if (this.state === 'block') { this.speedNow = 0; if (this.st > this.blockT) { this.setState('creep'); this.goal = null; } }
       else {
-        this.setState('creep');
-        if (!this.goal || this.st > 45) { this.goal = this.randomGoal(8, 30, (p) => fac.grid[fac.idx(p.i, p.j)] === 1); this.st = 0; }
-        if (this.moveTo(this.goal.x, this.goal.z, 0.8, dt, { doors: false, turn: 2 }) < 1) { this.goal = null; this.setState('block'); this.blockT = 35 + Math.random() * 55; }
+        if (this.state !== 'creep') { this.setState('creep'); this.goal = null; }
+        if (!this.goal || this.st > 45) { this.goal = this.blockSpot() || this.randomGoal(8, 30, (p) => fac.grid[fac.idx(p.i, p.j)] === 1) || this.randomGoal(4, 20); this.st = 0; }
+        if (this.moveTo(this.goal.x, this.goal.z, 0.8, dt, { doors: false, turn: 2 }) < 1) {
+          this.goal = null;
+          if (this.leavesWayOut(fac.nodeAt(this.pos.x, this.pos.z, this.pos.y))) { this.setState('block'); this.blockT = 35 + Math.random() * 55; }
+        }
       }
-      if (this.state === 'block' && this.st > this.blockT) this.setState('creep');
     }
     // up against a shut door: through it, a little at a time
     const d = this.doorAhead;
@@ -13158,6 +13868,37 @@ class Monster {
       }
     }
     this.engulf();
+  }
+  // where to settle: across a corridor the crew have to use (the narrow places on the way out, where they've been
+  // walking), between them and the way out if any are about on its floor, and only where it leaves everyone a way out
+  blockSpot() {
+    const fac = this.g.fac, nv = fac.nav(), home = fac.homeField(), crew = [];
+    for (const p of this.playersIn()) { const e = Brain.P.get(p.id); if (e && e.k >= 0) crew.push(e.k); }
+    const score = (k) => {
+      if (fac.grid[k] !== 1) return 0;
+      let s = 0.15 + Math.min(2, nv.choke[k]) * (0.5 + 2 * Brain.heat(k));
+      for (const c of crew) if (fac.lvl[c] === fac.lvl[k] && home[k] < home[c]) { s *= 1.6; break; }
+      return s * s;
+    };
+    const w = this.wayOut();
+    for (let t = 0; t < 3; t++) { const g = this.randomGoal(6, 34, null, score); if (!g) return null; if (this.leavesWayOut(g.k, w)) return g; }
+    return null;
+  }
+  // With it lying across tile k (and anything else of its kind settled somewhere), can everybody inside still get out,
+  // and every floor from here down still reach its stairs up?
+  leavesWayOut(k, w = this.wayOut()) {
+    const fac = this.g.fac; if (k < 0) return false;
+    const after = fac.trapped(w.check, [k, ...w.others]);
+    return after.every((t, i) => !t || w.before[i] || w.check[i] === k || (w.lv[i] && fac.lvl[w.check[i]] < fac.lvl[k]));
+  }
+  // what has to stay reachable from the ways out: everybody inside, and every floor's stairs up (as things stand, with
+  // whatever else of its kind is already lying across a way)
+  wayOut() {
+    const fac = this.g.fac, nv = fac.nav(), others = [], check = [], lv = [];
+    for (const o of this.g.monsters.values()) if (o !== this && !o.dead && o.type === 'slime' && o.state === 'block') others.push(fac.nodeAt(o.pos.x, o.pos.z, o.pos.y));
+    for (const p of this.playersIn()) { const e = Brain.P.get(p.id); if (e && e.k >= 0) { check.push(e.k); lv.push(0); } }
+    for (const q of nv.upList) { check.push(q); lv.push(1); }
+    return { others, check, lv, before: fac.trapped(check, others) };
   }
   // whoever it reaches is shoved on ahead of it and burned; backed into a corner, swallowed
   engulf() {
@@ -14706,7 +15447,7 @@ const Net = (() => {
 // you talk (open mic: while you're louder than the threshold; push-to-talk: while V is held). The calls carry what comes
 // out of the gate, so changing microphone, or turning the mic on halfway through a game, needs no new calls.
 const Voice = (() => {
-  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0;
+  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0, held = 0;
   const peers = new Map(); // peerId -> entry
   // (when each crewmate was first seen without a call, and how many tries in a row haven't come to anything)
   const seen = new Map(), fails = new Map();
@@ -14715,7 +15456,7 @@ const Voice = (() => {
   function makeChain() {
     if (chain || !SFX.ctx) return chain;
     const ctx = SFX.ctx, c = { gain: ctx.createGain(), gate: ctx.createGain(), send: ctx.createGain(), an: ctx.createAnalyser(), dest: ctx.createMediaStreamDestination(), mon: ctx.createGain() };
-    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.send.gain.value = 0; c.mon.gain.value = 0;
+    c.an.fftSize = 512; c.buf = new Float32Array(c.an.fftSize); c.fbuf = new Float32Array(c.an.frequencyBinCount); c.gain.gain.value = Settings.micVol; c.gate.gain.value = 0; c.send.gain.value = 0; c.mon.gain.value = 0;
     // (the mic test can play you back to yourself: straight to the speakers, past the game's own effects; and with voice
     // chat off nothing goes out over the calls, though the meter and the playback still work)
     c.gain.connect(c.an); c.gain.connect(c.gate); c.gate.connect(c.send); c.send.connect(c.dest); c.gate.connect(c.mon); c.mon.connect(ctx.destination);
@@ -14814,6 +15555,10 @@ const Voice = (() => {
     // (talking: what the others hear, and what the game counts as noise; gateOpen: the mic test's meter)
     get talking() { return enabled && open && Settings.voice; },
     get gateOpen() { return enabled && open; },
+    // how loud you're talking, as far as anything listening is concerned (0..1: a whisper under 0.2, talking up to
+    // about 0.55, a shout over 0.8; see Brain.voiceR); `carry` is the same with voice chat off, for the mic test
+    get loudness() { return this.talking ? held : 0; },
+    get carry() { return enabled && open ? held : 0; },
     setPTT(d) { pttDown = d; },
     async enable() {
       if (raw) return true;
@@ -14831,7 +15576,7 @@ const Voice = (() => {
     },
     disable() {
       if (src) src.disconnect(); if (raw) raw.getTracks().forEach((t) => t.stop());
-      raw = src = null; enabled = false; level = 0; open = false; if (chain) chain.gate.gain.value = 0;
+      raw = src = null; enabled = false; level = 0; held = 0; open = false; if (chain) chain.gate.gain.value = 0;
     },
     // a different microphone, or the cleanup turned on or off: open it again (the calls carry on)
     // (and if it never opened, a new pick tries it again)
@@ -14857,6 +15602,23 @@ const Voice = (() => {
       if (Settings.ptt) open = pttDown;
       else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
+      // How loud that is, out in the building. The level is taken as it is (after the mic volume, not above the gate, or
+      // raising the gate would make a shout count as a whisper), and the voice's colour helps where the browser's own
+      // level evening flattens it: a whisper is breath with no voicing in it, low notes missing and the energy high up;
+      // a shout brightens the voice. Held a moment (a shout counts for half a second after it), and nothing at all for a
+      // push-to-talk key held in silence
+      let L = 0;
+      const db = dbOf(level);
+      if (open && db > -56) {
+        chain.an.getFloatFrequencyData(chain.fbuf);
+        const bw = SFX.ctx.sampleRate / chain.an.fftSize, fb = chain.fbuf;
+        let lo = 0, tot = 0, cen = 0;
+        for (let i = 1; i < fb.length; i++) { const f = i * bw; if (f < 80 || f > 8000) continue; const pw = Math.pow(10, fb[i] / 10); tot += pw; cen += pw * f; if (f >= 100 && f <= 900) lo += pw; }
+        cen = tot > 0 ? cen / tot : 0;
+        const lvl = clamp((db + 52) / 40, 0, 1), bright = clamp((cen - 700) / 1500, 0, 1);
+        L = tot > 0 && lo / tot < 0.3 && cen > 1800 ? 0.08 + 0.1 * lvl : clamp(0.15 + 0.6 * lvl + 0.3 * bright * lvl, 0.15, 1);
+      }
+      held = Math.max(L, held - 1.5 * dt);
       chain.send.gain.setTargetAtTime(Settings.voice ? 1 : 0, SFX.ctx.currentTime, 0.02);
     },
     // A call coming in is always answered, voice on or off (turned away, the caller's end would hang there half-open
@@ -16328,11 +17090,7 @@ const Player = (() => {
       const ox = me.pos.x, oz = me.pos.z;
       me.pos.x += (vel.x + kick.x) * dt; me.pos.z += (vel.z + kick.z) * dt; me.pos.y += vel.y * dt;
       // creatures push you, then the world gets the final say (so a shove can never put you inside a wall)
-      for (const m of G.monsters.values()) {
-        if (m.dead || m.def.zone !== me.zone || (m.type === 'leech')) continue;
-        const dx = me.pos.x - m.rpos.x, dz = me.pos.z - m.rpos.z, d = Math.hypot(dx, dz), r = m.def.radius + 0.3;
-        if (d < r && d > 1e-3) { me.pos.x = m.rpos.x + (dx / d) * r; me.pos.z = m.rpos.z + (dz / d) * r; }
-      }
+      for (const m of G.monsters.values()) if (m.def.zone === me.zone) Monster.push(m, me.pos, 0.3);
       Rover.push(me.pos, 0.3, me.zone);
       // up on the roof deck the rail keeps you on it, and the hatch coaming is in the way
       if (me.roof) {
@@ -16906,7 +17664,7 @@ const Rover = (() => {
   function hostTick(dt) {
     noiseT -= dt;
     const moving = driving ? Math.abs(v) > 0.4 : spd > 0.4;
-    if (noiseT <= 0 && moving && S.driver != null && G.mode !== 'orbit') { noiseT = 0.7; G.addNoise(V(S.x, S.y + 0.2, S.z), 6, S.zone, null); }
+    if (noiseT <= 0 && moving && S.driver != null && G.mode !== 'orbit') { noiseT = 0.7; G.addNoise(V(S.x, S.y + 0.2, S.z), 6, S.zone, null, 'step'); }
   }
   // ---------- drawing it ----------
   function present(dt) {
@@ -17053,6 +17811,8 @@ const Bots = (() => {
   function settle(p, ox, oz) {
     if (p.zone === 'in' && G.fac) {
       const f = G.fac;
+      // (the Seep is a wall across the corridor to them too)
+      for (const m of G.monsters.values()) if (m.type === 'slime') Monster.push(m, p.pos, RAD);
       f.collide(p.pos, RAD); f.collide(p.pos, RAD);
       if (!f.floorAt(f.ti(p.pos.x), f.tj(p.pos.z))) {
         if (f.floorAt(f.ti(ox), f.tj(oz))) { p.pos.x = ox; p.pos.z = oz; }
@@ -17831,7 +18591,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 11;
+const PROTO = 12;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -18057,6 +18817,8 @@ const G = {
     b.steps = [
       () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); },
       pieces(() => b.fac.generateGen(), () => {}),
+      // (and the host works out the plan of it the creatures go by: see Facility.nav)
+      pieces(() => (G.isHost ? b.fac.navGen() : [].values()), () => {}),
       pieces(() => b.fac.buildGen(), (v) => { b.facG = v; }),
       () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); },
       pieces(() => b.ext.landGen(), () => {}),
@@ -18321,7 +19083,8 @@ const G = {
   encodeFlags(me) {
     return (me.crouch ? 1 : 0) | (me.sprint ? 2 : 0) | (me.moving ? 4 : 0) | (me.flash ? 8 : 0) | (me.flash === 2 ? 16 : 0) | (me.radio ? 32 : 0) | (Voice.talking ? 64 : 0) | (me.zone === 'in' ? 128 : 0)
       | ((me.seat != null ? me.seat + 1 : 0) << 8)   // which seat they're sitting in (0: standing)
-      | (me.air ? 4096 : 0);                          // off the ground (jumping or falling, not walking a slope)
+      | (me.air ? 4096 : 0)                           // off the ground (jumping or falling, not walking a slope)
+      | (Math.round(clamp(me.loud || 0, 0, 1) * 15) << 13);   // how loud they're talking (see Voice.loudness)
   },
   decodeFlags(p) {
     const f = p.flags;
@@ -18329,6 +19092,7 @@ const G = {
     p.zone = f & 128 ? 'in' : 'out';
     const s = (f >> 8) & 15; p.seat = s ? s - 1 : null;
     p.air = !!(f & 4096);
+    p.loud = p.talking ? ((f >> 13) & 15) / 15 : 0;
   },
   netTick(dt) {
     if (!G.online) return;
@@ -18438,13 +19202,14 @@ const G = {
       const d = G.fac && G.fac.doors[e.id]; if (!d) return;
       const at = new THREE.Vector3(d.x, d.y + 1.2, d.z);
       if (e.broken) {
-        G.fac.breakDoor(d);
+        G.fac.breakDoor(d); G.fac.doorVer = (G.fac.doorVer | 0) + 1;
         SFX.play('door_slam', at, { vol: 1.6, ref: 4 }); SFX.play('crunch', at, { vol: 1.1 }); SFX.play('hit_metal', at, { vol: 1 });
         const me = G.me(); if (me && me.zone === 'in' && me.pos.distanceTo(at) < 12) Player.addShake(0.45);
         return;
       }
       if (d.broken) return;
       G.fac.setDoor(d, e.open, e.dir);
+      G.fac.doorVer = (G.fac.doorVer | 0) + 1;   // (the way sound carries has changed: see Brain.hear)
       SFX.play(e.bash ? 'door_slam' : e.open ? 'door_open' : 'door_close', at, { vol: e.bash ? 1.3 : 0.9 });
     },
     // a blast door raised or dropped from the ship's terminal: a warning tone, hydraulics, a heavy seat at the bottom
@@ -18456,7 +19221,7 @@ const G = {
       SFX.play('servo', at, { vol: 1.5, ref: 6, dur: e.open ? 2.4 : 1.3, pitch: 0.45, delay: 0.5 });
       SFX.play('shutter', at, { vol: 0.9, ref: 6, dur: e.open ? 2.4 : 1.3, delay: 0.5 });
       if (!e.open) SFX.play('door_slam', at, { vol: 1.4, ref: 8, delay: 1.75 });
-      if (G.isHost) G.addNoise(at, 22, 'in', null);
+      if (G.isHost) G.addNoise(at, 22, 'in', null, 'bang');
     },
     box(e) {
       const c = G.fac && G.fac.containers[e.id]; if (!c) return;
@@ -18767,7 +19532,7 @@ const G = {
         const it = G.items.get(r.item); if (!it || it.holder !== pid) return;
         const inShip = p.zone === 'out' && G.ship.inside(r.x, r.y + 0.3, r.z);
         G.emit({ e: 'drop', item: it.id, x: r.x, y: r.y, z: r.z, ry: r.ry, inShip, battery: r.battery, on: r.on });
-        G.addNoise(new THREE.Vector3(r.x, r.y, r.z), ITEMS[it.type].weight > 4 ? 10 : 5, p.zone, pid);
+        G.addNoise(new THREE.Vector3(r.x, r.y, r.z), ITEMS[it.type].weight > 4 ? 10 : 5, p.zone, pid, 'item');
         break;
       }
       case 'swing': G.hostSwing(pid, r); break;
@@ -18777,7 +19542,7 @@ const G = {
         const d = ITEMS[it.type]; if (!d.noise) return;
         const pos = p.pos.clone().setY(p.pos.y + 1.2);
         G.emitSound(d.noise, pos, { vol: 1.3, ref: 4 });
-        G.addNoise(pos, d.noiseR || 20, p.zone, pid);
+        G.addNoise(pos, d.noiseR || 20, p.zone, pid, 'item');
         break;
       }
       case 'door': {
@@ -18790,11 +19555,11 @@ const G = {
         if (!d.open) {
           d.latch = true;
           G.emitSound('click', by, { vol: 0.9 });
-          G.timers.push({ t: 0.32, fn: () => { d.latch = false; if (G.fac !== fac || d.open || d.broken) return; G.emit({ e: 'door', id: d.id, open: true, dir }); G.addNoise(by, 10, 'in', pid); } });
+          G.timers.push({ t: 0.32, fn: () => { d.latch = false; if (G.fac !== fac || d.open || d.broken) return; G.emit({ e: 'door', id: d.id, open: true, dir }); G.addNoise(by, 10, 'in', pid, 'door'); } });
           break;
         }
         G.emit({ e: 'door', id: d.id, open: false, dir });
-        G.addNoise(by, 10, 'in', pid);
+        G.addNoise(by, 10, 'in', pid, 'door');
         break;
       }
       case 'box': {
@@ -18807,18 +19572,18 @@ const G = {
           c.latch = true;
           G.emitSound('click', by, { vol: 0.7 });
           // rusty hinges and a rattling steel door: anything nearby hears you rummaging
-          G.timers.push({ t: 0.25, fn: () => { c.latch = false; if (G.fac !== fac || c.open) return; G.emit({ e: 'box', id: c.id, open: true }); G.addNoise(by, 9, 'in', pid); } });
+          G.timers.push({ t: 0.25, fn: () => { c.latch = false; if (G.fac !== fac || c.open) return; G.emit({ e: 'box', id: c.id, open: true }); G.addNoise(by, 9, 'in', pid, 'door'); } });
           break;
         }
         G.emit({ e: 'box', id: c.id, open: false });
-        G.addNoise(by, 9, 'in', pid);
+        G.addNoise(by, 9, 'in', pid, 'door');
         break;
       }
       case 'hatch': {
         // it opens on the ground, and in the air while the ship is low; never in space or up high
         if ((G.mode !== 'site' && G.mode !== 'leaving') || (G.fp && G.fp.y > FLY.doorAlt)) { G.sendTo(pid, { t: 'ev', e: { e: 'toast', text: 'Hatch locked.' } }); return; }
         G.emit({ e: 'hatch', open: !G.ship.door.open });
-        G.addNoise(new THREE.Vector3(-2.5, 1, 4.5), 22, 'out', pid);
+        G.addNoise(new THREE.Vector3(-2.5, 1, 4.5), 22, 'out', pid, 'door');
         break;
       }
       case 'engage': {
@@ -18849,7 +19614,7 @@ const G = {
       case 'pod': {
         const pod = Pods.get(r.id); if (!pod || pod.opened || !pod.hit || p.zone !== 'out' || Math.hypot(at.x - pod.x, at.z - pod.z) > 6) return;
         G.emit({ e: 'podOpen', id: pod.id });
-        G.addNoise(new THREE.Vector3(pod.x, pod.gy + 1, pod.z), 20, 'out', pid);
+        G.addNoise(new THREE.Vector3(pod.x, pod.gy + 1, pod.z), 20, 'out', pid, 'bang');
         const spots = Pods.dropSpots(pod, pod.items.length);
         pod.items.forEach((it, i) => G.emit({ e: 'itemSpawn', d: { id: it.id, type: it.type, value: 0, x: spots[i].x, y: spots[i].y, z: spots[i].z, ry: Math.random() * TAU, inShip: false, battery: 1, fy: 0.5 } }));
         break;
@@ -18919,7 +19684,7 @@ const G = {
       case 'roverHorn': {
         const R0 = Rover.state; if (R0.driver !== pid) return;
         G.emitSound('toot', new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), { vol: 1.2 });
-        G.addNoise(new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), 16, R0.zone, pid);
+        G.addNoise(new THREE.Vector3(R0.x, R0.y + 0.3, R0.z), 16, R0.zone, pid, 'bang');
         break;
       }
       case 'basketPut': {
@@ -18948,14 +19713,16 @@ const G = {
         const R0 = Rover.state; if (R0.carrier !== pid) return;
         const x = +r.x, y = +r.y, z = +r.z; if (![x, y, z].every(Number.isFinite) || Math.hypot(x - p.pos.x, z - p.pos.z) > 3) return;
         G.emit({ e: 'roverCarry', pid: null, x, y, z, yaw: +r.yaw || 0, zone: p.zone });
-        G.addNoise(new THREE.Vector3(x, y, z), 8, p.zone, pid);
+        G.addNoise(new THREE.Vector3(x, y, z), 8, p.zone, pid, 'item');
         break;
       }
       default: break;
     }
   },
   emitSound(s, pos, o) { G.emit({ e: 'sound', s, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), z: +pos.z.toFixed(2), o }); },
-  addNoise(pos, r, zone, pid) { G.noises.push({ x: pos.x, y: pos.y, z: pos.z, r, zone, pid, age: 0 }); },
+  // something the creatures might hear (see Brain.hear): how far it carries, and what kind of noise it is (step, voice,
+  // item, door, bang); src: the creature that made it, which doesn't go after its own din
+  addNoise(pos, r, zone, pid, kind = 'bang', src) { G.noises.push({ x: pos.x, y: pos.y, z: pos.z, r, zone, pid, age: 0, kind, src }); },
   hurtPlayer(pid, dmg, cause, kx = 0, kz = 0, silent = false) {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     const hp = Math.max(0, p.hp - dmg);
@@ -19057,7 +19824,7 @@ const G = {
   monsterBreakDoor(m, door) {
     if (door.broken) return;
     G.emit({ e: 'door', id: door.id, open: true, broken: true });
-    G.addNoise(new THREE.Vector3(door.x, door.y + 1, door.z), 26, 'in', null);
+    G.addNoise(new THREE.Vector3(door.x, door.y + 1, door.z), 26, 'in', null, 'bang', m && m.id);
   },
   monsterDied() { },
   leechAttach(m, pid) { G.emit({ e: 'leech', pid, mid: m.id }); },
@@ -19111,7 +19878,7 @@ const G = {
     const zone = p.zone, at = pos.clone();
     G.timers.push({ t: 1.8, fn: () => {
       G.emit({ e: 'stunFx', x: at.x, y: at.y + 0.2, z: at.z });
-      G.addNoise(at, 30, zone, pid);
+      G.addNoise(at, 30, zone, pid, 'bang');
       for (const m of G.monsters.values()) {
         if (m.dead || m.def.zone !== zone) continue;
         const d = Math.hypot(m.pos.x - at.x, m.pos.z - at.z);
@@ -19170,7 +19937,7 @@ const G = {
   },
   hostExplode(at, zone, id, pid) {
     G.emit({ e: 'boom', x: +at.x.toFixed(2), y: +at.y.toFixed(2), z: +at.z.toFixed(2), zone, id });
-    G.addNoise(at, 45, zone, null);
+    G.addNoise(at, 45, zone, null, 'bang');
     const sees = (x, z) => zone !== 'in' || !G.fac || G.fac.los(at.x, at.z, x, z);
     for (const p of G.alivePlayers()) {
       if (p.zone !== zone) continue;
@@ -19738,8 +20505,11 @@ const G = {
       p.noiseT -= dt;
       if (p.noiseT <= 0 && (p.moving || p.talking)) {
         p.noiseT = 0.33;
-        if (p.moving) G.addNoise(p.pos, p.sprint ? 20 : p.crouch ? 2 : 7.5, p.zone, p.id);
-        if (p.talking) G.addNoise(p.pos.clone().setY(p.pos.y + 1.6), 24, p.zone, p.id);
+        if (p.moving) G.addNoise(p.pos, p.sprint ? 20 : p.crouch ? 2 : 7.5, p.zone, p.id, 'step');
+        // (a voice carries as far as it's loud: a whisper only to whoever's at your shoulder, a shout down most of the
+        // floor. Out on an airless moon or rock it doesn't carry at all: there it's the suits' radios)
+        const vr = p.talking ? Brain.voiceR(p.loud || 0) : 0;
+        if (vr > 0.5 && !(p.zone === 'out' && G.ext && G.ext.biome.airless && !G.inShip(p))) G.addNoise(p.pos.clone().setY(p.pos.y + 1.6), vr, p.zone, p.id, 'voice');
       }
       // slow recovery once nothing has hurt you for a while
       if (p.hp < 100 && G.now - (p.lastHurt || 0) > 9000) {
@@ -19773,9 +20543,11 @@ const G = {
           else { r.blackout = false; r.blackoutT = 200 + Math.random() * 260; G.emit({ e: 'power', on: true }); }
         }
       }
+      Brain.tick(dt);
       for (const m of G.monsters.values()) m.hostUpdate(dt);
       Monster.separate(G, dt);
     } else if (G.mode === 'leaving') {
+      Brain.tick(dt);
       for (const m of G.monsters.values()) m.hostUpdate(dt);
       Monster.separate(G, dt);
       G.departT -= dt;
@@ -20368,7 +21140,7 @@ const G = {
     if (G.sendoff) G.updateSendoff(dt);
     Rover.update(dt);
     G.carryCamera();
-    me.talking = G.online && Voice.talking;
+    me.talking = G.online && Voice.talking; me.loud = me.talking ? Voice.loudness : 0;
     if (G.isHost) { G.hostTick(dt); Bots.update(dt); }
     G.netTick(dt);
     G.presentPlayers(dt);
@@ -20884,7 +21656,8 @@ const G = {
       for (const p of G.players.values()) if (p.id !== me.id && p.alive && p.zone === me.zone) add(p.rpos.x, p.rpos.z, p.speed || 0, false);
       HUD.tracker(true, blips);
     } else HUD.tracker(false);
-    HUD.voice(G.online && Voice.enabled ? (Voice.talking ? (me.radio ? '((( RADIO )))' : '(( MIC ))') : '') : '');
+    // (how far you're carrying: a whisper, talking, a shout)
+    HUD.voice(G.online && Voice.enabled ? (Voice.talking ? (me.radio ? '((( RADIO )))' : me.loud > 0.8 ? '((( MIC )))' : me.loud > 0.3 ? '(( MIC ))' : '( MIC )') : '') : '');
     HUD.update(dt);
   },
 };
@@ -21155,8 +21928,8 @@ const Menu = (() => {
     toggle('NOISE SUPPRESSION', () => (Settings.micClean ? 'ON' : 'OFF'), () => { Settings.micClean = !Settings.micClean; return Voice.restart(); });
     slider('VOICES VOLUME', 'voiceVol', 0, 2, 0.05, (v) => Math.round(v * 100) + '%');
     // the test: a meter of your voice, the threshold marked on it
-    const meter = html(`<div class="setrow"><span>MIC TEST</span><div style="position:relative;width:200px;height:16px;border:1px solid var(--amber-dim);flex:none"><div class="vfill" style="position:absolute;left:0;top:0;bottom:0;width:0"></div><div class="vmark" style="position:absolute;top:-4px;bottom:-4px;width:2px;background:#e8dccb"></div></div></div>`);
-    const fill = meter.querySelector('.vfill'), mark = meter.querySelector('.vmark'), pos = (db) => clamp((db + 60) / 60, 0, 1) * 100 + '%';
+    const meter = html(`<div class="setrow"><span>MIC TEST</span><div style="position:relative;width:200px;height:16px;border:1px solid var(--amber-dim);flex:none"><div class="vfill" style="position:absolute;left:0;top:0;bottom:0;width:0"></div><div class="vmark" style="position:absolute;top:-4px;bottom:-4px;width:2px;background:#e8dccb"></div></div><span class="vcarry" style="width:80px;flex:none;text-align:right"></span></div>`);
+    const fill = meter.querySelector('.vfill'), mark = meter.querySelector('.vmark'), carry = meter.querySelector('.vcarry'), pos = (db) => clamp((db + 60) / 60, 0, 1) * 100 + '%';
     rows.push(meter);
     const testBtn = btn('TEST MIC', async () => {
       say('Asking for the microphone...');
@@ -21174,6 +21947,8 @@ const Menu = (() => {
       fill.style.width = on ? pos(Voice.db) : '0';
       fill.style.background = Voice.gateOpen ? 'var(--amber-hi)' : 'var(--amber-dim)';
       mark.style.left = pos(Settings.micGate); mark.style.display = Settings.ptt ? 'none' : '';
+      // (how far that would carry down there: what's listening hears a shout from the far end of a floor)
+      const L = on ? Voice.carry : 0; carry.textContent = !Voice.gateOpen ? '' : L > 0.8 ? 'SHOUT' : L > 0.3 ? 'TALK' : L > 0 ? 'WHISPER' : '';
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -21379,7 +22154,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 window.THREE = THREE;
 window.BufferGeometryUtils = BufferGeometryUtils;
-const files = ['util', 'audio', 'textures', 'items', 'facility', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'rover', 'bots', 'game', 'main'];
+const files = ['util', 'audio', 'textures', 'items', 'facility', 'brain', 'exterior', 'ship', 'avatar', 'monsters', 'pods', 'crewcam', 'net', 'voice', 'render', 'hud', 'player', 'touch', 'rover', 'bots', 'game', 'main'];
 try {
   // the one-file build (build.ps1) embeds every script in the page; the dev copy loads them from js/
   const packed = document.querySelectorAll('script[type="text/x-gs"]');

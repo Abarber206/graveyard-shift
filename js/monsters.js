@@ -955,6 +955,8 @@ class Monster {
         } else this.cut = null;
         if (sp > 0) this.moveTo(gx, gz, sp, dt, { gy });
         else { this.speedNow = 0; this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 3, dt); }
+        // (let loose on you and free to kill, being seen doesn't send it off any more: it comes for you)
+        if (seenByTarget && prey === tgt && Brain.mayKill(this, tgt)) { this.setState('chase'); this.g.emitSound('hiss', this.pos, { vol: 1.2 }); break; }
         if (seenByAny) {
           if (seenByTarget) { if (this.seenCd <= 0) { this.anger += 1; this.seenCd = 1.2; } this.stare += dt; }
           if (this.anger >= 4) { this.setState('chase'); break; }

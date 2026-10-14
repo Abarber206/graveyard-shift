@@ -6615,7 +6615,7 @@ const Brain = (() => {
       case 'build': if (D.t > D.len && now - D.lastKill > 60 && !grant(smart)) D.t = D.len - 8; break;
       case 'peak': {
         const k = D.tok, p = k && G.players.get(k.pid), m = k && G.monsters.get(k.mid);
-        if (!k || !p || !p.alive || p.zone !== 'in' || !m || m.dead || D.t > (k.toy ? 25 : 50)) {
+        if (!k || !p || !p.alive || p.zone !== 'in' || !m || m.dead || D.t > (k.toy ? 25 : 75)) {
           if (p && !p.alive) D.lastKill = now;
           D.tok = null; go('relax', 40 + Math.random() * 30);
         } else cue(k, p, m);
@@ -13429,6 +13429,8 @@ class Monster {
         } else this.cut = null;
         if (sp > 0) this.moveTo(gx, gz, sp, dt, { gy });
         else { this.speedNow = 0; this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 3, dt); }
+        // (let loose on you and free to kill, being seen doesn't send it off any more: it comes for you)
+        if (seenByTarget && prey === tgt && Brain.mayKill(this, tgt)) { this.setState('chase'); this.g.emitSound('hiss', this.pos, { vol: 1.2 }); break; }
         if (seenByAny) {
           if (seenByTarget) { if (this.seenCd <= 0) { this.anger += 1; this.seenCd = 1.2; } this.stare += dt; }
           if (this.anger >= 4) { this.setState('chase'); break; }

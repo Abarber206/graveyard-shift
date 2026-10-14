@@ -262,7 +262,7 @@ const Brain = (() => {
       case 'build': if (D.t > D.len && now - D.lastKill > 60 && !grant(smart)) D.t = D.len - 8; break;
       case 'peak': {
         const k = D.tok, p = k && G.players.get(k.pid), m = k && G.monsters.get(k.mid);
-        if (!k || !p || !p.alive || p.zone !== 'in' || !m || m.dead || D.t > (k.toy ? 25 : 50)) {
+        if (!k || !p || !p.alive || p.zone !== 'in' || !m || m.dead || D.t > (k.toy ? 25 : 75)) {
           if (p && !p.alive) D.lastKill = now;
           D.tok = null; go('relax', 40 + Math.random() * 30);
         } else cue(k, p, m);

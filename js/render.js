@@ -147,8 +147,7 @@ const R = (() => {
       col.r = texture2D(tDiffuse, uv + c * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - c * ca).b;
-      // the air between you and everything: what's lost on the way (alpha) and the light it scatters toward you (rgb)
-      if (uVolOn > 0.5) { vec4 fv = texture2D(tVol, uv); col = col * fv.a + fv.rgb; }
+      // (the air between you and everything is already laid over the world, under your hands: see render())
       // ...smeared outward in long streaks, with just a hint of colour at the edges
       if (uWarp > 0.0) {
         vec3 acc = vec3(0.0);
@@ -420,6 +419,9 @@ const R = (() => {
     tri.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
     postScene = new THREE.Scene(); const pm = new THREE.Mesh(tri, post); pm.frustumCulled = false; postScene.add(pm);
     quadScene = new THREE.Scene(); quad = new THREE.Mesh(tri, bloomPre); quad.frustumCulled = false; quadScene.add(quad);
+    // the air laid over the frame: what's lost on the way (alpha) and the light it scatters toward you (rgb)
+    vol.comp = new THREE.ShaderMaterial({ uniforms: { tVol: { value: vol.rt.texture } }, vertexShader: POST_VS, fragmentShader: 'uniform sampler2D tVol; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tVol, vUv); }',
+      depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.SrcAlphaFactor });
     postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     window.addEventListener('resize', resize);
     // (iOS can report the new size a moment after it turns)
@@ -597,6 +599,9 @@ const R = (() => {
         });
         const fm = flash.shadow && flash.shadow.map; vu.tFlashSh.value = fm ? fm.texture : null; vu.uFlashSh.value = fm && flash.castShadow && flash.intensity > 0.01 ? 1 : 0; if (fm) vu.uFlashM.value.copy(flash.shadow.matrix);
         renderer.setRenderTarget(vol.rt); renderer.render(vol.scene, postCam); renderer.setRenderTarget(rt);
+        // (laid over the world now, before your hands and what you're holding are drawn, so they're never lost in it,
+        // even against the sky)
+        const qm = quad.material; quad.material = vol.comp; renderer.render(quadScene, postCam); quad.material = qm;
       }
       u.uVolOn.value = vol.on ? 1 : 0;
       // (on the ground with no air, the sun in the sky glares the same way, while its disc can be seen)

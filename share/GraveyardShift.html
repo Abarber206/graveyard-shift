@@ -957,6 +957,10 @@ const SFX = (() => {
         if (surf === 'metal') {
           for (const [at, k] of [[0, 1], [toe, 0.55]]) add(y, struck({ modes: plate(14, 1.7), f0: rnd(150, 190), T: 0.22, hf: 0.5, tc: 0.0012, grit: 0.4 }), at, k);
           add(y, grains(0.03, 6, 2500, 6000, 0.003), 0, 0.2);
+        } else if (surf === 'water') {
+          // (wading: the leg pushing through, a slosh, and what it stirs up bubbling to the surface)
+          add(y, norm(bq(fade(noise(0.26), (u) => Math.sin(Math.PI * u) ** 0.7 * (1 - u * 0.5)), 'lp', rnd(600, 900), 0.8)), 0, 0.8);
+          for (let k = 0; k < 6; k++) bubble(y, nS(rnd(0.03, 0.22)), rnd(1.5, 4.5), rnd(0.15, 0.45));
         } else if (surf === 'dirt') {
           add(y, struck({ modes: [1, 1.8, 2.9], f0: rnd(70, 90), T: 0.06, hf: 3, tc: 0.012, grit: 0.6 }), 0, 0.6);
           add(y, grains(0.12, 70, 900, 4500, 0.003), 0.004, 0.9);
@@ -7283,9 +7287,10 @@ const Exterior = (() => {
       const tmat = new THREE.MeshStandardMaterial({ map: TEX.get(BI.terrainTex), roughness: W != null ? 0.75 : 1, vertexColors: true });
       const terrain = new THREE.Mesh(geo, tmat); terrain.receiveShadow = true; grp.add(terrain);
       this.terrainGeo = geo; this.terrainMat = tmat;
-      // the marsh: one sheet of dark standing water fills every hollow below the waterline
+      // the marsh: one sheet of dark standing water fills every hollow below the waterline, black-green and thick with
+      // what's rotting in it: you see nothing under the surface, and from under it (if you go under) only the murk above
       if (W != null) {
-        const wm = new THREE.MeshStandardMaterial({ color: 0x18221c, roughness: 0.06, metalness: 0.65, transparent: true, opacity: 0.88 });
+        const wm = new THREE.MeshStandardMaterial({ color: 0x101a14, roughness: 0.08, metalness: 0.6, side: THREE.DoubleSide });
         const water = new THREE.Mesh(new THREE.PlaneGeometry(size, size), wm); water.rotation.x = -Math.PI / 2; water.position.y = W; water.receiveShadow = true; grp.add(water);
       }
       yield;
@@ -17463,8 +17468,11 @@ const Player = (() => {
     if (me.zone === 'in') return 'concrete';
     if (me.roof) return 'metal';
     if (G.ship.onFootprint(me.pos.x, me.pos.z) && me.pos.y < 1) return 'metal';
+    if (wadeDepth(me) > 0.08) return 'water';
     return G.mode === 'orbit' ? 'metal' : 'dirt';
   }
+  // how deep you're standing in the marsh's water (0 out of it)
+  function wadeDepth(me) { return me.zone === 'out' && G.mode === 'site' && G.ext && G.ext.water != null ? Math.max(0, G.ext.water - me.pos.y) : 0; }
   function weightOf(me) {
     let w = 0; for (const id of me.slots) { const it = id != null && G.items.get(id); if (it) w += ITEMS[it.type].weight; }
     // (the rover in your arms, and what's in its basket)
@@ -17632,7 +17640,9 @@ const Player = (() => {
       const sprint = wantSprint && (stamina > 0 || adrenaline);
       const wmul = clamp(1 - weightOf(me) / 110, 0.45, 1);
       tickPerks(dt);
-      let speed = (sprint ? 6.3 * (adrenaline ? 1.2 : 1) : crouch ? 2.0 : 3.9) * wmul * (leeched ? 0.55 : 1) * fx.speed;
+      // (wading drags at you: the deeper, the slower)
+      const wade = wadeDepth(me), wslow = wade > 0.12 ? lerp(0.85, 0.4, clamp(wade / 1.3, 0, 1)) : 1;
+      let speed = (sprint ? 6.3 * (adrenaline ? 1.2 : 1) : crouch ? 2.0 : 3.9) * wmul * (leeched ? 0.55 : 1) * fx.speed * wslow;
       const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)), rt = new THREE.Vector3(Math.cos(me.yaw), 0, -Math.sin(me.yaw));
       const want = fw.multiplyScalar(f).add(rt.multiplyScalar(st));
       if (want.lengthSq() > 0) want.normalize().multiplyScalar(speed * Math.min(1, Math.hypot(f, st)));
@@ -19161,7 +19171,7 @@ const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
+const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -20994,6 +21004,17 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
+    // The marsh water isn't for wading: it eats at a suit the deeper you stand in it, and over your head it drowns you
+    if (G.mode === 'site' && !G.flight && G.ext && G.ext.water != null && (G.waterT = (G.waterT || 0) - dt) <= 0) {
+      G.waterT = 0.5;
+      for (const p of G.alivePlayers()) {
+        if (p.zone !== 'out' || G.inShip(p)) continue;
+        // (by where their feet are: on a jetty or a roof over it they're dry)
+        const depth = G.ext.water - p.pos.y;
+        if (depth > 1.45) G.hurtPlayer(p.id, 20, 'water');
+        else if (depth > 0.3) G.hurtPlayer(p.id, Math.round(1 + depth * 3), 'water');
+      }
+    }
     // On an airless moon or rock the sky isn't empty. Some landings a meteoroid shower comes through (a light one, or a
     // heavy one with a big strike in it), the survey office radioing a warning half a minute ahead. And now and then the
     // shower is only the leading edge: debris shed by something much bigger on its way in. It shows as a new star, then

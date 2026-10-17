@@ -239,7 +239,7 @@ const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
+const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -2072,6 +2072,17 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
+    // The marsh water isn't for wading: it eats at a suit the deeper you stand in it, and over your head it drowns you
+    if (G.mode === 'site' && !G.flight && G.ext && G.ext.water != null && (G.waterT = (G.waterT || 0) - dt) <= 0) {
+      G.waterT = 0.5;
+      for (const p of G.alivePlayers()) {
+        if (p.zone !== 'out' || G.inShip(p)) continue;
+        // (by where their feet are: on a jetty or a roof over it they're dry)
+        const depth = G.ext.water - p.pos.y;
+        if (depth > 1.45) G.hurtPlayer(p.id, 20, 'water');
+        else if (depth > 0.3) G.hurtPlayer(p.id, Math.round(1 + depth * 3), 'water');
+      }
+    }
     // On an airless moon or rock the sky isn't empty. Some landings a meteoroid shower comes through (a light one, or a
     // heavy one with a big strike in it), the survey office radioing a warning half a minute ahead. And now and then the
     // shower is only the leading edge: debris shed by something much bigger on its way in. It shows as a new star, then

@@ -335,6 +335,10 @@ const SFX = (() => {
         if (surf === 'metal') {
           for (const [at, k] of [[0, 1], [toe, 0.55]]) add(y, struck({ modes: plate(14, 1.7), f0: rnd(150, 190), T: 0.22, hf: 0.5, tc: 0.0012, grit: 0.4 }), at, k);
           add(y, grains(0.03, 6, 2500, 6000, 0.003), 0, 0.2);
+        } else if (surf === 'water') {
+          // (wading: the leg pushing through, a slosh, and what it stirs up bubbling to the surface)
+          add(y, norm(bq(fade(noise(0.26), (u) => Math.sin(Math.PI * u) ** 0.7 * (1 - u * 0.5)), 'lp', rnd(600, 900), 0.8)), 0, 0.8);
+          for (let k = 0; k < 6; k++) bubble(y, nS(rnd(0.03, 0.22)), rnd(1.5, 4.5), rnd(0.15, 0.45));
         } else if (surf === 'dirt') {
           add(y, struck({ modes: [1, 1.8, 2.9], f0: rnd(70, 90), T: 0.06, hf: 3, tc: 0.012, grit: 0.6 }), 0, 0.6);
           add(y, grains(0.12, 70, 900, 4500, 0.003), 0.004, 0.9);

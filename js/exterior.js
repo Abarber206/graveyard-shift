@@ -502,9 +502,10 @@ const Exterior = (() => {
       const tmat = new THREE.MeshStandardMaterial({ map: TEX.get(BI.terrainTex), roughness: W != null ? 0.75 : 1, vertexColors: true });
       const terrain = new THREE.Mesh(geo, tmat); terrain.receiveShadow = true; grp.add(terrain);
       this.terrainGeo = geo; this.terrainMat = tmat;
-      // the marsh: one sheet of dark standing water fills every hollow below the waterline
+      // the marsh: one sheet of dark standing water fills every hollow below the waterline, black-green and thick with
+      // what's rotting in it: you see nothing under the surface, and from under it (if you go under) only the murk above
       if (W != null) {
-        const wm = new THREE.MeshStandardMaterial({ color: 0x18221c, roughness: 0.06, metalness: 0.65, transparent: true, opacity: 0.88 });
+        const wm = new THREE.MeshStandardMaterial({ color: 0x101a14, roughness: 0.08, metalness: 0.6, side: THREE.DoubleSide });
         const water = new THREE.Mesh(new THREE.PlaneGeometry(size, size), wm); water.rotation.x = -Math.PI / 2; water.position.y = W; water.receiveShadow = true; grp.add(water);
       }
       yield;

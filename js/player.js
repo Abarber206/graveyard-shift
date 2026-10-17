@@ -177,8 +177,11 @@ const Player = (() => {
     if (me.zone === 'in') return 'concrete';
     if (me.roof) return 'metal';
     if (G.ship.onFootprint(me.pos.x, me.pos.z) && me.pos.y < 1) return 'metal';
+    if (wadeDepth(me) > 0.08) return 'water';
     return G.mode === 'orbit' ? 'metal' : 'dirt';
   }
+  // how deep you're standing in the marsh's water (0 out of it)
+  function wadeDepth(me) { return me.zone === 'out' && G.mode === 'site' && G.ext && G.ext.water != null ? Math.max(0, G.ext.water - me.pos.y) : 0; }
   function weightOf(me) {
     let w = 0; for (const id of me.slots) { const it = id != null && G.items.get(id); if (it) w += ITEMS[it.type].weight; }
     // (the rover in your arms, and what's in its basket)
@@ -346,7 +349,9 @@ const Player = (() => {
       const sprint = wantSprint && (stamina > 0 || adrenaline);
       const wmul = clamp(1 - weightOf(me) / 110, 0.45, 1);
       tickPerks(dt);
-      let speed = (sprint ? 6.3 * (adrenaline ? 1.2 : 1) : crouch ? 2.0 : 3.9) * wmul * (leeched ? 0.55 : 1) * fx.speed;
+      // (wading drags at you: the deeper, the slower)
+      const wade = wadeDepth(me), wslow = wade > 0.12 ? lerp(0.85, 0.4, clamp(wade / 1.3, 0, 1)) : 1;
+      let speed = (sprint ? 6.3 * (adrenaline ? 1.2 : 1) : crouch ? 2.0 : 3.9) * wmul * (leeched ? 0.55 : 1) * fx.speed * wslow;
       const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)), rt = new THREE.Vector3(Math.cos(me.yaw), 0, -Math.sin(me.yaw));
       const want = fw.multiplyScalar(f).add(rt.multiplyScalar(st));
       if (want.lengthSq() > 0) want.normalize().multiplyScalar(speed * Math.min(1, Math.hypot(f, st)));

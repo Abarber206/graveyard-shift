@@ -623,7 +623,8 @@ const Exterior = (() => {
       this.buildSky(grp); yield;
       yield* this.buildRanges(grp); yield;
       yield* this.buildClouds(grp);
-      this.buildRain(grp); this.buildGroundCover(grp); this.buildPuddles(grp); this.buildCrows(grp); this.buildMotes(grp);
+      this.buildRain(grp); this.buildGroundCover(grp); yield;
+      this.buildBushes(grp); this.buildPuddles(grp); this.buildCrows(grp); this.buildMotes(grp);
       this.group = grp;
       return grp;
     }
@@ -975,7 +976,28 @@ const Exterior = (() => {
           if (rr.chance(0.25)) { g.fillStyle = `rgb(${130 + v},${110 + v},${70 + v})`; g.beginPath(); g.ellipse(x0 + bend, 128 - h, 2.5, 6, 0, 0, TAU); g.fill(); }
         }
       }
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      // ...and a second plant growing among it, about one tuft in four, drawn on the other half of the same sheet: grain
+      // heads and pale wildflowers on the dry worlds, purple spikes among the reeds, thistles in the scrub, broad leaves
+      // among the ferns, seed heads rimed white, white heather, curled black fronds in the ash
+      const [c2, g2] = TEX.canvas(128, 128), r2 = new RNG(this.seed + 9); g2.clearRect(0, 0, 128, 128);
+      const stem = (x0, h, bend, w, col) => { g2.strokeStyle = col; g2.lineWidth = w; g2.beginPath(); g2.moveTo(x0, 126); g2.quadraticCurveTo(x0 + bend * 0.3, 126 - h * 0.6, x0 + bend, 126 - h); g2.stroke(); };
+      const dot = (x, y, r, col) => { g2.fillStyle = col; g2.beginPath(); g2.arc(x, y, r, 0, TAU); g2.fill(); };
+      const ACC = { dry: ['seed', 'umbel'], reeds: ['spike'], scrub: ['thistle'], fern: ['leaf'], frost: ['seed'], heather: ['spike'], ash: ['curl'] }[kind] || ['seed'];
+      const pal = { dry: ['rgb(176,150,96)', 'rgb(206,198,166)'], reeds: ['rgb(118,70,112)'], scrub: ['rgb(120,82,116)'], fern: ['rgb(46,82,38)'], frost: ['rgb(222,230,238)'], heather: ['rgb(214,206,214)'], ash: ['rgb(30,28,26)'] }[kind] || ['rgb(170,150,100)'];
+      for (let i = 0; i < 12; i++) {
+        const t = ACC[i % ACC.length], col = pal[i % pal.length], x0 = r2.range(14, 114), h = r2.range(50, 112), bend = r2.range(-14, 14), v = r2.range(-14, 14) | 0, tx = x0 + bend, ty = 126 - h;
+        const sc = kind === 'ash' ? `rgb(${24 + v},${22 + v},${20 + v})` : kind === 'frost' ? `rgb(${150 + v},${160 + v},${170 + v})` : `rgb(${92 + v},${100 + v},${62 + v})`;
+        if (t === 'leaf') { for (let k = 0; k < 3; k++) { const a = r2.range(-0.9, 0.9), l = r2.range(26, 46); g2.save(); g2.translate(x0, 126); g2.rotate(a); g2.fillStyle = `rgb(${50 + v},${88 + v},${40 + v})`; g2.beginPath(); g2.ellipse(0, -l, l * 0.38, l, 0, 0, TAU); g2.fill(); g2.strokeStyle = 'rgba(20,40,16,.6)'; g2.lineWidth = 1; g2.beginPath(); g2.moveTo(0, 0); g2.lineTo(0, -l * 1.8); g2.stroke(); g2.restore(); } continue; }
+        stem(x0, h, bend, r2.range(1.2, 2), sc);
+        if (t === 'seed') for (let k = 0; k < 8; k++) { g2.fillStyle = col; g2.beginPath(); g2.ellipse(tx + (k % 2 ? 2 : -2), ty + k * 3, 2.2, 3.4, (k % 2 ? 0.5 : -0.5), 0, TAU); g2.fill(); }
+        else if (t === 'umbel') for (let k = 0; k < 9; k++) dot(tx + r2.range(-7, 7), ty + r2.range(-3, 3), 1.8, col);
+        else if (t === 'spike') for (let k = 0; k < 10; k++) dot(tx + r2.range(-2, 2), ty + k * 2.6, r2.range(1.6, 2.4), col);
+        else if (t === 'thistle') { dot(tx, ty + 4, 5, `rgb(${70 + v},${80 + v},${54 + v})`); for (let k = 0; k < 9; k++) { g2.strokeStyle = col; g2.lineWidth = 1.4; g2.beginPath(); g2.moveTo(tx, ty + 2); g2.lineTo(tx + (k - 4) * 1.6, ty - 8); g2.stroke(); } }
+        else if (t === 'curl') { g2.strokeStyle = col; g2.lineWidth = 2; g2.beginPath(); g2.arc(tx + 4, ty + 4, 5, Math.PI, TAU * 0.95); g2.stroke(); }
+      }
+      const atlas = document.createElement('canvas'); atlas.width = 256; atlas.height = 128;
+      { const ag = atlas.getContext('2d'); ag.drawImage(c, 0, 0); ag.drawImage(c2, 128, 0); }
+      const tex = new THREE.CanvasTexture(atlas); tex.colorSpace = THREE.SRGBColorSpace;
       // three crossed cards; every normal points up so the tuft is lit like the ground it grows from
       const cards = [];
       for (let k = 0; k < 3; k++) { const p = new THREE.PlaneGeometry(0.6, 0.5); p.translate(0, 0.25, 0); p.rotateY(k * Math.PI / 3); cards.push({ geo: p, matrix: new THREE.Matrix4() }); }
@@ -984,7 +1006,7 @@ const Exterior = (() => {
       const gm = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
       gm.onBeforeCompile = (sh) => {
         sh.uniforms.uWind = this.windU; sh.uniforms.uBlast = this.blastU;
-        sh.vertexShader = 'uniform float uWind;\n#ifdef USE_INSTANCING\n' + this.blastGL + '#endif\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        sh.vertexShader = 'uniform float uWind;\n#ifdef USE_INSTANCING\nattribute float aVar;\n' + this.blastGL + '#endif\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n#ifdef USE_INSTANCING\nvMapUv.x = vMapUv.x * 0.5 + aVar * 0.5;\n#endif').replace('#include <begin_vertex>', `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec3 ip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
             float sw = sin(uWind * 1.9 + ip.x * 0.31 + ip.z * 0.23) * 0.65 + sin(uWind * 4.3 + ip.x * 1.7) * 0.2;
@@ -997,6 +1019,7 @@ const Exterior = (() => {
       this.grass = new THREE.InstancedMesh(tuft, gm, 5200); this.grass.count = 0;
       this.grass.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.grass.frustumCulled = false; this.grass.receiveShadow = true;
       this.grass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(5200 * 3), 3);
+      tuft.setAttribute('aVar', new THREE.InstancedBufferAttribute(new Float32Array(5200), 1));
       grp.add(this.grass);
       // What's lying on the ground among it, by what grows here: drifts of dead leaves and twigs in the woods, broken
       // reed stalks by the marsh, grit and dry sticks in the canyon, ash flakes and char, frozen leaves rimed white. Each
@@ -1048,6 +1071,7 @@ const Exterior = (() => {
       // reach is worked out; a crater coming down clears what's kept, see addCrater)
       const CG = this.coverG || (this.coverG = new Map()), CL = this.coverL || (this.coverL = new Map()), gt = this.biome.grass.tint || [1, 0.98, 0.9];
       if (!gi.instanceColor) gi.setColorAt(0, col.setRGB(1, 1, 1));
+      const AVA = gi.geometry.attributes.aVar, AV = AVA.array;
       if (CG.size > 60000) CG.clear(); if (CL.size > 60000) CL.clear();
       for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
         const key = i * 65536 + j; let c = CG.get(key);
@@ -1064,13 +1088,13 @@ const Exterior = (() => {
         // reeds crowd the waterline and stand in the shallows, never out in deep water
         if (W != null) { if (y < W - 0.35) dens = -1; else dens += sstep(W + 1.0, W, y) * 0.6; }
         // (each blade's size, turn and shade are kept with its spot too, and written straight into the instance arrays)
-        if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; }
+        if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; c.av = hash(i, j, 12) < 0.25 ? 1 : 0; }
         if (c.g < dens && ng < 5200) {
           const s = c.s0 * sstep(R, R - 7, d), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
           A[o] = c.cs * s; A[o + 1] = 0; A[o + 2] = -c.sn * s; A[o + 3] = 0; A[o + 4] = 0; A[o + 5] = sy; A[o + 6] = 0; A[o + 7] = 0;
           A[o + 8] = c.sn * s; A[o + 9] = 0; A[o + 10] = c.cs * s; A[o + 11] = 0; A[o + 12] = x; A[o + 13] = y - 0.05; A[o + 14] = z; A[o + 15] = 1;
           // (toned to sit in the ground colour rather than glow on top of it)
-          const C3 = gi.instanceColor.array, o3 = ng * 3; C3[o3] = c.v * gt[0]; C3[o3 + 1] = c.v * gt[1]; C3[o3 + 2] = c.v * gt[2];
+          const C3 = gi.instanceColor.array, o3 = ng * 3; C3[o3] = c.v * gt[0]; C3[o3 + 1] = c.v * gt[1]; C3[o3 + 2] = c.v * gt[2]; AV[ng] = c.av;
           ng++;
         }
         if (d < 26 && hash(i, j, 8) < 0.07 + bare * 0.18 && np < 900) {
@@ -1116,7 +1140,61 @@ const Exterior = (() => {
         for (const m of [LI, TW, PA, CA]) m.instanceMatrix.needsUpdate = true; LI.instanceColor.needsUpdate = true;
       }
       gi.count = ng; pi.count = np;
-      gi.instanceMatrix.needsUpdate = true; gi.instanceColor.needsUpdate = true; pi.instanceMatrix.needsUpdate = true;
+      gi.instanceMatrix.needsUpdate = true; gi.instanceColor.needsUpdate = true; AVA.needsUpdate = true; pi.instanceMatrix.needsUpdate = true;
+    }
+    // Bushes and shrubs, the layer between the grass and the trees, in clumps across the open ground, by what grows
+    // here: brambles with a few dark berries, grey-green willow scrub by the marsh, sagebrush, tree ferns, dead shrubs
+    // frosted white, dark gorse with a few dull flowers, charred black thickets. Crossed cards like the grass, swaying
+    // a little less; none on the trail, the yards or the pad, and none where nothing grows
+    buildBushes(grp) {
+      const kind = this.biome.grass.kind;
+      const BK = { dry: [26, '#4a3a2a', ['#5a5a3a', '#4a4e30'], '#5a1a1e', 0.05], reeds: [22, '#5a5a48', ['#7a8a6a', '#6a7a5c'], null, 0], scrub: [30, '#6a6458', ['#8a9078', '#7a8068'], null, 0],
+        fern: [34, '#3a4a2a', ['#3a6a2e', '#2e5a26'], null, 0], frost: [18, '#5a5a60', ['#9aa0a8'], '#e8eef4', 0.25], heather: [28, '#3a3428', ['#2e3a24', '#3a4630'], '#9a8a3a', 0.06], ash: [20, '#1a1816', ['#2a2624'], null, 0] }[kind];
+      if (!BK) return;
+      const [nClump, stemCol, leafCols, accCol, accK] = BK, r = new RNG(this.seed + 4242);
+      const [c, g] = TEX.canvas(128, 128); g.clearRect(0, 0, 128, 128);
+      // (the bush: branches fanning up from the root, crowded with leaf clusters, a few berries, flowers or frost tips)
+      for (let b = 0; b < 11; b++) {
+        const a = r.range(-1.25, 1.25), l = r.range(56, 112), ex = 64 + Math.sin(a) * l * 0.55, ey = 126 - Math.cos(a * 0.8) * l;
+        g.strokeStyle = stemCol; g.lineWidth = r.range(1.6, 3); g.beginPath(); g.moveTo(64 + r.range(-6, 6), 126); g.quadraticCurveTo(64 + Math.sin(a) * l * 0.2, 126 - l * 0.5, ex, ey); g.stroke();
+        if (kind === 'ash') continue;
+        // (small leaves crowded all along each branch, thicker toward the tips, never blobs on stalks)
+        for (let k = 0; k < 24; k++) {
+          const t = Math.sqrt(r.range(0.04, 1)), x = lerp(64, ex, t) + r.range(-6, 6), y = lerp(126, ey, t) + r.range(-5, 5);
+          g.fillStyle = leafCols[r.int(0, leafCols.length - 1)]; g.beginPath();
+          if (kind === 'reeds') g.ellipse(x, y, 1.6, 7, r.range(-0.6, 0.6), 0, TAU); else if (kind === 'fern') g.ellipse(x, y, 7, 2.4, a + r.range(-0.3, 0.3), 0, TAU); else g.ellipse(x, y, r.range(1.8, 3.4), r.range(1.4, 2.6), r.range(0, TAU), 0, TAU);
+          g.fill();
+          if (accCol && r.chance(accK)) { g.fillStyle = accCol; g.beginPath(); g.arc(x + r.range(-2, 2), y - 2, kind === 'frost' ? 2.6 : 1.8, 0, TAU); g.fill(); }
+        }
+      }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      const cards = []; for (let k = 0; k < 3; k++) { const p = new THREE.PlaneGeometry(1.6, 1.4); p.translate(0, 0.66, 0); p.rotateY(k * Math.PI / 3); cards.push({ geo: p, matrix: new THREE.Matrix4() }); }
+      const geo = mergeGeoList(cards), gn = geo.attributes.normal; for (let i = 0; i < gn.count; i++) gn.setXYZ(i, 0, 1, 0);
+      const m = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uWind = this.windU; sh.uniforms.uBlast = this.blastU;
+        sh.vertexShader = 'uniform float uWind;\n#ifdef USE_INSTANCING\n' + this.blastGL + '#endif\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 ip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
+            float sw = sin(uWind * 1.3 + ip.x * 0.21 + ip.z * 0.17) * 0.6 + sin(uWind * 3.1 + ip.z * 1.1) * 0.15;
+            float k = uv.y * uv.y; transformed.x += sw * 0.06 * k; transformed.z += sw * 0.03 * k;
+            transformed += blastPush(ip, 0.2 * k);
+          #endif`);
+        sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', 'float faceDirection = 1.0; vec3 normal = normalize( vNormal ); vec3 nonPerturbedNormal = normal;');
+      };
+      // (in clumps; fewer at the lower picture settings)
+      const list = [], low = typeof Settings !== 'undefined' && Settings.res <= 1, W = this.water;
+      const ok = (x, z) => Math.hypot(x, z) > 30 && Math.hypot(x, z) < 150 && this.pathInfo(x, z).d > 5 && this.gridAt(this.grid.bare, x, z) < 0.35
+        && Math.hypot(x - this.center.x, z - this.center.z) > 62 && (!this.fire || Math.hypot(x - this.fire.x, z - this.fire.z) > 12) && (W == null || this.height(x, z) > W + 0.15) && this.clearOf(x, z, 1.2);
+      for (let n = 0, t = 0; n < Math.round(nClump * (low ? 0.5 : 1)) && t < 400; t++) {
+        const a = r.range(0, TAU), d = r.range(32, 145), cx = Math.cos(a) * d, cz = Math.sin(a) * d;
+        if (!ok(cx, cz)) continue; n++;
+        for (let k = 0, m2 = r.int(3, 9); k < m2; k++) { const x = cx + r.range(-5, 5), z = cz + r.range(-5, 5); if (ok(x, z)) list.push({ x, z, s: r.range(0.6, 1.5), ry: r.range(0, TAU), v: r.range(0.7, 1) }); }
+      }
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(geo, m, list.length), col = new THREE.Color();
+      list.forEach((b, n) => { im.setMatrixAt(n, mat(b.x, this.footY(b.x, b.z, 0.5 * b.s) - 0.05, b.z, 0, b.ry, 0, b.s, b.s * r.range(0.85, 1.2), b.s)); im.setColorAt(n, col.setRGB(b.v, b.v, b.v * 0.95)); });
+      im.frustumCulled = false; im.receiveShadow = true; grp.add(im);
     }
     // in the rain: standing water in the ruts and low spots of the trail and the yards, black and shining
     buildPuddles(grp) {

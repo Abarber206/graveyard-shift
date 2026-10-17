@@ -343,6 +343,7 @@ const Facility = (() => {
         const want = Math.floor(((reg.i1 - reg.i0) * (reg.j1 - reg.j0)) / 78);
         let have = this.rooms.filter((o) => o.lv === reg.n && o.type !== 'stairs').length;
         for (let tries = 0; tries < 900 && have < want; tries++) {
+          if (busy()) { yield; t0 = performance.now(); }
           const big = r.chance(0.18);
           const w = big ? r.int(6, 9) : r.int(3, 6), h = big ? r.int(5, 8) : r.int(3, 6);
           const i0 = reg.i0 + 1, i1 = reg.i1 - w - 1, j0 = reg.j0 + (reg.n === 0 ? 2 : 1), j1 = reg.j1 - h - 1;
@@ -393,9 +394,11 @@ const Facility = (() => {
       this.placeBlastDoors();
       yield; t0 = performance.now();
       this.placeDoors();
+      yield; t0 = performance.now();
       this.placeExits();
       yield; t0 = performance.now();
       this.placeLamps();
+      yield; t0 = performance.now();
       this.placeVents();
       for (const room of this.rooms) { this.furnish(room); if (busy()) { yield; t0 = performance.now(); } }
       yield; t0 = performance.now();

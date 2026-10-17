@@ -390,6 +390,7 @@ const Exterior = (() => {
     // bowl is laid over it), and keep anything from growing in it. (fresh: a meteor's, on an airless moon: not scorched
     // but ringed with bright spray thrown out in rays, the floor a little darker)
     addCrater(x, z, r, d, fresh) {
+      this.coverG = this.coverL = null;
       // (coarse vertices inside rd sink well below the bowl; the bowl reaches a full grid diagonal past them, so no
       // coarse triangle that dips can show outside it)
       const rd = r + 0.6, R = fresh ? Math.max(rd + 3, r * 2.6) : rd + 3.0, g = this.terrainGeo, pos = g.attributes.position, col = g.attributes.color, G2 = this.grid;
@@ -467,7 +468,7 @@ const Exterior = (() => {
       this.grid = { n: seg + 1, size, h: new Float32Array(pos.count), bare: new Float32Array(pos.count) };
       const trails = new Float32Array(pos.count), yards = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) {
-        if (i % 9000 === 8999) yield;
+        if (i % 2000 === 1999) yield;
         const x = pos.getX(i), z = pos.getZ(i), h = this.shapeH(x, z);
         pos.setY(i, h); this.grid.h[i] = h;
         uv.setXY(i, x / 5, z / 5);
@@ -614,10 +615,13 @@ const Exterior = (() => {
     *restGen() {
       const grp = this.group;
       this.buildComplex(grp); yield;
-      this.buildFireExit(grp); this.buildPylons(grp); yield;
+      this.buildFireExit(grp); yield;
+      this.buildPylons(grp); yield;
       this.buildWrecks(grp); yield;
-      this.buildWorldExtras(grp); this.buildLampPosts(grp); this.buildSky(grp); yield;
-      this.buildRanges(grp); yield;
+      this.buildWorldExtras(grp); yield;
+      this.buildLampPosts(grp); yield;
+      this.buildSky(grp); yield;
+      yield* this.buildRanges(grp); yield;
       yield* this.buildClouds(grp);
       this.buildRain(grp); this.buildGroundCover(grp); this.buildPuddles(grp); this.buildCrows(grp); this.buildMotes(grp);
       this.group = grp;
@@ -630,7 +634,8 @@ const Exterior = (() => {
     // their feet lost in it, their tops clearing it on a fine day, all of it gone in fog (and sharp and black-shadowed
     // where there's no air at all). Drawn with their own haze (see update), not the scene's fog, which would swallow
     // anything this far out.
-    buildRanges(grp) {
+    // (built a few rows a frame: see restGen)
+    *buildRanges(grp) {
       const BI = this.biome, rel = BI.relief, snowy = BI.terrainTex === 'terrainSnow', P = BI.ground, nz = new Noise2D(this.seed + 313), rr = new RNG(this.seed + 314);
       const A = 384, RN = 18, R0 = 186, R1 = 465, amp = { hills: 85, marsh: 26, canyon: 64, craters: 44, flats: 12 }[rel] || 55;
       // (volcanoes on the skyline over the ash, and lone flat-topped mesas standing out of the flats)
@@ -658,11 +663,13 @@ const Exterior = (() => {
       };
       const nv = (A + 1) * (RN + 1), pos = new Float32Array(nv * 3), idx = [];
       for (let j = 0; j <= RN; j++) for (let i = 0; i <= A; i++) {
+        if (i === 0 && j && (j & 3) === 0) yield;
         const a = (i / A) * TAU, r = R0 + (R1 - R0) * Math.pow(j / RN, 1.3), x = Math.cos(a) * r, z = Math.sin(a) * r, k = (j * (A + 1) + i) * 3;
         pos[k] = x; pos[k + 1] = H(x, z, r); pos[k + 2] = z;
       }
       for (let j = 0; j < RN; j++) for (let i = 0; i < A; i++) { const a = j * (A + 1) + i, b = a + 1, c = a + A + 1, d = c + 1; idx.push(a, b, c, b, d, c); }
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+      yield;
       // the ground's own colours: its earth on the gentle slopes, its rock on the steep ones (canyon strata in bands), snow
       // on the high flat parts of a snowy world
       const nrm = geo.attributes.normal, col = new Float32Array(nv * 3), hmax = amp * (snowy ? 1.5 : 1) * 1.1;
@@ -720,7 +727,7 @@ const Exterior = (() => {
       const HN = 256, HS = 980, HMIN = -30, HMAX = 230, hd = new Uint8Array(HN * HN);
       const ground = (x, z) => { const rr = Math.hypot(x, z); return rr < 200 ? Math.max(this.height(x, z), rr > 186 ? H(x, z, rr) : -1e9) : rr < 465 ? H(x, z, rr) : this.height(x, z) * 0; };
       for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) {
-        if (i === 0 && (j & 63) === 63) yield;
+        if (i === 0 && (j & 15) === 15) yield;
         const x = ((i + 0.5) / HN - 0.5) * HS, z = ((j + 0.5) / HN - 0.5) * HS;
         hd[j * HN + i] = clamp(Math.round((ground(x, z) - HMIN) / (HMAX - HMIN) * 255), 0, 255);
       }
@@ -732,6 +739,7 @@ const Exterior = (() => {
       const vn = (L, x, y) => { const P = L.P, fx = x * P, fy = y * P, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty), at = (a, b) => L.g[((b % P + P) % P) * P + ((a % P + P) % P)];
         return lerp(lerp(at(ix, iy), at(ix + 1, iy), sx), lerp(at(ix, iy + 1), at(ix + 1, iy + 1), sx), sy); };
       for (let j = 0; j < NN; j++) for (let i = 0; i < NN; i++) {
+        if (i === 0 && (j & 15) === 15) yield;
         const x = i / NN, y = j / NN, v = vn(lat[0], x, y) * 0.55 + vn(lat[1], x, y) * 0.3 + vn(lat[2], x, y) * 0.15, k = (j * NN + i) * 4;
         nd[k] = nd[k + 1] = nd[k + 2] = nd[k + 3] = clamp(Math.round(v * 255), 0, 255);
       }
@@ -1036,24 +1044,33 @@ const Exterior = (() => {
       let ng = 0, np = 0;
       const i0 = Math.floor((cx - R) / cell), i1 = Math.ceil((cx + R) / cell), j0 = Math.floor((cz - R) / cell), j1 = Math.ceil((cz + R) / cell);
       const hash = (a, b, s) => { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(s, 2246822519) ^ this.seed; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+      // (what's at each spot never changes, so it's worked out once and kept: walking on, only the ground newly in
+      // reach is worked out; a crater coming down clears what's kept, see addCrater)
+      const CG = this.coverG || (this.coverG = new Map()), CL = this.coverL || (this.coverL = new Map()), gt = this.biome.grass.tint || [1, 0.98, 0.9];
+      if (!gi.instanceColor) gi.setColorAt(0, col.setRGB(1, 1, 1));
+      if (CG.size > 60000) CG.clear(); if (CL.size > 60000) CL.clear();
       for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-        const x = (i + hash(i, j, 1)) * cell, z = (j + hash(i, j, 2)) * cell, d = Math.hypot(x - cx, z - cz);
+        const key = i * 65536 + j; let c = CG.get(key);
+        if (!c) {
+          const x = (i + hash(i, j, 1)) * cell, z = (j + hash(i, j, 2)) * cell;
+          // (grass grows in patches: thick in some places, gone in others)
+          c = { x, z, y: this.height(x, z), bare: this.gridAt(this.grid.bare, x, z), patch: this.noise.noise(x * 0.07, z * 0.07) * 0.5 + this.noise.noise(x * 0.23 + 5, z * 0.23) * 0.2 };
+          CG.set(key, c);
+        }
+        const { x, z, y, bare, patch } = c, d = Math.hypot(x - cx, z - cz);
         if (d > R) continue;
-        const bare = this.gridAt(this.grid.bare, x, z);
-        // grass grows in patches: thick in some places, gone in others
-        const patch = this.noise.noise(x * 0.07, z * 0.07) * 0.5 + this.noise.noise(x * 0.23 + 5, z * 0.23) * 0.2;
         const GR = this.biome.grass, W = this.water;
-        const y = this.height(x, z);
         let dens = GR.dens - bare * 0.9 + patch * 0.6;
         // reeds crowd the waterline and stand in the shallows, never out in deep water
         if (W != null) { if (y < W - 0.35) dens = -1; else dens += sstep(W + 1.0, W, y) * 0.6; }
-        if (hash(i, j, 3) < dens && ng < 5200) {
-          const s = (0.5 + hash(i, j, 4) * 0.8) * sstep(R, R - 7, d);
-          m4.makeRotationY(hash(i, j, 5) * TAU); m4.scale(new THREE.Vector3(s, s * (0.7 + hash(i, j, 6) * 0.6) * GR.h, s)); m4.setPosition(x, y - 0.05, z);
-          gi.setMatrixAt(ng, m4);
-          // toned to sit in the ground colour rather than glow on top of it
-          const tint = hash(i, j, 7), v = 0.5 + tint * 0.22, gt = GR.tint || [1, 0.98, 0.9];
-          gi.setColorAt(ng, col.setRGB(v * gt[0], v * gt[1], v * gt[2]));
+        // (each blade's size, turn and shade are kept with its spot too, and written straight into the instance arrays)
+        if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; }
+        if (c.g < dens && ng < 5200) {
+          const s = c.s0 * sstep(R, R - 7, d), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
+          A[o] = c.cs * s; A[o + 1] = 0; A[o + 2] = -c.sn * s; A[o + 3] = 0; A[o + 4] = 0; A[o + 5] = sy; A[o + 6] = 0; A[o + 7] = 0;
+          A[o + 8] = c.sn * s; A[o + 9] = 0; A[o + 10] = c.cs * s; A[o + 11] = 0; A[o + 12] = x; A[o + 13] = y - 0.05; A[o + 14] = z; A[o + 15] = 1;
+          // (toned to sit in the ground colour rather than glow on top of it)
+          const C3 = gi.instanceColor.array, o3 = ng * 3; C3[o3] = c.v * gt[0]; C3[o3 + 1] = c.v * gt[1]; C3[o3 + 2] = c.v * gt[2];
           ng++;
         }
         if (d < 26 && hash(i, j, 8) < 0.07 + bare * 0.18 && np < 900) {
@@ -1067,13 +1084,18 @@ const Exterior = (() => {
         const LI = this.litter, TW = this.twigs, PA = this.paper, CA = this.cans, LD = this.litterDens, q = new THREE.Quaternion(), qy = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), nrm = new THREE.Vector3(), sc = new THREE.Vector3(), at = new THREE.Vector3();
         let nl = 0, nt = 0, npa = 0, nc = 0;
         for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-          const x = (i + hash(i, j, 21)) * cell, z = (j + hash(i, j, 22)) * cell, d = Math.hypot(x - cx, z - cz);
+          const key = i * 65536 + j; let c = CL.get(key);
+          if (!c) {
+            const x = (i + hash(i, j, 21)) * cell, z = (j + hash(i, j, 22)) * cell;
+            c = { x, z, y: this.height(x, z), bare: this.gridAt(this.grid.bare, x, z), patch: this.noise.noise(x * 0.11 + 30, z * 0.11) * 0.5 + 0.5, n: null };
+            CL.set(key, c);
+          }
+          const { x, z, y, bare, patch } = c, d = Math.hypot(x - cx, z - cz);
           if (d > 30) continue;
-          const y = this.height(x, z), bare = this.gridAt(this.grid.bare, x, z);
           if (this.water != null && y < this.water + 0.05) continue;
-          nrm.set(this.height(x - 0.7, z) - this.height(x + 0.7, z), 1.4, this.height(x, z - 0.7) - this.height(x, z + 0.7)).normalize();
+          if (!c.n) c.n = [this.height(x - 0.7, z) - this.height(x + 0.7, z), 1.4, this.height(x, z - 0.7) - this.height(x, z + 0.7)];
+          nrm.set(c.n[0], c.n[1], c.n[2]).normalize();
           q.setFromUnitVectors(up, nrm);
-          const patch = this.noise.noise(x * 0.11 + 30, z * 0.11) * 0.5 + 0.5;
           if (hash(i, j, 23) < LD[0] * (1 - bare * 0.6) * (0.4 + patch) && nl < 1600) {
             const k = 0.6 + hash(i, j, 24) * 0.9;
             qy.setFromAxisAngle(up, hash(i, j, 25) * TAU); m4.compose(at.set(x, y + 0.03, z), q.clone().multiply(qy), sc.set(k, 1, k)); LI.setMatrixAt(nl, m4);

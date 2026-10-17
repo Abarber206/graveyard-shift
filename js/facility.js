@@ -184,11 +184,11 @@ const Facility = (() => {
   // the blast doors' frames), blast (the blast doors' slabs). grow: how much moss and vine got in once it was left
   const FINISH = {
     // red mill brick, oak boards, timber doors in cast-iron frames, warm tungsten
-    ashgrove: { wall: ['brick', 0xb08474], wallTile: ['wallTile', 0xc8bca0], floor: ['wood', 0x8a7460], floorTile: ['floorTile', 0x9a8c74], ceiling: ['wood', 0x7a6a58], door: ['wood', 0x8a6a4c], frame: ['darkmetal', 0x2c2724], shaft: ['brick', 0x8c6a5c], steel: ['darkmetal', 0x302a26], blast: ['painted', 0x5c5444], bunker: ['brick', 0x8c6a5c], lamp: 0xffd6a4, grow: 0.8 },
+    ashgrove: { wall: ['brick', 0xa07c6c], wallTile: ['wallTile', 0xc8bca0], floor: ['wood', 0x8a7460], floorTile: ['floorTile', 0x9a8c74], ceiling: ['wood', 0x7a6a58], door: ['wood', 0x8a6a4c], frame: ['darkmetal', 0x2c2724], shaft: ['brick', 0x86685a], steel: ['darkmetal', 0x302a26], blast: ['painted', 0x5c5444], bunker: ['brick', 0x8c6a5c], lamp: 0xffd6a4, grow: 0.8 },
     // potting-shed timber, wet green-stained concrete, white grow-room panels over drainage grating, the grow lights' magenta
     verdigris: { wall: ['wood', 0xb0a080], wallTile: ['labPanel', 0xc8d8c0], floor: ['floor', 0x7a8a6a], floorTile: ['grate', 0x8a9a80], ceiling: ['perf', 0x9aa890], door: ['door', 0x7f9a78], frame: ['painted', 0x52684c], shaft: ['wall', 0x7c8a6c], steel: ['rust', 0x9aa088], blast: ['painted', 0x5e7a56], lamp: 0xff9ae8, grow: 1.8 },
     // clean white panels gone grey, sheet vinyl, steel doors, cold white light
-    kessler: { wall: ['labPanel', 0xd0d6d4], wallTile: ['wallTile', 0xd8e0de], floor: ['floorTile', 0x9ca6a4], floorTile: ['floorTile', 0xb8c0be], ceiling: ['perf', 0xb4bcbc], door: ['door', 0xa8b8bc], frame: ['painted', 0x7e8a8c], shaft: ['wall', 0xb0b6b2], steel: ['painted', 0x667274], blast: ['painted', 0xb0a676], lamp: 0xe4f2ff, grow: 0.5 },
+    kessler: { wall: ['labPanel', 0xd0d6d4], wallTile: ['wallTile', 0xd8e0de], floor: ['floorTile', 0x9ca6a4], floorTile: ['floorTile', 0xb8c0be], ceiling: ['perf', 0xb4bcbc], door: ['door', 0xa8b8bc], frame: ['painted', 0x7e8a8c], shaft: ['wall', 0xb0b6b2], steel: ['painted', 0x667274], blast: ['painted', 0x948c62], lamp: 0xe4f2ff, grow: 0.5 },
     // insulated freezer panels, steel grating underfoot, cold blue-white light
     rimefall: { wall: ['labPanel', 0xc4d4e2], wallTile: ['labPanel', 0xb4c6d6], floor: ['grate', 0xa8b8c8], floorTile: ['floorTile', 0xaabccc], ceiling: ['metal', 0xb0c0cc], door: ['door', 0xc0d0dc], frame: ['metal', 0x9aaab8], shaft: ['wall', 0xb4c4d0], steel: ['metal', 0x8e9eac], blast: ['labPanel', 0xc8d6e2], lamp: 0xc8e8ff, grow: 0 },
     // institutional green tile, worn linoleum, old wooden doors, yellowed light

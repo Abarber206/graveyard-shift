@@ -2283,9 +2283,12 @@ const Ship = (() => {
             // the crack it starts from, flickering, running ahead of the opening
             float crack = exp(-d * 300.0) * (0.6 + 0.4 * n1(y * 40.0 + uT * 20.0)) * (1.0 - smoothstep(0.0, 0.08, w));
             vec3 c = deep * inside * 1.15 + (vec3(1.6, 1.6, 1.7) * rim + prism * glow * 1.3 + vec3(1.3, 1.4, 1.8) * crack * 2.0) * ends;
-            gl_FragColor = vec4(c * smoothstep(0.0, 0.12, uK), 1.0);
+            // (what's through it hides what's behind it, the planet and its clouds; its edges and glow only add light)
+            float k = smoothstep(0.0, 0.12, uK);
+            gl_FragColor = vec4(c * k, inside * k);
           }`,
-        depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+        depthTest: false, depthWrite: false, transparent: true,
+        blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       }));
       this.portal.rotation.y = -Math.PI / 2; this.portal.visible = false; this.portal.frustumCulled = false; this.portal.renderOrder = 20; sp.add(this.portal);
       // ...and inside it, a tunnel: streaks of light rushing back past the ship along with the starlight

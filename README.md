@@ -114,6 +114,12 @@ Dead players can still listen in, but the living can't hear them. Sound you make
   - Until one is let loose on you, getting caught hurts, but it lets you go. Once it's let loose, it knows where you are.
   - Unwatched, they cover the ground fast. While you watch, they walk. If you're heading out, the one that's after you gets ahead of you on your way out and waits there.
   - They remember where you hid last time, and look there first.
+- **The Clown** walks the lower floors of the harder worlds, later in the day. It's too big for the building: bent double under the ceiling, a shoulder on each wall.
+  - There's no getting past it in a corridor. In a room you can go round it.
+  - It folds itself slowly through every doorway.
+  - It's slower than you even when you're not looking, and slower still while you watch it. It doesn't need to be quick: it hears you through the floors, knows the short way round, and gets to the corridor you need before you do, then stands in it.
+  - It never pens you in for long. With no other way out, it gives you a while, then backs off.
+  - Listen for the squeak and slap of its shoes, the wheezing giggle, and its music box winding through a bent "Pop Goes the Weasel".
 - **The Seep** turns up in some facilities.
   - It's a wall of jelly as wide as the corridor and as high as the ceiling.
   - It's slow, but it never stops, and nothing hurts it.

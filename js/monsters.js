@@ -12,8 +12,11 @@ const MON_DEFS = {
   bound: { name: 'The Bound', hp: 4, zone: 'in', power: 2, radius: 0.36, height: 1.8, radio: true },
   // (never one of a site's own: what the core's alarm brings up from below; see G.hostCoreTaken)
   executioner: { name: 'The Executioner', hp: 9999, zone: 'in', power: 4, radius: 0.55, height: 2.6, radio: true },
+  // (like the Seep: what it steers by is a small core; its body is a box as wide as a corridor, see Monster.push)
+  clown: { name: 'The Clown', hp: 9999, zone: 'in', power: 4, radius: 0.55, height: 2.9, radio: true },
 };
 const BESTIARY = {
+  clown: 'Too big for the building. It walks the lower floors bent double under the ceiling, a shoulder to each wall, and there is no getting past it in a corridor. It has to fold itself through every doorway, slowly. It is slower than you are, and it does not need to be fast: it hears you through the floors, it knows the short way round, and it gets to the corridor you need before you do. Listen for the shoes, the giggle, the music box. In a room you can get round it. Do not let it walk you into a room with one door.',
   crawler: 'Low, eyeless, mostly mouth. It feels movement and hears footsteps: keep still and it may pass you by. Once it notices you it screams, and others come. It charges in a straight line at where you are going and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
   pale: 'Tall. Patient. It follows from behind and hates being watched, if it can see you looking: in the dark, more than a few steps off, it cannot. Glance at it and it slinks away. Stare at it, or keep looking round at it, and it stops being patient; leave it be a while and it settles again. If your light flickers and you feel watched, turn around.',
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
@@ -76,6 +79,17 @@ const MonModels = (() => {
     bound: () => M('bound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x9a7a6c, roughness: 0.3, metalness: 0.05 })),
     iron: () => M('iron', () => S({ map: TEX.get('rust'), color: 0x9a7a62, roughness: 0.8, metalness: 0.5 }, 1.6, 2)),
     apron: () => M('apron', () => S({ map: TEX.get('suitWorn'), color: 0x4a3a32, roughness: 0.75, side: THREE.DoubleSide }, 1.4, 1)),
+    // the Clown's: a faded polka-dot suit, striped trousers, chalk-white greasepaint gone to crazing, glossy red (nose,
+    // shoes, grin), grimy gloves and ruff, rust-orange hair, a little wooden music box
+    clownSuit: () => M('clownSuit', () => S({ map: TEX.get('clownDots'), color: 0x958a72, roughness: 0.9, side: THREE.DoubleSide }, 1.4, 0.8)),
+    clownPants: () => M('clownPants', () => S({ map: TEX.get('clownStripe'), color: 0x9a8e80, roughness: 0.9 }, 1.6, 0.8)),
+    paint: () => M('paint', () => S({ map: TEX.get('greasepaint'), color: 0xc8c2b4, roughness: 0.55 }, 4, 1.2)),
+    clownRed: () => M('clownRed', () => new THREE.MeshStandardMaterial({ color: 0x6a120e, roughness: 0.3, metalness: 0.05 })),
+    glove: () => M('glove', () => S({ map: TEX.get('tape'), color: 0xa8a090, roughness: 0.8 }, 3, 0.6)),
+    ruff: () => M('ruff', () => S({ map: TEX.get('tape'), color: 0xc0b48a, roughness: 0.9, side: THREE.DoubleSide }, 3, 0.5)),
+    hair: () => M('hair', () => new THREE.MeshStandardMaterial({ color: 0x9a4a1a, roughness: 0.9 })),
+    glint: () => M('glint', () => new THREE.MeshBasicMaterial({ color: 0xffe0a0 })),
+    boxWood: () => M('boxWood', () => S({ map: TEX.get('wood'), color: 0x8a6a4a, roughness: 0.7 }, 3, 1)),
     deadSkin: () => M('deadSkin', () => S({ map: TEX.get('flesh'), color: 0x8a8278, roughness: 0.6 }, 2.2, 1.2)),
     // the Seep: a glossy jelly you can see into, heaving slowly all over, glowing a little at its edges where the light
     // comes through it (its colour in blotches of darker and paler, square-cut like everything else; which colour, a
@@ -391,6 +405,68 @@ const MonModels = (() => {
       P.blade.scale.setScalar(1.2);
       root.userData.parts = P; return root;
     },
+    // The Clown: huge cracked red shoes, baggy striped trousers, a barrel of a body in a faded polka-dot suit with
+    // pom-pom buttons, a filthy ruff drooping on one side, a chalk-white face with sunk eyes under painted black
+    // diamonds that have run, a red grin smeared far wider than the dark slit of its mouth, a cracked red nose, rust-
+    // orange tufts over its ears, a battered little hat; long arms in baggy sleeves ending in big grimy gloves; a bulb
+    // horn on its belt and a wooden music box hung round its neck, its crank turning by itself
+    clown() {
+      const root = new THREE.Group(), P = {};
+      const suit = mats.clownSuit(), pants = mats.clownPants(), paint = mats.paint(), red = mats.clownRed(), glove = mats.glove(), dark = mats.joint(), vd = mats.void(), hair = mats.hair(), ruff = mats.ruff();
+      P.hips = grp(root, 0, 1.55, 0);
+      mk(sph(0.42, 14), pants, P.hips).scale.set(1.35, 0.8, 1.05);
+      const leg = (x) => {
+        const L = limb(P.hips, x, -0.1, 0, 0.17, 0.72, 0.15, 0.72, pants);
+        mk(sph(0.19, 10), pants, L.b).scale.set(1, 0.8, 1);
+        const shoe = grp(L.end, 0, -0.04, 0.12);
+        mk(sph(0.2, 12), red, shoe, 0, 0.04, 0.24).scale.set(1.05, 0.72, 1.5);
+        mk(sph(0.16, 10), red, shoe, 0, 0.05, -0.06).scale.set(0.9, 0.8, 1.1);
+        mk(sph(0.07, 8), mats.boxWood(), shoe, 0.08, 0.1, 0.3).scale.set(1, 0.4, 1.2);
+        mk(new THREE.BoxGeometry(0.3, 0.05, 0.86), dark, shoe, 0, -0.08, 0.1);
+        L.flap = mk(new THREE.BoxGeometry(0.28, 0.03, 0.3), dark, shoe, 0, -0.1, 0.4);
+        return L;
+      };
+      P.ll = leg(-0.32); P.lr = leg(0.32);
+      P.torso = grp(P.hips, 0, 0.1, 0);
+      mk(lumpy(0.55, 23, 0.06, 18), suit, P.torso, 0, 0.55, 0).scale.set(1.5, 1.2, 1.1);
+      for (let i = 0; i < 3; i++) mk(sph(0.06, 8), red, P.torso, 0, 0.3 + i * 0.28, 0.6 - Math.abs(i - 1) * 0.05);
+      mk(new THREE.CylinderGeometry(0.006, 0.006, 0.6, 4), dark, P.torso, 0.1, 0.92, 0.48, 0.5, 0, 0.25);
+      P.box = grp(P.torso, 0.16, 0.64, 0.66);
+      mk(new THREE.BoxGeometry(0.22, 0.15, 0.13), mats.boxWood(), P.box);
+      P.crank = grp(P.box, 0.12, 0, 0); mk(new THREE.BoxGeometry(0.02, 0.11, 0.02), dark, P.crank, 0, 0.045, 0);
+      P.ruff = grp(P.torso, 0, 1.16, 0);
+      for (let i = 0; i < 26; i++) { const a = (i / 26) * TAU, droop = 0.15 + 0.35 * Math.max(0, Math.cos(a - 0.8)), g = grp(P.ruff); g.rotation.y = a; mk(new THREE.ConeGeometry(0.09, 0.36, 4), ruff, g, 0.32, -droop * 0.2, 0, 0, 0, -Math.PI / 2 - droop); }
+      P.neck = grp(P.torso, 0, 1.2, 0.02);
+      mk(cap(0.12, 0.14, 8), paint, P.neck, 0, 0.06, 0);
+      P.head = grp(P.neck, 0, 0.32, 0.04);
+      mk(sph(0.34, 18), paint, P.head).scale.set(1, 1.15, 0.95);
+      for (const s of [-1, 1]) {
+        mk(sph(0.09, 10), vd, P.head, s * 0.12, 0.08, 0.26).scale.set(1, 1.25, 0.6);
+        mk(sph(0.012, 6), mats.glint(), P.head, s * 0.12, 0.07, 0.3);
+        mk(new THREE.BoxGeometry(0.11, 0.11, 0.01), vd, P.head, s * 0.12, 0.08, 0.3, 0, 0, Math.PI / 4).scale.set(1, 1.8, 1);
+        mk(new THREE.BoxGeometry(0.012, 0.13, 0.01), vd, P.head, s * 0.12 + 0.012, -0.05, 0.29);
+        for (let k = 0; k < 4; k++) mk(new THREE.ConeGeometry(0.065, 0.26, 5), hair, P.head, s * (0.3 + k * 0.025), 0.14 - k * 0.06, -0.04 + k * 0.03, 0, 0, s * (-1.15 - k * 0.15));
+      }
+      mk(sph(0.085, 12), red, P.head, 0, -0.02, 0.36);
+      mk(new THREE.TorusGeometry(0.085, 0.006, 4, 16), dark, P.head, 0, -0.02, 0.36, 0.3, 0.6, 0);
+      mk(new THREE.TorusGeometry(0.2, 0.035, 6, 18, Math.PI * 0.9), red, P.head, 0, -0.04, 0.25, 0, 0, Math.PI * 1.05).scale.set(1, 0.62, 0.55);
+      P.jaw = grp(P.head, 0, -0.12, 0.2);
+      mk(new THREE.BoxGeometry(0.22, 0.035, 0.08), vd, P.jaw, 0, -0.03, 0.06);
+      for (let k = 0; k < 4; k++) mk(new THREE.BoxGeometry(0.03, 0.04, 0.02), mats.tooth(), P.head, -0.06 + k * 0.04, -0.13, 0.29);
+      const hat = grp(P.head, 0.1, 0.36, 0); hat.rotation.z = -0.4;
+      mk(new THREE.ConeGeometry(0.1, 0.28, 10), suit, hat, 0, 0.12, 0); mk(sph(0.05, 8), red, hat, 0, 0.28, 0);
+      P.al = limb(P.torso, -0.84, 1.02, 0, 0.17, 0.85, 0.15, 0.8, suit);
+      P.ar = limb(P.torso, 0.84, 1.02, 0, 0.17, 0.85, 0.15, 0.8, suit);
+      for (const L of [P.al, P.ar]) {
+        mk(sph(0.16, 10), suit, L.a); mk(sph(0.15, 10), suit, L.b).scale.set(1, 0.8, 1);
+        L.hand = grp(L.end, 0, -0.02, 0);
+        mk(sph(0.11, 10), glove, L.hand, 0, -0.06, 0).scale.set(1.1, 0.8, 1.3);
+        for (let k = 0; k < 4; k++) mk(cap(0.03, 0.12, 6), glove, L.hand, -0.06 + k * 0.04, -0.17, 0.06);
+      }
+      P.horn = grp(P.hips, 0.44, 0.05, 0.26);
+      mk(sph(0.07, 8), red, P.horn); mk(new THREE.ConeGeometry(0.06, 0.16, 8, 1, true), mats.iron(), P.horn, 0.1, 0, 0, 0, 0, -Math.PI / 2);
+      root.userData.parts = P; return root;
+    },
     slime() {
       const root = new THREE.Group(), P = {}, m = mats.slime();
       // (a rounded box: a sphere pushed out toward its corners, sitting on the floor)
@@ -421,7 +497,7 @@ const MonModels = (() => {
   const tintSlime = (seed) => { const m = mats.slime(), c = SLIME_COLORS[new RNG((seed || 1) ^ 0x5eed).int(0, SLIME_COLORS.length - 1)]; m.color.setHex(c); m.emissive.setHex(c).multiplyScalar(0.16); };
   // (built in their own units; drawn so they stand as tall as MON_DEFS says: the Pale and the Executioner were 2.95 and
   // 3.26 m, through every doorway's lintel and, the Executioner, every corridor's 3 m ceiling)
-  const FIT = { pale: 0.8, executioner: 0.8, sister: 0.9, mannequin: 0.87 };
+  const FIT = { pale: 0.8, executioner: 0.8, sister: 0.9, mannequin: 0.87, clown: 0.92 };
   return { tintSlime, retri, FIT, build(type) { const g = B[type](); g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } }); if (FIT[type]) g.scale.setScalar(FIT[type]); return g; } };
 })();
 
@@ -443,6 +519,7 @@ const MON_CFG = {
   sister: { tau: 10, ear: 1 },
   bound: { tau: 12, ear: 0.6, eye: { range: 18, cone: -0.3, dark: 6, touch: 1.5 }, find: { range: 14, cone: 0.1, dark: 6, touch: 1.5 } },
   executioner: { tau: 60, ear: 1 },
+  clown: { tau: 30, ear: 1.4, K: { step: 1.5, door: 1 }, eye: { range: 30, cone: 0.2, dark: 7, touch: 1.5 } },
 };
 class Monster {
   constructor(game, id, type, x, y, z) {
@@ -591,10 +668,10 @@ class Monster {
   static push(m, pos, r) {
     if (m.dead || m.type === 'leech') return;
     const at = m.rpos, dx = pos.x - at.x, dz = pos.z - at.z;
-    if (m.type === 'slime' && m.state !== 'seep' && G.fac) {
+    if (((m.type === 'slime' && m.state !== 'seep') || m.type === 'clown') && G.fac) {
       const ry = m.rry, fx = Math.sin(ry), fz = Math.cos(ry), sx = Math.cos(ry), sz = -Math.sin(ry), al = dx * fx + dz * fz, la = dx * sx + dz * sz, A = 0.85 + r;
       if (Math.abs(al) >= A || Math.abs(la) > 3.4 || Math.abs(pos.y - at.y) > 2) return;
-      const fh = G.fac.freeHalf(at.x, at.z, ry), L = Math.min(fh[0], 1.45), Rr = Math.min(fh[1], 1.45);
+      const cap = m.type === 'clown' && m.state === 'duck' ? 0.8 : 1.45, fh = G.fac.freeHalf(at.x, at.z, ry), L = Math.min(fh[0], cap), Rr = Math.min(fh[1], cap);
       if (la <= -L - r || la >= Rr + r) return;
       // (out by the nearest face it can: in front, behind, or to a side with room to stand there)
       let da = A - al, dl = 0;
@@ -612,7 +689,7 @@ class Monster {
   // the walls get the last word. Called on the host after every creature has moved.
   static separate(g, dt) {
     const L = []; for (const m of g.monsters.values()) if (!m.dead && m.state !== 'attached' && m.state !== 'seep' && !(m.type === 'leech' && m.state !== 'fallen')) L.push(m);
-    const heavy = (m) => m.type === 'executioner' || m.type === 'slime';
+    const heavy = (m) => m.type === 'executioner' || m.type === 'slime' || m.type === 'clown';
     for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
       const a = L[i], b = L[j];
       if (a.def.zone !== b.def.zone || Math.abs(a.pos.y - b.pos.y) > 1.6) continue;
@@ -1509,6 +1586,75 @@ class Monster {
   // anybody in. It never opens a door. At a shut one it seeps through, under it or through the bars of its window, a
   // little at a time, and gathers itself on the other side (all at once if somebody opens the door on it). extra: who
   // it's after, or while seeping the door's id plus how far through
+  // The Clown: too big for the building. Bent double under the ceiling, a shoulder to each wall, nobody gets past it
+  // in a corridor (see Monster.push), and every doorway it has to fold itself through, slowly. It's slower than you,
+  // even unwatched, and slower still while you look at it; it doesn't need to be quick. It hears you through the floors
+  // (feet best), knows the short way round, and gets to the corridor you'll need before you do, and stands in it: it
+  // herds rather than chases. It never pens you in for long with no way out: it gives you a while, then backs off.
+  // Let loose on you by the director (see Brain), it comes on; until then, getting caught by it hurts, and it laughs.
+  ai_clown(dt) {
+    const fac = this.g.fac, my = this.feetY();
+    const look = Brain.look(this, this.cfg.eye);
+    if (look) Brain.remember(this, look.p, look.c, 'seen');
+    const h = Brain.hear(this, this.cfg.ear, this.cfg.K);
+    if (h) Brain.noted(this, h, Math.min(1, 0.4 + h.loud));
+    const prey = Brain.prey(this);
+    if (prey && prey.alive && prey.zone === 'in') Brain.remember(this, prey, 1, 'known');
+    let mem = Brain.freshest(this), tgt = mem ? this.g.players.get(mem.pid) : null;
+    // (it never goes up to the ground floor after anyone)
+    if (tgt && tgt !== prey && fac.levelAt(tgt.pos.x, tgt.pos.z, tgt.pos.y) === 0) { Brain.forget(this, tgt.id); mem = null; tgt = null; }
+    this.extra = tgt ? tgt.id : -1;
+    // its pace: a crawl through a doorway, slower than crouching while it's watched, and never as quick as a walk
+    const seen = Brain.seenBy(this, { eye: 2.4, range: 35, dot: 0.55 }, this.seers || (this.seers = [])).length > 0;
+    const dp = this.doorPass, duck = !!(dp && Math.hypot(dp.d.x - this.pos.x, dp.d.z - this.pos.z) < 1.6);
+    const vMax = duck ? 0.8 : seen ? 1.5 : 3.3, v0 = this.v || 0;
+    this.v = v0 > vMax ? Math.max(vMax, v0 - 3 * dt) : Math.min(vMax, v0 + 0.8 * dt);
+    if (this.state === 'grab') {
+      this.speedNow = 0;
+      const g = this.g.players.get(this.grabbing);
+      if (g) this.turnTo(Math.atan2(g.pos.x - this.pos.x, g.pos.z - this.pos.z), 2, dt);
+      if (this.st > 1.0 && !this.struck) {
+        this.struck = true;
+        if (g && g.alive && this.reaches(g, 1.9)) { this.g.emitSound('clown_honk', this.center(), { vol: 1.2, ref: 4 }); if (!this.strike(g, 'clown', 15)) this.g.emitSound('clown_giggle', this.headPos(), { vol: 1.2, ref: 4 }); }
+      }
+      if (this.st > 1.8) { this.struck = false; this.backT = 10; this.away = this.randomGoal(12, 25); this.setState('roam'); }
+      return;
+    }
+    if (duck && this.state !== 'duck') { this.preDuck = this.state; this.setState('duck'); } else if (!duck && this.state === 'duck') this.setState(this.preDuck || 'roam');
+    const st = (s) => { if (!duck) this.setState(s); };
+    // backing off: giving whoever it had cornered their chance
+    this.backT = (this.backT || 0) - dt;
+    if (this.backT > 0) { st('roam'); if (!this.away || this.moveTo(this.away.x, this.away.z, this.v, dt, { gy: this.away.y }) < 1.2) this.away = this.randomGoal(12, 25); return; }
+    if (!tgt) {
+      st('roam'); this.cut = null;
+      // (now and then it stops dead, to listen)
+      if ((this.listenT = (this.listenT == null ? 5 : this.listenT) - dt) < 0) { this.speedNow = 0; if (this.listenT < -2.5) this.listenT = 6 + Math.random() * 8; return; }
+      if (!this.goal || this.st > 25) { this.goal = this.randomGoal(10, 30, null, (k) => 1 + 3 * Brain.heat(k)); this.st = 0; }
+      if (this.moveTo(this.goal.x, this.goal.z, this.v, dt) < 1.2) this.goal = null;
+      return;
+    }
+    const d = Math.hypot(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), near = Math.abs(tgt.pos.y - my) < 2;
+    const face = () => { this.speedNow = 0; this.turnTo(Math.atan2(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z), 1.5, dt); };
+    // close enough to take hold of them: it reaches out
+    if (near && d < 1.7 && this.clearTo(tgt) && Brain.age(mem) < 1) { this.grabbing = tgt.id; this.struck = false; this.setState('grab'); return; }
+    // lost them: where it last heard or saw them
+    if (Brain.age(mem) > 4) { st('track'); this.cut = null; if (this.moveTo(mem.x, mem.z, this.v, dt, { gy: mem.y }) < 1.2) Brain.forget(this, mem.pid); return; }
+    // let loose on them: it comes on
+    if (Brain.mayKill(this, tgt)) { st('herd'); this.cut = null; this.moveTo(tgt.pos.x, tgt.pos.z, this.v, dt, { gy: tgt.pos.y }); return; }
+    // herding: ahead of them on their way out, to stand in it; failing that, a few metres behind them, never closer
+    if ((this.cutT = (this.cutT || 0) - dt) <= 0) { this.cutT = 3; if (this.state !== 'block' || d > 30) this.cut = Brain.cutoff(this, tgt, 3.3); }
+    if (this.cut) {
+      if (this.moveTo(this.cut.x, this.cut.z, this.v, dt, { gy: this.cut.y }) < 1) {
+        if (this.state !== 'block') { st('block'); this.g.emitSound('clown_giggle', this.headPos(), { vol: 1.1, ref: 5 }); }
+        face();
+        // (if that leaves them no way out at all, it's a shorter while before it lets them go)
+        if (this.st > (fac.trapped(Brain.node(tgt.pos.x, tgt.pos.z, tgt.pos.y), [Brain.node(this.pos.x, this.pos.z, my)]) ? 30 : 40)) { this.cut = null; this.backT = 15; this.away = this.randomGoal(15, 30); }
+      } else st('herd');
+      return;
+    }
+    st('herd');
+    if (d > 6 || !near) this.moveTo(tgt.pos.x, tgt.pos.z, this.v, dt, { gy: tgt.pos.y }); else face();
+  }
   ai_slime(dt) {
     const fac = this.g.fac;
     if (this.state === 'seep') {
@@ -1614,6 +1760,8 @@ class Monster {
     if (this.dead) return;
     // (a blow just sinks into it: it shudders, and stops a moment)
     if (this.type === 'slime') { this.g.emitSound('squelch', this.center(), {}); this.stun = Math.max(this.stun, 0.8); return; }
+    // (the Clown only staggers, honks, and laughs)
+    if (this.type === 'clown') { this.g.emitSound('clown_honk', this.center(), { vol: 1.1, ref: 4 }); this.stun = Math.max(this.stun, 0.4); return; }
     if (this.type === 'mannequin' || this.type === 'executioner') { this.g.emitSound('hit_metal', this.type === 'executioner' ? this.center() : this.pos, {}); return; }
     this.hp -= dmg;
     this.g.emitSound('hit_flesh', this.center(), {});
@@ -1672,6 +1820,7 @@ class Monster {
       else if (this.type === 'hound') SFX.play('step', this.rpos, { surf: 'dirt', vol: 0.9, pitch: 0.6 });
       else if (this.type === 'sister') SFX.play('heel', this.rpos, { vol: 0.8 });
       else if (this.type === 'bound') SFX.play('soft', this.rpos, { vol: 0.7 });
+      else if (this.type === 'clown') SFX.play('clown_step', this.rpos, { vol: v.speed > 2.5 ? 1.2 : 0.8, ref: 4 });
       else if (this.type === 'executioner') { SFX.play('heavy_step', this.rpos, { vol: 1.3, ref: 5 }); if (localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z) < 9) Player.addShake(0.08); }
       }
     }
@@ -1697,6 +1846,8 @@ class Monster {
       if (this.type === 'bound' && this.state !== 'lie') { SFX.play('bound_groan', this.headPos(), { vol: 0.9, ref: 3 }); v.sfx = 3 + Math.random() * 4; }
       if (this.type === 'bound' && this.state === 'lie' && ln < 6) { SFX.play('bound_breath', this.center(), { vol: 0.35, ref: 1.5 }); v.sfx = 5 + Math.random() * 6; }
       if (this.type === 'executioner') { SFX.play('hood_rattle', this.headPos(), { vol: 0.8, ref: 4 }); v.sfx = 3 + Math.random() * 4; }
+      // the Clown: its music box winding through its tune (heard through walls), or its giggle
+      if (this.type === 'clown') { const box = Math.random() < 0.6, near = this.state === 'block' || this.state === 'herd'; if (box) { this.P.box.getWorldPosition(_sl); SFX.play('clown_box', _sl.clone(), { vol: near ? 1.2 : 0.8, ref: 6 }); } else { SFX.play('clown_giggle', this.headPos(), { vol: 0.9, ref: 4 }); v.gig = 1.2; } v.sfx = box ? 8 + Math.random() * 6 : 5 + Math.random() * 6; }
     }
   }
   onStateChange(from, to, lp) {
@@ -1706,6 +1857,8 @@ class Monster {
     if (this.type === 'leech' && from === 'attached') SFX.play('chitter', this.rpos, { vol: 1 });
     if (this.type === 'sister' && to === 'drawn') SFX.play('sister_twitch', this.headPos(), { vol: 1.3, ref: 3 });
     if (this.type === 'bound' && to === 'spit') SFX.play('bound_retch', this.headPos(), { vol: 1.3, ref: 4 });
+    if (this.type === 'clown' && (to === 'block' || to === 'grab')) this.vis.gig = 1.4;
+    if (this.type === 'clown' && to === 'duck') SFX.play('creak', this.center(), { vol: 0.9, ref: 4 });
     if (to === 'dead') { SFX.play('crunch', this.center(), { vol: 0.9 }); this.onDeath(); }
   }
   // Dying, as everyone sees it: a last rattle, the body going down (falling, not snapping into a pose), a few
@@ -2090,6 +2243,33 @@ class Monster {
   // shut door the body this side drains away into it while a sheet of it slides under (or a rope of it pours through
   // the window's bars and drips down the far side) and a mound gathers on the other side, swelling into the whole of it.
   // Those it has swallowed hang inside it, turning slowly; it can't take them through a door, and leaves them there
+  anim_clown(dt, v) {
+    const P = this.P, t = v.t, s = v.speed, S = this.mesh.scale.y;
+    // (slow, it tiptoes with its knees high; quicker, long loping strides with its head bobbing)
+    const R = Math.min(0.8, 0.28 + s * 0.2), ph = v.ph || 0, g = Math.min(1, s / 1.5);
+    v.hipY = damp(v.hipY == null ? 1.5 : v.hipY, this.hipsFor(1.44, R, 0.1), 6, dt); P.hips.position.y = v.hipY;
+    P.torso.rotation.set(0.5 + Math.sin(ph * 2) * 0.04 * g, Math.sin(ph) * 0.1 * g, 0);
+    P.neck.rotation.x = -0.45 + Math.sin(t * 0.7) * 0.05 + (s > 2.5 ? Math.sin(ph * 2) * 0.08 : 0);
+    P.head.rotation.z = 0.32 + Math.sin(t * 0.9) * 0.05 + (Math.random() < 0.004 ? 0.3 : 0);
+    // arms: out to both walls when it's herding or standing across a corridor, reaching when it takes hold, otherwise
+    // hanging long, knuckles low
+    const spread = this.state === 'block' || this.state === 'herd' ? 1 : 0, reach = this.state === 'grab' ? sstep(0, 0.9, v.sT) : 0;
+    v.spread = damp(v.spread || 0, spread, 2, dt);
+    for (const [L, sd] of [[P.al, -1], [P.ar, 1]]) {
+      L.a.rotation.set(-0.35 - reach * 1.1 + Math.sin(ph + (sd > 0 ? Math.PI : 0)) * 0.3 * g * (1 - v.spread), 0, sd * (0.4 + v.spread * 0.8));
+      L.b.rotation.x = -0.3 - reach * 0.25;
+    }
+    // the giggle: the jaw dropping and the shoulders shaking with it
+    v.gig = Math.max(0, (v.gig || 0) - dt);
+    P.jaw.rotation.x = v.gig > 0 ? 0.25 + Math.sin(t * 56) * 0.12 : 0.04;
+    P.torso.position.y = 0.1 + (v.gig > 0 ? Math.sin(t * 56) * 0.012 : 0);
+    P.crank.rotation.x += dt * 3;
+    // folded down under a low ceiling or through a doorway (upright it stands near 3 m; a doorway is 2.4)
+    const duck = this.stoop(v, dt, 3.15, 1.1); if (duck > 0.005) this.bow(duck / S, P.hips, P.torso, P.neck, 2.1, [], 0.72);
+    if (this.dead) return;
+    this.walk(v, dt, [[P.ll, 0.72, 0.72, 1, 0, 0.14 * S, 1], [P.lr, 0.72, 0.72, 1, 0.5, 0.14 * S, 1]], R, s < 1.8 ? 0.32 : 0.2, 0.6);
+    for (const L of [P.ll, P.lr]) L.flap.rotation.x = Math.max(0, -L.end.rotation.x) * 0.8;
+  }
   anim_slime(dt, v, lp) {
     const P = this.P, fac = this.g.fac; if (!fac) return;
     const U = P.U; U.uT.value = performance.now() / 1000;

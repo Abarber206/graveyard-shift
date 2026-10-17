@@ -29,12 +29,12 @@ const SITES = {
   verdigris: { name: 'Verdigris Farm', code: '5-V', risk: 'LOW', cost: 0, size: 28, stairs: 2, scrap: [12, 17], mult: 1.1, power: 3, cap: 2, hounds: 1, weather: { rain: 3, fog: 3, clear: 1 }, mon: { leech: 2.2, crawler: 1.4, slime: 0.5 }, desc: 'A hydroponic farm gone to seed. Warm, wet, and still growing.' },
   kessler: { name: 'Kessler Biolab', code: '31-K', risk: 'MEDIUM', cost: 0, size: 32, stairs: 3, scrap: [16, 21], mult: 1.25, power: 5, cap: 3, hounds: 1, weather: { clear: 2, fog: 3, rain: 3, storm: 1 }, mon: { leech: 2, crawler: 1.8, pale: 0.6, slime: 1.3 }, desc: 'Research annex. Something got out. Something stayed.' },
   rimefall: { name: 'Rimefall Depot', code: '22-R', risk: 'MEDIUM', cost: 25, size: 30, stairs: 2, scrap: [15, 20], mult: 1.3, power: 4, cap: 3, hounds: 1, weather: { clear: 2, fog: 3 }, mon: { pale: 1.2, crawler: 1.6, slime: 1 }, desc: 'Cold storage on an ice world. Whatever they kept frozen has thawed.' },
-  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: 3, scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
-  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: 3, scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
-  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: 3, scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
-  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: 3, scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
-  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: 3, scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
-  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: 3, scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
+  agnes: { name: 'St. Agnes', code: '40-G', risk: 'MEDIUM', cost: 45, size: 34, stairs: 3, scrap: [17, 23], mult: 1.4, power: 5, cap: 3, hounds: 2, weather: { fog: 4, rain: 2, clear: 1 }, mon: { clown: 0.8, mannequin: 2.2, pale: 1, leech: 0.8 }, desc: 'A sanatorium out on the moor. The patients never checked out.' },
+  nadir: { name: 'Nadir Station', code: '7', risk: 'HIGH', cost: 60, size: 38, stairs: 3, scrap: [23, 30], mult: 1.6, power: 7, cap: 4, hounds: 2, weather: { fog: 3, rain: 2, storm: 3 }, mon: { clown: 0.8, crawler: 2, pale: 1.5, leech: 1, mannequin: 0.5, slime: 0.8 }, desc: 'Deep pumping station. Rich salvage. Few crews come back complete.' },
+  brinewell: { name: 'Brinewell Docks', code: '56-B', risk: 'HIGH', cost: 90, size: 38, stairs: 3, scrap: [22, 29], mult: 1.7, power: 7, cap: 4, hounds: 2, weather: { rain: 3, storm: 3, fog: 2 }, mon: { clown: 0.6, leech: 2, crawler: 1.6, pale: 1, slime: 1.2 }, desc: 'A drowned shipyard. The tide comes in a little further every year.' },
+  saltreach: { name: 'Saltreach Refinery', code: '19-S', risk: 'HIGH', cost: 120, size: 40, stairs: 3, scrap: [25, 32], mult: 1.9, power: 8, cap: 4, hounds: 2, weather: { clear: 3, fog: 1, storm: 1 }, mon: { clown: 0.8, crawler: 2.2, pale: 1.4, mannequin: 0.8 }, desc: 'Brine works on a dead salt sea. The flare stack is still burning.' },
+  hollow: { name: 'The Hollow', code: '0', risk: 'EXTREME', cost: 200, size: 44, stairs: 3, scrap: [30, 39], mult: 2.2, power: 10, cap: 5, hounds: 3, weather: { storm: 3, fog: 2 }, mon: { clown: 0.7, pale: 2, mannequin: 1.6, crawler: 1.3, leech: 1, slime: 0.8 }, desc: 'No survey data. The signal is coming from below the facility. We would like it back.' },
+  vesper: { name: 'Vesper Foundry', code: '1-X', risk: 'EXTREME', cost: 280, size: 46, stairs: 3, scrap: [33, 42], mult: 2.4, power: 11, cap: 5, hounds: 3, weather: { clear: 2, fog: 2, storm: 1 }, mon: { clown: 0.9, pale: 2.2, crawler: 1.6, mannequin: 1.2, leech: 1 }, desc: 'A foundry on a volcanic world. Nobody ever banked the furnaces.' },
 };
 // Halcyon, a gas giant: nowhere to land on it, but a family of moons round it, each with a facility, and all of them
 // open every day (open): jump to any of them, or to the giant to look, and hop between them for nothing
@@ -239,7 +239,7 @@ const _lampP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
-const DEATH_TEXT = { crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
+const DEATH_TEXT = { clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -1794,10 +1794,12 @@ const G = {
       if (n >= site.cap + Math.min(2, extra)) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
-      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2 };
+      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2, clown: 1 };
       const w = {}; for (const k in site.mon) if ((counts[k] || 0) < lim[k]) w[k] = site.mon[k] * Math.pow(0.3, counts[k] || 0);
       // (the mannequins are kept down below: none in a facility that's all on one level)
       if (fac.levels < 2) delete w.mannequin;
+      // (the Clown: one a landing at most, and only once the afternoon's come)
+      if (G.round.clownN || G.round.time < 13 * 60) delete w.clown;
       if (!Object.keys(w).length) return;
       type = R0.weighted(w);
       if (!force && power + MON_DEFS[type].power > site.power * (1 + 0.15 * extra)) return;
@@ -1807,9 +1809,10 @@ const G = {
     // where: out of a vent for most things; a mannequin only somewhere in the lower half of the building; the Seep out
     // in a corridor (it's far too big for a vent)
     // (the Executioner, up from below: from the bottom floor, and far too big for a vent)
-    const wide = type === 'slime' || type === 'executioner';
+    const wide = type === 'slime' || type === 'executioner' || type === 'clown';
+    if (type === 'clown') { G.round.clownN = 1; minDist = Math.max(minDist, 40); }
     if (type === 'mannequin' && fac.levels < 2) return;
-    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
+    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' || type === 'clown' ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
     for (const v of vents) if (far(v.x, v.z) && fac.levelAt(v.x, v.z, v.y) >= minLv) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
@@ -3204,7 +3207,7 @@ const G = {
       const flashOn = R.flash.intensity > 0 && camDir.dot(to) > 0.9 && dist < R.flash.distance;
       const nearLamp = G.fac && me.zone === 'in' ? G.fac.nearestLampDist(c.x, c.z, G.round ? G.round.power : true) < 4.5 : me.zone === 'out' && dist < 18;
       const visible = inView && los && (dist < 6 || flashOn || nearLamp || (m.type === 'leech' && dist < 4)) && !(m.type === 'leech' && m.extra === me.id);
-      const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt' || m.state === 'drawn' || m.state === 'lurch' || m.state === 'swing' || (m.type === 'executioner' && m.state === 'walk');
+      const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt' || m.state === 'drawn' || m.state === 'lurch' || m.state === 'swing' || (m.type === 'executioner' && m.state === 'walk') || (m.type === 'clown' && (m.state === 'herd' || m.state === 'block' || m.state === 'grab'));
       if (m.def.radio) radioD = Math.min(radioD, dist);
       if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound' || m.type === 'executioner')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
       if (visible) {

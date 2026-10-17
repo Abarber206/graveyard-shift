@@ -231,7 +231,7 @@ const Brain = (() => {
   // you there's always warning, a sound somewhere out of sight, your light stuttering, a door slammed down the
   // corridor, the first of it a good six seconds before; it never takes two of you inside a minute; and now and then it
   // only toys with you. Until it's let loose, one that gets its hands on you hurts you and lets you go.
-  const SMART = { pale: 1, executioner: 1, mannequin: 1 }, CUE_SND = { pale: 'breath', executioner: 'blade_drag', mannequin: 'creak' };
+  const SMART = { pale: 1, executioner: 1, mannequin: 1, clown: 1 }, CUE_SND = { pale: 'breath', executioner: 'blade_drag', mannequin: 'creak', clown: 'clown_giggle' };
   const D = { phase: 'calm', t: 0, len: 60, tok: null, lastKill: -1e9, dt: 0, log: [] };
   // where each of you went to ground after a fright (searched first next time they lose you)
   const H = new Map();

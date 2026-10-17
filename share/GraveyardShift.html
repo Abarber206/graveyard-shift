@@ -691,7 +691,17 @@ const SFX = (() => {
     if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
     f.Q.value = q;
     const g = ctx.createGain(); env(g, t, a, vol, dur);
-    s.connect(f); f.connect(g); g.connect(d);
+    // Air, never static: noise with nothing to stop its top end (a high-passed hiss above all) is the fizz of a dead
+    // channel, so the top is rolled off (a hiss above six to nine kilohertz, anything else above eleven); and anything
+    // that lasts a while rushes and wavers as moving air does, instead of holding dead steady
+    const top = ctx.createBiquadFilter(); top.type = 'lowpass'; top.Q.value = 0.5;
+    top.frequency.value = type === 'highpass' ? clamp(Math.max(f0, f1 || 0) * 2.2, 6000, 9000) : 11000;
+    s.connect(f); f.connect(top); top.connect(g);
+    if (dur > 0.25) {
+      const m = ctx.createGain(), n = Math.max(4, Math.ceil(dur * 30)), c = new Float32Array(n); let v = 1, w = 1;
+      for (let i = 0; i < n; i++) { w += (0.55 + Math.random() * 0.45 - w) * 0.35; v += (w - v) * 0.5; c[i] = v; }
+      m.gain.setValueCurveAtTime(c, t, dur + 0.04); g.connect(m); m.connect(d);
+    } else g.connect(d);
     s.start(t, Math.random() * 2); s.stop(t + dur + 0.05);
     return f;
   }

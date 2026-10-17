@@ -1026,11 +1026,12 @@ const MATS = (() => {
           // (paint rubbed off along the edges and corners, raggedly: how far this is from its face's edge, in metres,
           // from how fast the face's own 0..1 coordinates run across the screen against how fast the surface does)
           float wearE = 0.0;
-          if (uEdge > 0.0) {
-            vec2 e2 = min(vWearUv, 1.0 - vWearUv), ux = dFdx(vWearUv), uy = dFdy(vWearUv);
-            float dp = max(length(dFdx(vWearP)), length(dFdy(vWearP)));
+          // (only on a face whose coordinates run 0..1 across it: on one tiled in metres there's no edge to find. The
+          // slopes and the lookup are taken everywhere, as they must be, and used only where it applies)
+          vec2 e2 = min(vWearUv, 1.0 - vWearUv), ux = dFdx(vWearUv), uy = dFdy(vWearUv);
+          float dp = max(length(dFdx(vWearP)), length(dFdy(vWearP))), rag = texture2D(tWear, wq.zy * 2.7 + wq.xz * 1.3).r;
+          if (uEdge > 0.0 && min(e2.x, e2.y) > -0.001) {
             float ed = min(e2.x * dp / max(max(abs(ux.x), abs(uy.x)), 1e-6), e2.y * dp / max(max(abs(ux.y), abs(uy.y)), 1e-6));
-            float rag = texture2D(tWear, wq.zy * 2.7 + wq.xz * 1.3).r;
             wearE = (1.0 - smoothstep(uEdge * 0.3, uEdge, ed)) * smoothstep(0.34, 0.52, rag + 0.35 * (1.0 - ed / uEdge));
           }
           diffuseColor.rgb *= mix(1.0, ws.r * 2.0, uWear.x) * (1.0 + uWear.w * max(ws.r - 0.5, 0.0));

@@ -47,6 +47,7 @@ Object.assign(SITES, {
 // (inside, each world's dark has its own faint cast: the colour of the murk the fog fades into)
 Object.assign(SITES.verdigris, { murk: 0x020904 }); Object.assign(SITES.rimefall, { murk: 0x03060b }); Object.assign(SITES.agnes, { murk: 0x070507 });
 Object.assign(SITES.brinewell, { murk: 0x010607 }); Object.assign(SITES.saltreach, { murk: 0x080602 }); Object.assign(SITES.vesper, { murk: 0x0b0301 });
+Object.assign(SITES.ashgrove, { murk: 0x070503 }); Object.assign(SITES.kessler, { murk: 0x040607 }); Object.assign(SITES.nadir, { murk: 0x020604 }); Object.assign(SITES.hollow, { murk: 0x0a0202 });
 // What circles each world: a moon, and a rock it captured (seen hanging round it from orbit, and in the sky from its
 // sites). size and orbit are in the world's radii; ang is where round its limb it shows from orbit, off how far past
 // it. A ringed world's rock goes round inside its rings (ring), in a lane it keeps swept clear; its moon, outside them,
@@ -154,6 +155,8 @@ Object.assign(SITES, {
 // site, the further down it goes (every floor the size it would be anyway, so a deeper plant is a bigger one)
 const FLOORS = { LOW: 4, MEDIUM: 4, HIGH: 5, EXTREME: 6 };
 for (const k in SITES) SITES[k].floors = Math.max(4, FLOORS[SITES[k].risk] || 4);
+// (a moon's plant is fitted out like the place it takes after, and its dark has the same cast: see Facility.fitOf)
+for (const k in SITES) if (SITES[k].murk == null) { const f = SITES[Facility.fitOf(k)]; if (f && f.murk != null) SITES[k].murk = f.murk; }
 for (const w in BODIES) {
   const W = SITE_LOOK[w];
   // seen from orbit round one of them, it's grey and airless

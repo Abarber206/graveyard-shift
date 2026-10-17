@@ -2187,6 +2187,82 @@ const TEX = (() => {
     }
   }
   function rivets(g, xs, ys) { for (const x of xs) for (const y of ys) { g.fillStyle = 'rgba(0,0,0,.5)'; g.beginPath(); g.arc(x + 1, y + 1, 2.2, 0, TAU); g.fill(); g.fillStyle = 'rgba(255,255,255,.25)'; g.beginPath(); g.arc(x, y, 1.8, 0, TAU); g.fill(); } }
+  // A door leaf's face, drawn to the leaf it goes on (1.53 x 2.37 m: 160 x 248 here, the vision panel cut through at
+  // u .36-.64, v .55-.77, the lever at the right-hand edge a metre up). Painted light and plain, for each world to tint.
+  // What years of use leave: dirt kicked up the foot, a palm's worth of grime round the lever, the paint chipped at the
+  // edges, water run down from the top. (Nothing that reads one way round: the far face sees it mirrored.)
+  function doorSkin(kind) {
+    const W = 160, H = 248, [c, g] = CQ(W, H), Y = (v) => (1 - v) * H;
+    const line = (x0, y0, x1, y1, col, w = 1) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+    // (a sunk outline: dark on the top and left inner edge, catching the light on the bottom and right)
+    const sunk = (x0, y0, x1, y1, d = 0.45, l = 0.18) => {
+      line(x0, y0, x1, y0, `rgba(0,0,0,${d})`, 1.5); line(x0, y0, x0, y1, `rgba(0,0,0,${d})`, 1.5);
+      line(x0, y1, x1, y1, `rgba(255,255,255,${l})`, 1.5); line(x1, y0, x1, y1, `rgba(255,255,255,${l})`, 1.5);
+    };
+    const grainV = (x0, y0, x1, y1, a) => { for (let x = x0 + 1; x < x1; x += r.range(1.2, 3.2)) { g.strokeStyle = `rgba(60,36,16,${r.range(a * 0.4, a)})`; g.lineWidth = r.range(0.4, 1.1); g.beginPath(); g.moveTo(x, y0); g.bezierCurveTo(x + r.range(-1.5, 1.5), y0 + (y1 - y0) / 3, x + r.range(-1.5, 1.5), y0 + (y1 - y0) * 2 / 3, x + r.range(-1, 1), y1); g.stroke(); } };
+    const grainH = (x0, y0, x1, y1, a) => { for (let y = y0 + 1; y < y1; y += r.range(1.2, 3.2)) { g.strokeStyle = `rgba(60,36,16,${r.range(a * 0.4, a)})`; g.lineWidth = r.range(0.4, 1.1); g.beginPath(); g.moveTo(x0, y); g.bezierCurveTo(x0 + (x1 - x0) / 3, y + r.range(-1.5, 1.5), x0 + (x1 - x0) * 2 / 3, y + r.range(-1.5, 1.5), x1, y + r.range(-1, 1)); g.stroke(); } };
+    if (kind === 'wood') {
+      // stiles and rails with the grain running along them, four raised fields and the glazed opening in the upper half
+      g.fillStyle = '#b89c7c'; g.fillRect(0, 0, W, H); grainV(0, 0, W, H, 0.35);
+      for (const [y0, y1] of [[0, Y(0.92)], [Y(0.5), Y(0.42)], [Y(0.14), H]]) { g.fillStyle = '#b29676'; g.fillRect(19, y0, W - 38, y1 - y0); grainH(19, y0, W - 19, y1, 0.32); line(19, y0, W - 19, y0, 'rgba(40,24,10,.5)'); line(19, y1, W - 19, y1, 'rgba(40,24,10,.5)'); }
+      const field = (x0, y0, x1, y1) => {
+        g.fillStyle = '#bea282'; g.fillRect(x0, y0, x1 - x0, y1 - y0); grainV(x0, y0, x1, y1, 0.3);
+        sunk(x0, y0, x1, y1, 0.55, 0.22); sunk(x0 + 4, y0 + 4, x1 - 4, y1 - 4, 0.25, 0.14);
+      };
+      field(19, Y(0.42), 75, Y(0.14)); field(85, Y(0.42), 141, Y(0.14));
+      field(19, Y(0.92), 50, Y(0.5)); field(110, Y(0.92), 141, Y(0.5)); field(56, Y(0.92), 104, Y(0.8));
+      sunk(54, Y(0.785), 106, Y(0.525), 0.4, 0.2);
+      // the varnish worn through to pale wood round the lever, and the foot gone grey where the wet got into it
+      blotches(g, W, H, 6, '226,206,170', 0.08, 0.18, 6, 16);
+      { const gr = g.createRadialGradient(W - 12, Y(0.42), 0, W - 12, Y(0.42), 26); gr.addColorStop(0, 'rgba(230,214,184,.3)'); gr.addColorStop(1, 'rgba(230,214,184,0)'); g.fillStyle = gr; g.fillRect(W - 40, Y(0.42) - 26, 40, 52); }
+      { const gr = g.createLinearGradient(0, H, 0, H - 34); gr.addColorStop(0, 'rgba(70,64,56,.55)'); gr.addColorStop(1, 'rgba(70,64,56,0)'); g.fillStyle = gr; g.fillRect(0, H - 34, W, 34); }
+      // (knots, and dents where it's been kicked)
+      for (let i = 0; i < 5; i++) { const x = r.range(6, W - 6), y = r.range(6, H - 6); g.fillStyle = 'rgba(70,40,18,.45)'; g.beginPath(); g.ellipse(x, y, r.range(1.5, 3), r.range(2.5, 5), 0, 0, TAU); g.fill(); }
+      for (let i = 0; i < 8; i++) { const x = r.range(8, W - 8), y = H - r.range(6, 40); g.fillStyle = 'rgba(40,26,12,.3)'; g.beginPath(); g.ellipse(x, y, r.range(2, 5), r.range(1, 2.5), r.range(-0.3, 0.3), 0, TAU); g.fill(); }
+    } else {
+      g.fillStyle = kind === 'freezer' ? '#d0d4d0' : '#c4c8c0'; g.fillRect(0, 0, W, H);
+      if (kind === 'steel') {
+        // a pressed panel inset round the leaf and a second over the lower half, a brushed kick plate screwed on at the foot
+        sunk(9, 9, W - 9, H - 36, 0.35, 0.2); sunk(22, Y(0.46), W - 22, Y(0.2), 0.3, 0.16);
+      } else if (kind === 'plate') {
+        // two plates welded across the middle, riveted round the edges and along the seam, rust bleeding from the rivets
+        g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(0, 0, W, 11); g.fillRect(0, H - 11, W, 11); g.fillRect(0, 0, 11, H); g.fillRect(W - 11, 0, 11, H);
+        line(11, 11, W - 11, 11, 'rgba(0,0,0,.4)', 1.5); line(11, H - 11, W - 11, H - 11, 'rgba(255,255,255,.15)', 1.5);
+        line(11, 11, 11, H - 11, 'rgba(0,0,0,.4)', 1.5); line(W - 11, 11, W - 11, H - 11, 'rgba(255,255,255,.15)', 1.5);
+        const sy = Y(0.47); g.fillStyle = 'rgba(40,36,30,.5)'; g.fillRect(11, sy - 2, W - 22, 4); line(11, sy + 2.5, W - 11, sy + 2.5, 'rgba(255,255,255,.18)');
+        const xs = [], ys = [];
+        for (let x = 6; x < W; x += 14.8) xs.push(x);
+        for (let y = 6; y < H; y += 15.1) ys.push(y);
+        rivets(g, xs, [5.5, H - 5.5, sy - 7, sy + 7]); rivets(g, [5.5, W - 5.5], ys);
+        for (let i = 0; i < 18; i++) { const x = r.pick(xs), y0 = r.pick([5.5, sy + 7]), len = r.range(12, 60), gr = g.createLinearGradient(0, y0, 0, y0 + len); gr.addColorStop(0, `rgba(120,58,22,${r.range(0.3, 0.6)})`); gr.addColorStop(1, 'rgba(120,58,22,0)'); g.fillStyle = gr; g.fillRect(x - 1.5, y0, r.range(2, 4), len); }
+        blotches(g, W, H, 26, '118,60,26', 0.15, 0.5, 4, 20);
+      } else {
+        // an insulated freezer door: ribbed skin inside a thick rubber gasket, a kick plate, the foot furred with frost
+        for (let y = 18; y < H - 36; y += 12) { line(14, y, W - 14, y, 'rgba(0,0,0,.18)', 1.5); line(14, y + 2, W - 14, y + 2, 'rgba(255,255,255,.25)', 1); }
+        g.strokeStyle = 'rgba(20,22,24,.85)'; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, H - 6);
+      }
+      if (kind !== 'plate') {
+        g.fillStyle = '#d8d8d2'; g.fillRect(10, H - 32, W - 20, 24);
+        for (let i = 0; i < 40; i++) { const y = H - 32 + r.range(1, 23); line(10, y, W - 10, y, `rgba(${r.chance(0.5) ? '255,255,255' : '0,0,0'},${r.range(0.04, 0.12)})`, 0.6); }
+        sunk(10, H - 32, W - 10, H - 8, 0.15, 0.4); line(10, H - 32, W - 10, H - 32, 'rgba(0,0,0,.45)', 1.2);
+        for (const x of [16, W - 16]) for (const y of [H - 27, H - 13]) { g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.arc(x, y, 1.6, 0, TAU); g.fill(); }
+      }
+      // the paint chipped off along the edges and round the lever, kicked at the foot, and grimed where hands push
+      for (let i = 0; i < 70; i++) {
+        const e = r.int(0, 3), t = r.next(), x = e === 0 ? r.range(0, 6) : e === 1 ? W - r.range(0, 6) : t * W, y = e === 2 ? r.range(0, 6) : e === 3 ? H - r.range(0, 40) : t * H;
+        g.fillStyle = r.chance(0.6) ? `rgba(110,60,30,${r.range(0.3, 0.7)})` : `rgba(80,82,80,${r.range(0.3, 0.7)})`;
+        g.beginPath(); g.ellipse(x, y, r.range(0.8, 3), r.range(0.6, 2), r.range(0, 3), 0, TAU); g.fill();
+      }
+      for (let i = 0; i < 26; i++) { const x = r.range(8, W - 8), y = H - r.range(8, 48); line(x, y, x + r.range(-14, 14), y + r.range(-2, 2), `rgba(30,26,22,${r.range(0.15, 0.4)})`, r.range(0.5, 1.4)); }
+      { const fz = kind === 'freezer', h = fz ? 30 : 44, col = fz ? '244,248,252' : '48,40,30', gr = g.createLinearGradient(0, H, 0, H - h); gr.addColorStop(0, `rgba(${col},${fz ? 0.6 : 0.5})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.fillRect(0, H - h, W, h); }
+      if (kind === 'freezer') blotches(g, W, H, 14, '248,252,255', 0.2, 0.5, 6, 18);
+      { const gr = g.createRadialGradient(W - 12, Y(0.42), 0, W - 12, Y(0.42), 24); gr.addColorStop(0, 'rgba(36,30,24,.35)'); gr.addColorStop(1, 'rgba(36,30,24,0)'); g.fillStyle = gr; g.fillRect(W - 40, Y(0.42) - 24, 40, 48); }
+      blotches(g, W, H, 22, '70,60,46', 0.06, 0.22, 6, 26);
+      drips(g, W, H, 4, true);
+    }
+    speckle(g, W, H, 14);
+    return finish(c);
+  }
 
   const build = {
     wallConcrete() {
@@ -2531,20 +2607,11 @@ const TEX = (() => {
       speckle(g, 128, 32, 25);
       return finish(c);
     },
-    door() {
-      const [c, g] = C(128, 192);
-      g.fillStyle = '#3a4a44'; g.fillRect(0, 0, 128, 192);
-      g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; g.strokeRect(10, 10, 108, 172);
-      g.fillStyle = '#0c0f0e'; g.fillRect(40, 30, 48, 40);
-      g.fillStyle = 'rgba(150,190,200,.12)'; g.fillRect(42, 32, 20, 36);
-      g.strokeStyle = '#222'; g.lineWidth = 2; g.beginPath(); g.moveTo(40, 50); g.lineTo(88, 50); g.stroke();
-      g.fillStyle = '#545a55'; g.fillRect(10, 150, 108, 30);
-      // no painted handle: every door gets real hardware on the correct edge (a painted one ends up mirrored on the back face)
-      blotches(g, 128, 192, 30, '90,60,30', 0.1, 0.45, 2, 12);
-      drips(g, 128, 192, 10, true);
-      speckle(g, 128, 192, 18);
-      return finish(c);
-    },
+    // the doors: pressed steel, panelled timber, riveted plate, an insulated freezer door (see doorSkin)
+    door: () => doorSkin('steel'),
+    doorWood: () => doorSkin('wood'),
+    doorPlate: () => doorSkin('plate'),
+    doorFreezer: () => doorSkin('freezer'),
     bunker() {
       const [c, g] = C(256, 256);
       g.fillStyle = '#6a675e'; g.fillRect(0, 0, 256, 256);
@@ -3179,7 +3246,10 @@ const MATS = (() => {
     bark: () => S({ map: TEX.get('bark'), roughness: 1 }),
     hull: () => S({ map: TEX.get('hull'), bumpMap: TEX.get('hull'), bumpScale: 1, roughness: 0.7, metalness: 0.35 }),
     hazard: () => S({ map: TEX.get('hazard'), roughness: 0.7 }),
-    door: () => N('door', 1.6, { roughness: 0.65, metalness: 0.4 }),
+    door: () => N('door', 1.6, { color: 0x6c7a74, roughness: 0.62, metalness: 0.4 }),
+    doorWood: () => N('doorWood', 1.8, { color: 0x9a7a5a, roughness: 0.78 }),
+    doorPlate: () => N('doorPlate', 2, { color: 0x7a807c, roughness: 0.7, metalness: 0.45 }),
+    doorFreezer: () => N('doorFreezer', 1.4, { color: 0xc8d4dc, roughness: 0.5, metalness: 0.15 }),
     bunker: () => N('bunker', 2, { roughness: 0.95 }),
     locker: () => N('locker', 1.8, { roughness: 0.6, metalness: 0.4 }),
     vent: () => N('vent', 3, { roughness: 0.7, metalness: 0.4 }),
@@ -4358,25 +4428,25 @@ const Facility = (() => {
   // the blast doors' frames), blast (the blast doors' slabs). grow: how much moss and vine got in once it was left
   const FINISH = {
     // red mill brick, oak boards, timber doors in cast-iron frames, warm tungsten
-    ashgrove: { wall: ['brick', 0xa07c6c], wallTile: ['wallTile', 0xc8bca0], floor: ['wood', 0x8a7460], floorTile: ['floorTile', 0x9a8c74], ceiling: ['wood', 0x7a6a58], door: ['wood', 0x8a6a4c], frame: ['darkmetal', 0x2c2724], shaft: ['brick', 0x86685a], steel: ['darkmetal', 0x302a26], blast: ['painted', 0x5c5444], bunker: ['brick', 0x8c6a5c], lamp: 0xffd6a4, grow: 0.8 },
+    ashgrove: { wall: ['brick', 0xa07c6c], wallTile: ['wallTile', 0xc8bca0], floor: ['wood', 0x8a7460], floorTile: ['floorTile', 0x9a8c74], ceiling: ['wood', 0x7a6a58], door: ['doorWood', 0x9a7a5a], frame: ['darkmetal', 0x2c2724], shaft: ['brick', 0x86685a], steel: ['darkmetal', 0x302a26], blast: ['painted', 0x5c5444], bunker: ['brick', 0x8c6a5c], lamp: 0xffd6a4, grow: 0.8 },
     // potting-shed timber, wet green-stained concrete, white grow-room panels over drainage grating, the grow lights' magenta
     verdigris: { wall: ['wood', 0xb0a080], wallTile: ['labPanel', 0xc8d8c0], floor: ['floor', 0x7a8a6a], floorTile: ['grate', 0x8a9a80], ceiling: ['perf', 0x9aa890], door: ['door', 0x7f9a78], frame: ['painted', 0x52684c], shaft: ['wall', 0x7c8a6c], steel: ['rust', 0x9aa088], blast: ['painted', 0x5e7a56], lamp: 0xff9ae8, grow: 1.8 },
     // clean white panels gone grey, sheet vinyl, steel doors, cold white light
     kessler: { wall: ['labPanel', 0xd0d6d4], wallTile: ['wallTile', 0xd8e0de], floor: ['floorTile', 0x9ca6a4], floorTile: ['floorTile', 0xb8c0be], ceiling: ['perf', 0xb4bcbc], door: ['door', 0xa8b8bc], frame: ['painted', 0x7e8a8c], shaft: ['wall', 0xb0b6b2], steel: ['painted', 0x667274], blast: ['painted', 0x948c62], lamp: 0xe4f2ff, grow: 0.5 },
     // insulated freezer panels, steel grating underfoot, cold blue-white light
-    rimefall: { wall: ['labPanel', 0xc4d4e2], wallTile: ['labPanel', 0xb4c6d6], floor: ['grate', 0xa8b8c8], floorTile: ['floorTile', 0xaabccc], ceiling: ['metal', 0xb0c0cc], door: ['door', 0xc0d0dc], frame: ['metal', 0x9aaab8], shaft: ['wall', 0xb4c4d0], steel: ['metal', 0x8e9eac], blast: ['labPanel', 0xc8d6e2], lamp: 0xc8e8ff, grow: 0 },
+    rimefall: { wall: ['labPanel', 0xc4d4e2], wallTile: ['labPanel', 0xb4c6d6], floor: ['grate', 0xa8b8c8], floorTile: ['floorTile', 0xaabccc], ceiling: ['metal', 0xb0c0cc], door: ['doorFreezer', 0xc0d0dc], frame: ['metal', 0x9aaab8], shaft: ['wall', 0xb4c4d0], steel: ['metal', 0x8e9eac], blast: ['labPanel', 0xc8d6e2], lamp: 0xc8e8ff, grow: 0 },
     // institutional green tile, worn linoleum, old wooden doors, yellowed light
-    agnes: { wall: ['wallTile', 0x98b49a], wallTile: ['wallTile', 0xc8ccb8], floor: ['floorTile', 0x9a9282], floorTile: ['floorTile', 0xb0aa98], ceiling: ['ceiling', 0xb8b2a0], door: ['wood', 0x9a7a58], frame: ['wood', 0x6a5038], shaft: ['wallTile', 0x8aa48c], steel: ['painted', 0x4c5c4e], blast: ['painted', 0x6c7c68], lamp: 0xf2eaa8, grow: 0.6 },
+    agnes: { wall: ['wallTile', 0x98b49a], wallTile: ['wallTile', 0xc8ccb8], floor: ['floorTile', 0x9a9282], floorTile: ['floorTile', 0xb0aa98], ceiling: ['ceiling', 0xb8b2a0], door: ['doorWood', 0x9c8064], frame: ['wood', 0x6a5038], shaft: ['wallTile', 0x8aa48c], steel: ['painted', 0x4c5c4e], blast: ['painted', 0x6c7c68], lamp: 0xf2eaa8, grow: 0.6 },
     // pump-house green paint on wet concrete, grating over the sumps, rusted iron, a sickly sodium-green
-    nadir: { wall: ['wall', 0x8a9888], wallTile: ['wallTile', 0x98aca4], floor: ['floor', 0x727c74], floorTile: ['grate', 0x7a8480], ceiling: ['bunker', 0x6c7672], door: ['painted', 0x48644e], frame: ['rust', 0x8a8478], shaft: ['bunker', 0x6c7874], steel: ['rust', null], blast: ['painted', 0x56705a], lamp: 0xe6f0c4, grow: 1.2 },
+    nadir: { wall: ['wall', 0x8a9888], wallTile: ['wallTile', 0x98aca4], floor: ['floor', 0x727c74], floorTile: ['grate', 0x7a8480], ceiling: ['bunker', 0x6c7672], door: ['door', 0x6a8a6e], frame: ['rust', 0x8a8478], shaft: ['bunker', 0x6c7874], steel: ['rust', null], blast: ['painted', 0x56705a], lamp: 0xe6f0c4, grow: 1.2 },
     // a ship's insides: rusted plate, painted bulkheads, deck plating, a sea-green cast
-    brinewell: { wall: ['rust', 0x8a9a96], wallTile: ['painted', 0x5f8a86], floor: ['metal', 0x6a7a78], floorTile: ['metal', 0x7a8a88], ceiling: ['painted', 0x506a68], door: ['painted', 0x3f6a66], frame: ['rust', 0x7e8e8a], shaft: ['rust', 0x76868a], steel: ['painted', 0x3c5e5a], blast: ['rust', 0x6a7a76], lamp: 0xb8ffe8, grow: 1.2 },
+    brinewell: { wall: ['rust', 0x8a9a96], wallTile: ['painted', 0x5f8a86], floor: ['metal', 0x6a7a78], floorTile: ['metal', 0x7a8a88], ceiling: ['painted', 0x506a68], door: ['doorPlate', 0x5a8a86], frame: ['rust', 0x7e8e8a], shaft: ['rust', 0x76868a], steel: ['painted', 0x3c5e5a], blast: ['rust', 0x6a7a76], lamp: 0xb8ffe8, grow: 1.2 },
     // cream-painted steel, grating, safety-yellow doors, sodium light
-    saltreach: { wall: ['painted', 0xd8cca0], wallTile: ['wallTile', 0xe0dcc8], floor: ['grate', 0xa09880], floorTile: ['floorTile', 0xc8c0a8], ceiling: ['metal', 0xa8a088], door: ['painted', 0xd0a428], frame: ['painted', 0x8a7e5c], shaft: ['wall', 0xc4b896], steel: ['painted', 0xb88e24], blast: ['painted', 0xc49a26], lamp: 0xffc070, grow: 0.15 },
+    saltreach: { wall: ['painted', 0xd8cca0], wallTile: ['wallTile', 0xe0dcc8], floor: ['grate', 0xa09880], floorTile: ['floorTile', 0xc8c0a8], ceiling: ['metal', 0xa8a088], door: ['door', 0xd0a428], frame: ['painted', 0x8a7e5c], shaft: ['wall', 0xc4b896], steel: ['painted', 0xb88e24], blast: ['painted', 0xc49a26], lamp: 0xffc070, grow: 0.15 },
     // nobody knows what it was: oxblood concrete, tiles the colour of old meat, rust, a light like a wound
-    hollow: { wall: ['bunker', 0x8a6058], wallTile: ['wallTile', 0x9a7a70], floor: ['floor', 0x6c5048], floorTile: ['floorTile', 0x8a6a60], ceiling: ['bunker', 0x5c4440], door: ['rust', 0x7a5a50], frame: ['darkmetal', 0x2e2220], shaft: ['bunker', 0x6c4c46], steel: ['rust', 0x8a6a60], blast: ['rust', 0x6a4a42], lamp: 0xffb8a0, grow: 0.7 },
+    hollow: { wall: ['bunker', 0x8a6058], wallTile: ['wallTile', 0x9a7a70], floor: ['floor', 0x6c5048], floorTile: ['floorTile', 0x8a6a60], ceiling: ['bunker', 0x5c4440], door: ['doorPlate', 0x8a6a60], frame: ['darkmetal', 0x2e2220], shaft: ['bunker', 0x6c4c46], steel: ['rust', 0x8a6a60], blast: ['rust', 0x6a4a42], lamp: 0xffb8a0, grow: 0.7 },
     // sooty firebrick, black slag concrete, rusted doors, furnace-orange light
-    vesper: { wall: ['brick', 0x7a5a50], wallTile: ['bunker', 0x5a5450], floor: ['floor', 0x5a524c], floorTile: ['metal', 0x5a5450], ceiling: ['bunker', 0x4a4440], door: ['rust', 0x8a6a5a], frame: ['rust', 0x6a4c3e], shaft: ['brick', 0x6a4c42], steel: ['rust', 0x7a5c4c], blast: ['rust', 0x7a5a4a], bunker: ['bunker', 0x5a5450], lamp: 0xff9a50, grow: 0 },
+    vesper: { wall: ['brick', 0x7a5a50], wallTile: ['bunker', 0x5a5450], floor: ['floor', 0x5a524c], floorTile: ['metal', 0x5a5450], ceiling: ['bunker', 0x4a4440], door: ['doorPlate', 0x8a6a5a], frame: ['rust', 0x6a4c3e], shaft: ['brick', 0x6a4c42], steel: ['rust', 0x7a5c4c], blast: ['rust', 0x7a5a4a], bunker: ['bunker', 0x5a5450], lamp: 0xff9a50, grow: 0 },
     // a prison: painted block, steel doors, cell-block green, flat white light
     warden: { wall: ['wall', 0x9aa294], wallTile: ['wallTile', 0xa8b0a4], floor: ['floor', 0x7c807a], floorTile: ['floorTile', 0x8c9088], ceiling: ['ceiling', 0x9c9c92], door: ['door', 0x7c8678], frame: ['painted', 0x56604e], shaft: ['wall', 0x8a9286], steel: ['painted', 0x48524a], blast: ['painted', 0x9a9070], lamp: 0xf0f0d8, grow: 0.4 },
   };

@@ -79,6 +79,82 @@ const TEX = (() => {
     }
   }
   function rivets(g, xs, ys) { for (const x of xs) for (const y of ys) { g.fillStyle = 'rgba(0,0,0,.5)'; g.beginPath(); g.arc(x + 1, y + 1, 2.2, 0, TAU); g.fill(); g.fillStyle = 'rgba(255,255,255,.25)'; g.beginPath(); g.arc(x, y, 1.8, 0, TAU); g.fill(); } }
+  // A door leaf's face, drawn to the leaf it goes on (1.53 x 2.37 m: 160 x 248 here, the vision panel cut through at
+  // u .36-.64, v .55-.77, the lever at the right-hand edge a metre up). Painted light and plain, for each world to tint.
+  // What years of use leave: dirt kicked up the foot, a palm's worth of grime round the lever, the paint chipped at the
+  // edges, water run down from the top. (Nothing that reads one way round: the far face sees it mirrored.)
+  function doorSkin(kind) {
+    const W = 160, H = 248, [c, g] = CQ(W, H), Y = (v) => (1 - v) * H;
+    const line = (x0, y0, x1, y1, col, w = 1) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+    // (a sunk outline: dark on the top and left inner edge, catching the light on the bottom and right)
+    const sunk = (x0, y0, x1, y1, d = 0.45, l = 0.18) => {
+      line(x0, y0, x1, y0, `rgba(0,0,0,${d})`, 1.5); line(x0, y0, x0, y1, `rgba(0,0,0,${d})`, 1.5);
+      line(x0, y1, x1, y1, `rgba(255,255,255,${l})`, 1.5); line(x1, y0, x1, y1, `rgba(255,255,255,${l})`, 1.5);
+    };
+    const grainV = (x0, y0, x1, y1, a) => { for (let x = x0 + 1; x < x1; x += r.range(1.2, 3.2)) { g.strokeStyle = `rgba(60,36,16,${r.range(a * 0.4, a)})`; g.lineWidth = r.range(0.4, 1.1); g.beginPath(); g.moveTo(x, y0); g.bezierCurveTo(x + r.range(-1.5, 1.5), y0 + (y1 - y0) / 3, x + r.range(-1.5, 1.5), y0 + (y1 - y0) * 2 / 3, x + r.range(-1, 1), y1); g.stroke(); } };
+    const grainH = (x0, y0, x1, y1, a) => { for (let y = y0 + 1; y < y1; y += r.range(1.2, 3.2)) { g.strokeStyle = `rgba(60,36,16,${r.range(a * 0.4, a)})`; g.lineWidth = r.range(0.4, 1.1); g.beginPath(); g.moveTo(x0, y); g.bezierCurveTo(x0 + (x1 - x0) / 3, y + r.range(-1.5, 1.5), x0 + (x1 - x0) * 2 / 3, y + r.range(-1.5, 1.5), x1, y + r.range(-1, 1)); g.stroke(); } };
+    if (kind === 'wood') {
+      // stiles and rails with the grain running along them, four raised fields and the glazed opening in the upper half
+      g.fillStyle = '#b89c7c'; g.fillRect(0, 0, W, H); grainV(0, 0, W, H, 0.35);
+      for (const [y0, y1] of [[0, Y(0.92)], [Y(0.5), Y(0.42)], [Y(0.14), H]]) { g.fillStyle = '#b29676'; g.fillRect(19, y0, W - 38, y1 - y0); grainH(19, y0, W - 19, y1, 0.32); line(19, y0, W - 19, y0, 'rgba(40,24,10,.5)'); line(19, y1, W - 19, y1, 'rgba(40,24,10,.5)'); }
+      const field = (x0, y0, x1, y1) => {
+        g.fillStyle = '#bea282'; g.fillRect(x0, y0, x1 - x0, y1 - y0); grainV(x0, y0, x1, y1, 0.3);
+        sunk(x0, y0, x1, y1, 0.55, 0.22); sunk(x0 + 4, y0 + 4, x1 - 4, y1 - 4, 0.25, 0.14);
+      };
+      field(19, Y(0.42), 75, Y(0.14)); field(85, Y(0.42), 141, Y(0.14));
+      field(19, Y(0.92), 50, Y(0.5)); field(110, Y(0.92), 141, Y(0.5)); field(56, Y(0.92), 104, Y(0.8));
+      sunk(54, Y(0.785), 106, Y(0.525), 0.4, 0.2);
+      // the varnish worn through to pale wood round the lever, and the foot gone grey where the wet got into it
+      blotches(g, W, H, 6, '226,206,170', 0.08, 0.18, 6, 16);
+      { const gr = g.createRadialGradient(W - 12, Y(0.42), 0, W - 12, Y(0.42), 26); gr.addColorStop(0, 'rgba(230,214,184,.3)'); gr.addColorStop(1, 'rgba(230,214,184,0)'); g.fillStyle = gr; g.fillRect(W - 40, Y(0.42) - 26, 40, 52); }
+      { const gr = g.createLinearGradient(0, H, 0, H - 34); gr.addColorStop(0, 'rgba(70,64,56,.55)'); gr.addColorStop(1, 'rgba(70,64,56,0)'); g.fillStyle = gr; g.fillRect(0, H - 34, W, 34); }
+      // (knots, and dents where it's been kicked)
+      for (let i = 0; i < 5; i++) { const x = r.range(6, W - 6), y = r.range(6, H - 6); g.fillStyle = 'rgba(70,40,18,.45)'; g.beginPath(); g.ellipse(x, y, r.range(1.5, 3), r.range(2.5, 5), 0, 0, TAU); g.fill(); }
+      for (let i = 0; i < 8; i++) { const x = r.range(8, W - 8), y = H - r.range(6, 40); g.fillStyle = 'rgba(40,26,12,.3)'; g.beginPath(); g.ellipse(x, y, r.range(2, 5), r.range(1, 2.5), r.range(-0.3, 0.3), 0, TAU); g.fill(); }
+    } else {
+      g.fillStyle = kind === 'freezer' ? '#d0d4d0' : '#c4c8c0'; g.fillRect(0, 0, W, H);
+      if (kind === 'steel') {
+        // a pressed panel inset round the leaf and a second over the lower half, a brushed kick plate screwed on at the foot
+        sunk(9, 9, W - 9, H - 36, 0.35, 0.2); sunk(22, Y(0.46), W - 22, Y(0.2), 0.3, 0.16);
+      } else if (kind === 'plate') {
+        // two plates welded across the middle, riveted round the edges and along the seam, rust bleeding from the rivets
+        g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(0, 0, W, 11); g.fillRect(0, H - 11, W, 11); g.fillRect(0, 0, 11, H); g.fillRect(W - 11, 0, 11, H);
+        line(11, 11, W - 11, 11, 'rgba(0,0,0,.4)', 1.5); line(11, H - 11, W - 11, H - 11, 'rgba(255,255,255,.15)', 1.5);
+        line(11, 11, 11, H - 11, 'rgba(0,0,0,.4)', 1.5); line(W - 11, 11, W - 11, H - 11, 'rgba(255,255,255,.15)', 1.5);
+        const sy = Y(0.47); g.fillStyle = 'rgba(40,36,30,.5)'; g.fillRect(11, sy - 2, W - 22, 4); line(11, sy + 2.5, W - 11, sy + 2.5, 'rgba(255,255,255,.18)');
+        const xs = [], ys = [];
+        for (let x = 6; x < W; x += 14.8) xs.push(x);
+        for (let y = 6; y < H; y += 15.1) ys.push(y);
+        rivets(g, xs, [5.5, H - 5.5, sy - 7, sy + 7]); rivets(g, [5.5, W - 5.5], ys);
+        for (let i = 0; i < 18; i++) { const x = r.pick(xs), y0 = r.pick([5.5, sy + 7]), len = r.range(12, 60), gr = g.createLinearGradient(0, y0, 0, y0 + len); gr.addColorStop(0, `rgba(120,58,22,${r.range(0.3, 0.6)})`); gr.addColorStop(1, 'rgba(120,58,22,0)'); g.fillStyle = gr; g.fillRect(x - 1.5, y0, r.range(2, 4), len); }
+        blotches(g, W, H, 26, '118,60,26', 0.15, 0.5, 4, 20);
+      } else {
+        // an insulated freezer door: ribbed skin inside a thick rubber gasket, a kick plate, the foot furred with frost
+        for (let y = 18; y < H - 36; y += 12) { line(14, y, W - 14, y, 'rgba(0,0,0,.18)', 1.5); line(14, y + 2, W - 14, y + 2, 'rgba(255,255,255,.25)', 1); }
+        g.strokeStyle = 'rgba(20,22,24,.85)'; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, H - 6);
+      }
+      if (kind !== 'plate') {
+        g.fillStyle = '#d8d8d2'; g.fillRect(10, H - 32, W - 20, 24);
+        for (let i = 0; i < 40; i++) { const y = H - 32 + r.range(1, 23); line(10, y, W - 10, y, `rgba(${r.chance(0.5) ? '255,255,255' : '0,0,0'},${r.range(0.04, 0.12)})`, 0.6); }
+        sunk(10, H - 32, W - 10, H - 8, 0.15, 0.4); line(10, H - 32, W - 10, H - 32, 'rgba(0,0,0,.45)', 1.2);
+        for (const x of [16, W - 16]) for (const y of [H - 27, H - 13]) { g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.arc(x, y, 1.6, 0, TAU); g.fill(); }
+      }
+      // the paint chipped off along the edges and round the lever, kicked at the foot, and grimed where hands push
+      for (let i = 0; i < 70; i++) {
+        const e = r.int(0, 3), t = r.next(), x = e === 0 ? r.range(0, 6) : e === 1 ? W - r.range(0, 6) : t * W, y = e === 2 ? r.range(0, 6) : e === 3 ? H - r.range(0, 40) : t * H;
+        g.fillStyle = r.chance(0.6) ? `rgba(110,60,30,${r.range(0.3, 0.7)})` : `rgba(80,82,80,${r.range(0.3, 0.7)})`;
+        g.beginPath(); g.ellipse(x, y, r.range(0.8, 3), r.range(0.6, 2), r.range(0, 3), 0, TAU); g.fill();
+      }
+      for (let i = 0; i < 26; i++) { const x = r.range(8, W - 8), y = H - r.range(8, 48); line(x, y, x + r.range(-14, 14), y + r.range(-2, 2), `rgba(30,26,22,${r.range(0.15, 0.4)})`, r.range(0.5, 1.4)); }
+      { const fz = kind === 'freezer', h = fz ? 30 : 44, col = fz ? '244,248,252' : '48,40,30', gr = g.createLinearGradient(0, H, 0, H - h); gr.addColorStop(0, `rgba(${col},${fz ? 0.6 : 0.5})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.fillRect(0, H - h, W, h); }
+      if (kind === 'freezer') blotches(g, W, H, 14, '248,252,255', 0.2, 0.5, 6, 18);
+      { const gr = g.createRadialGradient(W - 12, Y(0.42), 0, W - 12, Y(0.42), 24); gr.addColorStop(0, 'rgba(36,30,24,.35)'); gr.addColorStop(1, 'rgba(36,30,24,0)'); g.fillStyle = gr; g.fillRect(W - 40, Y(0.42) - 24, 40, 48); }
+      blotches(g, W, H, 22, '70,60,46', 0.06, 0.22, 6, 26);
+      drips(g, W, H, 4, true);
+    }
+    speckle(g, W, H, 14);
+    return finish(c);
+  }
 
   const build = {
     wallConcrete() {
@@ -423,20 +499,11 @@ const TEX = (() => {
       speckle(g, 128, 32, 25);
       return finish(c);
     },
-    door() {
-      const [c, g] = C(128, 192);
-      g.fillStyle = '#3a4a44'; g.fillRect(0, 0, 128, 192);
-      g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; g.strokeRect(10, 10, 108, 172);
-      g.fillStyle = '#0c0f0e'; g.fillRect(40, 30, 48, 40);
-      g.fillStyle = 'rgba(150,190,200,.12)'; g.fillRect(42, 32, 20, 36);
-      g.strokeStyle = '#222'; g.lineWidth = 2; g.beginPath(); g.moveTo(40, 50); g.lineTo(88, 50); g.stroke();
-      g.fillStyle = '#545a55'; g.fillRect(10, 150, 108, 30);
-      // no painted handle: every door gets real hardware on the correct edge (a painted one ends up mirrored on the back face)
-      blotches(g, 128, 192, 30, '90,60,30', 0.1, 0.45, 2, 12);
-      drips(g, 128, 192, 10, true);
-      speckle(g, 128, 192, 18);
-      return finish(c);
-    },
+    // the doors: pressed steel, panelled timber, riveted plate, an insulated freezer door (see doorSkin)
+    door: () => doorSkin('steel'),
+    doorWood: () => doorSkin('wood'),
+    doorPlate: () => doorSkin('plate'),
+    doorFreezer: () => doorSkin('freezer'),
     bunker() {
       const [c, g] = C(256, 256);
       g.fillStyle = '#6a675e'; g.fillRect(0, 0, 256, 256);
@@ -1071,7 +1138,10 @@ const MATS = (() => {
     bark: () => S({ map: TEX.get('bark'), roughness: 1 }),
     hull: () => S({ map: TEX.get('hull'), bumpMap: TEX.get('hull'), bumpScale: 1, roughness: 0.7, metalness: 0.35 }),
     hazard: () => S({ map: TEX.get('hazard'), roughness: 0.7 }),
-    door: () => N('door', 1.6, { roughness: 0.65, metalness: 0.4 }),
+    door: () => N('door', 1.6, { color: 0x6c7a74, roughness: 0.62, metalness: 0.4 }),
+    doorWood: () => N('doorWood', 1.8, { color: 0x9a7a5a, roughness: 0.78 }),
+    doorPlate: () => N('doorPlate', 2, { color: 0x7a807c, roughness: 0.7, metalness: 0.45 }),
+    doorFreezer: () => N('doorFreezer', 1.4, { color: 0xc8d4dc, roughness: 0.5, metalness: 0.15 }),
     bunker: () => N('bunker', 2, { roughness: 0.95 }),
     locker: () => N('locker', 1.8, { roughness: 0.6, metalness: 0.4 }),
     vent: () => N('vent', 3, { roughness: 0.7, metalness: 0.4 }),

@@ -90,7 +90,7 @@ const Pods = (() => {
     mk(band(hm - 0.03, hm + 0.03, Math.PI - 0.95, Math.PI + 0.95, 8, -0.062, true), M.strap, 0, 0, 0);
     mk(new THREE.SphereGeometry(R, 24, 12, 0, TAU, Math.PI / 2, Math.PI / 2), M.shield, 0, -L * 0.23, 0, 0, 0, 0).scale.set(1, 0.7, 1);
     mk(new THREE.CylinderGeometry(R * 0.86, R * 0.5, 0.35, 24), M.fin, 0, L * 0.39 + 0.17, 0);
-    mk(new THREE.CylinderGeometry(R * 0.28, R * 0.36, 0.22, 16, 1, true), M.dark, 0, L * 0.39 + 0.42, 0);
+    mk(twoSided(new THREE.CylinderGeometry(R * 0.28, R * 0.36, 0.22, 16, 1, true)), M.dark, 0, L * 0.39 + 0.42, 0);
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * TAU + Math.PI / 4, s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0.42, -0.1); s.lineTo(0.42, 0.28); s.lineTo(0, 0.55); s.closePath();
       const geo = new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: false }); geo.translate(0, 0, -0.02);

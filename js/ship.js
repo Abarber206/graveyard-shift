@@ -365,7 +365,8 @@ const Ship = (() => {
     // ---- detail buckets: hundreds of small parts, merged per material into a handful of meshes ----
     put(m, geo, matrix) { (this.bk[m] || (this.bk[m] = [])).push({ geo, matrix }); }
     pb(m, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.BoxGeometry(w, h, d), mat(x, y, z, rx, ry, rz)); }
-    pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { this.put(m, new THREE.CylinderGeometry(r1, r2, h, seg, 1, open), mat(x, y, z, rx, ry, rz)); }
+    // (an open one, a bell or a sleeve, is solid from inside too: see twoSided)
+    pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { const g = new THREE.CylinderGeometry(r1, r2, h, seg, 1, open); this.put(m, open ? twoSided(g) : g, mat(x, y, z, rx, ry, rz)); }
     ps(m, r, x, y, z, sx = 1, sy = 1, sz = 1, seg = 10) { this.put(m, new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.7))), mat(x, y, z, 0, 0, 0, sx, sy, sz)); }
     pt(m, R, r, x, y, z, rx = 0, ry = 0, rz = 0, seg = 16, arc = TAU) { this.put(m, new THREE.TorusGeometry(R, r, 6, seg, arc), mat(x, y, z, rx, ry, rz)); }
     pq(m, w, h, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.PlaneGeometry(w, h), mat(x, y, z, rx, ry, rz)); }
@@ -1960,7 +1961,7 @@ const Ship = (() => {
       for (const [x, z] of [[-0.38, -0.28], [0.38, -0.28], [-0.38, 0.28], [0.38, 0.28]]) {
         mk(new THREE.BoxGeometry(0.12, 0.04, 0.04), dark, x * 0.75, 0, z, 0, Math.atan2(z, x), 0);
         mk(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 12), dark, x, 0, z);
-        mk(new THREE.CylinderGeometry(0.03, 0.045, 0.05, 10, 1, true), blk, x, -0.07, z);
+        mk(twoSided(new THREE.CylinderGeometry(0.03, 0.045, 0.05, 10, 1, true)), blk, x, -0.07, z);
         const jet = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0x9fd8ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
         jet.position.set(x, -0.14, z); jet.scale.set(0.22, 0.32, 1); g.add(jet); this.robotJets.push(jet);
       }

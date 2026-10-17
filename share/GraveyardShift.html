@@ -568,6 +568,18 @@ function mergeGeoList(list) {
   return BufferGeometryUtils.mergeGeometries(geos, false);
 }
 
+// An open shape (a bell, a pipe, a cone with no base) made solid from both sides: its own faces and the same faces
+// turned inward, so looking into it you see its inside, not through it to whatever's behind
+function twoSided(geo) {
+  const out = geo.index ? geo.toNonIndexed() : geo.clone(), inner = out.clone();
+  for (const k in inner.attributes) {
+    const a = inner.attributes[k], s = a.itemSize, v = a.array;
+    for (let t = 0; t + 2 < a.count; t += 3) for (let c = 0; c < s; c++) { const i = (t + 1) * s + c, j = (t + 2) * s + c, x = v[i]; v[i] = v[j]; v[j] = x; }
+  }
+  const n = inner.attributes.normal; if (n) for (let i = 0; i < n.array.length; i++) n.array[i] = -n.array[i];
+  return mergeGeoList([out, inner]);
+}
+
 const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _e4 = new THREE.Euler(), _s4 = new THREE.Vector3(), _p4 = new THREE.Vector3();
 function mat(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
   _e4.set(rx, ry, rz, 'YXZ');
@@ -9343,7 +9355,8 @@ const Ship = (() => {
     // ---- detail buckets: hundreds of small parts, merged per material into a handful of meshes ----
     put(m, geo, matrix) { (this.bk[m] || (this.bk[m] = [])).push({ geo, matrix }); }
     pb(m, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.BoxGeometry(w, h, d), mat(x, y, z, rx, ry, rz)); }
-    pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { this.put(m, new THREE.CylinderGeometry(r1, r2, h, seg, 1, open), mat(x, y, z, rx, ry, rz)); }
+    // (an open one, a bell or a sleeve, is solid from inside too: see twoSided)
+    pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { const g = new THREE.CylinderGeometry(r1, r2, h, seg, 1, open); this.put(m, open ? twoSided(g) : g, mat(x, y, z, rx, ry, rz)); }
     ps(m, r, x, y, z, sx = 1, sy = 1, sz = 1, seg = 10) { this.put(m, new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.7))), mat(x, y, z, 0, 0, 0, sx, sy, sz)); }
     pt(m, R, r, x, y, z, rx = 0, ry = 0, rz = 0, seg = 16, arc = TAU) { this.put(m, new THREE.TorusGeometry(R, r, 6, seg, arc), mat(x, y, z, rx, ry, rz)); }
     pq(m, w, h, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.PlaneGeometry(w, h), mat(x, y, z, rx, ry, rz)); }
@@ -10938,7 +10951,7 @@ const Ship = (() => {
       for (const [x, z] of [[-0.38, -0.28], [0.38, -0.28], [-0.38, 0.28], [0.38, 0.28]]) {
         mk(new THREE.BoxGeometry(0.12, 0.04, 0.04), dark, x * 0.75, 0, z, 0, Math.atan2(z, x), 0);
         mk(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 12), dark, x, 0, z);
-        mk(new THREE.CylinderGeometry(0.03, 0.045, 0.05, 10, 1, true), blk, x, -0.07, z);
+        mk(twoSided(new THREE.CylinderGeometry(0.03, 0.045, 0.05, 10, 1, true)), blk, x, -0.07, z);
         const jet = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0x9fd8ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
         jet.position.set(x, -0.14, z); jet.scale.set(0.22, 0.32, 1); g.add(jet); this.robotJets.push(jet);
       }
@@ -14770,7 +14783,7 @@ const Pods = (() => {
     mk(band(hm - 0.03, hm + 0.03, Math.PI - 0.95, Math.PI + 0.95, 8, -0.062, true), M.strap, 0, 0, 0);
     mk(new THREE.SphereGeometry(R, 24, 12, 0, TAU, Math.PI / 2, Math.PI / 2), M.shield, 0, -L * 0.23, 0, 0, 0, 0).scale.set(1, 0.7, 1);
     mk(new THREE.CylinderGeometry(R * 0.86, R * 0.5, 0.35, 24), M.fin, 0, L * 0.39 + 0.17, 0);
-    mk(new THREE.CylinderGeometry(R * 0.28, R * 0.36, 0.22, 16, 1, true), M.dark, 0, L * 0.39 + 0.42, 0);
+    mk(twoSided(new THREE.CylinderGeometry(R * 0.28, R * 0.36, 0.22, 16, 1, true)), M.dark, 0, L * 0.39 + 0.42, 0);
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * TAU + Math.PI / 4, s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0.42, -0.1); s.lineTo(0.42, 0.28); s.lineTo(0, 0.55); s.closePath();
       const geo = new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: false }); geo.translate(0, 0, -0.02);

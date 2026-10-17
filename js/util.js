@@ -149,6 +149,18 @@ function mergeGeoList(list) {
   return BufferGeometryUtils.mergeGeometries(geos, false);
 }
 
+// An open shape (a bell, a pipe, a cone with no base) made solid from both sides: its own faces and the same faces
+// turned inward, so looking into it you see its inside, not through it to whatever's behind
+function twoSided(geo) {
+  const out = geo.index ? geo.toNonIndexed() : geo.clone(), inner = out.clone();
+  for (const k in inner.attributes) {
+    const a = inner.attributes[k], s = a.itemSize, v = a.array;
+    for (let t = 0; t + 2 < a.count; t += 3) for (let c = 0; c < s; c++) { const i = (t + 1) * s + c, j = (t + 2) * s + c, x = v[i]; v[i] = v[j]; v[j] = x; }
+  }
+  const n = inner.attributes.normal; if (n) for (let i = 0; i < n.array.length; i++) n.array[i] = -n.array[i];
+  return mergeGeoList([out, inner]);
+}
+
 const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _e4 = new THREE.Euler(), _s4 = new THREE.Vector3(), _p4 = new THREE.Vector3();
 function mat(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
   _e4.set(rx, ry, rz, 'YXZ');

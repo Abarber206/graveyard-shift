@@ -222,6 +222,33 @@ const TEX = (() => {
       return finish(c);
     },
     // grey cloth tape, wrapped and re-wrapped
+    // the Clown's suit: faded yellow, dots that were red once, grimed brown
+    clownDots() {
+      const [c, g] = C(128, 128), rr = new RNG(31);
+      g.fillStyle = '#b8a45a'; g.fillRect(0, 0, 128, 128);
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = `rgba(${140 + rr.int(0, 30)},40,36,${rr.range(0.55, 0.85)})`; g.beginPath(); g.arc(x * 32 + (y % 2) * 16 + 8 + rr.range(-2, 2), y * 32 + 16 + rr.range(-2, 2), rr.range(5, 7), 0, TAU); g.fill(); }
+      blotches(g, 128, 128, 14, '60,48,30', 0.15, 0.45, 6, 26);
+      speckle(g, 128, 128, 26);
+      return finish(c);
+    },
+    // ...its trousers: broad stripes, red and dirty cream
+    clownStripe() {
+      const [c, g] = C(128, 128);
+      for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#c8bc9c' : '#8a2a24'; g.fillRect(i * 32, 0, 32, 128); }
+      blotches(g, 128, 128, 16, '50,40,28', 0.2, 0.5, 6, 30);
+      speckle(g, 128, 128, 24);
+      return finish(c);
+    },
+    // ...and its face: chalk-white greasepaint crazed all over, grey skin in the cracks, yellowed in places
+    greasepaint() {
+      const [c, g] = C(128, 128), rr = new RNG(32);
+      g.fillStyle = '#e4ded0'; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = 'rgba(90,84,78,.7)'; g.lineWidth = 1;
+      for (let i = 0; i < 70; i++) { let x = rr.range(0, 128), y = rr.range(0, 128); g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += rr.range(-9, 9); y += rr.range(-9, 9); g.lineTo(x, y); } g.stroke(); }
+      blotches(g, 128, 128, 10, '170,150,90', 0.1, 0.3, 8, 30);
+      speckle(g, 128, 128, 14);
+      return finish(c);
+    },
     tape() {
       const [c, g] = C(64, 64), rr = new RNG(8);
       g.fillStyle = '#8a8a86'; g.fillRect(0, 0, 64, 64);

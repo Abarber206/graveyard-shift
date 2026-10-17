@@ -736,6 +736,47 @@ const SFX = (() => {
     },
     // the scalpel: a quick dry swish, the blade ticking off something
     sister_slash(d, t) { nz(d, t, 0.16, 0.5, 'bandpass', 2400, 900, 1.6, 0.02); smp(d, t + 0.1, take('scalpel', 4, () => struck({ modes: plate(8, 6), f0: rnd(2600, 3400), T: 0.12, hf: 0.3, tc: 0.0002, click: 0.6 })), 0.4); },
+    // ---- the Clown ----
+    // its shoes: a great flat rubber sole slapping the concrete, the wet rubber squealing as the shoe rolls off it, and
+    // a moment after, the loose half of the sole flapping down
+    clown_step(d, t) {
+      smp(d, t, take('clown_step', 6, () => {
+        const y = arr(0.5);
+        add(y, struck({ modes: plate(10, 2.6), f0: rnd(70, 90), T: 0.12, hf: 3, tc: 0.006, grit: 0.2 }), 0, 1);
+        add(y, norm(fric(rnd(0.18, 0.35), (u) => 380 + 340 * u, (u) => Math.sin(Math.PI * u) ** 0.7, [[900, 1, 0.02], [2100, 0.4, 0.015]], 0.08)), 0.03, 0.35);
+        add(y, struck({ modes: plate(6, 1.6), f0: rnd(160, 220), T: 0.04, hf: 2, tc: 0.002, grit: 0.4 }), rnd(0.04, 0.07), 0.5);
+        return norm(y);
+      }), 1);
+    },
+    // its giggle: "hee-hee-hee" in a cracked falsetto, stepping down each time, then a wheeze drawn back in through its
+    // teeth
+    clown_giggle(d, t) {
+      smp(d, t, take('clown_giggle', 5, () => {
+        const n = 5 + ((Math.random() * 4) | 0), rate = rnd(5, 7), f0 = rnd(380, 520), y = arr(n / rate + 1.2);
+        for (let i = 0; i < n; i++) add(y, voice(0.75 / rate, (u) => f0 * (1 - i * 0.035) * (1 + 0.08 * Math.sin(u * Math.PI)), { jit: 0.04, shim: 0.3, sub: 0.2, breath: 1.0, open: 0.004, air: 0.25, amp: (u) => Math.sin(Math.PI * u) ** 0.6, mouth: [[270, 5, 1], [2290, 7, 0.6], [3000, 8, 0.25]], clip: 1.6 }), i / rate, 1 - i * 0.05);
+        add(y, norm(bq(fade(noise(0.7), (u) => Math.sin(Math.PI * u) ** 2), 'bp', 1100, 12)), n / rate + 0.1, 0.35);
+        return norm(y);
+      }, 24000), 1);
+    },
+    // its music box: the comb's tines are bars clamped at one end (their overtones far apart, a music box's clink), some
+    // bent off pitch and one snapped (only the pin's click); "Pop Goes the Weasel", the spring running down as it goes,
+    // the cylinder catching now and then
+    clown_box(d, t) {
+      smp(d, t, take('clown_box', 3, () => {
+        const TINE = [1, 6.267, 17.55, 34.39], tune = [[0, 2], [0, 1], [2, 2], [2, 1], [4, 1], [7, 1], [4, 1], [0, 2], [-5, 1], [0, 2], [0, 1], [2, 2], [2, 1], [4, 3], [0, 3]];
+        const y = arr(6.5), bent = {}; let at = 0.05;
+        tune.forEach(([s, b], i) => {
+          if (bent[s] == null) bent[s] = rnd(-35, 35);
+          const f = 1046.5 * Math.pow(2, s / 12 + bent[s] / 1200), broken = s === 2 && i > 10;
+          add(y, struck({ modes: TINE, f0: f, T: broken ? 0.01 : lerp(1.6, 0.6, (s + 5) / 12), hf: 0.5, tc: 0.0002, click: broken ? 1 : 0.15 }), at, broken ? 0.3 : 0.6);
+          add(y, struck({ modes: plate(8, 1.5), f0: 420, T: 0.05, hf: 1, tc: 0.001, grit: 0.3 }), at, 0.08);
+          at += b * 0.19 * (1 + i * 0.025) + (Math.random() < 0.15 ? rnd(0.15, 0.4) : 0);
+        });
+        return norm(y);
+      }, 24000), 1);
+    },
+    // its bulb horn: a reed buzzing as the bulb's squeezed, sagging as it empties
+    clown_honk(d, t) { smp(d, t, take('clown_honk', 3, () => buzz(0.45, (u) => 330 - 20 * u, (u) => Math.min(1, u * 12) * Math.min(1, (1 - u) * 6), [[660, 1, 0.03], [990, 0.6, 0.02], [1320, 0.5, 0.02], [1980, 0.3, 0.015]], { duty: 0.3, clip: 1.5 })), 1); },
     // a Bound's voice: a moan from inside a sack of skin, low, through a mouth with no throat behind it
     bound_groan(d, t) { smp(d, t, take('bound_groan', 5, () => growl(rnd(1.4, 2.2), rnd(48, 62), rnd(5, 9), [[rnd(260, 320), 3, 1], [rnd(600, 750), 4, 0.25]], { breath: 0.8, clip: 1.5 }), 22050), 1); },
     bound_breath(d, t) { nz(d, t, 1.4, 0.12, 'lowpass', 400, 200, 0.7, 0.5); },
@@ -1001,6 +1042,7 @@ const SFX = (() => {
 
   // how loud each sound sits in the mix (where its takes need bringing up or down to sit where it always has)
   const LEVEL = {
+    clown_step: 1.1, clown_giggle: 0.7, clown_box: 0.45, clown_honk: 0.4,
     step: 0.31, run_far: 0.31, click: 0.53, pickup: 0.65, door_open: 0.35, crunch: 1.5, stinger: 1.7,
     stinger_hi: 1.1, heartbeat: 0.54, crawler_screech: 0.41, crawler_growl: 1.5, ceramic: 0.23, slime_slosh: 0.27,
     slime_gurgle: 0.22, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,

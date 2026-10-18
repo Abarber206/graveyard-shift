@@ -436,7 +436,15 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    // (inside, onto whatever it's over: a desk, a crate, a shelf)
+    // (inside, onto whatever you're facing if it's in reach: a desk, a crate, a drum, a shelf)
+    if (me.zone === 'in' && G.fac) {
+      const f = G.fac, hand = me.pos.y + 1.3, fl = f.floorY(x, z, me.pos.y);
+      if (f.restY(x, z, hand) < fl + 0.2) for (let d = 0.6; d <= 1.05; d += 0.05) {
+        const qx = me.pos.x + fw.x * d, qz = me.pos.z + fw.z * d; if (f.restY(qx, qz, hand) < fl + 0.2 || !f.los(me.pos.x, me.pos.z, qx, qz)) continue;
+        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = f.restY(ix, iz, hand) >= fl + 0.2;
+        x = inn ? ix : qx; z = inn ? iz : qz; break;
+      }
+    }
     const y = me.roof ? ROOF.y : me.zone === 'in' ? G.fac.restY(x, z, me.pos.y + 1.3) : G.groundAt(x, z);
     G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
   },

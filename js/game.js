@@ -2833,7 +2833,8 @@ const G = {
       if (it.holder != null || G.itemZone(it) !== me.zone || G.itemSealed(it)) continue;
       if (it.pos.distanceTo(me.pos) > 3.6) continue;
       const d = ITEMS[it.type];
-      out.push({ kind: 'item', ref: it, x: it.vis.x, y: it.vis.y + (d.twoHanded ? 0.3 : 0.12), z: it.vis.z, r: d.twoHanded ? 0.55 : 0.32, label: 'Pick up ' + d.name, value: d.kind === 'scrap' ? it.value : 0 });
+      // (something in an open locker or cabinet wins over its door, swung out right by your head)
+      out.push({ kind: 'item', ref: it, x: it.vis.x, y: it.vis.y + (d.twoHanded ? 0.3 : 0.12), z: it.vis.z, r: d.twoHanded ? 0.55 : 0.32, pen: it.box != null ? -0.9 : 0, label: 'Pick up ' + d.name, value: d.kind === 'scrap' ? it.value : 0 });
     }
     if (me.zone === 'in' && G.fac) {
       for (const d of G.fac.doors) if (!d.broken && Math.hypot(d.x - me.pos.x, d.z - me.pos.z) < 3.2) out.push({ kind: 'door', ref: d, x: d.x, y: d.y + 1.2, z: d.z, r: 0.75, label: d.open ? 'Close door' : 'Open door' });

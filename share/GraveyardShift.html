@@ -13159,29 +13159,37 @@ const MonModels = (() => {
       for (const L of [P.al, P.ar]) { mk(sph(0.05), j, L.a); mk(sph(0.045), j, L.b); mk(sph(0.055), m, L.end, 0, -0.03, 0).scale.set(0.8, 1.3, 0.6); }
       root.userData.parts = P; return root;
     },
+    // A fat, glistening grub as long as an arm, built as a chain: each of its segments hangs off the one before (P.joints,
+    // head first), so the whole body can bend: snake as it scuttles, coil, arch, and curl over an edge with its head
+    // already round the corner and its tail still on the ceiling. A pair of jointed legs on each segment but the first
+    // and the last (P.legs: hip, knee), a blind round mouth ringed with hooked teeth (P.mouth), two feelers, and strands
+    // of slime hanging off it. Its head is its origin: it leads with its mouth
     leech() {
-      const root = new THREE.Group(), P = {};
+      const root = new THREE.Group(), P = {}, m = mats.leech(), gum = mats.gum(), lm = mats.leg(), tooth = mats.tooth();
       P.body = grp(root);
       P.body.scale.setScalar(1.35);
-      P.segs = [];
-      const rs = [0.12, 0.17, 0.19, 0.18, 0.15, 0.11, 0.07];
-      rs.forEach((r, i) => { const s = mk(sphZ(r, 10), mats.leech(), P.body, 0, 0, 0.3 - i * 0.12); s.scale.set(1.1, 0.75, 1); P.segs.push(s); });
-      P.strands = [];
-      for (let i = 0; i < 7; i++) {
-        const st = grp(P.body, (Math.random() - 0.5) * 0.25, 0.08, 0.25 - i * 0.09);
-        const l = 0.25 + Math.random() * 0.45;
-        mk(new THREE.CylinderGeometry(0.004, 0.012, l, 4), mats.gum(), st, 0, l / 2, 0);
-        P.strands.push(st);
-      }
-      P.legs = [];
-      for (let i = 0; i < 8; i++) {
-        const side = i % 2 ? 1 : -1, z = 0.25 - Math.floor(i / 2) * 0.13;
-        const l = grp(P.body, side * 0.14, -0.04, z);
-        mk(new THREE.CylinderGeometry(0.008, 0.012, 0.28, 4), mats.leg(), l, side * 0.12, -0.08, 0, 0, 0, side * 1.0);
-        P.legs.push(l);
-      }
-      P.mouth = grp(P.body, 0, 0, 0.38);
-      for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU; mk(new THREE.CylinderGeometry(0.004, 0.01, 0.16, 4), mats.gum(), P.mouth, Math.cos(a) * 0.05, Math.sin(a) * 0.05, 0.06, Math.PI / 2 + Math.sin(a) * 0.4, 0, Math.cos(a) * 0.4); }
+      const rs = [0.1, 0.14, 0.17, 0.185, 0.19, 0.18, 0.165, 0.14, 0.11, 0.075], L = 0.1;
+      P.joints = []; P.segs = []; P.legs = []; P.strands = [];
+      let parent = P.body;
+      rs.forEach((r, i) => {
+        const j = grp(parent, 0, 0, i ? -L : 0); P.joints.push(j); parent = j;
+        const sg = mk(sphZ(r, 10), m, j, 0, 0, -L * 0.45); sg.scale.set(1.12, 0.7, 0.78); P.segs.push(sg);
+        // (the soft dark fold between it and the next)
+        if (i < rs.length - 1) mk(new THREE.CylinderGeometry(r * 0.86, rs[i + 1] * 0.86, L * 0.4, 9), gum, j, 0, -r * 0.08, -L * 0.95, Math.PI / 2).scale.set(1.08, 1, 0.66);
+        if (i > 0 && i < rs.length - 1) for (const sd of [-1, 1]) {
+          const hip = grp(j, sd * r * 0.92, -r * 0.3, -L * 0.45), knee = grp(hip, sd * 0.12, 0.05, 0);
+          mk(new THREE.CylinderGeometry(0.008, 0.013, 0.13, 5), lm, hip, sd * 0.06, 0.025, 0, 0, 0, -sd * 1.17);
+          mk(new THREE.CylinderGeometry(0.004, 0.009, 0.18, 5), lm, knee, sd * 0.025, -0.085, 0, 0, 0, sd * 0.3);
+          P.legs.push({ hip, knee, sd, i });
+        }
+        if (i % 2 === 1 && i < 9) { const st = grp(j, (i % 4 === 1 ? -1 : 1) * r * 0.4, r * 0.55, -L * 0.4), l = 0.2 + (i % 3) * 0.14; mk(new THREE.CylinderGeometry(0.004, 0.012, l, 4), gum, st, 0, l / 2, 0); P.strands.push(st); }
+      });
+      // the mouth: a ring of hooked teeth round a wet dark hole, and two feelers over it
+      P.mouth = grp(P.joints[0], 0, 0, 0.07);
+      mk(new THREE.CircleGeometry(0.06, 12), gum, P.mouth, 0, 0, -0.005);
+      for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU, tg = grp(P.mouth, Math.cos(a) * 0.065, Math.sin(a) * 0.065, 0); tg.rotation.z = a; mk(new THREE.ConeGeometry(0.012, 0.08, 4), tooth, tg, 0, 0, 0.03, Math.PI / 2 - 0.5, 0, 0); }
+      P.feelers = [];
+      for (const sd of [-1, 1]) { const f = grp(P.joints[0], sd * 0.05, 0.07, 0.02); mk(new THREE.CylinderGeometry(0.003, 0.007, 0.24, 4), lm, f, 0, 0.1, 0.06, 0.6, 0, 0); P.feelers.push(f); }
       root.userData.parts = P; return root;
     },
     // A starved, eyeless thing the size of a pony: a deep ribcage with the ribs standing out under the skin, a pinched
@@ -14329,7 +14337,11 @@ class Monster {
         }
         if (cling()) { this.speedNow = 0; break; }
         // (scuttling, when it's heard someone)
-        const rem = this.moveTo(this.goal.x, this.goal.z, this.hurry ? 2.3 : 1.6, dt);
+        // (it goes like a bug: a quick scuttle, then dead still a moment, then another; shorter stops in a hurry)
+        this.scutT = (this.scutT || 0) - dt;
+        if (this.scutT <= 0) { this.still = !this.still; this.scutT = this.still ? 0.12 + Math.random() * (this.hurry ? 0.2 : 0.55) : 0.35 + Math.random() * 0.9; }
+        if (this.still) { this.speedNow = 0; if (this.st > 25) { this.setState('wait'); this.goal = null; this.nearT = 0; } break; }
+        const rem = this.moveTo(this.goal.x, this.goal.z, (this.hurry ? 2.3 : 1.6) * 1.45, dt);
         cling();
         if (rem < 0.5 || this.st > 25) { this.setState('wait'); this.goal = null; this.nearT = 0; }
         break;
@@ -15184,32 +15196,64 @@ class Monster {
     }
   }
   anim_leech(dt, v, lp) {
-    const P = this.P, t = v.t, fac = this.g.fac;
+    const P = this.P, t = v.t, fac = this.g.fac, J = P.joints, st = this.state;
     // (up off the floor: upside down on the ceiling by rolling over, so it still goes head first: flipped end over end
     // it went tail first)
     const up = !fac || this.rpos.y - fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y) > 0.5;
-    const onCeil = (this.state === 'crawl' || this.state === 'wait') && up;
+    const onCeil = (st === 'crawl' || st === 'wait') && up;
     // (climbing, it stands up on the wall: going down, head first and belly to the wall in front of it; going up, head
     // first and belly to the wall behind it)
     v.vy = damp(v.vy || 0, (this.rpos.y - (v.lastY ?? this.rpos.y)) / Math.max(dt, 1e-3), 10, dt); v.lastY = this.rpos.y;
-    const climb = (this.state === 'crawl' || this.state === 'wait') && Math.abs(v.vy) > 0.5 ? -Math.sign(v.vy) * 1.45 : 0;
+    const climb = (st === 'crawl' || st === 'wait') && Math.abs(v.vy) > 0.5 ? -Math.sign(v.vy) * 1.45 : 0;
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.z = damp(this.mesh.rotation.z, onCeil ? Math.PI : 0, 10, dt);
-    this.mesh.rotation.x = damp(this.mesh.rotation.x, this.state === 'attached' ? 1.2 : climb, 10, dt);
-    P.segs.forEach((s, i) => { s.position.x = Math.sin(t * 6 + i * 0.9) * 0.03 * (v.speed > 0.2 || this.state === 'attached' ? 1.5 : 0.3); s.scale.y = 0.75 + Math.sin(t * 3 + i) * 0.05; });
-    P.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 14 + i * 1.7) * (v.speed > 0.2 || this.state === 'attached' ? 0.5 : 0.08); });
-    P.mouth.rotation.z += dt * (this.state === 'attached' ? 6 : 1);
-    P.strands.forEach((s, i) => { s.rotation.x = Math.sin(t * 1.3 + i * 2.1) * 0.25; s.rotation.z = Math.cos(t * 1.1 + i) * 0.25; });
-    // local victim does not see the leech model (screen overlay instead)
-    this.mesh.visible = !(this.state === 'attached' && lp && this.extra === lp.id && lp.alive);
-    if (this.dead) {
-      // on its back on the floor, curling up, its legs folding in
-      const f = this.deadK();
-      this.mesh.rotation.z = Math.PI * f; this.mesh.rotation.x = 0; this.mesh.position.y = this.rpos.y + 0.12 * f;
-      P.segs.forEach((s, i) => { s.position.x = 0; s.scale.y = lerp(0.75, 0.55, f); s.position.y = Math.sin((i / 6) * Math.PI) * 0.07 * f; });
-      P.strands.forEach((st) => { st.scale.y = lerp(1, 0.12, f); });
-      P.legs.forEach((l, i) => { l.rotation.x = 1.3 * f + v.tw * (i % 2 ? 1 : -1); });
+    this.mesh.rotation.x = damp(this.mesh.rotation.x, st === 'attached' ? 1.0 : climb, 9, dt);
+    const moving = v.speed > 0.15 && !this.dead, att = st === 'attached', falling = st === 'drop';
+    // (each scuttle starts with the patter of its feet on the plaster, heard overhead if you're near)
+    if (moving && !v.wasMoving && lp && (v.patT || 0) <= t && this.rpos.distanceTo(lp.pos) < 11) { v.patT = t + 0.5; SFX.play('scurry', this.rpos, { vol: 0.55, ref: 2.5 }); }
+    v.wasMoving = moving;
+    // its gait runs on with the ground it covers (scuttling, the legs blur), and barely at all while it's still
+    v.gp = (v.gp || 0) + dt * (att ? 14 : moving ? 7 + v.speed * 8 : 0.5);
+    // (what pitch the head had a moment ago: each segment back takes the turn the head took a little earlier, so over an
+    // edge it curls, head round the corner and tail still where it was)
+    const H = v.hist || (v.hist = []); H.unshift([t, this.mesh.rotation.x]); if (H.length > 90) H.length = 90;
+    const pitchAt = (tq) => { for (const h of H) if (h[0] <= tq) return h[1]; return H[H.length - 1][1]; };
+    // (still, now and then it rears its head up and sweeps it, tasting the air; scuttling, it snakes)
+    const rear = moving || att ? 0 : 0.5 + 0.5 * Math.sin(t * 0.7 + this.id), wave = att ? 0.25 : moving ? 0.26 * Math.min(1, v.speed / 1.4) + 0.06 : 0.07;
+    let prev = this.mesh.rotation.x;
+    for (let i = 0; i < J.length; i++) {
+      const j = J[i], abs = i ? pitchAt(t - i * 0.07) : prev, rel = i ? abs - prev : 0; prev = abs;
+      let yaw = wave * Math.sin(v.gp * (moving ? 0.45 : 0.6) - i * 0.75) * (i ? 1 : 0.6), pitch = rel;
+      if (!this.dead) {
+        pitch += moving ? 0.06 * Math.sin(v.gp * 0.9 - i * 0.8) : 0.035 * Math.sin(t * 1.4 - i * 0.6);
+        if (i <= 2) pitch -= rear * (i === 1 ? 0.32 : 0.16);
+        if (att) pitch += 0.2 + 0.06 * Math.sin(t * 9 - i);
+        if (falling) { yaw *= 0.3; pitch = 0.06 * Math.sin(t * 20 + i); }
+        if (!moving && !att && i > 6) pitch -= 0.12 * (0.5 + 0.5 * Math.sin(t * 0.5 + this.id * 2)); // (the tail curling up)
+      } else { const f = this.deadK(); yaw = 0.08 * Math.sin(i) * f; pitch = -0.38 * f; }
+      j.rotation.set(pitch, yaw, 0);
+      P.segs[i].scale.y = 0.7 + 0.05 * Math.sin(t * 2.6 - i * 0.5) + (att ? 0.06 * Math.sin(t * 12 - i) : 0);
     }
+    // the legs: a ripple running down each side from the head (the two sides out of step), each leg swung forward lifted
+    // and set down, pulled back flat; still, they shift and twitch; gripping, they clamp down hard; dying, they fold up
+    for (const L of P.legs) {
+      const sd = L.sd, ph = v.gp - L.i * 0.85 + (sd > 0 ? Math.PI : 0), sw = Math.sin(ph), lift = Math.max(0, Math.cos(ph));
+      let swing = 0.12, raise = 0, bend = 0;
+      if (this.dead) { const f = this.deadK(); raise = 1.1 * f + v.tw * (L.i % 2 ? 0.4 : -0.4); bend = 1.0 * f; }
+      else if (att) { swing = 0.25 * Math.sin(t * 13 + L.i); raise = -0.45; bend = 0.7; }
+      else if (falling) { swing = 0.5 * Math.sin(t * 24 + L.i * 1.3); raise = 0.6; bend = 0.2; }
+      else if (moving) { swing = 0.12 + 0.42 * sw; raise = 0.55 * lift; bend = 0.55 * lift; }
+      else { const tw = Math.max(0, Math.sin(t * 3.1 + L.i * 2.3 + this.id)) ** 8; swing = 0.12 + 0.12 * tw; raise = 0.35 * tw; bend = 0.3 * tw; }
+      L.hip.rotation.set(0, sd * swing, sd * raise); L.knee.rotation.z = -sd * bend;
+    }
+    // the mouth working (gaping wide on a head), the feelers flicking, the slime swaying
+    const gape = att ? 0.55 + 0.25 * Math.sin(t * 7) : moving ? 0.15 + 0.1 * Math.sin(t * 5) : 0.08 + 0.08 * Math.sin(t * 1.7);
+    P.mouth.scale.set(1 + gape, 1 + gape, 1); P.mouth.rotation.z += dt * (att ? 5 : 0.6);
+    P.feelers.forEach((f, i) => { f.rotation.x = 0.25 * Math.sin(t * (moving ? 11 : 4.3) + i * 2) - rear * 0.3; f.rotation.z = 0.3 * Math.sin(t * (moving ? 9 : 3.1) + i * 1.3); });
+    P.strands.forEach((s, i) => { s.rotation.x = Math.sin(t * 1.3 + i * 2.1) * 0.25 - v.speed * 0.15; s.rotation.z = Math.cos(t * 1.1 + i) * 0.25; });
+    // local victim does not see the leech model (screen overlay instead)
+    this.mesh.visible = !(att && lp && this.extra === lp.id && lp.alive);
+    if (this.dead) { const f = this.deadK(); this.mesh.rotation.z = Math.PI * f; this.mesh.rotation.x = 0; this.mesh.position.y = this.rpos.y + 0.12 * f; P.strands.forEach((s) => { s.scale.y = lerp(1, 0.12, f); }); }
   }
   // The Seep, as everyone sees it: a jelly filling the corridor from wall to wall and up to the ceiling (squeezing down
   // to the size of a doorway to go through an open one), heaving all over and wobbling as it gets going or stops. At a

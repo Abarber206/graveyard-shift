@@ -3272,6 +3272,8 @@ const G = {
     let fear = 0, flicker = 0, chased = false, chaseK = 0, radioD = 99;
     const camDir = R.camera.getWorldDirection(new THREE.Vector3());
     for (const m of G.monsters.values()) {
+      // (how long since it was last with you: in sight, or out of it but still after you; see the stinger below)
+      m.lostT = (m.lostT || 0) + dt;
       if (m.dead || m.def.zone !== G.zoneOf(me)) continue;
       const c = m.center(), dist = c.distanceTo(cam);
       if (dist > 26) continue;
@@ -3284,9 +3286,14 @@ const G = {
       const threat = m.state === 'charge' || m.state === 'chase' || m.state === 'lunge' || m.state === 'hunt' || m.state === 'drawn' || m.state === 'lurch' || m.state === 'swing' || (m.type === 'executioner' && m.state === 'walk') || (m.type === 'clown' && (m.state === 'herd' || m.state === 'block' || m.state === 'grab'));
       if (m.def.radio) radioD = Math.min(radioD, dist);
       if (threat && dist < 16 && (m.extra === me.id || m.type === 'mannequin' || m.type === 'hound' || m.type === 'executioner')) { chased = true; chaseK = Math.max(chaseK, clamp(1 - dist / 18, 0.15, 1)); }
+      // The stinger: once, the moment you first see it. Not again while it's still with you (in sight, or out of sight
+      // but still on your heels: a look back at it mid-chase is no surprise); only once you've lost it a while (a good
+      // twelve seconds with it neither in sight nor after you) does seeing it again sting
+      if (visible || (m.stung && threat && m.extra === me.id && dist < 22)) m.lostT = 0;
+      if (m.lostT > 12) m.stung = false;
       if (visible) {
         fear = Math.max(fear, clamp(1 - dist / 22, 0, 1) + (threat ? 0.35 : 0.1));
-        if (me.alive && G.now - (m.lastSting || -1e9) > 25000) { m.lastSting = G.now; SFX.play(dist < 5 ? 'stinger_hi' : 'stinger', null, { vol: 0.9, pitch: 0.85 + Math.random() * 0.3 }); }
+        if (me.alive && !m.stung) { m.stung = true; SFX.play(dist < 5 ? 'stinger_hi' : 'stinger', null, { vol: 0.9, pitch: 0.85 + Math.random() * 0.3 }); }
       } else if (dist < 12 && los) fear = Math.max(fear, (1 - dist / 12) * 0.45);
       if (m.type === 'pale' && m.extra === me.id && dist < 13 && m.state === 'stalk') flicker = Math.max(flicker, 0.06 * (1 - dist / 13) + 0.02);
     }

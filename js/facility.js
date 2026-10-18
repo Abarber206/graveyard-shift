@@ -1866,7 +1866,9 @@ const Facility = (() => {
     // a route from a to b as waypoints ({x, z}). Within a level it follows the corridors; between levels it goes through
     // a stairwell, in at one doorway, down or up the flights (every turn a waypoint that must be reached), out at another.
     // ay / by: the heights of the two ends, which only matter inside a stairwell (its storeys share the same ground).
-    findPath(ax, az, bx, bz, ignoreBlock = false, ay, by, rad = 0.45) {
+    // (shut: a door shut and whole is as good as a wall, for something that can't open it; and if there's then no way to
+    // the goal at all, the way to wherever it can get nearest to it instead)
+    findPath(ax, az, bx, bz, ignoreBlock = false, ay, by, rad = 0.45, shut = false) {
       const W = this.W, sa = this.shaftAt(ax, az), sb = this.shaftAt(bx, bz);
       // both ends in the same stairwell: just along its flights
       if (sa && sa === sb) {
@@ -1898,12 +1900,13 @@ const Facility = (() => {
       let bestEnd = Infinity, goal = -1;
       const reach = (k, cost) => { const q = goals.get(k); if (q && cost + q.cost < bestEnd) { bestEnd = cost + q.cost; goal = k; open.push(bestEnd, END); } };
       for (const [k, s0] of starts) if (s0.cost < gOf(k)) { S.at[k] = now; S.g[k] = s0.cost; S.came[k] = -1; S.via[k] = null; open.push(s0.cost + h(k), k); reach(k, s0.cost); }
-      let found = false, guard = 0;
+      let found = false, guard = 0, near = -1, nearH = Infinity;
       while (open.size && guard++ < Math.max(8000, N * 2)) {
         const k = open.pop();
         if (k === END) { found = true; break; }
         if (S.shut[k] === now) continue;
         S.shut[k] = now;
+        if (shut) { const hk = h(k); if (hk < nearH) { nearH = hk; near = k; } }
         const i = k % W, j = Math.floor(k / W), gk = S.g[k];
         const relax = (nk, cost, portal) => {
           if (cost < gOf(nk)) { S.at[nk] = now; S.g[nk] = cost; S.came[nk] = k; S.via[nk] = portal || null; open.push(cost + h(nk), nk); reach(nk, cost); }
@@ -1912,13 +1915,15 @@ const Facility = (() => {
           const ni = i + dx, nj = j + dy, nk = this.idx(ni, nj);
           if (!(ignoreBlock ? this.floorAt(ni, nj) : this.walkable(ni, nj)) || this.grid[nk] === 4) continue;
           if (!this.connected(k, nk) || this.closedBlast(k, nk)) continue;
-          relax(nk, gk + 1 + (this.doorEdge.has(this.edgeKey(k, nk)) ? 0.6 : 0), null);
+          const de = this.doorEdge.get(this.edgeKey(k, nk));
+          if (shut && de && !de.open && !de.broken) continue;
+          relax(nk, gk + 1 + (de ? 0.6 : 0), null);
         }
         const ps = this.portals.get(k);
         if (ps) for (const p of ps) relax(p.to, gk + p.cost, p);
       }
-      if (!found) return null;
-      const post = goals.get(goal).post;
+      if (!found) { if (!shut || near < 0) return null; if (starts.has(near)) return [{ x: ax, z: az }]; goal = near; }
+      const post = found ? goals.get(goal).post : [];
       let start = goal; while (S.came[start] >= 0) start = S.came[start];
       const pre = starts.get(start).pre;
       const tiles = [];
@@ -1930,7 +1935,7 @@ const Facility = (() => {
         if (p) pts.push(...this.shaftPassage(p.a, p.b));
         else pts.push({ x: this.cx(k % W), z: this.cz(Math.floor(k / W)), k });
       }
-      if (!sb) { if (pts.length && !pts[pts.length - 1].hard) pts[pts.length - 1] = { x: bx, z: bz, k: goal }; else pts.push({ x: bx, z: bz, k: goal }); }
+      if (!sb && found) { if (pts.length && !pts[pts.length - 1].hard) pts[pts.length - 1] = { x: bx, z: bz, k: goal }; else pts.push({ x: bx, z: bz, k: goal }); }
       // string-pull the open stretches (never past a waypoint on the stairs, nor a doorway in or out of them)
       const out = [...pre];
       let cur = pre.length ? pre[pre.length - 1] : { x: ax, z: az };

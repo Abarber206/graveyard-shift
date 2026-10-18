@@ -1,10 +1,11 @@
 'use strict';
 // Creatures: procedural models, host-side AI, client-side animation + sound.
 const MON_DEFS = {
-  crawler: { name: 'Crawler', hp: 4, zone: 'in', power: 2, radius: 0.6, height: 1.0 },
+  // (doors: false: it has nothing to work a handle with, and a shut door stops it: see moveTo)
+  crawler: { name: 'Crawler', hp: 4, zone: 'in', power: 2, radius: 0.6, height: 1.0, doors: false },
   pale: { name: 'The Pale', hp: 3, zone: 'in', power: 3, radius: 0.4, height: 2.3 },
   mannequin: { name: 'Mannequin', hp: 9999, zone: 'in', power: 2, radius: 0.35, height: 1.7 },
-  leech: { name: 'Ceiling Leech', hp: 2, zone: 'in', power: 1, radius: 0.3, height: 0.3 },
+  leech: { name: 'Ceiling Leech', hp: 2, zone: 'in', power: 1, radius: 0.3, height: 0.3, doors: false },
   hound: { name: 'Hollow Hound', hp: 5, zone: 'out', power: 2, radius: 0.7, height: 1.2 },
   // (its body fills a corridor; what it steers by is a small core, so it can squeeze through any doorway)
   slime: { name: 'The Seep', hp: 9999, zone: 'in', power: 3, radius: 0.55, height: 2.8 },
@@ -17,10 +18,10 @@ const MON_DEFS = {
 };
 const BESTIARY = {
   clown: 'Too big for the building. It walks the lower floors bent double under the ceiling, a shoulder to each wall, and there is no getting past it in a corridor. It has to fold itself through every doorway, slowly. It is slower than you are, and it does not need to be fast: it hears you through the floors, it knows the short way round, and it gets to the corridor you need before you do. Listen for the shoes, the giggle, the music box. In a room you can get round it. Do not let it walk you into a room with one door.',
-  crawler: 'Low, eyeless, mostly mouth. It feels movement and hears footsteps: keep still and it may pass you by. Once it notices you it screams, and others come. It charges in a straight line at where you are going and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. Closed doors buy you a second.',
+  crawler: 'Low, eyeless, mostly mouth. It feels movement and hears footsteps: keep still and it may pass you by. Once it notices you it screams, and others come. It charges in a straight line at where you are going and is terrible at corners. It cannot stop quickly. Four solid hits will put it down. It cannot work a door: shut one behind you and it stays shut. Slam one in its face and it hits it full tilt and is left reeling.',
   pale: 'Tall. Patient. It follows from behind and hates being watched, if it can see you looking: in the dark, more than a few steps off, it cannot. Glance at it and it slinks away. Stare at it, or keep looking round at it, and it stops being patient; leave it be a while and it settles again. If your light flickers and you feel watched, turn around.',
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
-  leech: 'Clings to ceilings above corridors and doorways, where people pass, and drops onto the head of whoever passes beneath. It moves to where it hears footsteps. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel.',
+  leech: 'Clings to ceilings above corridors and doorways, where people pass, and drops onto the head of whoever passes beneath. It moves to where it hears footsteps. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel. It cannot open a door: it goes round, or waits by one for somebody to open it.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound, and close to, by smell: do not stand still next to one, move away quietly. Walk, crouch, keep quiet. One that howls is calling the others. They will follow you into the ship if the hatch is open.',
   sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
   bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway, round a corner, where people pass; it hears you coming and lies down in your way. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
@@ -617,9 +618,12 @@ class Monster {
       else { const keep = this.path, kg = this.pathGoal; this.path = dt0.path; this.pathGoal = { x: dt0.x, z: dt0.z }; this.moveTo(dt0.x, dt0.z, speed, dt, Object.assign({}, opts, { detour: true, gy: undefined })); dt0.path = this.path; this.path = keep; this.pathGoal = kg; return Math.hypot(gx - this.pos.x, gz - this.pos.z); }
     }
     this.pathT -= dt;
+    // (one that can't work a door goes round the shut ones, or if there's no way round, as near as it can get: up to the
+    // door, where it waits, scratching at it, until somebody opens it)
+    const handles = this.def.doors !== false;
     const moved = !this.pathGoal || Math.hypot(this.pathGoal.x - gx, this.pathGoal.z - gz) > 1.5;
     if (!this.path || this.pathT <= 0 || moved) {
-      this.path = fac.findPath(this.pos.x, this.pos.z, gx, gz, false, this.pos.y, opts.gy, r + 0.05) || [{ x: gx, z: gz }];
+      this.path = fac.findPath(this.pos.x, this.pos.z, gx, gz, false, this.pos.y, opts.gy, r + 0.05, !handles) || [{ x: gx, z: gz }];
       this.pathGoal = { x: gx, z: gz }; this.pathT = 0.5 + Math.random() * 0.3;
     }
     while (this.path.length > 1 && Math.hypot(this.path[0].x - this.pos.x, this.path[0].z - this.pos.z) < (this.path[0].hard ? 0.5 : Math.max(0.5, Math.min(1.2, speed * dt * 1.5)))) { this.path.shift(); this.prog = null; }
@@ -634,7 +638,7 @@ class Monster {
     if (!dp && hit) dp = this.doorPass = { d: hit, side: Math.sign((this.pos.x - hit.x) * hit.nx + (this.pos.z - hit.z) * hit.nz) || 1, t0: this.st, near: true };
     if (dp) {
       const d = dp.d, nx = d.nx, nz = d.nz, along = (this.pos.x - d.x) * nx + (this.pos.z - d.z) * nz, lat = (this.pos.x - d.x) * -nz + (this.pos.z - d.z) * nx;
-      if (!d.open && !d.broken && Math.hypot(d.x - this.pos.x, d.z - this.pos.z) < 1.8 + r) { if (opts.doors === false) this.doorAhead = d; else this.g.monsterOpenDoor(this, d); }
+      if (!d.open && !d.broken && Math.hypot(d.x - this.pos.x, d.z - this.pos.z) < 1.8 + r) { if (opts.doors === false || !handles) this.doorAhead = d; else this.g.monsterOpenDoor(this, d); }
       const s = dp.side, nextW = this.path[1] && Math.hypot(wp.x - d.x, wp.z - d.z) < 2.4 ? this.path[1] : wp;
       const leaf = d.open && !d.broken && d.dir === -s, hinge = ((nextW.x - d.x) * -nz + (nextW.z - d.z) * nx) < -0.3;
       const exitD = leaf && hinge ? 1.53 + 0.1 + r : r + 0.4;
@@ -902,10 +906,11 @@ class Monster {
         const f = this.forward(), ox = this.pos.x, oz = this.pos.z, want = this.charge * dt;
         // bash doors
         const ci = fac.ti(ox), cj = fac.tj(oz), ni = fac.ti(ox + f.x * 1.2), nj = fac.tj(oz + f.z * 1.2);
-        // a door slammed in its face: it goes straight through, and is left reeling
+        // a door slammed in its face: it hits it full tilt (the whole door bangs in its frame) and is left reeling on
+        // this side of it
         if (ni !== ci || nj !== cj) {
           const door = fac.closedDoorBetween(ci, cj, ni, nj);
-          if (door) { this.g.monsterBreakDoor(this, door); this.stun = 2.5; this.charge = 0; this.speedNow = 0; this.setState('search'); this.plan = this.sweepPlan(); this.planT = 0; break; }
+          if (door) { this.g.emitSound('door_slam', new THREE.Vector3(door.x, door.y + 1, door.z), { vol: 1.5, ref: 5 }); this.g.emitSound('crunch', this.pos, { vol: 0.8 }); this.g.addNoise(new THREE.Vector3(door.x, door.y + 1, door.z), 18, 'in', null, 'bang', this.id); this.stun = 2.5; this.charge = 0; this.speedNow = 0; this.setState('search'); this.plan = this.sweepPlan(); this.planT = 0; break; }
         }
         this.hop(f.x, f.z, want);
         const got = Math.hypot(this.pos.x - ox, this.pos.z - oz);
@@ -1350,22 +1355,28 @@ class Monster {
   }
   ai_leech(dt) {
     const fac = this.g.fac;
-    // (the lowest of the ceiling along its length, and the wall over a doorway it's crossing: where a tall room meets a
-    // corridor it climbs down to it, rather than its front end going on up inside the wall)
+    // It goes the way a thing that clings does: over the ceiling, and where the ceiling steps down (a doorway's lintel,
+    // a tall room giving onto a corridor) down the wall to it, at the wall, and where it steps up again, up the wall on
+    // the far side before it goes on; never up or down through the open air.
     // (the doors round about, looked up again once it has gone a few metres)
     if (!this.nearDoors || Math.hypot(this.pos.x - this.nearDoors.x, this.pos.z - this.nearDoors.z) > 3) this.nearDoors = { x: this.pos.x, z: this.pos.z, l: fac.doors.filter((d) => Math.abs(d.x - this.pos.x) < 5.5 && Math.abs(d.z - this.pos.z) < 5.5) };
-    const ceilY = () => {
-      const f = this.forward(), y0 = this.pos.y - 3; let c = Infinity;
-      for (const k of [-0.55, 0, 0.55, 1.1]) { const x = this.pos.x + f.x * k, z = this.pos.z + f.z * k; if (fac.floorAt(fac.ti(x), fac.tj(z))) c = Math.min(c, fac.ceilY(x, z, y0)); }
+    // (the ceiling over a point: the room's, or a doorway's lintel right in the doorway)
+    const over = (x, z) => {
+      const y0 = this.pos.y - 3; let c = fac.floorAt(fac.ti(x), fac.tj(z)) ? fac.ceilY(x, z, y0) : Infinity;
       for (const d of this.nearDoors.l) {
-        if (Math.abs(d.x - this.pos.x) > 2 || Math.abs(d.z - this.pos.z) > 2 || Math.abs(d.y - y0) > 3) continue;
-        const along = (this.pos.x - d.x) * d.nx + (this.pos.z - d.z) * d.nz, lat = (this.pos.x - d.x) * -d.nz + (this.pos.z - d.z) * d.nx;
-        if (Math.abs(along) < 1.2 && Math.abs(lat) < 1.5) c = Math.min(c, d.y + Facility.DH);
+        if (Math.abs(d.y - y0) > 3) continue;
+        const along = (x - d.x) * d.nx + (z - d.z) * d.nz, lat = (x - d.x) * -d.nz + (z - d.z) * d.nx;
+        if (Math.abs(along) < 0.22 && Math.abs(lat) < 0.9) c = Math.min(c, d.y + Facility.DH);
       }
-      return (c === Infinity ? fac.ceilY(this.pos.x, this.pos.z, y0) : c) - 0.18;
+      return c;
+    };
+    // (where it should cling: the ceiling over it, or one a step lower just ahead, climbed down to at the wall first)
+    const ceilY = () => {
+      const f = this.forward(); let c = Math.min(over(this.pos.x, this.pos.z), over(this.pos.x + f.x * 0.3, this.pos.z + f.z * 0.3));
+      return (c === Infinity ? fac.ceilY(this.pos.x, this.pos.z, this.pos.y - 3) : c) - 0.18;
     }, floorY = () => fac.floorY(this.pos.x, this.pos.z, this.pos.y);
-    // (it climbs at 4 m/s; a lower ceiling ahead, it stops and climbs down to it first)
-    const cling = () => { const c = ceilY(); this.pos.y += clamp(c - this.pos.y, -4 * dt, 4 * dt); return this.pos.y - c > 0.15; };
+    // (it climbs at 2.5 m/s, and goes nowhere while it's climbing: true while it's still on the way)
+    const cling = () => { const c = ceilY(); this.pos.y += clamp(c - this.pos.y, -2.5 * dt, 2.5 * dt); return Math.abs(this.pos.y - c) > 0.15; };
     switch (this.state) {
       case 'crawl': {
         if (!this.goal) {
@@ -1373,9 +1384,16 @@ class Monster {
           this.goal = this.perch(this.heardAt) || this.randomGoal(4, 16, (p) => fac.ceilAt(p.x, p.z) <= 3.6) || this.randomGoal(3, 10);
           this.hurry = !!this.heardAt; this.heardAt = null; this.st = 0;
         }
+        // (down on the floor, it was knocked off or fell: it scuttles to the nearest wall, turns its back to the room
+        // and goes up the wall to the ceiling)
+        if (this.pos.y - floorY() < 0.3 && ceilY() - this.pos.y > 0.6) {
+          if (!this.wallAt || this.st > 6) { this.wallAt = this.nearestWall(); this.st = Math.min(this.st, 1); }
+          const w = this.wallAt;
+          if (w && Math.hypot(w.x - this.pos.x, w.z - this.pos.z) > 0.12 && this.st < 5) { this.moveTo(w.x, w.z, 1.8, dt); this.pos.y = floorY(); break; }
+          if (w) this.ry = this.rry = Math.atan2(this.pos.x - w.wx, this.pos.z - w.wz);
+          this.wallAt = null;
+        }
         if (cling()) { this.speedNow = 0; break; }
-        // (back up off the floor, it hauls itself up to the ceiling first, most of a second, before it crawls on)
-        if (ceilY() - this.pos.y > 0.25) { this.speedNow = 0; break; }
         // (scuttling, when it's heard someone)
         const rem = this.moveTo(this.goal.x, this.goal.z, this.hurry ? 2.3 : 1.6, dt);
         cling();
@@ -1438,6 +1456,16 @@ class Monster {
       }
       default: this.setState('crawl');
     }
+  }
+  // the nearest wall round about, felt for in a ring (within 4 m): where to stand against it (x, z) and the point on it
+  // (wx, wz). null if there's none that near
+  nearestWall() {
+    const fac = this.g.fac, x0 = this.pos.x, z0 = this.pos.z; let best = null, bd = 4;
+    for (let a = 0; a < 16; a++) {
+      const ux = Math.sin((a / 16) * TAU), uz = Math.cos((a / 16) * TAU);
+      for (let d = 0.3; d < bd; d += 0.25) if (!fac.los(x0, z0, x0 + ux * d, z0 + uz * d)) { bd = d; best = { x: x0 + ux * Math.max(0, d - 0.4), z: z0 + uz * Math.max(0, d - 0.4), wx: x0 + ux * d, wz: z0 + uz * d }; break; }
+    }
+    return best;
   }
   // somewhere on the ceiling to wait (see ambushSpots): over the middle of a doorway, where whoever comes through passes
   // right under it, or a corridor the crew use; having heard someone, as near there as it can get
@@ -2222,11 +2250,18 @@ class Monster {
     }
   }
   anim_leech(dt, v, lp) {
-    const P = this.P, t = v.t;
-    const onCeil = this.state === 'crawl' || this.state === 'wait';
-    // (upside down on the ceiling by rolling over, so it still goes head first: flipped end over end it went tail first)
+    const P = this.P, t = v.t, fac = this.g.fac;
+    // (up off the floor: upside down on the ceiling by rolling over, so it still goes head first: flipped end over end
+    // it went tail first)
+    const up = !fac || this.rpos.y - fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y) > 0.5;
+    const onCeil = (this.state === 'crawl' || this.state === 'wait') && up;
+    // (climbing, it stands up on the wall: going down, head first and belly to the wall in front of it; going up, head
+    // first and belly to the wall behind it)
+    v.vy = damp(v.vy || 0, (this.rpos.y - (v.lastY ?? this.rpos.y)) / Math.max(dt, 1e-3), 10, dt); v.lastY = this.rpos.y;
+    const climb = (this.state === 'crawl' || this.state === 'wait') && Math.abs(v.vy) > 0.5 ? -Math.sign(v.vy) * 1.45 : 0;
+    this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.z = damp(this.mesh.rotation.z, onCeil ? Math.PI : 0, 10, dt);
-    this.mesh.rotation.x = damp(this.mesh.rotation.x, this.state === 'attached' ? 1.2 : 0, 10, dt);
+    this.mesh.rotation.x = damp(this.mesh.rotation.x, this.state === 'attached' ? 1.2 : climb, 10, dt);
     P.segs.forEach((s, i) => { s.position.x = Math.sin(t * 6 + i * 0.9) * 0.03 * (v.speed > 0.2 || this.state === 'attached' ? 1.5 : 0.3); s.scale.y = 0.75 + Math.sin(t * 3 + i) * 0.05; });
     P.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 14 + i * 1.7) * (v.speed > 0.2 || this.state === 'attached' ? 0.5 : 0.08); });
     P.mouth.rotation.z += dt * (this.state === 'attached' ? 6 : 1);

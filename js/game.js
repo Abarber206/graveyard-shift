@@ -226,7 +226,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 16;
+const PROTO = 17;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -436,7 +436,8 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    const y = me.roof ? ROOF.y : me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : G.groundAt(x, z);
+    // (inside, onto whatever it's over: a desk, a crate, a shelf)
+    const y = me.roof ? ROOF.y : me.zone === 'in' ? G.fac.restY(x, z, me.pos.y + 1.3) : G.groundAt(x, z);
     G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
   },
   // ======================= world =======================
@@ -959,6 +960,12 @@ const G = {
       if (e.t == null) HUD.chat('', 'Mercy Supply: pod inbound, impact in about ' + Math.round(POD.WAIT + POD.GLINT + POD.FALL) + ' seconds. Stand clear of the ship.', 'sys');
     },
     podOpen(e) { const p = Pods.get(e.id); if (p && !p.opened) Pods.crack(p, false); },
+    // more for a pod that's still being loaded
+    podAdd(e) {
+      const p = Pods.get(e.id); if (!p) return;
+      p.items.push(...e.items);
+      HUD.chat('', 'Mercy Supply: added to the pod already inbound.', 'sys');
+    },
     lock(e) { G.ship.lockCycling = !!e.cycling; if (!e.cycling) SFX.play('beep', new THREE.Vector3(-2.5, 2.5, AIRLOCK.z0), { f: 1320, vol: 0.5 }); },
     itemDel(e) { G.removeItem(e.id); },
     // someone finished a snack: you hear it from them; if it was you, it kicks in
@@ -1559,9 +1566,10 @@ const G = {
       if (along < 0 || along > 2.9 || v.sub(d.clone().multiplyScalar(along)).length() > 0.95) continue;
       const at = o.clone().addScaledVector(d, Math.max(0.3, along - 0.6));
       G.emit({ e: 'nest', hp: nest.hp - 1 }); G.emitSound('hit_flesh', at, { vol: 1.2, ref: 5 });
+      if (!nest.dead) G.hostNestFlood(p);
       // (the brood come to see what's hurting it)
-      for (const m of G.monsters.values()) if (m.home && !m.dead && (m.state === 'crawl' || m.state === 'wait')) { m.heardAt = { x: p.pos.x, z: p.pos.z, y: p.pos.y, pd: 4 }; m.goal = null; m.stalk = null; m.setState('crawl'); }
-      if (nest.dead) { G.emitSound('slime_slosh', at, { vol: 1.6, ref: 6 }); for (const s of nest.spine) G.emitSound('hit_flesh', s, { vol: 1, ref: 5 }); }
+      for (const m of G.monsters.values()) if (m.home && !m.dead && m.stalk == null && (m.state === 'crawl' || m.state === 'wait')) { m.heardAt = { x: p.pos.x, z: p.pos.z, y: p.pos.y, pd: 4 }; m.goal = null; m.stalk = null; m.setState('crawl'); }
+      if (nest.dead) { G.emitSound('slime_slosh', at, { vol: 1.6, ref: 6 }); for (const s of nest.spine.slice(0, 3)) G.emitSound('hit_flesh', s, { vol: 1, ref: 5 }); }
       return;
     }
     for (const q of G.alivePlayers()) {
@@ -1894,7 +1902,7 @@ const G = {
     // a few snacks somebody never came back for: mostly in lockers and cabinets, desks, the front office
     const nf = r.int(2, 4);
     for (let i = 0; i < nf && spots.length; i++) {
-      let tot = 0; const ws = spots.map((s) => { const w = (FOOD_SPOTS[s.tag] || 0.15) * (s.c != null ? 2.5 : 1); tot += w; return w; });
+      let tot = 0; const ws = spots.map((s) => { const w = (FOOD_SPOTS[s.tag] || 0.15) * (s.c != null ? 1.3 : 1); tot += w; return w; });
       let x = r.next() * tot, k = 0; for (; k < spots.length - 1; k++) { x -= ws[k]; if (x <= 0) break; }
       const s = spots.splice(k, 1)[0];
       out.push({ id: G.nextItemId++, type: r.weighted(FOOD_FIND), value: 0, x: s.x, y: s.y, z: s.z, ry: r.range(0, TAU), c: s.c });
@@ -1911,7 +1919,8 @@ const G = {
     const site = SITES[G.round.site], fac = G.fac;
     if (!type) {
       const counts = {}; let power = 0, n = 0;
-      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in') { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n++; }
+      // (a nest's brood are its own: they don't count against what else turns up)
+      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in' && !m.home) { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n++; }
       // (a plant more than four floors deep has room for a little more of it: one more thing for each floor past the fourth)
       const extra = Math.max(0, fac.levels - 4);
       if (n >= site.cap + Math.min(2, extra)) return;
@@ -1962,6 +1971,12 @@ const G = {
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type: 'leech', x: s.x, y: s.y, z: s.z, home: 1 });
     if (!seed) G.emitSound('slime_gurgle', new THREE.Vector3(n.x, n.Y + n.h * 0.6, n.z), { vol: 1.1, ref: 4 });
     return true;
+  },
+  // the nest's brood start to pour out of it (at whoever it was set off by)
+  hostNestFlood(p) {
+    const n = G.fac.nest, r = G.round; if (!n || n.dead || r.nestFlood || !(r.nestPool > 0)) return;
+    r.nestFlood = { t: 0.6, pid: p.id };
+    G.emitSound('slime_slosh', new THREE.Vector3(n.x, n.Y + n.h - 0.5, n.z), { vol: 1.5, ref: 6 });
   },
   hostSpawnHound() {
     const outside = G.alivePlayers().filter((p) => p.zone === 'out');
@@ -2313,8 +2328,30 @@ const G = {
       // spawns
       r.spawnT -= dt;
       if (r.spawnT <= 0) { r.spawnT = (55 + Math.random() * 50) * (1 - clamp((r.time - 480) / 960, 0, 1) * 0.35); G.hostSpawnInterior(null, false); }
-      // a nest left alone breeds: another leech crawls out of it every minute or two, while its brood's thin
-      if (G.fac.nest && !G.fac.nest.dead) { r.nestT = (r.nestT ?? 90) - dt; if (r.nestT <= 0) r.nestT = G.hostNestBreed() ? 80 + Math.random() * 60 : 15; }
+      // a nest: its brood (nestPool, still inside it) pour out of its crown when anyone comes into its room or near it in
+      // sight of it, one after another; left alone, it breeds them back up
+      const nest = G.fac.nest;
+      if (nest && !nest.dead) {
+        const full = nest.over ? 10 : site.power >= 7 ? 8 : 6;
+        if (r.nestPool == null) r.nestPool = full;
+        r.nestT = (r.nestT ?? 90) - dt;
+        if (r.nestT <= 0) { r.nestT = 70 + Math.random() * 50; if (r.nestPool < full) r.nestPool++; }
+        if (!r.nestFlood && r.nestPool > 0) {
+          const f = G.fac, by = G.alivePlayers().find((q) => q.zone === 'in' && Math.abs(q.pos.y - nest.Y) < 2 && (f.room[f.idx(f.ti(q.pos.x), f.tj(q.pos.z))] === nest.room || (Math.hypot(q.pos.x - nest.x, q.pos.z - nest.z) < 7 && f.los(q.pos.x, q.pos.z, nest.x, nest.z, true))));
+          if (by) G.hostNestFlood(by);
+        }
+        const fl = r.nestFlood;
+        if (fl && (fl.t -= dt) <= 0) {
+          fl.t = 0.4 + Math.random() * 0.45;
+          const s = nest.holes.length ? nest.holes[Math.floor(Math.random() * nest.holes.length)] : nest.spots[0], id = G.nextMonId++;
+          G.emit({ e: 'monSpawn', id, type: 'leech', x: s.x, y: s.y, z: s.z, home: 1 });
+          G.emitSound('chitter', new THREE.Vector3(s.x, s.y, s.z), { vol: 0.8, ref: 4 });
+          // (straight for whoever set them off, across the ceiling)
+          const m = G.monsters.get(id), p = G.players.get(fl.pid);
+          if (m && p && p.alive) { m.setState('crawl'); m.stalk = p.id; m.lostT = 0; m.hurry = true; m.goal = { x: p.pos.x, z: p.pos.z }; }
+          if (--r.nestPool <= 0) r.nestFlood = null;
+        }
+      }
       if (r.time >= 19 * 60) {
         r.houndT -= dt;
         const hounds = [...G.monsters.values()].filter((m) => m.type === 'hound' && !m.dead).length;
@@ -2761,7 +2798,15 @@ const G = {
       const items = types.map((type, i) => ({ id: G.nextItemId++, type, x: +(cx + free[i].dx).toFixed(2), z: +(cz + free[i].dz).toFixed(2) }));
       G.emit({ e: 'run', run: G.run });
       G.emit({ e: 'delivery', items });
-    } else if (G.mode === 'site' && G.ext && !G.podBusy) G.hostLaunchPod(orders.splice(0, 8));
+    } else if (G.mode === 'site' && G.ext) {
+      if (!G.podBusy) { G.hostLaunchPod(orders.splice(0, 8)); return; }
+      // (orders that come in while the last one's still being loaded, its first ten seconds or so, go on the same pod)
+      const pod = Pods.get(G.nextPodId);
+      if (pod && !pod.hit && pod.t < -(POD.WAIT + POD.GLINT) + 10 && pod.items.length < 8) {
+        G.emit({ e: 'podAdd', id: pod.id, items: orders.splice(0, 8 - pod.items.length).map((type) => ({ id: G.nextItemId++, type })) });
+        G.emit({ e: 'run', run: G.run });
+      }
+    }
   },
   // a supply rocket for whatever was ordered on the ground: it comes down within sight of the ship but not on it,
   // somewhere open (no trees, rocks, buildings, water or the trail in the way)
@@ -2795,7 +2840,11 @@ const G = {
       for (const c of G.fac.containers) {
         if (Math.abs(c.x - me.pos.x) > 3 || Math.abs(c.z - me.pos.z) > 3) continue;
         const f = G.fac.containerFront(c), name = c.kind === 'locker' ? 'locker' : 'cabinet';
-        out.push({ kind: 'box', ref: c, x: f.x, y: f.y, z: f.z, r: 0.4, label: (c.open ? 'Close ' : 'Search ') + name });
+        if (!c.open) { out.push({ kind: 'box', ref: c, x: f.x, y: f.y, z: f.z, r: 0.4, label: 'Search ' + name }); continue; }
+        // open, it's shut by its door; looking into it shuts it too, but whatever's in there comes first
+        const dd = G.fac.containerDoor(c);
+        out.push({ kind: 'box', ref: c, x: dd.x, y: dd.y, z: dd.z, r: 0.35, label: 'Close ' + name });
+        out.push({ kind: 'box', ref: c, x: f.x, y: f.y, z: f.z, r: 0.4, pen: 1.5, label: 'Close ' + name });
       }
       for (const ex of G.fac.exits) if (Math.hypot(ex.x - me.pos.x, ex.z - me.pos.z) < 3.5) out.push({ kind: 'exit', ref: ex, x: ex.x, y: FAC_Y0 + 1.3, z: ex.z, r: 1.1, label: 'Exit facility' });
     } else {

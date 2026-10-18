@@ -91,7 +91,7 @@ const FOOD = {
   mystery: { perks: { wind: 1, rush: 1, eyes: 0.8, mend: 0.8, steady: 0.6, crash: 1, queasy: 0.9 }, sound: 'can_open' },
 };
 // where snacks turn up inside, on top of the scrap (break-room lockers, desks, the front office), and which ones
-const FOOD_SPOTS = { lockers: 3, office: 2, entrance: 2, storage: 1, corridor: 0.6, morgue: 0.4, lab: 0.4 };
+const FOOD_SPOTS = { lockers: 2, office: 2, entrance: 2, storage: 1, corridor: 0.6, morgue: 0.4, lab: 0.4 };
 const FOOD_FIND = { mystery: 1.4, cola: 1, ration: 0.8, nightshift: 0.45 };
 const SCRAP_TYPES = Object.keys(ITEMS).filter((k) => ITEMS[k].kind === 'scrap' && !ITEMS[k].core);
 const UPGRADES = {

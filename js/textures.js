@@ -826,6 +826,32 @@ const TEX = (() => {
       g.putImageData(id, 0, 0);
       return finish(c, false, false);
     },
+    // a cobweb strung across a corner: the lower-left half of the sheet (u, v from 0 to 1, u + v under 1), strands out
+    // from a hub to its three edges and a ragged spiral round them, some of it torn
+    cobweb() {
+      const [c, g] = C(256, 256), S = 256, hub = [S * 0.3, S * 0.7];
+      g.clearRect(0, 0, S, S); g.lineCap = 'round'; g.strokeStyle = 'rgba(236,232,222,0.95)';
+      const rim = [];
+      for (let i = 0; i < 4; i++) rim.push([2, S * (0.08 + i * 0.22)]);
+      for (let i = 0; i < 4; i++) rim.push([S * (0.1 + i * 0.24), S - 2]);
+      for (let i = 0; i < 3; i++) { const t = 0.2 + i * 0.28; rim.push([S * t, S * t]); }
+      const ang = (q) => Math.atan2(q[1] - hub[1], q[0] - hub[0]); rim.sort((a, b) => ang(a) - ang(b));
+      g.lineWidth = 2.4;
+      for (const q of rim) { g.beginPath(); g.moveTo(hub[0], hub[1]); g.lineTo(q[0], q[1]); g.stroke(); }
+      g.lineWidth = 1.8;
+      for (let f = 0.14; f < 0.95; f += 0.085 + r.next() * 0.04) {
+        g.beginPath(); let started = false;
+        for (let i = 0; i <= rim.length; i++) {
+          const q = rim[i % rim.length], k = f * (1 + r.range(-0.06, 0.06)), x = hub[0] + (q[0] - hub[0]) * k, y = hub[1] + (q[1] - hub[1]) * k;
+          if (r.chance(0.12)) { started = false; continue; }   // (torn)
+          if (!started) { g.moveTo(x, y); started = true; } else g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+      // (nothing past the diagonal)
+      g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.moveTo(0, 0); g.lineTo(S, S); g.lineTo(S, 0); g.closePath(); g.fill();
+      return finish(c, false, false);
+    },
     cookie() {
       // flashlight projection: hot centre, reflector ring, dim spill, a little lens grime
       const [c, g] = C(256, 256);
@@ -1168,6 +1194,7 @@ const MATS = (() => {
     doorFreezer: () => N('doorFreezer', 1.4, { color: 0xc8d4dc, roughness: 0.5, metalness: 0.15 }),
     bunker: () => N('bunker', 2, { roughness: 0.95 }),
     locker: () => N('locker', 1.8, { roughness: 0.6, metalness: 0.4 }),
+    cobweb: () => S({ map: TEX.get('cobweb'), color: 0xb8b4a8, roughness: 1, alphaTest: 0.35, side: THREE.DoubleSide }),
     // (a locker's carcass: the door's paint, plain, so its top, floor and shelf don't wear the door's vents)
     lockerBody: () => wear(S({ color: 0x4b5a63, roughness: 0.6, metalness: 0.4 }), { tint: true, kind: 'paint', k: [0.5, 0.45, 0.0025, 0.2], bare: 0x4a2c1a, s: 1, edge: 0.02 }),
     vent: () => N('vent', 3, { roughness: 0.7, metalness: 0.4 }),

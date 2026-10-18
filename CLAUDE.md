@@ -119,9 +119,14 @@ Keep that file current when gameplay changes.
   anything (`sunHidden`). When a moon is in its world's shadow, the sun slides out from behind it on the way down (`g.shQ`).
 - **Leech nests** (`leechNest` / `buildNest` in `facility.js`): some days, on sites with leeches (`fac.nestK` from
   `SITES[k].mon.leech`), from the facility's own numbers off the seed. `fac.nest` holds the corner, the hit points up it
-  (`spine`), the ceiling perches the brood keep to (`spots`), hp. The column is one lathed, displaced mesh; the burrows'
-  glow is an unlit vertex-coloured material. The host seeds and breeds the brood (`hostNestBreed`, `m.home`), a
-  shovel blow is a `'nest'` event, and `fullState` carries its hp.
+  (`spine`), the ceiling perches the brood keep to (`spots`), the crown burrows they pour out of (`holes`), hp, and
+  `over` (it has taken the room: more hills in `cols`, the walls and ceiling skinned by `skin`). Each hill is one
+  lathed, displaced mesh on its own breathing pivot; the burrows' glow is an unlit vertex-coloured material. The host
+  seeds the watch (`hostNestBreed`), keeps the rest in `G.round.nestPool` and floods them out (`hostNestFlood`) when
+  someone comes in or hits it (`m.home`: not counted against the site's cap); a shovel blow is a `'nest'` event, and
+  `fullState` carries its hp.
+- **Resting heights:** `fac.top(...)` registers the flat top of a prop (desk, bench, crate, drum, shelf, gurney); a
+  drop lands on `fac.restY(x, z, handY)`.
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style

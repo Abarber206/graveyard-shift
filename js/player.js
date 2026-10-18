@@ -204,7 +204,7 @@ const Player = (() => {
       if (along < 0.1 || along > 2.6 + (o.r || 0.3)) return;
       const perp = v.clone().sub(dir.clone().multiplyScalar(along)).length();
       if (perp > (o.r || 0.3) + 0.12 + along * 0.08) return;
-      const score = along + perp * 2;
+      const score = along + perp * 2 + (o.pen || 0);
       if (score < bestScore) { bestScore = score; best = o; }
     };
     for (const o of G.interactables(me)) consider(o);

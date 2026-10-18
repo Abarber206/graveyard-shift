@@ -1237,7 +1237,8 @@ const Ship = (() => {
       // crew lockers either side of the engine-room door, helmets on hooks, a breaker panel
       for (const s of [-1, 1]) {
         const z = s * 1.1;
-        this.pb('locker', 0.45, 2.0, 0.58, -6.825, 1.0, z);
+        // (plain painted steel, with the vented door on its front only)
+        this.pb('lockerBody', 0.44, 2.0, 0.58, -6.83, 1.0, z); this.pb('locker', 0.01, 1.97, 0.55, -6.605, 1.0, z);
         for (let i = 0; i < 5; i++) this.pb('black', 0.006, 0.02, 0.36, -6.598, 1.75 - i * 0.05, z);
         this.pb('hardware', 0.03, 0.18, 0.025, -6.59, 1.0, z - s * 0.2);
         this.sign(s < 0 ? 'CREW 01' : 'CREW 02', 0.3, 0.07, -6.596, 1.88, z, Math.PI / 2, { w: 256, h: 60, size: 40, bg: '#e8e2d0', fg: '#222', border: false });

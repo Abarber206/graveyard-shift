@@ -3356,7 +3356,7 @@ const G = {
     const scene = R.scene, cam = R.camera.position;
     const t = performance.now() / 1000;
     const inSpace = G.mode === 'orbit' || G.mode === 'landing' || !G.ext;
-    R.vol.on = false;
+    R.vol.on = false; G.under = 0;
     // the sun casts shadows in orbit (through the windows) and outdoors; inside the facility the map is simply not
     // refreshed (switching castShadow would recompile every shader)
     if (!R.sun.castShadow) R.sun.castShadow = true;
@@ -3428,6 +3428,19 @@ const G = {
       G.ext.sky.position.copy(cam); G.ext.stars.position.copy(cam);
       R.hemi.intensity = L.hemi; R.hemi.color.copy(L.hemiSky); R.hemi.groundColor.set(0x1a1712);
       R.sun.intensity = L.sun; R.sun.color.copy(L.sunColor);
+      // under the marsh water: thick black-green murk a step or two deep all round, the daylight dying away below the
+      // surface, and every sound gone dull and close (the surface itself shuts out the sky; nothing shows through it
+      // either way)
+      G.under = G.ext.water != null && !G.camCarried ? sstep(0, 0.12, G.ext.water - cam.y) : 0;
+      if (G.under > 0) {
+        const u = G.under, deep = sstep(0, 1.5, G.ext.water - cam.y), lit = 0.25 + 0.75 * (1 - L.night);
+        _air.setRGB(0.035, 0.06, 0.042).multiplyScalar(lit * (1 - 0.6 * deep));
+        scene.fog.color.lerp(_air, u); scene.background.lerp(_air, u); scene.fog.density = lerp(scene.fog.density, 1.1, u);
+        R.vol.on = false; R.setFog(null);
+        R.hemi.intensity *= 1 - 0.7 * u; R.hemi.color.lerp(_air.setRGB(0.25, 0.4, 0.3), u); R.sun.intensity *= 1 - 0.9 * u;
+        // (flecks of silt and rot hanging in it, drifting past your face)
+        if (dt > 0 && u > 0.5) for (let i = 0; i < 2; i++) FX.emit({ at: _fxA.set(cam.x + (Math.random() - 0.5) * 3, cam.y + (Math.random() - 0.5) * 2, cam.z + (Math.random() - 0.5) * 3), dir: _fxD.set(Math.random() - 0.5, 0.2, Math.random() - 0.5), spread: 1, speed: [0.03, 0.15], grav: -0.02, drag: 0.5, life: [1.5, 3], size: [0.008, 0.02], color: [0.16 * lit, 0.2 * lit, 0.15 * lit], alpha: 0.8, fadeIn: 0.3 });
+      }
       // (and whether the sun's on your hands, or you're standing in the ship's shadow under its hull: see R.lightVM)
       R.fx.sunlit = damp(R.fx.sunlit, G.shipShades(cam, L.sunDir) ? 0 : 1, 6, dt);
       // a wide shadow frustum that follows the camera, snapped to whole shadow-map texels so edges don't crawl
@@ -3569,7 +3582,7 @@ const G = {
     // adrenaline: a silent burst of speed and breath while something is running you down
     G.adrenaline = chased && me.alive ? 2.5 : Math.max(0, (G.adrenaline || 0) - dt);
     R.fx.leech = damp(R.fx.leech, G.leechOn === me.id && me.alive ? 1 : 0, 6, dt);
-    SFX.setMuffle(R.fx.leech * 0.85 + (me.alive ? 0 : 0.3));
+    SFX.setMuffle(Math.max(R.fx.leech * 0.85 + (me.alive ? 0 : 0.3), (G.under || 0) * 0.92));
     if (!G.seq && R.fx.fade > 0) R.fx.fade = damp(R.fx.fade, 0, 6, dt);
     if (me.alive && R.fx.static > 0 && !(G.seq && G.seq.kind === 'fired')) R.fx.static = damp(R.fx.static, 0, 3, dt);
     // ambient scares (cosmetic, local only)

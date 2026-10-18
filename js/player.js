@@ -277,6 +277,9 @@ const Player = (() => {
           if (!faceKill || t > 0.55) R.flash.intensity = 0;
           else if (R.flash.intensity < 30) R.flash.intensity = 45;
           const head = new THREE.Vector3(me.pos.x, me.pos.y + 1.5, me.pos.z);
+          // (your own body going down: the view rides its head, and you don't see it from inside it)
+          const rag = !faceKill && G.myBody && G.myBody.rag;
+          if (rag) G.myBody.root.visible = false;
           if (deathCam.from) {
             const m = deathCam.from;
             const look = m.headPos ? m.headPos() : head;
@@ -285,15 +288,20 @@ const Player = (() => {
               if (away.lengthSq() < 1e-4) away.set(Math.sin(me.yaw), 0, Math.cos(me.yaw));
               const want = look.clone().addScaledVector(away.normalize(), 0.75); want.y = look.y - 0.08;
               cam.position.lerp(want, Math.min(1, dt * 9));
-            } else cam.position.lerp(new THREE.Vector3(me.pos.x, me.pos.y + lerp(1.5, 0.3, Math.min(1, t * 1.5)), me.pos.z), 0.2);
+            } else if (rag) cam.position.lerp(rag.at('head'), 1 - Math.exp(-dt * 14));
+            else cam.position.lerp(new THREE.Vector3(me.pos.x, me.pos.y + lerp(1.5, 0.3, Math.min(1, t * 1.5)), me.pos.z), 0.2);
             const q = new THREE.Matrix4().lookAt(cam.position, look, new THREE.Vector3(0, 1, 0));
             cam.quaternion.slerp(new THREE.Quaternion().setFromRotationMatrix(q), Math.min(1, dt * (faceKill ? 16 : 5)));
+          } else if (rag) {
+            // tumbling with it: where its head goes, facing the way it faces
+            cam.position.lerp(rag.at('head'), 1 - Math.exp(-dt * 14)); cam.quaternion.slerp(rag.headQ, 1 - Math.exp(-dt * 8));
           } else {
             cam.position.lerp(new THREE.Vector3(me.pos.x, me.pos.y + lerp(1.5, 0.3, Math.min(1, t * 1.5)), me.pos.z), 0.2);
             cam.rotation.z = damp(cam.rotation.z, 1.2, 3, dt);
           }
           return;
         }
+        if (G.myBody) G.myBody.root.visible = true;
         R.flash.intensity = 0;
         // spectate
         const alive = G.alivePlayers();

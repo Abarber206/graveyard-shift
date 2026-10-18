@@ -342,5 +342,112 @@ class Avatar {
     this.tag.visible = false;
     this.setHeld(null); this.setLamp(false);
   }
+  // gone limp (see Ragdoll): from the pose it's in now, thrown at vel (m/s) and turning at spin (rad/s, round its hips)
+  goLimp(env, vel, spin) {
+    this.dead = true; this.tag.visible = false; this.setHeld(null); this.setLamp(false);
+    this.rag = new Ragdoll(this, env, vel, spin);
+  }
   dispose() { this.root.parent && this.root.parent.remove(this.root); }
+}
+
+// A body gone limp. Its joints are points tied together at their real lengths (verlet): the trunk (hips, chest,
+// shoulders) held rigid, the head nearly so, the limbs flopping, elbows and knees bending only the way they do and
+// nothing folding through the body. It falls, tumbles and rolls to rest on whatever is under it, and the robot is drawn
+// hanging off the points. env, the world it fell in: g (the pull down), floor(x, z, y), ceil(x, z, y) and push(p, r)
+// (out of walls); in empty space none of them, and it just drifts and turns.
+const RAG = { pel: 0, chest: 1, head: 2, shL: 3, shR: 4, elL: 5, elR: 6, haL: 7, haR: 8, hiL: 9, hiR: 10, knL: 11, knR: 12, ftL: 13, ftR: 14 };
+const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rq2 = new THREE.Quaternion(), _rDown = new THREE.Vector3(0, -1, 0);
+class Ragdoll {
+  constructor(av, env, vel, spin) {
+    this.av = av; this.env = env; this.t = 0; this.still = 0; this.asleep = false; this.acc = 0; this.headQ = new THREE.Quaternion();
+    av.root.updateMatrixWorld(true);
+    const w = (o, x = 0, y = 0, z = 0) => o.localToWorld(new THREE.Vector3(x, y, z)), A = RAG;
+    this.p = [w(av.hips), w(av.torso, 0, 0.6, 0), w(av.head, 0, 0.12, 0), w(av.armL.g), w(av.armR.g), w(av.armL.elbow), w(av.armR.elbow), w(av.armL.hand, 0, -0.06, 0), w(av.armR.hand, 0, -0.06, 0),
+      w(av.legL.g), w(av.legR.g), w(av.legL.knee), w(av.legR.knee), w(av.legL.ankle), w(av.legR.ankle)];
+    this.r = [0.16, 0.17, 0.15, 0.1, 0.1, 0.06, 0.06, 0.06, 0.06, 0.09, 0.09, 0.07, 0.07, 0.07, 0.07];
+    // (where each point was a moment ago: thrown, and turning round the hips)
+    const h = 1 / 60, c = this.p[A.pel];
+    this.o = this.p.map((q) => q.clone().sub(_ra.copy(vel || _rDown.clone().setY(0)).add(_rb.crossVectors(spin || _rc.set(0, 0, 0), _rd.subVectors(q, c))).multiplyScalar(h)));
+    const L = (a, b) => this.p[a].distanceTo(this.p[b]);
+    this.cs = [];
+    const tie = (a, b, k = 1) => this.cs.push([a, b, L(a, b), k, 0]), apart = (a, b, d) => this.cs.push([a, b, d, 1, 1]);
+    const T = [A.pel, A.chest, A.shL, A.shR, A.hiL, A.hiR];
+    for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) tie(T[i], T[j]);
+    tie(A.head, A.chest, 0.7); tie(A.head, A.shL, 0.7); tie(A.head, A.shR, 0.7);
+    for (const [a, b, c2] of [[A.shL, A.elL, A.haL], [A.shR, A.elR, A.haR], [A.hiL, A.knL, A.ftL], [A.hiR, A.knR, A.ftR]]) {
+      tie(a, b); tie(b, c2); apart(a, c2, 0.45 * (L(a, b) + L(b, c2)));
+    }
+    for (const [a, b, d] of [[A.haL, A.pel, 0.2], [A.haR, A.pel, 0.2], [A.haL, A.chest, 0.22], [A.haR, A.chest, 0.22], [A.haL, A.head, 0.22], [A.haR, A.head, 0.22], [A.haL, A.haR, 0.1],
+      [A.knL, A.knR, 0.16], [A.ftL, A.ftR, 0.14], [A.knL, A.chest, 0.35], [A.knR, A.chest, 0.35], [A.ftL, A.chest, 0.45], [A.ftR, A.chest, 0.45], [A.elL, A.pel, 0.16], [A.elR, A.pel, 0.16]]) apart(a, b, d);
+    // (drawn from here on in world terms: the root stays put, the body is placed on the hips)
+    av.root.position.set(0, 0, 0); av.root.rotation.set(0, 0, 0); av.body.rotation.set(0, 0, 0);
+    av.hips.position.set(0, 0, 0); av.hips.rotation.set(0, 0, 0); av.torso.position.y = 0.08; av.torso.rotation.set(0, 0, 0);
+    av.root.updateMatrixWorld(true);
+    this.pose();
+  }
+  step(dt) {
+    if (this.asleep) return;
+    this.acc = Math.min(this.acc + dt, 0.1);
+    let n = 0;
+    while (this.acc >= 1 / 60) { this.acc -= 1 / 60; this.sub(1 / 60); n++; }
+    if (n) this.pose();
+  }
+  sub(h) {
+    const P = this.p, O = this.o, E = this.env, g = E.g || 0, A = RAG;
+    this.t += h;
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i], o = O[i], vx = (p.x - o.x) * 0.996, vy = (p.y - o.y) * 0.996, vz = (p.z - o.z) * 0.996;
+      o.copy(p); p.x += vx; p.y += vy - g * h * h; p.z += vz;
+    }
+    for (let it = 0; it < 8; it++) {
+      for (const c of this.cs) {
+        const a = P[c[0]], b = P[c[1]], d = _ra.subVectors(b, a), l = d.length();
+        if (l < 1e-6 || (c[4] && l >= c[2])) continue;
+        d.multiplyScalar(((l - c[2]) / l) * 0.5 * c[3]); a.add(d); b.sub(d);
+      }
+      // (knees fold back, elbows forward: the joint is kept to its side of the line from the limb's root to its end)
+      if (it === 4) {
+        const up = _rb.subVectors(P[A.chest], P[A.pel]).normalize(), fw = _rc.crossVectors(up, _rd.subVectors(P[A.shR], P[A.shL])).normalize();
+        for (const [a, j, e, s] of [[A.hiL, A.knL, A.ftL, 1], [A.hiR, A.knR, A.ftR, 1], [A.shL, A.elL, A.haL, -1], [A.shR, A.elR, A.haR, -1]]) {
+          const ab = _ra.subVectors(P[e], P[a]), l2 = ab.lengthSq(); if (l2 < 1e-6) continue;
+          const off = _rd.subVectors(P[j], P[a]).addScaledVector(ab, -_rd.dot(ab) / l2), f = off.dot(fw) * s;
+          if (f < 0.03) P[j].addScaledVector(fw, (0.03 - f) * s * 0.6);
+        }
+      }
+      if (E.floor) for (let i = 0; i < P.length; i++) {
+        const p = P[i], r = this.r[i], f = E.floor(p.x, p.z, p.y);
+        if (p.y - r < f) {
+          p.y = f + r; const o = O[i];
+          // (dragging on the ground: it skids and stops rather than sliding on for ever)
+          o.y = p.y; o.x = p.x - (p.x - o.x) * 0.82; o.z = p.z - (p.z - o.z) * 0.82;
+        }
+        if (E.ceil) { const cy = E.ceil(p.x, p.z, p.y); if (p.y + r > cy) p.y = cy - r; }
+      }
+    }
+    if (E.push) for (let i = 0; i < P.length; i++) E.push(P[i], this.r[i]);
+    let m = 0; for (let i = 0; i < P.length; i++) m = Math.max(m, P[i].distanceToSquared(O[i]));
+    this.still = m < 4e-6 ? this.still + h : 0;
+    if (this.still > 0.6 || this.t > 14) this.asleep = !!E.floor;
+  }
+  // the robot hung off the points: the hips and trunk square to them, each limb pointed down its two points, the head
+  // turned to them (headQ: how it faces in the world)
+  pose() {
+    const av = this.av, P = this.p, A = RAG;
+    const up = _ra.subVectors(P[A.chest], P[A.pel]).normalize();
+    const rt = _rb.subVectors(P[A.shR], P[A.shL]).add(_rc.subVectors(P[A.hiR], P[A.hiL])); rt.addScaledVector(up, -rt.dot(up)).normalize();
+    const qT = _rq.setFromRotationMatrix(_rm.makeBasis(rt, up, _rc.crossVectors(rt, up)));
+    av.body.quaternion.copy(qT); av.body.position.copy(P[A.pel]);
+    const aim = (o, parentQ, a, b) => { const d = _rd.subVectors(P[b], P[a]).normalize().applyQuaternion(_rq2.copy(parentQ).invert()); o.quaternion.setFromUnitVectors(_rDown, d); };
+    for (const [arm, s, e, hd] of [[av.armL, A.shL, A.elL, A.haL], [av.armR, A.shR, A.elR, A.haR]]) {
+      aim(arm.g, qT, s, e); const q1 = new THREE.Quaternion().multiplyQuaternions(qT, arm.g.quaternion); aim(arm.elbow, q1, e, hd);
+    }
+    for (const [leg, s, e, ft] of [[av.legL, A.hiL, A.knL, A.ftL], [av.legR, A.hiR, A.knR, A.ftR]]) {
+      aim(leg.g, qT, s, e); const q1 = new THREE.Quaternion().multiplyQuaternions(qT, leg.g.quaternion); aim(leg.knee, q1, e, ft); leg.ankle.rotation.set(0.25, 0, 0);
+    }
+    const hu = _rd.subVectors(P[A.head], P[A.chest]).normalize(), hr = _rc.copy(rt).addScaledVector(hu, -rt.dot(hu)).normalize();
+    this.headQ.setFromRotationMatrix(_rm.makeBasis(hr, hu, _ra.crossVectors(hr, hu)));
+    av.head.quaternion.copy(qT).invert().multiply(this.headQ);
+  }
+  // where its head is, and its middle
+  at(k) { return this.p[k === 'head' ? RAG.head : RAG.pel]; }
 }

@@ -287,7 +287,7 @@ const G = {
     for (const it of [...G.items.values()]) G.removeItem(it.id);
     for (const p of G.players.values()) if (p.avatar) p.avatar.dispose();
     for (const c of G.corpses) c.dispose();
-    G.players.clear(); G.items.clear(); G.monsters.clear(); G.corpses = []; Bots.reset();
+    G.players.clear(); G.items.clear(); G.monsters.clear(); G.corpses = []; G.myBody = null; Bots.reset();
     G.noises = []; G.timers = []; G.grenades = []; G.round = null; G.leechOn = null; G.seq = null; G.flicker = 0;
     G.ship.setDoor(false); G.ship.door.t = 0;
     G.flight = null; G.updateFlight(0); G.ship.setLanded(false); SFX.setThrust(0, true, 0);
@@ -509,7 +509,7 @@ const G = {
     if (G.ext) { disposeGroup(G.ext.group); G.ext = null; }
     FX.clear();
     for (const c of G.corpses) c.dispose();
-    G.corpses = [];
+    G.corpses = []; G.myBody = null;
     G.lightSources = [...G.ship.lights];
     G.leechOn = null;
     if (!full) G.round = null;
@@ -983,8 +983,18 @@ const G = {
       else if (e.cause === 'slime') SFX.play('slime_gulp', pos.clone().setY(pos.y + 1), { vol: 1.3 });
       else if (e.cause !== 'left') SFX.play('crunch', pos.clone().setY(pos.y + 1), { vol: 1.2 });
       if (e.cause !== 'left') {
-        const body = new Avatar(p.name, p.color); body.setDead(e.pid * 7 + Math.floor(e.x * 10));
-        body.root.position.copy(pos); body.root.rotation.y = p.yaw; R.scene.add(body.root); G.corpses.push(body);
+        const body = new Avatar(p.name, p.color), live = p.avatar && p.avatar.root.visible ? p.avatar : null;
+        if (e.cause === 'slime') { body.setDead(e.pid * 7 + Math.floor(e.x * 10)); body.root.position.copy(pos); body.root.rotation.y = p.yaw; }
+        else {
+          // the body goes limp from just as it stood, and is thrown
+          if (live) G.copyPose(live, body);
+          else { body.root.position.copy(pos); body.root.rotation.y = p.yaw; body.update(1 / 60, { at: pos, yaw: p.yaw, crouch: p.crouch }); }
+          const th = G.deathThrow(e, pos, mon);
+          if (live) th.vel.add(live.vel);
+          body.goLimp(G.ragEnv(p.zone, pos), th.vel, th.spin);
+          if (p.id === G.localId) G.myBody = body;
+        }
+        R.scene.add(body.root); G.corpses.push(body);
         if (e.cause === 'pale') G.timers.push({ t: 1.6, fn: () => { body.root.visible = false; } });
         // (the Seep swallows them whole: the body is drawn up into it and hangs there, carried along)
         if (e.cause === 'slime' && mon && mon.swallowed) mon.swallowed.push({ body, k: 0, lx: (Math.random() - 0.5) * 0.9, ly: 0.7 + Math.random() * 0.45, tilt: 0.5 + Math.random() * 0.6, yaw: p.yaw, spin: Math.random() * TAU });
@@ -1391,11 +1401,11 @@ const G = {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     const hp = Math.max(0, p.hp - dmg);
     p.lastHurt = G.now;
-    if (hp <= 0) { G.killPlayer(pid, cause); return; }
+    if (hp <= 0) { G.killPlayer(pid, cause, undefined, kx, kz); return; }
     p.hp = hp;
     G.emit({ e: 'hurt', pid, hp, cause, kx, kz, silent });
   },
-  killPlayer(pid, cause, monId) {
+  killPlayer(pid, cause, monId, kx = 0, kz = 0) {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     p.alive = false;
     const ground = p.zone === 'in' ? G.fac.floorY(p.pos.x, p.pos.z, p.pos.y) : G.groundAt(p.pos.x, p.pos.z);
@@ -1407,9 +1417,35 @@ const G = {
       G.emit({ e: 'drop', item: id, x: fx, y: ground, z: fz, ry: Math.random() * TAU, inShip: p.zone === 'out' && G.ship.inside(fx, ground + 0.3, fz) });
     });
     G.hostRoverRelease(p);
-    G.emit({ e: 'die', pid, cause, mon: monId, x: p.pos.x, y: ground, z: p.pos.z });
+    G.emit({ e: 'die', pid, cause, mon: monId, x: p.pos.x, y: ground, z: p.pos.z, kx: Math.round(kx * 10) / 10, kz: Math.round(kz * 10) / 10 });
     for (const m of G.monsters.values()) if (m.type === 'leech' && m.victim === pid) m.detach();
     if (G.run) G.run.deaths = (G.run.deaths || 0) + 1;
+  },
+  // the world a body falls in, for its ragdoll: the facility's floors, ceilings and walls; outside the ground, its
+  // rocks and trees and the ship where it stands; aboard in orbit the deck and the cabin's walls (and the light pull
+  // of a small moon out on its surface)
+  ragEnv(zone, at) {
+    const g = 14 * G.gravity(zone, at.x, at.y, at.z);
+    if (zone === 'in' && G.fac) { const f = G.fac; return { g, floor: (x, z, y) => f.floorY(x, z, y), ceil: (x, z, y) => f.ceilY(x, z, y), push: (p, r) => f.collide(p, r) }; }
+    if (!G.ext) return { g, floor: () => 0, push: (p, r) => G.ship.collide(p, r) };
+    return { g, floor: (x, z) => G.groundAt(x, z, G.ship.airborne), push: (p, r) => { G.ext.collide(p, r); if (!G.ship.airborne) G.ship.collide(p, r); } };
+  },
+  // how a body goes as it dies: thrown away from what killed it (the blow's own push, or else away from the creature),
+  // the harder the blow the harder, the top of it going first so it topples over the way it was hit
+  deathThrow(e, pos, mon) {
+    const k = { blast: 8, meteor: 10, impact: 10, executioner: 5, clown: 5, crawler: 4.5, hound: 4, friend: 3.5, sister: 3, bound: 2.5, water: 0.4 }[e.cause] ?? 2;
+    const d = new THREE.Vector3(e.kx || 0, 0, e.kz || 0);
+    if (d.lengthSq() < 1e-4 && mon && mon.pos) d.set(pos.x - mon.pos.x, 0, pos.z - mon.pos.z);
+    if (d.lengthSq() < 1e-4) d.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+    d.normalize();
+    const wob = () => (Math.random() - 0.5) * 2;
+    return { vel: d.clone().multiplyScalar(k).setY(k * 0.35), spin: new THREE.Vector3(d.z, 0, -d.x).multiplyScalar(1.2 + k * 0.4).add(new THREE.Vector3(wob(), wob() * 1.5, wob())) };
+  },
+  // one robot standing just as another is (for a body taking over from the living one)
+  copyPose(a, b) {
+    for (const k of ['root', 'body', 'hips', 'torso', 'head']) { b[k].position.copy(a[k].position); b[k].quaternion.copy(a[k].quaternion); }
+    for (const L of ['armL', 'armR']) for (const j of ['g', 'elbow', 'hand']) b[L][j].quaternion.copy(a[L][j].quaternion);
+    for (const L of ['legL', 'legR']) for (const j of ['g', 'knee', 'ankle']) b[L][j].quaternion.copy(a[L][j].quaternion);
   },
   canSee(p, pos, maxD, dotMin) {
     const ey = p.pos.y + (p.crouch ? 1.0 : 1.6);
@@ -2904,6 +2940,7 @@ const G = {
     G.updateFlight(dt);
     G.updateDelivery(dt);
     Pods.update(dt); G.lampSparks(dt); FX.update(dt);
+    for (const c of G.corpses) if (c.rag) c.rag.step(dt);
     G.stepEmergency(dt); G.stepMists(dt);
     // input not tied to the player body
     if (!HUD.blocking) {

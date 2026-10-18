@@ -266,6 +266,8 @@ const Player = (() => {
       const ui = HUD.blocking;
       // ---------- left behind: the view is flying out to watch the ship go (G.updateSendoff has it) ----------
       if (G.sendoff) { vm.root.visible = false; return; }
+      // ---------- fired: blown out of the hatch, the view riding your body (G.blowout has it) ----------
+      if (G.seq && G.seq.kind === 'fired' && G.seq.blown) { vm.root.visible = false; return; }
       // ---------- dead: death cam, then spectate ----------
       if (!me.alive) {
         vm.root.visible = false;

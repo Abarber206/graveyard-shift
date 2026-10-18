@@ -353,8 +353,9 @@ class Avatar {
 // A body gone limp. Its joints are points tied together at their real lengths (verlet): the trunk (hips, chest,
 // shoulders) held rigid, the head nearly so, the limbs flopping, elbows and knees bending only the way they do and
 // nothing folding through the body. It falls, tumbles and rolls to rest on whatever is under it, and the robot is drawn
-// hanging off the points. env, the world it fell in: g (the pull down), floor(x, z, y), ceil(x, z, y) and push(p, r)
-// (out of walls); in empty space none of them, and it just drifts and turns.
+// hanging off the points. env, the world it fell in: g (the pull down, or gAt(p) where it differs), floor(x, z, y),
+// ceil(x, z, y), push(p, r) (out of walls), fric (how much of its slide it keeps a step along the floor) and wind(p, a)
+// (a rush of air: a pull on each point); in empty space none of them, and it just drifts and turns.
 const RAG = { pel: 0, chest: 1, head: 2, shL: 3, shR: 4, elL: 5, elR: 6, haL: 7, haR: 8, hiL: 9, hiR: 10, knL: 11, knR: 12, ftL: 13, ftR: 14 };
 const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rq2 = new THREE.Quaternion(), _rDown = new THREE.Vector3(0, -1, 0);
 class Ragdoll {
@@ -393,11 +394,12 @@ class Ragdoll {
     if (n) this.pose();
   }
   sub(h) {
-    const P = this.p, O = this.o, E = this.env, g = E.g || 0, A = RAG;
+    const P = this.p, O = this.o, E = this.env, A = RAG, fr = E.fric ?? 0.82;
     this.t += h;
     for (let i = 0; i < P.length; i++) {
-      const p = P[i], o = O[i], vx = (p.x - o.x) * 0.996, vy = (p.y - o.y) * 0.996, vz = (p.z - o.z) * 0.996;
+      const p = P[i], o = O[i], vx = (p.x - o.x) * 0.996, vy = (p.y - o.y) * 0.996, vz = (p.z - o.z) * 0.996, g = E.gAt ? E.gAt(p) : E.g || 0;
       o.copy(p); p.x += vx; p.y += vy - g * h * h; p.z += vz;
+      if (E.wind) { E.wind(p, _ra); p.addScaledVector(_ra, h * h); }
     }
     for (let it = 0; it < 8; it++) {
       for (const c of this.cs) {
@@ -419,7 +421,7 @@ class Ragdoll {
         if (p.y - r < f) {
           p.y = f + r; const o = O[i];
           // (dragging on the ground: it skids and stops rather than sliding on for ever)
-          o.y = p.y; o.x = p.x - (p.x - o.x) * 0.82; o.z = p.z - (p.z - o.z) * 0.82;
+          o.y = p.y; o.x = p.x - (p.x - o.x) * fr; o.z = p.z - (p.z - o.z) * fr;
         }
         if (E.ceil) { const cy = E.ceil(p.x, p.z, p.y); if (p.y + r > cy) p.y = cy - r; }
       }

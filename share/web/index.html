@@ -13035,8 +13035,9 @@ class Avatar {
 // A body gone limp. Its joints are points tied together at their real lengths (verlet): the trunk (hips, chest,
 // shoulders) held rigid, the head nearly so, the limbs flopping, elbows and knees bending only the way they do and
 // nothing folding through the body. It falls, tumbles and rolls to rest on whatever is under it, and the robot is drawn
-// hanging off the points. env, the world it fell in: g (the pull down), floor(x, z, y), ceil(x, z, y) and push(p, r)
-// (out of walls); in empty space none of them, and it just drifts and turns.
+// hanging off the points. env, the world it fell in: g (the pull down, or gAt(p) where it differs), floor(x, z, y),
+// ceil(x, z, y), push(p, r) (out of walls), fric (how much of its slide it keeps a step along the floor) and wind(p, a)
+// (a rush of air: a pull on each point); in empty space none of them, and it just drifts and turns.
 const RAG = { pel: 0, chest: 1, head: 2, shL: 3, shR: 4, elL: 5, elR: 6, haL: 7, haR: 8, hiL: 9, hiR: 10, knL: 11, knR: 12, ftL: 13, ftR: 14 };
 const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rq2 = new THREE.Quaternion(), _rDown = new THREE.Vector3(0, -1, 0);
 class Ragdoll {
@@ -13075,11 +13076,12 @@ class Ragdoll {
     if (n) this.pose();
   }
   sub(h) {
-    const P = this.p, O = this.o, E = this.env, g = E.g || 0, A = RAG;
+    const P = this.p, O = this.o, E = this.env, A = RAG, fr = E.fric ?? 0.82;
     this.t += h;
     for (let i = 0; i < P.length; i++) {
-      const p = P[i], o = O[i], vx = (p.x - o.x) * 0.996, vy = (p.y - o.y) * 0.996, vz = (p.z - o.z) * 0.996;
+      const p = P[i], o = O[i], vx = (p.x - o.x) * 0.996, vy = (p.y - o.y) * 0.996, vz = (p.z - o.z) * 0.996, g = E.gAt ? E.gAt(p) : E.g || 0;
       o.copy(p); p.x += vx; p.y += vy - g * h * h; p.z += vz;
+      if (E.wind) { E.wind(p, _ra); p.addScaledVector(_ra, h * h); }
     }
     for (let it = 0; it < 8; it++) {
       for (const c of this.cs) {
@@ -13101,7 +13103,7 @@ class Ragdoll {
         if (p.y - r < f) {
           p.y = f + r; const o = O[i];
           // (dragging on the ground: it skids and stops rather than sliding on for ever)
-          o.y = p.y; o.x = p.x - (p.x - o.x) * 0.82; o.z = p.z - (p.z - o.z) * 0.82;
+          o.y = p.y; o.x = p.x - (p.x - o.x) * fr; o.z = p.z - (p.z - o.z) * fr;
         }
         if (E.ceil) { const cy = E.ceil(p.x, p.z, p.y); if (p.y + r > cy) p.y = cy - r; }
       }
@@ -18321,6 +18323,8 @@ const Player = (() => {
       const ui = HUD.blocking;
       // ---------- left behind: the view is flying out to watch the ship go (G.updateSendoff has it) ----------
       if (G.sendoff) { vm.root.visible = false; return; }
+      // ---------- fired: blown out of the hatch, the view riding your body (G.blowout has it) ----------
+      if (G.seq && G.seq.kind === 'fired' && G.seq.blown) { vm.root.visible = false; return; }
       // ---------- dead: death cam, then spectate ----------
       if (!me.alive) {
         vm.root.visible = false;
@@ -19951,7 +19955,7 @@ const FLY = {
 // On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
 // sunUp over the ground under it)
 const ENTRY = { turn0: 0.4, burn: 4.2, drop: 4.4, air: 10.6, white: 15, site: 15.2, hAir: 0.07, hEnd: 0.02, trip: 0.96, tripMax: 2.1, sunUp: 0.65 };
-const _shQ = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
+const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
@@ -22383,6 +22387,9 @@ const G = {
       const t = G.seq.t;
       level = 0.9 * sstep(ENTRY.burn, ENTRY.burn + 0.5, t) * (1 - sstep(ENTRY.burn + 2.4, ENTRY.burn + 3.4, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
       gale = (G.entryHeat || 0) * 0.8;
+    } else if (G.seq && G.seq.kind === 'fired' && G.seq.blown) {
+      // (the air roaring out of the hatch, dying away as it goes)
+      gale = 1.5 * (G.seq.gale || 0);
     } else if (G.seq && G.seq.kind === 'jump') {
       const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5);
     }
@@ -22697,8 +22704,8 @@ const G = {
         p.ryaw = a.yaw + angDiff(a.yaw, b.yaw) * t; p.rpitch = lerp(a.pitch, b.pitch, t);
       }
       const av = p.avatar; if (!av) continue;
-      av.root.visible = p.alive;
-      if (!p.alive) continue;
+      av.root.visible = p.alive && !p.blown;
+      if (!p.alive || p.blown) continue;
       // (sitting down, the body faces the way the seat does; only the head turns to look about)
       const seat = p.seat != null && G.ship.seats[p.seat], bodyYaw = seat ? seat.yaw : p.ryaw || 0;
       av.root.position.copy(p.rpos); av.root.rotation.set(0, bodyYaw, 0);
@@ -22892,21 +22899,98 @@ const G = {
           <div class="row"><span>Total scrap sold</span><span>$${run.totalSold || 0}</span></div>
           <div class="grade" style="color:var(--red)">X</div>`, 'RETURN TO MENU', () => G.quit());
       }
-    } else if (s.kind === 'fired') {
-      if (s.t > 1.5 && !s.open) { s.open = true; G.ship.setDoor(true); }
-      if (s.t > 2.5) { Player.addShake(0.8); const me = G.me(); me.pos.x = lerp(me.pos.x, -2.5, dt * 2); me.pos.z += dt * (s.t - 2.4) * 6; }
-      R.fx.static = s.t > 4 ? Math.min(1, (s.t - 4) / 1.5) : 0;
-      if (s.t > 6 && !s.done) {
-        s.done = true;
-        const run = s.data.run || G.run;
-        HUD.summary(`<h2 style="color:var(--red)">TERMINATED</h2><div class="sub">The Company has ended your contract.</div>
+    } else if (s.kind === 'fired') G.blowout(s, dt);
+  },
+  // Fired. The klaxon, the lights stuttering, the inner door wide; then the outer hatch blows, and the cabin's air goes
+  // out through the lock in a roar, taking everything with it: the crew, limp (ragdolls), the scrap and the gear and the
+  // junk lying about, all tumbling out into space in a jet of frozen vapour. The view rides your own body out, the ship
+  // falling away and the world wheeling past, and the roar dies to nothing; then the static, and the end.
+  blowout(s, dt) {
+    const S = G.ship, t = s.t, T0 = 1.9, me = G.me();
+    if (!s.lock && t > 0.4) { s.lock = true; S.idoor.open = true; }
+    if (t < T0) { G.setCabinPower(Math.random() < 0.25 ? 0.3 : 0.9); Player.addShake(0.15 * t); return; }
+    const k = Math.exp(-(t - T0) / 2.4);
+    s.gale = k;
+    if (!s.blown) {
+      s.blown = true; s.bodies = []; s.fly = [];
+      S.setDoor(true); S.door.t = 0.85;
+      R.fx.flash = Math.max(R.fx.flash, 0.6); G.setCabinPower(0.35);
+      const hatch = new THREE.Vector3((SHIP.doorX0 + SHIP.doorX1) / 2, 1.2, 4.3);
+      SFX.play('thunder', hatch, { vol: 1.3 }); SFX.play('vent_air', hatch, { vol: 1.6, dur: 4.5 }); SFX.play('crunch', hatch, { vol: 1, pitch: 0.6 });
+      const sky = { gAt: (p) => (p.z < 4.3 ? 9 : 0), floor: (x, z) => (z < 4.3 && x > -16 && x < 9 ? 0 : -1e9), fric: 0.97,
+        ceil: (x, z) => (z > AIRLOCK.z0 && z < 4.3 && x > AIRLOCK.x0 && x < AIRLOCK.x1 ? AIRLOCK.ih : z < 4.3 ? 3.3 : 1e9),
+        push: (p, r) => { if (p.z < 4.45) S.collide(p, r); }, wind: (p, a) => G.blowWind(p, a, s.gale) };
+      s.env = sky;
+      // the crew, gone limp where they stood (you too: the view rides you out)
+      for (const p of G.players.values()) {
+        if (!p.alive) continue;
+        const body = new Avatar(p.name, p.color), live = p.id !== G.localId && p.avatar && p.avatar.root.visible ? p.avatar : null;
+        if (live) G.copyPose(live, body);
+        else { body.root.position.copy(p.pos); body.root.rotation.y = p.yaw; body.update(1 / 60, { at: p.pos, yaw: p.yaw }); }
+        body.goLimp(sky, new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, 1.5), new THREE.Vector3((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4));
+        p.blown = true; R.scene.add(body.root); s.bodies.push(body);
+        if (p.id === G.localId) { s.mine = body; body.root.visible = false; }
+      }
+      // and everything loose aboard: what's lying about, what was in your hands, and the junk in the corners
+      const fling = (m, at, r) => { m.position.copy(at); R.scene.add(m); s.fly.push({ m, p: at.clone(), v: new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2, Math.random() * 2), w: new THREE.Vector3((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9), r }); };
+      for (const it of G.items.values()) {
+        if (!it.mesh || it.box != null || it.basket != null) continue;
+        const h = it.holder != null ? G.players.get(it.holder) : null;
+        if (!h && !it.inShip) continue;
+        const at = h ? h.pos.clone().setY(h.pos.y + 1.1) : it.mesh.getWorldPosition(new THREE.Vector3());
+        it.mesh.parent && it.mesh.parent.remove(it.mesh);
+        fling(it.mesh, at, ITEMS[it.type].twoHanded ? 0.35 : 0.18);
+      }
+      const JUNK = ['gear', 'bolt', 'toolbox', 'kettle', 'bottle', 'battery', 'circuit', 'extinguisher', 'radio', 'meter', 'jar', 'register', 'typewriter', 'teddy', 'axle'];
+      for (let i = 0; i < 14; i++) { const ty = JUNK[(Math.random() * JUNK.length) | 0], m = ItemMeshes.build(ty, i); fling(m, new THREE.Vector3(-9 + Math.random() * 11, 0.25, -2.2 + Math.random() * 4.4), ITEMS[ty].twoHanded ? 0.35 : 0.18); }
+    }
+    for (const b of s.bodies) b.rag.step(dt);
+    // (loose things: blown along, bouncing off the deck and the walls in here, then tumbling free out there)
+    for (const f of s.fly) {
+      const inside = f.p.z < 4.3;
+      G.blowWind(f.p, _fxA, s.gale); f.v.addScaledVector(_fxA, dt); if (inside) f.v.y -= 9 * dt;
+      f.p.addScaledVector(f.v, dt);
+      if (inside) {
+        if (f.p.y < f.r) { f.p.y = f.r; f.v.y = Math.abs(f.v.y) * 0.3; f.v.x *= 0.9; f.v.z *= 0.9; }
+        if (f.p.y > 3.2) { f.p.y = 3.2; f.v.y = -Math.abs(f.v.y) * 0.3; }
+        if (S.collide(f.p, f.r)) f.v.multiplyScalar(0.7);
+      }
+      f.m.position.copy(f.p); f.m.rotation.x += f.w.x * dt; f.m.rotation.y += f.w.y * dt; f.m.rotation.z += f.w.z * dt;
+    }
+    // the air going: a jet of freezing vapour out of the hatch, grit and scraps streaming across the deck to it
+    if (k > 0.04) {
+      const DX = (SHIP.doorX0 + SHIP.doorX1) / 2;
+      FX.emit({ at: _fxA.set(DX, 1.1, 4.4), r: 0.5, dir: _fxD.set(0, 0.05, 1), spread: 0.45, n: Math.ceil(5 * k), speed: [12, 30].map((v) => v * (0.4 + 0.6 * k)), grav: 0, drag: 0.6, life: [0.6, 1.4], size: [0.3, 0.6], grow: 5, color: [0.8, 0.84, 0.88], alpha: 0.4 * k, fadeIn: 0.03 });
+      FX.emit({ at: _fxA.set(-8 + Math.random() * 9, 0.15, -1.8 + Math.random() * 3.6), dir: _fxD.set(DX + 1 - _fxA.x, 0.6, AIRLOCK.z0 - _fxA.z).normalize(), spread: 0.25, n: Math.ceil(3 * k), speed: [6, 14], grav: 2, drag: 0.4, life: [0.5, 1.1], size: [0.02, 0.05], color: [0.2, 0.18, 0.16], alpha: 1, fadeIn: 0.01 });
+    }
+    // your view: riding your own body out, tumbling with it; once out, it keeps turning back to the ship falling away
+    if (s.mine) {
+      const cam = R.camera, rg = s.mine.rag, hd = rg.at('head');
+      cam.position.lerp(hd, 1 - Math.exp(-dt * 16));
+      const back = _shQ.setFromRotationMatrix(new THREE.Matrix4().lookAt(cam.position, _fxD.set(-2, 1.5, 0), _fxV.set(0, 1, 0).applyQuaternion(rg.headQ)));
+      cam.quaternion.slerp(_rq2b.copy(rg.headQ).slerp(back, 0.8 * sstep(T0 + 1, T0 + 2.6, t) * sstep(5, 9, hd.z)), 1 - Math.exp(-dt * 7)); cam.updateMatrixWorld();
+      HUD.prompt(null, me);
+    }
+    R.fx.static = t > T0 + 6 ? Math.min(1, (t - T0 - 6) / 1.4) : 0;
+    if (t > T0 + 7.6 && !s.done) {
+      s.done = true;
+      const run = s.data.run || G.run;
+      HUD.summary(`<h2 style="color:var(--red)">TERMINATED</h2><div class="sub">The Company has ended your contract.</div>
           <div class="row"><span>Quota cycles survived</span><span>${run.cycle - 1}</span></div>
           <div class="row"><span>Days worked</span><span>${run.day - 1}</span></div>
           <div class="row"><span>Total scrap sold</span><span>$${run.totalSold || 0}</span></div>
           <div class="row"><span>Crew deaths</span><span>${run.deaths || 0}</span></div>
           <div class="grade" style="color:var(--red)">X</div>`, 'RETURN TO MENU', () => G.quit());
-      }
     }
+  },
+  // the rush of air out of the cabin when the hatch blows (a pull on whatever's at p, into a; k: how much air is left
+  // going): across the cabin toward the lock, hardest close to it, then straight out through it, and nothing past it
+  blowWind(p, a, k) {
+    const DX = (SHIP.doorX0 + SHIP.doorX1) / 2;
+    if (p.z < AIRLOCK.z0 - 0.1) { a.set(DX - p.x, 1.1 - p.y, AIRLOCK.z0 + 0.4 - p.z); const d = Math.max(0.5, a.length()); a.multiplyScalar((k * 75) / (d * Math.sqrt(d))); }
+    else if (p.z < 4.6) a.set((DX - p.x) * 40, (1.05 - p.y) * 18, 70).multiplyScalar(k);
+    else a.set(0, 0, 0);
+    return a;
   },
   // Lamps people carry (a lantern, the candelabra, the fancy lamp): lit, each is a light source like the building's own,
   // where it is (in someone's hand, or set down), working whether the power's on or not; its glow lit to match in the

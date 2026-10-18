@@ -2477,10 +2477,11 @@ const G = {
   zoneOf(me) { return G.sendoff ? G.sendoff.zone : Rover.driving ? Rover.zone : me.alive ? me.zone : (me.zoneView || me.zone); },
   // ======================= the send-off =======================
   // Whoever the ship leaves behind (alive and not aboard when it lifts off, or dead with their body still down here)
-  // gets one last look. The view starts on you, where you stand or where you fell, then flies the quickest way out:
-  // along the corridors and up the stairwells to the nearest exit, out through the door into the open and across the
-  // ground (the farther it has to come, the faster it comes), and comes to rest on the ground to watch the ship climb
-  // away into the sky without you.
+  // gets one last look. Out in the open, the view stays right where you are (your eyes, or over where you fell) and
+  // turns to follow the ship as it lifts away and climbs into the sky without you. Shut in down below, it starts on
+  // you and flies the quickest way out: along the corridors and up the stairwells to the nearest exit, out through
+  // the door into the open and across the ground (the farther it has to come, the faster it comes), and comes to rest
+  // there to watch it go.
   leftBehind(f) {
     f.left = [...G.players.values()].filter((p) => !f.aboard.has(p.id) && !(!p.alive && p.zone === 'out' && G.posAboard(p.pos))).map((p) => p.id);
     if (!f.left.length) return;
@@ -2491,6 +2492,12 @@ const G = {
   startSendoff() {
     const me = G.me(), fac = G.fac, ext = G.ext;
     if (!me || !ext || G.sendoff) return;
+    if (me.zone !== 'in' || !fac) {
+      const cam = R.camera, pos = me.alive ? cam.position.clone() : new THREE.Vector3(me.pos.x, me.pos.y + 1.1, me.pos.z);
+      G.sendoff = { t: 0, watch: true, pos, q: cam.quaternion.clone(), yaw: me.yaw, zone: 'out' };
+      HUD.hideSpectate(); HUD.letterbox(true); R.fx.static = 0;
+      return;
+    }
     const V3 = (x, y, z) => new THREE.Vector3(x, y, z), EYE = 1.55;
     // a smooth course through some points, evenly spaced (step metres apart), with its running length
     const course = (zone, pts, step) => {
@@ -2567,6 +2574,20 @@ const G = {
       }
     };
     const shipAt = G.ship.group.position.clone(); shipAt.y += 1.5;
+    if (so.watch) {
+      // turning to follow it, slowly at first, then held on it the way your eyes would be (never quite rolling over
+      // as it goes straight up overhead)
+      const d = _fxD.copy(shipAt).sub(so.pos), h = Math.hypot(d.x, d.z);
+      if (h > 0.4) so.yaw = Math.atan2(-d.x, -d.z);
+      const want = _shQ.setFromEuler((so.e || (so.e = new THREE.Euler(0, 0, 0, 'YXZ'))).set(clamp(Math.atan2(d.y, h), -1.2, 1.4), so.yaw, 0));
+      so.q.slerp(want, 1 - Math.exp(-dt * lerp(0.7, 6.5, sstep(0, 1.6, t))));
+      me.zoneView = 'out'; R.flash.intensity = 0;
+      cam.position.copy(so.pos); cam.position.y += Math.sin(t * 0.8) * 0.012; cam.quaternion.copy(so.q); cam.updateMatrixWorld();
+      // watching it climb away, the view closes in on it
+      const fov = Settings.fov - 26 * sstep(40, 700, so.pos.distanceTo(shipAt));
+      if (Math.abs(cam.fov - fov) > 0.05) { cam.fov = damp(cam.fov, fov, 3, dt); cam.updateProjectionMatrix(); }
+      return;
+    }
     let pos, look, zone = so.legs[0].zone;
     if (t < OPEN) { pos = so.shot.clone(); look = so.head; }
     else if (t < OPEN + so.run) {

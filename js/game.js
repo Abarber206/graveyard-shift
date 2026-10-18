@@ -244,11 +244,11 @@ const FLY = {
 // to hEnd at white, the shutters coming down just before; the site is built and the descent over it begins at `site`.
 // On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
 // sunUp over the ground under it)
-const ENTRY = { turn0: 0.4, burn: 4.2, drop: 4.4, air: 10.6, white: 15, site: 15.2, hAir: 0.07, hEnd: 0.02, trip: 0.96, tripMax: 2.1, sunUp: 0.65 };
+const ENTRY = { turn0: 0.4, burn: 6.5, drop: 7, air: 27, white: 35, site: 35.2, hAir: 0.07, hEnd: 0.02, trip: 1.3, tripMax: 2.4, sunUp: 0.65 };
 const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
-const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
+const JUMP = { punch: 2.2, drop: 6.4, end: 17.4 };
 const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
@@ -436,16 +436,18 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    // (inside, onto whatever you're facing if it's in reach: a desk, a crate, a drum, a shelf)
-    if (me.zone === 'in' && G.fac) {
-      const f = G.fac, hand = me.pos.y + 1.3, fl = f.floorY(x, z, me.pos.y);
-      if (f.restY(x, z, hand) < fl + 0.2) for (let d = 0.6; d <= 1.05; d += 0.05) {
-        const qx = me.pos.x + fw.x * d, qz = me.pos.z + fw.z * d; if (f.restY(qx, qz, hand) < fl + 0.2 || !f.los(me.pos.x, me.pos.z, qx, qz)) continue;
-        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = f.restY(ix, iz, hand) >= fl + 0.2;
+    // (onto whatever you're facing if it's in reach: a desk, a crate, a drum, a shelf; down in the plant, or aboard)
+    const hand = me.pos.y + 1.3, aboard = me.zone !== 'in' && !me.roof && G.ship.inside(me.pos.x, me.pos.y + 0.3, me.pos.z);
+    const rest = me.zone === 'in' && G.fac ? (qx, qz) => G.fac.restY(qx, qz, hand) : aboard ? (qx, qz) => G.ship.restY(qx, qz, hand) : null;
+    if (rest) {
+      const fl = me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : 0, clear = (qx, qz) => me.zone !== 'in' || G.fac.los(me.pos.x, me.pos.z, qx, qz);
+      if (rest(x, z) < fl + 0.2) for (let d = 0.6; d <= 1.05; d += 0.05) {
+        const qx = me.pos.x + fw.x * d, qz = me.pos.z + fw.z * d; if (rest(qx, qz) < fl + 0.2 || !clear(qx, qz)) continue;
+        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = rest(ix, iz) >= fl + 0.2;
         x = inn ? ix : qx; z = inn ? iz : qz; break;
       }
     }
-    const y = me.roof ? ROOF.y : me.zone === 'in' ? G.fac.restY(x, z, me.pos.y + 1.3) : G.groundAt(x, z);
+    const y = me.roof ? ROOF.y : rest ? rest(x, z) : G.groundAt(x, z);
     G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
   },
   // ======================= world =======================
@@ -637,6 +639,8 @@ const G = {
       items: [...G.items.values()].map(G.iinfo),
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
       nest: G.fac && G.fac.nest ? G.fac.nest.hp : null,
+      // (on the way down out of orbit, before the site's there: how far down)
+      seq: G.mode === 'landing' && !G.round && G.seq && G.seq.kind === 'land' ? { t: +G.seq.t.toFixed(2), site: G.seq.site } : null,
       // 0 shut, 1 open into the room, 3 open into the corridor, 2 broken
       doors: G.fac ? G.fac.doors.map((d) => (d.broken ? 2 : d.open ? (d.dir < 0 ? 3 : 1) : 0)) : [],
       boxes: G.fac ? G.fac.containers.map((c) => (c.open ? 1 : 0)) : [],
@@ -668,7 +672,9 @@ const G = {
     for (const i of s.items) G.createItem(i);
     for (const m of s.monsters) G.spawnMonster({ id: m[0], type: m[1], x: m[2], y: m[3], z: m[4] });
     G.ship.setDoor(!!s.hatch); G.ship.door.t = s.hatch ? 1 : 0;
-    G.mode = s.mode === 'landing' ? 'site' : s.mode;
+    G.mode = s.mode === 'landing' && !s.seq ? 'site' : s.mode;
+    // (joining on the way down: aboard, coming down with everyone)
+    if (s.seq) { G.seq = { kind: 'land', t: s.seq.t, site: s.seq.site }; G.ship.setEngines(1); }
     // mid-flight: pick the flight up where it is, gear and ramp already where they should be
     if (s.flight) {
       G.flight = { kind: s.flight.kind, t: s.flight.t, aboard: s.flight.aboard ? new Set(s.flight.aboard) : null, down: s.flight.kind === 'land' && s.flight.t >= FLY.landDur, up: s.flight.kind === 'takeoff' && s.flight.t >= FLY.liftAt };
@@ -701,7 +707,8 @@ const G = {
         if (G.players.size >= 6 && !Bots.makeRoom()) { Net.sendTo(conn, { t: 'deny', reason: 'Lobby is full (6 crew max).' }); return; }
         const id = G.nextPid++;
         conn.pid = id;
-        const midRound = G.mode !== 'orbit';
+        // (still in space, on the way down, counts as aboard: there's no day under way yet)
+        const midRound = G.mode !== 'orbit' && !(G.mode === 'landing' && !G.round);
         const color = G.distinctSuit(m.suit);
         const info = { id, name: String(m.name || 'Crew').slice(0, 16), color, peerId: conn.conn.peer, x: 2, y: 0, z: 1, alive: !midRound, hp: midRound ? 0 : 100, zone: 'out' };
         G.emit({ e: 'join', p: info });
@@ -822,11 +829,12 @@ const G = {
     // the de-orbit burn: the screen goes dark through re-entry while the site is made ready
     landing(e) {
       G.mode = 'landing';
-      G.seq = { kind: 'land', t: 0, site: e.site };
+      G.seq = { kind: 'land', t: e.t || 0, site: e.site };
       G.ship.setEngines(1);
       HUD.closeTerminal(true);
     },
-    sitePrep(e) { G.stageSite(e.seed, e.site, e.weather); },
+    // (anyone whose way down has fallen behind the host's catches up to it here, as the shutters close)
+    sitePrep(e) { if (e.t != null && G.seq && G.seq.kind === 'land' && G.seq.t < e.t) G.seq.t = e.t; G.stageSite(e.seed, e.site, e.weather); },
     monitor(e) {
       if (G.run) G.run.mon = e.view;
       CrewCam.setView(e.view);
@@ -1861,7 +1869,7 @@ const G = {
     G.timers.push({ t: ENTRY.site, fn: () => {
       const site = SITES[key], seed = randSeed(), rng = new RNG(seed ^ 0x51ed);
       const weather = rng.weighted(site.weather);
-      G.emit({ e: 'sitePrep', site: key, seed, weather });
+      G.emit({ e: 'sitePrep', site: key, seed, weather, t: G.seq && G.seq.kind === 'land' ? +G.seq.t.toFixed(2) : null });
       G.stageSite(seed, key, weather, () => {
         // (the descent waits, shutters down, until the site's shaders are ready, so it doesn't stutter its way down)
         const go = () => {
@@ -2757,14 +2765,18 @@ const G = {
     } else if (G.seq && G.seq.kind === 'land' && G.mode === 'landing') {
       // the burn, the quiet fall, then the roar of the air on the hull
       const t = G.seq.t;
-      level = 0.9 * sstep(ENTRY.burn, ENTRY.burn + 0.5, t) * (1 - sstep(ENTRY.burn + 2.4, ENTRY.burn + 3.4, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
+      // (through the long fall the hum through the deck builds as the world comes up, and down near the top of the air
+      // the first thin wisps of it start to whistle on the hull)
+      const hr = S.alt / S.R;
+      level = 0.95 * G.burnK(t) + 0.15 + 0.12 * sstep(0.45, 0.09, hr) + 0.85 * (G.entryHeat || 0);
       // (and the air tearing past the hull, louder the faster and deeper it goes)
-      gale = Math.max(G.entryHeat || 0, 0.5 * sstep(ENTRY.air - 1, ENTRY.white, t)) * 1.1;
+      gale = Math.max(G.entryHeat || 0, 0.5 * sstep(ENTRY.air - 1, ENTRY.white, t), 0.14 * sstep(0.15, 0.075, hr)) * 1.1;
     } else if (G.seq && G.seq.kind === 'fired' && G.seq.blown) {
       // (the air roaring out of the hatch, dying away as it goes)
       gale = 1.5 * (G.seq.gale || 0);
     } else if (G.seq && G.seq.kind === 'jump') {
-      const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5);
+      // (dropping out, the drive's roar gives way to the long braking burn in, dying away as the ship settles into orbit)
+      const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5) + 0.45 * sstep(JUMP.drop + 0.8, JUMP.drop + 2, t) * (1 - sstep(JUMP.end - 4, JUMP.end - 0.5, t));
     }
     SFX.setThrust(level, inside, gale, S.group.position);
   },
@@ -3044,7 +3056,7 @@ const G = {
     G.stepSite(false);
     if (G.isHost) G.tickBombs(dt);
     G.updateFuses(dt); G.updateBlasts(dt);
-    G.updateSeq(dt);
+    G.updateSeq(dt, G.frameDt);
     G.updateFlight(dt);
     G.updateDelivery(dt);
     Pods.update(dt); G.lampSparks(dt); FX.update(dt);
@@ -3161,18 +3173,24 @@ const G = {
     }
   },
   // how high the ship is on the way down from orbit, t seconds after the lever (a share of the world's radius, from
-  // h0, the orbit's): it eases off the orbit's height and slides down to the top of the air by ENTRY.air, then on
-  // through it at the slower pace the air allows, with no kink anywhere (a log scale, so the world swells steadily)
+  // h0, the orbit's): it eases off the orbit's height so slowly at first you hardly see it go, then falls the long way
+  // down to the top of the air by ENTRY.air, the world swelling steadily (a log scale), and on into the air, sinking
+  // faster as it takes hold, to ENTRY.hEnd as the shutters close; never a kink, and never back up
   glideAlt(h0, t) {
-    const E = ENTRY, L0 = Math.log(h0), L1 = Math.log(E.hAir), r = (L1 - Math.log(E.hEnd)) / (E.white - E.air);
-    if (t >= E.air) return Math.max(E.hEnd * 0.5, E.hAir * Math.exp(-r * (t - E.air)));
-    const T = E.air - E.drop, u = clamp((t - E.drop) / T, 0, 1), u2 = u * u, u3 = u2 * u;
+    const E = ENTRY, L0 = Math.log(h0), L1 = Math.log(E.hAir), Le = Math.log(E.hEnd), T = E.air - E.drop, Ta = E.white - E.air;
+    // (the pace at the top of the air: the air's own, unless that would make the fall to it overshoot and climb back)
+    const r = Math.min((L1 - Le) / Ta, 2.5 * Math.max(0, L0 - L1) / T), q = Math.max(0, (L1 - Le - r * Ta) / (Ta * Ta));
+    if (t >= E.air) { const s = t - E.air; return Math.max(E.hEnd * 0.5, Math.exp(L1 - r * s - q * s * s)); }
+    const u = clamp((t - E.drop) / T, 0, 1), u2 = u * u, u3 = u2 * u;
     return Math.exp((2 * u3 - 3 * u2 + 1) * L0 + (3 * u2 - 2 * u3) * L1 - (u3 - u2) * r * T);
   },
+  // the braking burn's push coming down out of orbit, t seconds after the lever (0..1): a long heavy shove
+  burnK(t) { return sstep(ENTRY.burn, ENTRY.burn + 0.8, t) * (1 - sstep(ENTRY.burn + 4.6, ENTRY.burn + 5.8, t)); },
   setCabinPower(k) { R.fx.cabin = k; G.ship.tubeMat.color.copy(G.ship.tubeBase).multiplyScalar(Math.max(0.04, k)); },
-  updateSeq(dt) {
+  updateSeq(dt, raw) {
     const s = G.seq; if (!s) return;
-    s.t += dt;
+    // (the long scripted ones keep to the clock even when the frames come slow, so everyone aboard stays together)
+    s.t += s.kind === 'land' || s.kind === 'jump' ? Math.max(dt, Math.min(0.25, raw || dt)) : dt;
     const S = G.ship;
     if (s.kind === 'land') {
       // out of orbit and down: round the world and lower, into the top of the air, which burns round the ship until
@@ -3191,10 +3209,14 @@ const G = {
           s[k] = true; Player.addShake(0.12); G.rcsPuff(false);
           for (const z of [-0.8, 0.8]) SFX.play('hiss_valve', new THREE.Vector3(11.5, 0.9, z), { vol: 0.9, ref: 3, delay: z > 0 ? 0.06 : 0 });
         }
-        if (!s.roar && t > E.burn) { s.roar = true; SFX.play('engine', null, { dur: 3.4, vol: 1.2 }); }
-        // (the braking burn: the thrusters facing forward fire and hold, jets streaming out ahead past the windows)
-        const burn = sstep(E.burn, E.burn + 0.5, t) * (1 - sstep(E.burn + 2.4, E.burn + 3.4, t));
+        if (!s.roar && t > E.burn) { s.roar = true; SFX.play('engine', null, { dur: 5.8, vol: 1.3 }); }
+        // (the braking burn: the thrusters facing forward fire and hold, a long heavy shove, jets streaming out ahead
+        // past the windows)
+        const burn = G.burnK(t);
         if (burn > 0.05) G.rcsPuff(true, burn);
+        // (then the long fall, nothing but now and then a thruster puffing out on the hull, keeping her lined up, the
+        // world filling more of the glass each time you look)
+        if (t > E.burn + 6.5 && t < E.air - 2) { s.trimT = (s.trimT ?? 1.5) - dt; if (s.trimT <= 0) { s.trimT = 3.5 + Math.random() * 4; G.rcsPuff(false); Player.addShake(0.05); SFX.play('hiss_valve', new THREE.Vector3(Math.random() < 0.5 ? 11.5 : -6, 0.9, Math.random() < 0.5 ? -0.8 : 0.8), { vol: 0.6, ref: 3 }); } }
         G.fovAdd = 9 * sstep(E.air - 2, E.white - 1.3, t);
         // the air starts where the ship actually reaches it
         const hr = S.alt / S.R;
@@ -3221,7 +3243,9 @@ const G = {
             FX.emit({ at: _fxA.set(14 + Math.random() * 26, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr * (Math.random() < 0.5 ? -1 : 1)), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0, speed: [60, 95], grav: 0, drag: 0, life: [0.3, 0.55], size: [0.18, 0.4], streak: 0.07, color: [2.4 * fire.r + 1.4, 1.6 * fire.g + 0.7, 1.2 * fire.b + 0.25], color1: [1.6, 0.4, 0.08], alpha: 0.7 + 0.3 * G.entryHeat });
           }
         }
-        if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
+        if (!s.boom && G.entryHeat > 0.08) { s.boom = true; s.boomT = 3; SFX.play('thunder', null, { vol: 0.7 }); }
+        // (and through the thick of it, the rumble keeps rolling)
+        if (s.boom && G.entryHeat > 0.3 && (s.boomT -= dt) <= 0) { s.boomT = 2.4 + Math.random() * 1.8; SFX.play('thunder', null, { vol: 0.35 + 0.4 * G.entryHeat }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);
       } else {
@@ -3283,7 +3307,9 @@ const G = {
         S.warp.material.uniforms.uK.value = Math.max(0, 1 - (t - J.drop) * 3.5);
         S.warp.material.uniforms.uLen.value = 60;
         S.stars.material.uniforms.uFade.value = Math.min(1, (t - J.drop) * 1.5);
-        S.arrive = 1 - Math.pow(1 - Math.min(1, u * 1.1), 3);
+        // (it drops out a long way off, the world small, and brakes the whole way in, the world swelling slower and
+        // slower until it fills the glass)
+        S.arrive = 1 - Math.pow(1 - Math.min(1, u * 1.05), 2.2);
         // out through the far side of the tear, which zips shut around the ship; dropping out nose-on to the new world,
         // the ship eases round into its orbit as it brakes
         const b = (t - J.drop) / 0.55;

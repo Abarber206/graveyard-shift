@@ -29,8 +29,17 @@ const Ship = (() => {
   // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
   // as it shrinks; any extra way round, to come down into daylight, goes only while it's high, where it reads as the
   // world turning beneath)
-  const glideW = (t, extra) => (extra ? sstep(ENTRY.turn0, ENTRY.turn0 + 2, t) * (1 - sstep(ENTRY.drop + 1, ENTRY.air - 0.5, t))
-    : sstep(ENTRY.turn0, ENTRY.turn0 + 2.5, t) * (0.5 + 1.2 * sstep(ENTRY.drop + 2, ENTRY.white - 1, t)));
+  // how fast the world turns under the ship coming down, t seconds after the lever, from an orbit h0 up (a share,
+  // scaled to the trip): the lower an orbit, the quicker it goes round (as its radius to the -3/2), and the ship's own
+  // way round only takes over from its parked orbit's slow drift little by little, through the burn and the long fall
+  const glideW = (t, h0) => Math.pow((1 + ENTRY.hAir) / (1 + G.glideAlt(h0, t)), 1.5) * (0.02 + 0.98 * sstep(ENTRY.burn - 1, ENTRY.air - 4, t));
+  // (and the extra way round some days need, to bring the sun up: gone round while the ship's still high, where it
+  // reads as the world turning beneath rather than the ground rushing by)
+  const glideWx = (t) => sstep(ENTRY.burn, ENTRY.burn + 4, t) * (1 - sstep(ENTRY.drop + 6, ENTRY.air - 4, t));
+  // how much of the parked orbit's own clock has been held back, t seconds after the lever: it drifts on through the
+  // swing, slowing, and is still by the burn (the integral of sstep(turn0, burn)); all told it runs on DRIFT seconds
+  const glideHold = (t) => { const a = ENTRY.turn0, b = ENTRY.burn, u = clamp((t - a) / (b - a), 0, 1); return t < a ? 0 : (b - a) * (u * u * u - u * u * u * u / 2) + Math.max(0, t - b); };
+  const DRIFT = ENTRY.turn0 + (ENTRY.burn - ENTRY.turn0) / 2;
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -355,7 +364,7 @@ const Ship = (() => {
       this.group = new THREE.Group(); this.group.name = 'ship';
       this.space = new THREE.Group(); this.space.name = 'space';
       this.door = { open: false, t: 0 };
-      this.cols = []; this.obbs = []; this.lights = []; this.interact = [];
+      this.cols = []; this.obbs = []; this.lights = []; this.interact = []; this.tops = [];
       this.blinkers = []; this.leverT = 0; this.screenT = 0; this.beaconOn = false; this.airborne = false;
       this.termPos = V(2.65, 1.3, -3.4);
       this.leverPos = V(6.5, 1.15, 0);
@@ -373,6 +382,12 @@ const Ship = (() => {
     strut(a, b, t, mat) { const len = a.distanceTo(b); const m = this.mesh(new THREE.BoxGeometry(t, t, len), mat); m.position.copy(a).add(b).multiplyScalar(0.5); m.lookAt(b); return m; }
     extrude(shape, depth, mat, m4) { const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 20 }); if (m4) g.applyMatrix4(m4); return this.mesh(g, mat); }
     col(x0, x1, z0, z1, tag) { const c = { x0, x1, z0, z1, tag }; this.cols.push(c); return c; }
+    // the flat top of something aboard at height y over x0..x1, z0..z1 (the desk, the table, a rack's shelf): what's put
+    // down over it comes to rest there
+    top(x0, x1, z0, z1, y) { this.tops.push({ x0, x1, z0, z1, y }); }
+    // where something let go of at hand height y over (x, z) aboard comes to rest: the deck, or the top of whatever it's
+    // over (set on it, if it stands a little higher than the hand)
+    restY(x, z, y) { let f = 0; for (const t of this.tops) if (x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > f) f = t.y; return f; }
     obb(x, z, hw, hd, ry) { this.obbs.push({ x, z, hw, hd, ry }); }
     // ---- detail buckets: hundreds of small parts, merged per material into a handful of meshes ----
     put(m, geo, matrix) { (this.bk[m] || (this.bk[m] = [])).push({ geo, matrix }); }
@@ -982,7 +997,7 @@ const Ship = (() => {
       // trackball, and the computer itself under the desk (drive bays, a column of lights), cabled up behind
       {
         const D = 'darkmetal', P = 'painted', x0 = 1.9, x1 = 3.4, z0 = -3.95, z1 = -2.95, top = 0.9, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-        this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz);
+        this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz); this.top(x0 + 0.02, x1 - 0.02, z0 + 0.02, z1 - 0.02, top);
         this.pc(P, 0.024, 0.024, x1 - x0, cx, top - 0.024, z1, 0, 0, Math.PI / 2, 10);
         this.pb('pad', 0.9, 0.005, 0.42, 2.75, top + 0.0025, -3.18);
         // the pedestal: three drawers with pulls (the bottom one won't quite shut)
@@ -1098,12 +1113,12 @@ const Ship = (() => {
       // what's left of lunch and last night's card game
       {
         const D = 'darkmetal', bz = 3.62, tx = 2.55, tz = 2.95, ty = 0.76;
-        this.pb('pad', 1.5, 0.09, 0.42, 2.55, 0.465, bz); this.pb(D, 1.52, 0.04, 0.44, 2.55, 0.4, bz);
+        this.pb('pad', 1.5, 0.09, 0.42, 2.55, 0.465, bz); this.pb(D, 1.52, 0.04, 0.44, 2.55, 0.4, bz); this.top(1.82, 3.28, bz - 0.2, bz + 0.18, 0.51);
         for (const x of [1.86, 3.24]) for (const z of [bz - 0.17, bz + 0.17]) this.pb(D, 0.04, 0.38, 0.04, x, 0.19, z);
         this.pb(D, 1.4, 0.03, 0.03, 2.55, 0.1, bz - 0.17);
         this.pb('pad', 1.5, 0.34, 0.08, 2.55, 0.74, 3.86, -0.12, 0, 0);
         // the table: a scuffed wooden top on a steel rim, one heavy post, a foot plate bolted down
-        this.pb('wood', 1.3, 0.045, 0.62, tx, ty - 0.0225, tz); this.pb(D, 1.32, 0.025, 0.64, tx, ty - 0.055, tz);
+        this.pb('wood', 1.3, 0.045, 0.62, tx, ty - 0.0225, tz); this.pb(D, 1.32, 0.025, 0.64, tx, ty - 0.055, tz); this.top(tx - 0.64, tx + 0.64, tz - 0.3, tz + 0.3, ty);
         this.pc(D, 0.05, 0.06, ty - 0.07, tx, (ty - 0.07) / 2, tz, 0, 0, 0, 12); this.pc(D, 0.24, 0.27, 0.025, tx, 0.0125, tz, 0, 0, 0, 18);
         for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; this.pc('steelBolt', 0.014, 0.014, 0.012, tx + Math.cos(a) * 0.2, 0.028, tz + Math.sin(a) * 0.2, 0, 0, 0, 6); }
         // a hand of cards fanned out, the deck, a card face-down; two mugs; a lunchbox; a thermos; a pair of dice
@@ -2998,7 +3013,7 @@ const Ship = (() => {
       return _tqFull.setFromRotationMatrix(_gB.makeBasis(b1, _g2.set(0, 0, 1), _g3.crossVectors(b1, _g2)).multiply(_gA));
     }
     // Which way round the world the ship goes coming down, and how far (g.A, the axis the world turns on under it, and
-    // the trip, shared out by g.kb and g.kx), picked so it always comes down out of the dark into the morning, as the
+    // the trip, g.kb the pace it goes round at), picked so it always comes down out of the dark into the morning, as the
     // site is when it lands, wherever it was when the lever went: the sun about ENTRY.sunUp over the ground beneath by
     // the time the shutters close, from deep in the night side going further round to get there, the sun coming up
     // over the horizon. Of the ways that do, the one that means the shortest turn and the least extra way round, and
@@ -3047,8 +3062,12 @@ const Ship = (() => {
       const trip = r.trip;
       g.A = r.axis(r.b, new THREE.Vector3());
       g.dur = 3.8 + 4 * r.tb / Math.PI;
-      let ib = 0, ix = 0; for (let t = 0; t < E.white; t += 0.02) { ib += glideW(t, 0) * 0.02; ix += glideW(t, 1) * 0.02; }
+      let ib = 0, ix = 0; for (let t = 0; t < E.white; t += 0.05) { ib += glideW(t, g.h0) * 0.05; ix += glideWx(t) * 0.05; }
       g.kb = Math.min(trip, E.trip) / ib; g.kx = Math.max(0, trip - E.trip) / ix;
+      // (how far round it has gone at any moment, worked out once: the same however the frames fall, and for anyone
+      // who joins partway down)
+      const n = Math.ceil((E.white + 30) / 0.05) + 1, tab = (g.phiT = new Float32Array(n));
+      for (let i = 1; i < n; i++) { const t = (i - 0.5) * 0.05; tab[i] = tab[i - 1] + (g.kb * glideW(t, g.h0) + g.kx * glideWx(t)) * 0.05; }
     }
     // how much of the sun s is hidden, seen from P (in the orbit's own framing, from the middle of the world we
     // circle), by whatever else is out there: k, and the one hiding most of it (its direction, its angular radius, how
@@ -3065,7 +3084,8 @@ const Ship = (() => {
     orbit(dt, tNow) {
       const o = this.orb, R = this.R, g = this.glide;
       // (coming down, the ship's own way round the world takes over from the orbit's: see below)
-      if (g) this.hold = (this.hold || 0) + dt;
+      // (the parked orbit's own slow drift carries on through the swing, dying away by the burn)
+      if (g) { if (g.hold0 == null) g.hold0 = this.hold || 0; this.hold = g.hold0 + glideHold(g.t); }
       const t = tNow - (this.hold || 0);
       const a = (o.ra + o.rp) / 2, e = (o.ra - o.rp) / (o.ra + o.rp);
       const M = o.phase + t * TAU / o.period;
@@ -3074,8 +3094,8 @@ const Ship = (() => {
       let dist = a * (1 - e * Math.cos(E));
       const dOrb = dist;
       const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
-      // arriving from a jump the world swells up out of the distance
-      if (this.arrive < 1) dist *= lerp(9, 1, this.arrive);
+      // arriving from a jump the world swells up out of the distance (as the gap closes, not the distance: steadily)
+      if (this.arrive < 1) dist *= Math.exp(Math.log(14) * (1 - this.arrive));
       // In orbit the world hangs off to one side of the windshield, and the whole sky (world, sun, stars) turns
       // together when the ship does. Dropping out of a jump nose-on to the world, the ship eases round into its
       // orbit's framing (turn: 1 nose-on, 0 the orbit's framing).
@@ -3092,10 +3112,11 @@ const Ship = (() => {
         // disc under the nose spreads out into a flattening horizon with the ground laid out below it)
         const dl = Math.asin(Math.min(0.999, R / dist)) - 0.16;
         _g1.set(Math.cos(dl), -Math.sin(dl), 0);
-        if (!g.A) this.planGlide(g, nu, _g1);
+        // (planned for where the orbit will have drifted to by the time it's still)
+        if (!g.A) this.planGlide(g, nu + (TAU / o.period) * Math.max(0, DRIFT - (g.t - glideHold(g.t))), _g1);
         q = _tq.copy(_tqI).slerp(this.glideFrame(g.A, _g1), g.turn);
         // all the way down the world turns under the ship, and the sun and stars wheel round with it
-        g.phi += dt * (g.kb * glideW(g.t, 0) + g.kx * glideW(g.t, 1));
+        { const tab = g.phiT, f = g.t / 0.05, i = Math.min(tab.length - 2, Math.floor(f)); g.phi = tab[i] + (tab[i + 1] - tab[i]) * (f - i); }
         _gTr.setFromAxisAngle(g.A, g.phi);
       }
       const D = _Dw.copy(o.D).applyQuaternion(q);

@@ -438,7 +438,7 @@ function backgroundTick() {
   const now = performance.now();
   if (now - lastFrameAt < 250 || !G.online || !G.isHost || G.mode === 'menu') { lastBgAt = now; return; }
   let left = Math.min(1, (now - lastBgAt) / 1000); lastBgAt = now;
-  try { while (left > 0.0005) { const dt = Math.min(0.05, left); G.update(dt); left -= dt; } } catch (e) { console.error(e); }
+  try { while (left > 0.0005) { const dt = Math.min(0.05, left); G.frameDt = dt; G.update(dt); left -= dt; } } catch (e) { console.error(e); }
   Input.endFrame();
 }
 function startBackgroundTicker() {
@@ -452,7 +452,7 @@ function startBackgroundTicker() {
 function frame(now) {
   requestAnimationFrame(frame);
   lastFrameAt = performance.now();
-  const dt = Math.min(0.05, Math.max(0.0001, (now - lastT) / 1000)); lastT = now;
+  const dt = Math.min(0.05, Math.max(0.0001, (now - lastT) / 1000)); G.frameDt = Math.min(0.25, Math.max(0.0001, (now - lastT) / 1000)); lastT = now;
   try {
     if (G.mode === 'menu') MenuScene.update(dt);
     else if (!(HUD.paused && !G.online)) G.update(dt);

@@ -2676,7 +2676,8 @@ const G = {
       // the burn, the quiet fall, then the roar of the air on the hull
       const t = G.seq.t;
       level = 0.9 * sstep(ENTRY.burn, ENTRY.burn + 0.5, t) * (1 - sstep(ENTRY.burn + 2.4, ENTRY.burn + 3.4, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
-      gale = (G.entryHeat || 0) * 0.8;
+      // (and the air tearing past the hull, louder the faster and deeper it goes)
+      gale = Math.max(G.entryHeat || 0, 0.5 * sstep(ENTRY.air - 1, ENTRY.white, t)) * 1.1;
     } else if (G.seq && G.seq.kind === 'fired' && G.seq.blown) {
       // (the air roaring out of the hatch, dying away as it goes)
       gale = 1.5 * (G.seq.gale || 0);
@@ -3089,7 +3090,7 @@ const G = {
         // (the braking burn: the thrusters facing forward fire and hold, jets streaming out ahead past the windows)
         const burn = sstep(E.burn, E.burn + 0.5, t) * (1 - sstep(E.burn + 2.4, E.burn + 3.4, t));
         if (burn > 0.05) G.rcsPuff(true, burn);
-        G.fovAdd = 5 * sstep(E.air - 1, E.white - 1.3, t);
+        G.fovAdd = 9 * sstep(E.air - 2, E.white - 1.3, t);
         // the air starts where the ship actually reaches it
         const hr = S.alt / S.R;
         G.entryHeat = S.airless ? 0 : sstep(0.07, 0.03, hr) * (1 - sstep(E.white - 0.5, E.white + 0.4, t));   // (no air, nothing to burn)
@@ -3105,6 +3106,16 @@ const G = {
         // through, the braking burn that holds the ship up over the ground instead)
         const deep = sstep(E.air - 2, E.white - 1, t);
         Player.addShake(0.03 + 0.1 * burn + 0.55 * G.entryHeat + 0.08 * deep + (S.airless ? 0.2 * deep : 0));
+        // going this fast into the air: it buffets the ship in sudden jolts, the frame groaning, and sparks of burning air
+        // streak back past the glass (round the outside of the hull, never through it)
+        if (G.entryHeat > 0.05 && Math.random() < dt * 4 * G.entryHeat) { Player.addShake(0.25 + 0.35 * Math.random()); if (Math.random() < 0.4) SFX.play('clunk', new THREE.Vector3(Math.random() * 8 - 4, 3, Math.random() * 6 - 3), { vol: 0.45, pitch: 0.5 + Math.random() * 0.3 }); }
+        if (G.entryHeat > 0.03) {
+          const fire = G.entryColor(SITE_LOOK[G.run.route] || SITE_LOOK.ashgrove);
+          for (let i = Math.ceil(G.entryHeat * 4); i > 0; i--) {
+            const a = (Math.random() - 0.5) * 2.6, rr = 5.8 + Math.random() * 5;
+            FX.emit({ at: _fxA.set(14 + Math.random() * 26, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr * (Math.random() < 0.5 ? -1 : 1)), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0, speed: [60, 95], grav: 0, drag: 0, life: [0.3, 0.55], size: [0.18, 0.4], streak: 0.07, color: [2.4 * fire.r + 1.4, 1.6 * fire.g + 0.7, 1.2 * fire.b + 0.25], color1: [1.6, 0.4, 0.08], alpha: 0.7 + 0.3 * G.entryHeat });
+          }
+        }
         if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);

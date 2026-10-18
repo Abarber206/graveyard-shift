@@ -25,11 +25,12 @@ const Ship = (() => {
   const _gA = new THREE.Matrix4(), _gB = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _gF = new THREE.Vector3(), _gTr = new THREE.Quaternion();
   const _gS = new THREE.Vector3(), _gN = new THREE.Vector3(), _gM = new THREE.Vector3(), _gX = new THREE.Vector3(), _gV = new THREE.Vector3();
   const _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
-  // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round is
-  // quickest high up and eases as the ship gets low, where the ground streaming by shows the pace far more; any extra
-  // way round, to come down into daylight, goes only while it's high, where it reads as the world turning beneath)
+  // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round gathers
+  // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
+  // as it shrinks; any extra way round, to come down into daylight, goes only while it's high, where it reads as the
+  // world turning beneath)
   const glideW = (t, extra) => (extra ? sstep(ENTRY.turn0, ENTRY.turn0 + 2, t) * (1 - sstep(ENTRY.drop + 1, ENTRY.air - 0.5, t))
-    : sstep(ENTRY.turn0, ENTRY.turn0 + 2.5, t) * (0.55 + 0.45 * (1 - sstep(ENTRY.drop, ENTRY.air, t))));
+    : sstep(ENTRY.turn0, ENTRY.turn0 + 2.5, t) * (0.5 + 1.2 * sstep(ENTRY.drop + 2, ENTRY.white - 1, t)));
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line

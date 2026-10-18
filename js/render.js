@@ -666,7 +666,7 @@ const R = (() => {
     cam.updateMatrixWorld();
     if (backdrop && backdrop.visible) {
       cam.matrixWorld.decompose(_bgp, _feedBg.quaternion, _ss); _feedBg.position.set(0, 1.6, 0);
-      if (_feedBg.fov !== cam.fov || _feedBg.aspect !== cam.aspect) { _feedBg.fov = cam.fov; _feedBg.aspect = cam.aspect; _feedBg.updateProjectionMatrix(); }
+      if (_feedBg.fov !== cam.fov || _feedBg.aspect !== cam.aspect || _feedBg.near !== bgNear) { _feedBg.fov = cam.fov; _feedBg.aspect = cam.aspect; _feedBg.near = bgNear; _feedBg.updateProjectionMatrix(); }
       renderer.render(bgScene, _feedBg); renderer.clearDepth();
       const bg = scene.background; scene.background = null; renderer.render(scene, cam); scene.background = bg;
     } else renderer.render(scene, cam);

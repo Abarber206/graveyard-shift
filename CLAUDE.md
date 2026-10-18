@@ -112,6 +112,10 @@ Keep that file current when gameplay changes.
   same numbers, so they always agree. The orbit view draws moons nearer the world than they are, so their shadows are
   reckoned out along the line of sight at their real distance (`uLift` in `setBodies`), and they hide the rings without
   shadowing them (a negative radius in `uRingOcc`).
+- **Coming down from orbit** (`updateSeq`'s `'land'`, timed by `ENTRY`; `Ship.orbit` with `S.glide`). The ship lines
+  itself up to fly along its way down (`glideFrame`: the world below the nose, the horizon held a little above it). Its
+  height follows `G.glideAlt` (on a log scale), and the world turns under it about `g.A`. `planGlide` picks that heading,
+  and how far round to go, so it comes down into the morning, with the sun about `ENTRY.sunUp` up.
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style

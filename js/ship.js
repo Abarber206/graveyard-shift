@@ -18,10 +18,17 @@ const Ship = (() => {
   const CK = { x0: 3.7, x1: 8.2, w0: 3.2, w1: 1.9, roof: 2.9, sill: 1.0, wsTop: 6.6 }; // cockpit plan
   const halfAt = (x) => CK.w0 - (x - CK.x0) * ((CK.w0 - CK.w1) / (CK.x1 - CK.x0));
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _smJ = new THREE.Vector3(), _smD = new THREE.Vector3(), _occ = new THREE.Vector3(), _lf = new THREE.Vector3(), _lu = new THREE.Vector3(), _lc = new THREE.Vector3(), _camP = new THREE.Vector3(0, 1.6, 0), _pq = new THREE.Quaternion();
-  // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
-  // the nose, then (the nose dipped) dead ahead
-  const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
-  const _sw = new THREE.Vector3(), _sl = new THREE.Vector3(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
+  // turning the ship round in space (see orbit): the turn, the full turn; dropping out of a jump the world ends up dead
+  // ahead, and coming down out of orbit the ship lines itself up with its orbit (the two frames it matches, and the
+  // world's turning under it as it goes round)
+  const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
+  const _gA = new THREE.Matrix4(), _gB = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _gF = new THREE.Vector3(), _gTr = new THREE.Quaternion();
+  const _gS = new THREE.Vector3(), _gN = new THREE.Vector3(), _gM = new THREE.Vector3(), _gX = new THREE.Vector3(), _gV = new THREE.Vector3();
+  // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round is
+  // quickest high up and eases as the ship gets low, where the ground streaming by shows the pace far more; any extra
+  // way round, to come down into daylight, goes only while it's high, where it reads as the world turning beneath)
+  const glideW = (t, extra) => (extra ? sstep(ENTRY.turn0, ENTRY.turn0 + 2, t) * (1 - sstep(ENTRY.drop + 1, ENTRY.air - 0.5, t))
+    : sstep(ENTRY.turn0, ENTRY.turn0 + 2.5, t) * (0.55 + 0.45 * (1 - sstep(ENTRY.drop, ENTRY.air, t))));
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -246,7 +253,7 @@ const Ship = (() => {
     ${Rings.GLSL}${CLOUD_SPIN}
     uniform sampler2D uMap; uniform sampler3D uNoise;
     uniform vec3 uCamL, uSunL, uAmb, uCol; uniform vec4 uShell; uniform float uFade, uCirRot, uSunI, uTexel;
-    uniform vec4 uHole; uniform vec2 uHoleR; uniform vec4 uPdCast[3]; uniform vec3 uPdSunW;
+    uniform vec4 uPdCast[3]; uniform vec3 uPdSunW;
     varying vec3 vPos; varying vec3 vWP;
     vec3 sunCol(float m){ return mix(vec3(1.0, 0.34, 0.1), vec3(1.0, 0.96, 0.9), smoothstep(0.0, 0.3, m)) * smoothstep(-0.02, 0.05, m); }
     vec3 dW;
@@ -286,7 +293,6 @@ const Ship = (() => {
           vec4 m = textureGrad(uMap, cloudUV(cloudTurn(n, sp)), gx, gy);
           float dn = det(P), cv = clamp(m.r + dn * (0.3 + 0.5 * (1.0 - m.r)), 0.0, 1.0), tp = m.g * (1.0 + dn * 0.35), h = (r - Rb) / span;
           float dens = cv * cv * smoothstep(0.0, 0.08, h) * (1.0 - smoothstep(tp * 0.5, tp, h));
-          dens *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y * (0.8 + dn), 1.0 - dot(n, uHole.xyz)));
           if (dens < 0.002) continue;
           float a = 1.0 - exp(-dens * dt * 0.9), mu = dot(n, uSunL), muE = mu + sqrt(2.0 * max(r - Rp, 0.0) / Rp);
           // (the sunlight comes down into it from the tops, and is the dimmer the deeper in it has to come)
@@ -332,7 +338,6 @@ const Ship = (() => {
           vec3 nc = normalize(ro + rd * tc);
           float cr = cos(uCirRot), sr = sin(uCirRot); vec3 ncr = vec3(cr * nc.x + sr * nc.z, nc.y, -sr * nc.x + cr * nc.z);
           float ci = textureGrad(uMap, cloudUV(cloudTurn(ncr, sp)), gx, gy).b;
-          ci *= 1.0 - uHole.w * (1.0 - smoothstep(uHoleR.x, uHoleR.y, 1.0 - dot(nc, uHole.xyz)));
           float ca = 1.0 - exp(-ci * 0.45 / max(abs(dot(rd, nc)), 0.1));
           float mu = dot(nc, uSunL), muE = mu + sqrt(2.0 * (Rc - Rp) / Rp);
           vec3 cc = (sunCol(muE) * clamp((mu + 0.5) / 1.5, 0.0, 1.0) * uSunI * 0.8 + uAmb * 0.25 * smoothstep(-0.3, 0.4, mu)) * ca * uCol;
@@ -1846,12 +1851,27 @@ const Ship = (() => {
       { const y = skinTop(-3.0, -2.2); this.cyl(0.03, 0.03, 2.2, dm, -3.0, y + 1.1, -2.2, 0, 0, 0, 6); this.navLight(-3.0, y + 2.22, -2.2, 0xff2010, true); }
       { const y = skinTop(0.6, -2.05); const dish = this.mesh(new THREE.SphereGeometry(0.65, 14, 8, 0, TAU, 0, Math.PI / 3), MATS.get('painted')); dish.position.set(0.6, y + 0.65, -2.05); dish.rotation.set(-0.7, 0.4, 0); this.cyl(0.05, 0.05, 0.6, dm, 0.6, y + 0.3, -2.05, 0, 0, 0, 6); }
       for (const [x, z] of [[-5.5, 1.95], [-1.0, -1.95], [1.0, 1.85]]) this.box(1.0, 0.3, 0.7, MATS.get('vent'), x, skinTop(x, z) + 0.08, z).rotation.x = tilt(x, z);
-      // RCS thruster quads seated on the rounded shoulders, nozzles out along the skin's normal and fore and aft
+      // RCS thruster quads seated on the rounded shoulders, nozzles out along the skin's normal and fore and aft (where
+      // each nozzle's mouth is and which way it fires, for the puffs in space)
+      this.rcs = [];
       for (const [x, s] of [[-6.6, -1], [-6.6, 1], [3.1, -1], [3.1, 1]]) {
         const u = upperAt(x, 0.45), n = V(0, Math.cos(u.tilt), s * Math.sin(u.tilt)), p = V(x, u.y, s * u.z);
         this.pb('darkmetal', 0.55, 0.3, 0.45, x, u.y, s * u.z, s * u.tilt, 0, 0);
         pcAx('darkmetal', 0.1, 0.06, 0.18, p.clone().addScaledVector(n, 0.2), n, 10);
-        for (const dx of [-1, 1]) pcAx('darkmetal', 0.08, 0.05, 0.14, p.clone().addScaledVector(n, 0.05).add(V(dx * 0.32, 0, 0)), V(dx, 0, 0), 10);
+        this.rcs.push({ p: p.clone().addScaledVector(n, 0.3), d: n.clone() });
+        for (const dx of [-1, 1]) {
+          pcAx('darkmetal', 0.08, 0.05, 0.14, p.clone().addScaledVector(n, 0.05).add(V(dx * 0.32, 0, 0)), V(dx, 0, 0), 10);
+          this.rcs.push({ p: p.clone().addScaledVector(n, 0.05).add(V(dx * 0.4, 0, 0)), d: V(dx, 0, 0) });
+        }
+      }
+      // and out on the nose, a pair of retro nozzles facing forward (the braking burn) and a pair of steering ones
+      // facing out to the sides, set into the skin just below the pilots' sightline
+      for (const s of [-1, 1]) {
+        for (const [x, z, d] of [[10.4, 1.05, V(1, 0.12, s * 0.22)], [11.5, 0.7, V(0, 0.35, s)]]) {
+          const p = V(x, skinTop(x, s * z) + 0.03, s * z); d.normalize();
+          pcAx('darkmetal', 0.075, 0.05, 0.12, p, d, 10);
+          this.rcs.push({ p: p.clone().addScaledVector(d, 0.1), d });
+        }
       }
       { const y = skinTop(2.0, 2.4);
         this.floodHead = this.box(0.7, 0.45, 0.6, dm, 2.0, y + 0.22, 2.4);
@@ -2394,8 +2414,8 @@ const Ship = (() => {
         side: THREE.BackSide, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
       this.tunnel.rotation.z = -Math.PI / 2; this.tunnel.visible = false; this.tunnel.frustumCulled = false; this.tunnel.renderOrder = -95; sp.add(this.tunnel);
-      // 0..1: how far we've fallen toward the planet (landing), how far we've come in after a jump (arrival)
-      this.approach = 0; this.arrive = 1; this.inWarp = false;
+      // coming down out of orbit (see orbit); 0..1: how far we've come in after a jump (arrival)
+      this.glide = null; this.arrive = 1; this.inWarp = false;
       // the current height above the surface
       this.alt = 1e4;
       // the planet system: pgroup is placed along our elliptical orbit each frame, tilt carries the axial tilt
@@ -2480,8 +2500,8 @@ const Ship = (() => {
             vec3 q = vec3(u * 7.0, w * 7.0, face * 1.3 + uT * 3.2);
             float s = n3(q) * 0.55 + n3(q * vec3(2.3, 2.3, 1.7) + 9.1) * 0.3 + n3(q * vec3(5.0, 5.0, 3.0) + 3.7) * 0.15;
             float flick = 0.75 + 0.25 * n3(vec3(uT * 9.0, u * 2.0, w * 2.0));
-            float ram = smoothstep(-0.15, 1.0, face);
-            float streak = smoothstep(0.42, 0.85, s) * smoothstep(-0.95, 0.4, face);
+            float ram = smoothstep(0.05, 1.0, face);
+            float streak = smoothstep(0.42, 0.85, s) * smoothstep(-0.45, 0.6, face);
             float k = (ram * ram * 1.1 + streak * 0.9) * flick * uK;
             // the burning air takes the colour of this world's air: deep in the streaks, white-hot where it rams the hull
             vec3 air = pow(uAir / max(max(uAir.r, uAir.g), max(uAir.b, 0.01)), vec3(2.2));
@@ -2630,9 +2650,6 @@ const Ship = (() => {
         uMap: { value: this.wxRT.texture }, uNoise: { value: R.vol.noise || null }, uCamL: { value: V() }, uSunL: { value: V(1, 0, 0) },
         uAmb: { value: new THREE.Color() }, uCol: { value: new THREE.Color(1, 1, 1) }, uShell: { value: new THREE.Vector4(Rw * CLOUD.base, Rw * CLOUD.top, Rw * CLOUD.cirrus, Rw) },
         uFade: { value: 0 }, uCirRot: { value: 0 }, uSunI: { value: 1.55 }, uTexel: { value: TAU * Rw * CLOUD.top / tier.w },
-        // (diving in, the cloud breaks over the site, so you come down through a gap toward the ground and what's on
-        // it: xyz is the site's direction in the cloud's own frame, w how open the gap is; its edge is ragged)
-        uHole: { value: new THREE.Vector4() }, uHoleR: { value: new THREE.Vector2(1 - Math.cos(0.036), 1 - Math.cos(0.11)) },
         uPdCast: U.cast, uPdSunW: U.sunW, uVort: this.vortU, uVturn: this.vturnU,
       }, this.ringU);
       const cm = new THREE.ShaderMaterial({ uniforms: cu, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS(), defines: {}, transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false });
@@ -2958,7 +2975,7 @@ const Ship = (() => {
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
       // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it)
       const a = R * (look.giant ? r.range(1.25, 1.7) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
-      this.turn = 0; this.dip = 1;
+      this.turn = 0; this.glide = null;
       this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       // (and its own weather today: the same seed, the world's own character)
@@ -2966,11 +2983,56 @@ const Ship = (() => {
       // (rings: only round the worlds that have them; never round an airless moon or rock)
       this.ringOwn = !!look.rings && !look.airless; this.ringPlanet = null; this.hold = 0;
     }
+    // how near the closest of the world's surfaces is: the ground, or the shell of its cloud or its air, as the ship
+    // sinks past them (so the backdrop's near plane never cuts into one)
+    clearance() { const a = this.alt, R = this.R; return Math.min(a, Math.abs(a - R * 0.06), Math.abs(a - R * (CLOUD.hull - 1))); }
+    // where the sun is from the ship (its orbit's own framing), this far round the orbit
+    sunAt(nu) { const o = this.orb, sa = o.sunPhase - nu; return _gS.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize(); }
+    // the ship's attitude coming down (in the orbit's own framing): the world's centre to b1, below the nose, and the
+    // axis A the world turns on under it out to the side, so the ship flies along the way it's going
+    glideFrame(A, b1) {
+      _gA.makeBasis(this.orb.D, A, _gF.crossVectors(this.orb.D, A)).transpose();
+      return _tqFull.setFromRotationMatrix(_gB.makeBasis(b1, _g2.set(0, 0, 1), _g3.crossVectors(b1, _g2)).multiply(_gA));
+    }
+    // Which way round the world the ship goes coming down, and how far (g.A, the axis the world turns on under it, and
+    // the trip, shared out by g.kb and g.kx), picked so it comes down into the morning, as the site is when it lands:
+    // the sun about ENTRY.sunUp over the ground beneath by the time the shutters close, from deep in the night side
+    // going further round to get there, the sun coming up over the horizon. Of the ways that do, the one that means
+    // the shortest turn and the least extra way round, and leaves the sun off to the side or behind, lighting the
+    // ground ahead rather than showing only its shadowed side. g.dur is how long the turn takes (the further, the
+    // longer: a ship this size swings round slowly).
+    planGlide(g, nu, b1) {
+      const o = this.orb, E = ENTRY, s0 = this.sunAt(nu), lo = Math.sin(E.sunUp - 0.14), hi = Math.sin(E.sunUp + 0.14);
+      const n0 = _gN.crossVectors(o.D, s0); if (n0.lengthSq() < 1e-6) n0.copy(o.N); n0.normalize();
+      const m0 = _gM.crossVectors(o.D, n0);
+      const axis = (b, out) => out.copy(n0).multiplyScalar(Math.cos(b)).addScaledVector(m0, Math.sin(b));
+      const sunAfter = (b, f) => _gV.copy(s0).applyAxisAngle(axis(b, _gX), f), up = (b, f) => -sunAfter(b, f).dot(o.D);
+      const turn = (b) => 2 * Math.acos(Math.min(1, Math.abs(this.glideFrame(axis(b, _gX), b1).w)));
+      let best = 0, bestTrip = E.trip, cost = Infinity, tb = 0;
+      for (let i = 0; i < 96; i++) {
+        const b = (i / 96) * TAU - Math.PI;
+        // (as far round as this heading needs to bring the sun up, if it's still down)
+        let trip = E.trip;
+        if (up(b, trip) < lo) {
+          let a = trip, z = E.tripMax;
+          if (up(b, z) < lo) trip = z;
+          else { for (let k = 0; k < 20; k++) { const m = (a + z) / 2; if (up(b, m) < lo) a = m; else z = m; } trip = z; }
+        }
+        const u = up(b, trip), sv = sunAfter(b, trip), fw = _gF.crossVectors(axis(b, _gX), o.D);
+        const ahead = sv.addScaledVector(o.D, -sv.dot(o.D)).normalize().dot(fw), t = turn(b);
+        const c = t + 6 * (Math.max(0, lo - u) + Math.max(0, u - hi)) + 1.2 * (trip - E.trip) + 0.8 * Math.max(0, ahead - 0.2);
+        if (c < cost) { cost = c; best = b; tb = t; bestTrip = trip; }
+      }
+      const trip = bestTrip;
+      g.A = axis(best, new THREE.Vector3());
+      g.dur = 3.8 + 4 * tb / Math.PI;
+      let ib = 0, ix = 0; for (let t = 0; t < E.white; t += 0.02) { ib += glideW(t, 0) * 0.02; ix += glideW(t, 1) * 0.02; }
+      g.kb = Math.min(trip, E.trip) / ib; g.kx = Math.max(0, trip - E.trip) / ix;
+    }
     orbit(dt, tNow) {
-      const o = this.orb, R = this.R;
-      // (diving in, the ship falls straight down onto the site with the ground turning along under it, so the site holds
-      // still beneath: the world's turning, and the sun's wheel round with it, wait while it falls)
-      if (this.approach > 0) this.hold = (this.hold || 0) + dt;
+      const o = this.orb, R = this.R, g = this.glide;
+      // (coming down, the ship's own way round the world takes over from the orbit's: see below)
+      if (g) this.hold = (this.hold || 0) + dt;
       const t = tNow - (this.hold || 0);
       const a = (o.ra + o.rp) / 2, e = (o.ra - o.rp) / (o.ra + o.rp);
       const M = o.phase + t * TAU / o.period;
@@ -2979,26 +3041,39 @@ const Ship = (() => {
       let dist = a * (1 - e * Math.cos(E));
       const dOrb = dist;
       const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
-      // arriving from a jump the world swells up out of the distance; landing, we fall toward it until it fills the
-      // windows and slides beneath us (the horizon drops below the nose)
+      // arriving from a jump the world swells up out of the distance
       if (this.arrive < 1) dist *= lerp(9, 1, this.arrive);
-      // In orbit the world hangs off to one side of the windshield. Diving in (or dropping out of a jump at it), the
-      // ship swings its nose round onto it first, so it goes in head-on rather than crabbing in sideways: the whole sky
-      // (world, sun, stars) turns together by the same rotation. turn: 0 the orbit's framing, 1 swung round onto it;
-      // dip: 0 the world under the nose, 1 the nose pushed over into the dive, the world dead ahead
-      const q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _tgt.copy(_below).lerp(_ahead, this.dip == null ? 1 : this.dip).normalize()), this.turn || 0);
-      const D = _Dw.copy(o.D).applyQuaternion(q);
-      if (this.approach > 0) {
-        // diving out of orbit straight at the world from wherever the ship is: the planet stays where it is in the
-        // windshield and only grows. The altitude shrinks geometrically, from the orbit's down to the top of the air,
-        // so the world swells at a steady rate instead of rushing up at the end.
-        const h0 = dist - R, h = h0 * Math.pow((R * 0.008) / h0, this.approach);
-        dist = R + h;
+      // In orbit the world hangs off to one side of the windshield, and the whole sky (world, sun, stars) turns
+      // together when the ship does. Dropping out of a jump nose-on to the world, the ship eases round into its
+      // orbit's framing (turn: 1 nose-on, 0 the orbit's framing).
+      let q;
+      if (!g) q = _tq.copy(_tqI).slerp(_tqFull.setFromUnitVectors(o.D, _ahead), this.turn || 0);
+      else {
+        // Coming down out of orbit the way a spacecraft does. First the ship swings round, slow and steady on its
+        // thrusters, to fly along its orbit with its belly to the world (turn: 0 the orbit's framing, 1 swung round).
+        // Then it sinks round the world (hr: its height over the ground, a share of the world's radius, set by the
+        // descent), lower and lower and faster and faster, the way a smaller orbit goes round quicker, until it
+        // skims into the top of the air.
+        if (g.hr != null) dist = R * (1 + g.hr);
+        // (the horizon holds a little above the nose; as the world grows the ship pitches up to keep it there, so the
+        // disc under the nose spreads out into a flattening horizon with the ground laid out below it)
+        const dl = Math.asin(Math.min(0.999, R / dist)) - 0.16;
+        _g1.set(Math.cos(dl), -Math.sin(dl), 0);
+        if (!g.A) this.planGlide(g, nu, _g1);
+        q = _tq.copy(_tqI).slerp(this.glideFrame(g.A, _g1), g.turn);
+        // all the way down the world turns under the ship, and the sun and stars wheel round with it
+        g.phi += dt * (g.kb * glideW(g.t, 0) + g.kx * glideW(g.t, 1));
+        _gTr.setFromAxisAngle(g.A, g.phi);
       }
+      const D = _Dw.copy(o.D).applyQuaternion(q);
       this.alt = dist - R;
       this.pgroup.position.copy(D).multiplyScalar(dist); this.pgroup.quaternion.copy(q);
+      if (g) this.pgroup.quaternion.multiply(_gTr);
       this.pgroup.visible = !this.inWarp;
-      this.plasma.material.uniforms.uV.value.copy(D);
+      // (skimming in belly first, the burning air rams the belly and the underside of the nose: it glows up from below
+      // the windshield and streams back past it)
+      if (g) this.plasma.material.uniforms.uV.value.crossVectors(_gF.copy(g.A).applyQuaternion(q), D).multiplyScalar(0.2).add(D).normalize();
+      else this.plasma.material.uniforms.uV.value.copy(D);
       // the world turns beneath us; the sun appears to wheel around as we travel along the orbit
       this.planet.rotation.y = nu + t * o.spin;
       // (the cloud rides round with the ground under it: the ship passes over it the way it passes over the ground, the
@@ -3008,10 +3083,10 @@ const Ship = (() => {
       this.clouds.rotation.y = nuU * 0.997 + t * o.spin * 0.92; this.cloudU.uCirRot.value = t * o.spin * 0.03;
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       this.stepWeather(dt);
-      const sa = o.sunPhase - nu;
-      this.sunDir.copy(o.D).multiplyScalar(Math.cos(sa)).addScaledVector(o.B, Math.sin(sa)).addScaledVector(o.N, 0.18).normalize().applyQuaternion(q);
+      this.sunDir.copy(this.sunAt(nu)); if (g) this.sunDir.applyQuaternion(_gTr);
+      this.sunDir.applyQuaternion(q);
       this.sunCore.position.copy(this.sunDir).multiplyScalar(15000);
-      this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); this.stars.quaternion.premultiply(q);
+      this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); if (g) this.stars.quaternion.premultiply(_gTr); this.stars.quaternion.premultiply(q);
       this.atmo.material.uniforms.sunDir.value.copy(this.sunDir);
       if (this.bodyRims) for (const u of this.bodyRims) u.value.copy(this.sunDir);
       // what circles the world, slowly going round it; where they are for the shadows they throw on it, and its on them
@@ -3063,18 +3138,6 @@ const Ship = (() => {
         a.uK.value = k; a.uUp.value.copy(up); a.uTint.value.copy(this.atmo.material.uniforms.tint.value);
         this.airSky.visible = k > 0.002 && !this.inWarp && !this.airless;
         this.pdU.haze.value = this.airless ? 0 : sstep(R * 0.45, R * 0.02, this.alt) * 0.8;
-      }
-      // diving in, the cloud deck breaks open over the site dead ahead, so we come down through a gap toward the ground
-      // (a few degrees off dead ahead, so the windshield's middle pillar, right on the line of the dive, isn't over it)
-      {
-        const k = this.approach > 0 && !this.inWarp ? sstep(R * 0.2, R * 0.06, this.alt) : 0;
-        const h = this.cloudU.uHole.value; h.w = 0;
-        if (k > 0.002) {
-          const dir = _dh.copy(D).applyAxisAngle(_up0, 0.05), cosA = dir.dot(D), dc = this.alt + R;
-          _sw.copy(dir).multiplyScalar(dc * cosA - Math.sqrt(Math.max(0, R * R - dc * dc * (1 - cosA * cosA))));
-          this.space.updateMatrixWorld(); _sw.applyMatrix4(this.space.matrixWorld);
-          this.clouds.updateMatrixWorld(); const l = this.clouds.worldToLocal(_sl.copy(_sw)).normalize(); h.set(l.x, l.y, l.z, sstep(0, 0.35, k));
-        }
       }
       // eclipse when the sun slips behind the planet's disc
       const angR = Math.asin(Math.min(0.999, R * 1.02 / dist)), ang = Math.acos(clamp(this.sunDir.dot(D), -1, 1));

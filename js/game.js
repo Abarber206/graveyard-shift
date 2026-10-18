@@ -238,9 +238,13 @@ const FLY = {
   sendoff: 4.5,                          // ...and this much longer when it leaves anyone behind (they watch it go)
   doorAlt: 40,                           // the hatch can be open below this altitude, and shuts itself above it
 };
-// leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
-// the site is built and the descent over it begins at `site`
-const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
+// leaving orbit for the ground (seconds after the lever): the ship swings round to fly along its way down (from
+// turn0, taking longer the further it has to turn), the braking burn (from burn), the long slide down round the world
+// from drop, reaching the top of the air (hAir high, a share of the world's radius) at air and skimming on through it
+// to hEnd at white, the shutters coming down just before; the site is built and the descent over it begins at `site`.
+// On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
+// sunUp over the ground under it)
+const ENTRY = { turn0: 0.4, burn: 4.2, drop: 4.4, air: 10.6, white: 15, site: 15.2, hAir: 0.07, hEnd: 0.02, trip: 0.96, tripMax: 2.1, sunUp: 0.65 };
 const _shQ = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
@@ -293,7 +297,7 @@ const G = {
     G.bombs = []; G.fuses = []; for (const b of G.blasts) for (const p of b.parts) R.scene.remove(p.o); G.blasts = [];
     for (const g of G.grenades) R.scene.remove(g.mesh); G.grenades = [];
     G.ship.snapShutters(false);
-    G.ship.approach = 0; G.ship.arrive = 1; G.ship.turn = 0; G.ship.dip = 1; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
+    G.ship.glide = null; G.ship.arrive = 1; G.ship.turn = 0; G.ship.inWarp = false; G.ship.warp.visible = false; G.ship.portal.visible = false; G.ship.tunnel.visible = false; R.fx.warp = 0; G.ship.plasma.visible = false; G.ship.stars.material.uniforms.uFade.value = 1;
     HUD.reset(); Player.resetVM(); Player.clearPerks(); G.clearMarks(); CrewCam.reset();
     R.fx.fade = 0; R.fx.damage = 0; R.fx.leech = 0; R.fx.static = 0; R.fx.flash = 0; R.fx.fear = 0; R.fx.health = 1; G.adrenaline = 0; G.orbitSeed = null;
   },
@@ -2614,7 +2618,7 @@ const G = {
     } else if (G.seq && G.seq.kind === 'land' && G.mode === 'landing') {
       // the burn, the quiet fall, then the roar of the air on the hull
       const t = G.seq.t;
-      level = 0.9 * sstep(0, 0.5, t) * (1 - sstep(ENTRY.burn + 1.6, ENTRY.burn + 3.2, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
+      level = 0.9 * sstep(ENTRY.burn, ENTRY.burn + 0.5, t) * (1 - sstep(ENTRY.burn + 2.4, ENTRY.burn + 3.4, t)) + 0.15 + 0.85 * (G.entryHeat || 0);
       gale = (G.entryHeat || 0) * 0.8;
     } else if (G.seq && G.seq.kind === 'jump') {
       const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5);
@@ -2968,28 +2972,63 @@ const G = {
     else { s.upT += dt; k = s.upT < 0.45 ? (Math.random() < 0.3 ? 0.9 : 0.08) : damp(R.fx.cabin, 1, 6, dt); }
     G.setCabinPower(k);
   },
+  // the hull's thrusters firing in space (on the shoulders and out on the nose): from each nozzle that fires, gas
+  // white-hot for an instant at its mouth, then a pale plume thinning out fast (lit by the sun, if the ship's in it).
+  // fwd: just the ones facing forward, held on (the braking burn, k how hard: a few bits a frame); otherwise a short
+  // burst from the others
+  rcsPuff(fwd, k = 1) {
+    const S = G.ship, lit = 0.1 + 0.55 * S.sunCore.material.opacity;
+    for (const r of S.rcs) {
+      if (fwd !== r.d.x > 0.5) continue;
+      const at = G.carry(_fxA.copy(r.p)), dir = _fxD.copy(r.d); if (G.shipMoved) dir.applyQuaternion(G.shipQ);
+      // (the burn's jets: a hot core streaming out and a cone of gas spreading round it; the burst: a quick spray of
+      // vapour that's gone in a moment. Those on the shoulders, out to the sides, stay fainter)
+      const side = r.p.x < 9 ? 0.5 : 1;
+      if (fwd) {
+        FX.emit({ at, dir, glow: true, n: 2, spread: 0.06, speed: [16, 26], grav: 0, drag: 1, life: [0.15, 0.35], size: [0.14, 0.26], grow: 2, streak: 0.05, color: [1.8, 1.45, 1.1], color1: [0.8, 0.35, 0.15], alpha: (0.5 + 0.5 * k) * side });
+        FX.emit({ at, dir, n: 2, spread: 0.2, speed: [12, 22], grav: 0, drag: 0.5, life: [0.35, 0.7], size: [0.08, 0.14], grow: 6, color: [lit, lit * 1.02, lit * 1.05], alpha: 0.25 * k * side, fadeIn: 0.02 });
+      } else {
+        FX.emit({ at, dir, glow: true, n: 3, spread: 0.15, speed: [10, 18], grav: 0, drag: 2, life: [0.04, 0.1], size: [0.1, 0.18], grow: 2, streak: 0.03, color: [1.6, 1.4, 1.2], color1: [0.7, 0.4, 0.2], alpha: side });
+        FX.emit({ at, dir, n: 14, spread: 0.35, speed: [8, 20], grav: 0, drag: 0.8, life: [0.18, 0.4], size: [0.06, 0.12], grow: 7, color: [lit, lit * 1.02, lit * 1.05], alpha: 0.3 * side, fadeIn: 0.02 });
+      }
+    }
+  },
+  // how high the ship is on the way down from orbit, t seconds after the lever (a share of the world's radius, from
+  // h0, the orbit's): it eases off the orbit's height and slides down to the top of the air by ENTRY.air, then on
+  // through it at the slower pace the air allows, with no kink anywhere (a log scale, so the world swells steadily)
+  glideAlt(h0, t) {
+    const E = ENTRY, L0 = Math.log(h0), L1 = Math.log(E.hAir), r = (L1 - Math.log(E.hEnd)) / (E.white - E.air);
+    if (t >= E.air) return Math.max(E.hEnd * 0.5, E.hAir * Math.exp(-r * (t - E.air)));
+    const T = E.air - E.drop, u = clamp((t - E.drop) / T, 0, 1), u2 = u * u, u3 = u2 * u;
+    return Math.exp((2 * u3 - 3 * u2 + 1) * L0 + (3 * u2 - 2 * u3) * L1 - (u3 - u2) * r * T);
+  },
   setCabinPower(k) { R.fx.cabin = k; G.ship.tubeMat.color.copy(G.ship.tubeBase).multiplyScalar(Math.max(0.04, k)); },
   updateSeq(dt) {
     const s = G.seq; if (!s) return;
     s.t += dt;
     const S = G.ship;
     if (s.kind === 'land') {
-      // out of orbit and down: the de-orbit burn, a long fall toward the planet until it fills the windows, the
-      // burning plunge through the upper air, and out into cloud (the descent over the site takes over from there)
+      // out of orbit and down: round the world and lower, into the top of the air, which burns round the ship until
+      // the shutters come down over it, and out into cloud (the descent over the site takes over from there)
       const E = ENTRY, t = s.t;
       if (G.mode === 'landing') {
-        // the fall: eased in by the burn, fastest through the middle, slowing as the air takes hold (the altitude
-        // itself shrinks geometrically, in the ship's orbit code, so the world swells at a steady rate)
-        // first the nose swings round until the world lies under it; then it dips, the ship pushing over to dive
-        // straight down into it with the engines roaring, and the view opens out as the world swells to fill it
-        // (both slow and soft at either end, the way thrusters would swing a ship this size, and run into each other)
+        // first the ship swings round on its thrusters (slow and soft at either end, the way they'd swing a ship this
+        // size) to fly along its orbit with its belly to the world and the horizon across the windshield; the
+        // braking burn; then the long slide down round the world, the ground streaming by faster and faster beneath,
+        // the horizon flattening, until it skims into the top of the air (see the ship's orbit code)
         const ease = (a, b) => { const u = clamp((t - a) / (b - a), 0, 1); return u * u * u * (u * (u * 6 - 15) + 10); };
-        S.turn = ease(0, 2.4); S.dip = ease(1.6, 4.0);
-        if (!s.roar && t > 1.6) { s.roar = true; SFX.play('engine', null, { dur: 5.5, vol: 1.3 }); }
-        G.fovAdd = 10 * sstep(0.3, 0.9, S.approach);
-        // (never easing off: the world is still swelling, faster and faster, when the shutters slam down over it)
-        const w = clamp((t - 0.6) / (E.white - 1.2), 0, 1);
-        S.approach = Math.pow(w, 1.35);
+        const g = S.glide || (S.glide = { t: 0, turn: 0, hr: null, phi: 0, A: null, dur: 4.4, h0: S.alt / S.R });
+        g.t = t; g.turn = ease(E.turn0, E.turn0 + g.dur); g.hr = G.glideAlt(g.h0, t);
+        // (the thrusters puff to start the swing and again to stop it, a pair at a time out on the nose)
+        for (const [k, at] of [['rcs0', E.turn0], ['rcs1', E.turn0 + g.dur - 1.1]]) if (!s[k] && t > at) {
+          s[k] = true; Player.addShake(0.12); G.rcsPuff(false);
+          for (const z of [-0.8, 0.8]) SFX.play('hiss_valve', new THREE.Vector3(11.5, 0.9, z), { vol: 0.9, ref: 3, delay: z > 0 ? 0.06 : 0 });
+        }
+        if (!s.roar && t > E.burn) { s.roar = true; SFX.play('engine', null, { dur: 3.4, vol: 1.2 }); }
+        // (the braking burn: the thrusters facing forward fire and hold, jets streaming out ahead past the windows)
+        const burn = sstep(E.burn, E.burn + 0.5, t) * (1 - sstep(E.burn + 2.4, E.burn + 3.4, t));
+        if (burn > 0.05) G.rcsPuff(true, burn);
+        G.fovAdd = 5 * sstep(E.air - 1, E.white - 1.3, t);
         // the air starts where the ship actually reaches it
         const hr = S.alt / S.R;
         G.entryHeat = S.airless ? 0 : sstep(0.07, 0.03, hr) * (1 - sstep(E.white - 0.5, E.white + 0.4, t));   // (no air, nothing to burn)
@@ -3001,15 +3040,17 @@ const G = {
         const pm = S.plasma.material.uniforms;
         S.plasma.visible = G.entryHeat > 0.001; pm.uK.value = G.entryHeat; pm.uT.value = t;
         S.stars.material.uniforms.uFade.value = 1 - 0.9 * sstep(0.09, 0.03, hr);
-        S.setThrust(0, sstep(0, 0.5, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)));
-        Player.addShake(0.05 + 0.08 * sstep(0, 1.2, t) * (1 - sstep(E.burn + 1.6, E.burn + 3.2, t)) + 0.04 * sstep(1.6, 2.6, t) * (1 - sstep(3.2, 4.2, t)) + 0.55 * G.entryHeat + 0.1 * sstep(0.55, 1, S.approach) + (S.airless ? 0.22 * sstep(0.6, 1, S.approach) : 0));   // (and a mounting rumble; with no air to burn through, the braking burn)
+        // (a hum through the deck, the burn's shove, and a mounting rumble as the air thickens; with no air to burn
+        // through, the braking burn that holds the ship up over the ground instead)
+        const deep = sstep(E.air - 2, E.white - 1, t);
+        Player.addShake(0.03 + 0.1 * burn + 0.55 * G.entryHeat + 0.08 * deep + (S.airless ? 0.2 * deep : 0));
         if (!s.boom && G.entryHeat > 0.08) { s.boom = true; SFX.play('thunder', null, { vol: 0.7 }); }
         // shut in, the worst of the burn draws the power down: the cabin lights sag and die to a glow for a moment
         if (t > E.site - 0.35) G.powerDip(s, dt, true);
       } else {
         // through the worst of it: still shut in, then the power comes back, the shutters grind up on cloud, and the
         // ground appears below (not before the site is really there)
-        if (s.tLand == null) { s.tLand = t; G.fovAdd = 0; S.approach = 0; S.dip = 1; G.entryHeat = 0; R.fx.heat = 0; S.plasma.visible = false; S.stars.material.uniforms.uFade.value = 1; S.setShutters(true); }
+        if (s.tLand == null) { s.tLand = t; G.fovAdd = 0; S.glide = null; G.entryHeat = 0; R.fx.heat = 0; S.plasma.visible = false; S.stars.material.uniforms.uFade.value = 1; S.setShutters(true); }
         R.fx.white = 0;
         if (s.tUp == null && G.siteShown && t - s.tLand > 0.3) s.tUp = t;
         G.powerDip(s, dt, s.tUp == null);
@@ -3177,8 +3218,9 @@ const G = {
       G.orbitT = (G.orbitT || 60) + dt;
       const sd = G.ship.orbit(dt, G.orbitT);
       R.fx.sun = 0; G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
-      // falling close over the surface, the backdrop's near plane comes in so the ground below is never clipped
-      R.setBgNear(clamp(G.ship.alt * 0.35, 0.5, 20));
+      // falling close over the surface, the backdrop's near plane comes in so nothing out there is ever clipped: the
+      // ground below, or the shells of the air and the cloud as the ship sinks through them
+      R.setBgNear(clamp(G.ship.clearance() * 0.35, 0.5, 20));
       // up here everyone is shut in the cabin, so its air is clear when the ship comes down into the cloud
       G.cabinClear = 1;
       R.setSunShadow(15, 120);

@@ -1393,15 +1393,32 @@ class Monster {
           this.hurry = !!this.heardAt; this.heardAt = null; this.st = 0;
         }
         // (down on the floor, it was knocked off or fell: it scuttles to the nearest wall, turns its back to the room
-        // and goes up the wall to the ceiling)
-        if (this.pos.y - floorY() < 0.3 && ceilY() - this.pos.y > 0.6) {
-          if (!this.wallAt || this.st > 6) { this.wallAt = this.nearestWall(); this.st = Math.min(this.st, 1); }
+        // and goes straight up it to the ceiling; up against the wall, or whatever's standing in front of it, or getting
+        // no nearer, it starts up from there, and once it's started it keeps going till it's up)
+        if (!this.climb && this.pos.y - floorY() < 0.3 && ceilY() - this.pos.y > 0.6) {
+          if (!this.wallAt) { this.wallAt = this.nearestWall(); this.wallT = 0; this.wallD = Infinity; this.wallProg = 0; }
           const w = this.wallAt;
-          if (w && Math.hypot(w.x - this.pos.x, w.z - this.pos.z) > 0.12 && this.st < 5) { this.moveTo(w.x, w.z, 1.8, dt); this.pos.y = floorY(); break; }
-          if (w) this.ry = this.rry = Math.atan2(this.pos.x - w.wx, this.pos.z - w.wz);
-          this.wallAt = null;
+          if (w) {
+            const d = Math.hypot(w.wx - this.pos.x, w.wz - this.pos.z);
+            this.wallT += dt; this.wallProg += dt;
+            if (d < this.wallD - 0.05) { this.wallD = d; this.wallProg = 0; }
+            if (d > this.def.radius + 0.3 && this.wallProg < 0.7 && this.wallT < 4) { this.moveTo(w.wx, w.wz, 1.8, dt); this.pos.y = floorY(); break; }
+            this.ry = this.rry = Math.atan2(this.pos.x - w.wx, this.pos.z - w.wz);
+          }
+          this.wallAt = null; this.climb = true;
         }
         if (cling()) { this.speedNow = 0; break; }
+        this.climb = false;
+        // (someone it's after: it keeps its eye on them and heads for where they're going; up over them, it lets go)
+        if (this.stalk != null) {
+          const p = this.g.players.get(this.stalk);
+          if (!p || !p.alive || p.zone !== 'in' || this.st > 20) this.stalk = null;
+          else {
+            if (this.seesBelow(p, 12)) { this.lostT = 0; const e = Brain.P.get(p.id); this.goal = { x: p.pos.x + (e ? e.vx * 0.5 : 0), z: p.pos.z + (e ? e.vz * 0.5 : 0) }; }
+            else if ((this.lostT = (this.lostT || 0) + dt) > 3) this.stalk = null;
+            if (this.tryDrop()) break;
+          }
+        }
         // (scuttling, when it's heard someone)
         // (it goes like a bug: a quick scuttle, then dead still a moment, then another; shorter stops in a hurry)
         this.scutT = (this.scutT || 0) - dt;
@@ -1409,21 +1426,20 @@ class Monster {
         if (this.still) { this.speedNow = 0; if (this.st > 25) { this.setState('wait'); this.goal = null; this.nearT = 0; } break; }
         const rem = this.moveTo(this.goal.x, this.goal.z, (this.hurry ? 2.3 : 1.6) * 1.45, dt);
         cling();
-        if (rem < 0.5 || this.st > 25) { this.setState('wait'); this.goal = null; this.nearT = 0; }
+        if ((rem < 0.5 && this.stalk == null) || this.st > 25) { this.setState('wait'); this.goal = null; this.nearT = 0; this.stalk = null; }
         break;
       }
       case 'wait': {
         cling(); this.speedNow = 0;
         // whoever's below it and about to pass under: it lets go (reaching for where they'll be as it falls)
+        if (this.tryDrop()) break;
         let close = false;
-        for (const p of this.playersIn()) {
-          const dy = this.pos.y - p.pos.y; if (dy <= 0 || dy > 7) continue;
-          const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), e = Brain.P.get(p.id);
-          const ax = p.pos.x + (e ? e.vx * 0.3 : 0), az = p.pos.z + (e ? e.vz * 0.3 : 0);
-          if (d < 8 && dy < 5) close = true;
-          if ((d < 1.05 || Math.hypot(ax - this.pos.x, az - this.pos.z) < 0.9) && this.clearTo(p)) { this.victim = p.id; this.dropTo = { x: ax, z: az }; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); break; }
+        for (const p of this.playersIn()) { const dy = this.pos.y - p.pos.y; if (dy > 0 && dy < 5 && Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 8) close = true; }
+        // someone in sight down there, not coming its way: it goes after them across the ceiling, scuttling
+        if (this.st > 1.5) {
+          for (const p of this.playersIn()) if (this.seesBelow(p, 10)) { this.stalk = p.id; this.lostT = 0; this.goal = { x: p.pos.x, z: p.pos.z }; this.hurry = true; this.setState('crawl'); break; }
+          if (this.state !== 'wait') break;
         }
-        if (this.state !== 'wait') break;
         this.nearT = close ? 0 : (this.nearT || 0) + dt;
         // footsteps somewhere off, and nobody's come by here a while: it goes to meet them
         this.scanT -= dt;
@@ -1462,12 +1478,28 @@ class Monster {
       case 'fallen': {
         this.pos.y = floorY();
         if (!this.goal) this.goal = this.randomGoal(3, 10);
+        // (it scrabbles off a little way, then makes for the wall and goes back up)
         this.moveTo(this.goal.x, this.goal.z, 2.4, dt);
-        if (this.st > 4) { this.goal = null; this.setState('crawl'); }
+        if (this.st > 1.4) { this.goal = null; this.setState('crawl'); }
         break;
       }
       default: this.setState('crawl');
     }
+  }
+  // whoever's right under it (or about to be): it lets go, reaching for where they'll be as it falls
+  tryDrop() {
+    for (const p of this.playersIn()) {
+      const dy = this.pos.y - p.pos.y; if (dy <= 0 || dy > 7) continue;
+      const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), e = Brain.P.get(p.id);
+      const ax = p.pos.x + (e ? e.vx * 0.3 : 0), az = p.pos.z + (e ? e.vz * 0.3 : 0);
+      if ((d < 1.05 || Math.hypot(ax - this.pos.x, az - this.pos.z) < 0.9) && this.clearTo(p)) { this.victim = p.id; this.dropTo = { x: ax, z: az }; this.stalk = null; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); return true; }
+    }
+    return false;
+  }
+  // someone it can see down below it, on this floor, within r (and not already right underneath)
+  seesBelow(p, r) {
+    const dy = this.pos.y - p.pos.y, d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
+    return p.alive && p.zone === 'in' && dy > 0.5 && dy < 6 && d < r && this.g.fac.los(this.pos.x, this.pos.z, p.pos.x, p.pos.z, true);
   }
   // the nearest wall round about, felt for in a ring (within 4 m): where to stand against it (x, z) and the point on it
   // (wx, wz). null if there's none that near

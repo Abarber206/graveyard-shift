@@ -606,6 +606,24 @@ function appSize() {
 function fitApp() { const { h } = appSize(); document.documentElement.style.setProperty('--app-h', h + 'px'); return h; }
 fitApp();
 addEventListener('resize', fitApp); addEventListener('orientationchange', () => { fitApp(); setTimeout(fitApp, 300); setTimeout(fitApp, 900); });
+// ...and keeps to it. A phone can change the room it gives the game without saying so in time (the keyboard closing
+// after chat, coming back to the game from another app, the browser's bars showing or hiding, a turn reported late),
+// and the keyboard can leave the page nudged up off the top: either way the view stops short over a black strip along
+// the bottom. So the size is checked again a few times a second and at each of those moments (any change refits
+// everything, as a resize does), and the page is put back at the top, unless you're typing
+let fitWH = '';
+function keepFit() {
+  const a = document.activeElement, typing = a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA');
+  if ((scrollX || scrollY) && !typing) scrollTo(0, 0);
+  const { w, h } = appSize(), k = w + 'x' + h;
+  if (k === fitWH) return;
+  const first = !fitWH; fitWH = k;
+  if (!first) dispatchEvent(new Event('resize'));
+}
+setInterval(keepFit, 250);
+for (const e of ['focusout', 'pageshow']) addEventListener(e, () => { setTimeout(keepFit, 100); setTimeout(keepFit, 500); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { keepFit(); setTimeout(keepFit, 300); setTimeout(keepFit, 1000); } });
+if (window.visualViewport) { visualViewport.addEventListener('resize', keepFit); visualViewport.addEventListener('scroll', keepFit); }
 function fitToScreen(el, room) {
   if (!el || !el.isConnected || !el.getClientRects().length) return;
   el.classList.remove('cols'); el.style.zoom = ''; el.style.maxHeight = ''; el.style.overflowY = '';

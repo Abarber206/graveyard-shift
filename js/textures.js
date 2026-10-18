@@ -6,10 +6,14 @@ const TEX = (() => {
   // (kept in ordinary memory rather than on the graphics card: nearly every texture reads its pixels back to add grain
   // or relief, which on a GPU canvas means waiting on the card each time, a big part of a landing's build on a phone)
   function C(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d', { willReadFrequently: true })]; }
-  // a few of the ship's own surfaces (its insulation, ceiling panels, pegboard) are drawn at twice the pixels: same layout
-  // in the same coordinates, finer and sharper (everything else keeps the old, grainier resolution)
-  const Q = 2;
-  function CQ(w, h) { const [c, g] = C(w * Q, h * Q); g.scale(Q, Q); return [c, g]; }
+  // the ship's own surfaces (its skin, insulation, ceiling panels, pegboard) and the doors are drawn finer: the same
+  // layout in the same coordinates at Q pixels to the unit, which follows the picture's resolution setting (one on
+  // RETRO and LOW, two on MEDIUM and HIGH, three on ULTRA), so they're sharper where there are pixels to show it and
+  // lighter on a phone (everything else keeps the old, grainier resolution). Changing the setting redraws them (retier)
+  const QS = [1, 1, 2, 2, 3], tiered = new Set();
+  let Q = 2, building = null, retierT = 0;
+  const tierQ = () => QS[Math.max(0, Math.min(QS.length - 1, typeof Settings !== 'undefined' ? Settings.res | 0 : 2))];
+  function CQ(w, h) { if (building) tiered.add(building); const [c, g] = C(w * Q, h * Q); g.scale(Q, Q); return [c, g]; }
   function finish(c, repeatS = true, repeatT = true) {
     const t = new THREE.CanvasTexture(c);
     t.wrapS = repeatS ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
@@ -48,6 +52,11 @@ const TEX = (() => {
     }
     g.putImageData(id, 0, 0);
     const t = finish(c); t.colorSpace = THREE.NoColorSpace; return t;
+  }
+  function reliefOf(base, strength) {
+    const src = base.image, [c, g] = C(src.width, src.height);
+    g.filter = 'blur(1px)'; g.drawImage(src, 0, 0); g.filter = 'none';
+    const t = normalFrom(c, strength); t.wrapS = base.wrapS; t.wrapT = base.wrapT; return t;
   }
   // the hull's plate layout (in a 512 px = 4 m tile), shared by the colour map and its relief
   const HULL_HATCHES = [[300, 30, 70, 50], [60, 300, 90, 60], [380, 410, 50, 70]];
@@ -929,8 +938,7 @@ const TEX = (() => {
     // only a whisper of tone between them, grime gathered at the seams and below the rivet rows, a few hatches
     // and stencils. The relief (seams, rivets, hatch grooves) is in hullSkinN.
     hullSkin() {
-      const [c, g] = C(1024, 1024), rr = new RNG(77);
-      g.scale(2, 2);
+      const [c, g] = CQ(512, 512), rr = new RNG(77);
       g.fillStyle = '#8f897d'; g.fillRect(0, 0, 512, 512);
       hullPlates((x, y, w, h, row, k) => {
         const v = rr.range(-5, 5) | 0;
@@ -954,21 +962,20 @@ const TEX = (() => {
       g.fillStyle = 'rgba(160,40,20,.5)'; g.fillRect(150, 227, 56, 2.5);
       { const gr = g.createRadialGradient(440, 120, 4, 440, 120, 60); gr.addColorStop(0, 'rgba(24,20,15,.22)'); gr.addColorStop(1, 'rgba(24,20,15,0)'); g.fillStyle = gr; g.fillRect(370, 50, 140, 140); }
       g.setTransform(1, 0, 0, 1, 0, 0);
-      speckle(g, 1024, 1024, 6);
+      speckle(g, 512, 512, 6);
       return finish(c);
     },
     // relief for the hull skin: recessed seams, domed rivets, grooved hatch outlines, a slight crown on every plate
     hullSkinN() {
-      const S = 1024, k = S / 512, [c, g] = C(S, S);
-      g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, S, S);
-      g.scale(k, k);
+      const [c, g] = CQ(512, 512);
+      g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, 512, 512);
       // plates crown very slightly toward their middles (stiff sheet pulled over ribs)
       hullPlates((x, y, w, h) => { const gr = g.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, 'rgb(118,118,118)'); gr.addColorStop(0.5, 'rgb(136,136,136)'); gr.addColorStop(1, 'rgb(118,118,118)'); g.fillStyle = gr; g.fillRect(x, y, w, h); });
       g.fillStyle = 'rgb(40,40,40)'; hullSeams((x, y, w, h) => g.fillRect(x, y, w, h));
       for (const [x, y, w, h] of HULL_HATCHES) { g.strokeStyle = 'rgb(70,70,70)'; g.lineWidth = 1.6; g.strokeRect(x, y, w, h); }
       hullRivets((x, y) => { const gr = g.createRadialGradient(x, y, 0, x, y, 2.6); gr.addColorStop(0, 'rgb(230,230,230)'); gr.addColorStop(1, 'rgba(128,128,128,0)'); g.fillStyle = gr; g.fillRect(x - 3, y - 3, 6, 6); });
       g.setTransform(1, 0, 0, 1, 0, 0);
-      return normalFrom(c, 2.2);
+      return normalFrom(c, 1.1 * Q);
     },
     // a solid stellar disc with a short soft limb (the wide glare is added in post)
     sunDisc() {
@@ -1053,16 +1060,33 @@ const TEX = (() => {
   }
 
   return {
-    get(name) { return cache[name] || (cache[name] = build[name]()); },
+    get(name) {
+      if (!cache[name]) { const was = building; building = name; Q = tierQ(); try { cache[name] = build[name](); cache[name].userData.q = Q; } finally { building = was; } }
+      return cache[name];
+    },
     // relief for a surface, read off its own tones (dark = sunk: grout, seams, cracks, pits, the gaps in a grating),
-    // softened a touch first so it's the shapes that stand out and not the grain
+    // softened a touch first so it's the shapes that stand out and not the grain (as deep at any resolution: a finer
+    // one spreads each slope over more pixels)
     normal(name, strength = 2) {
       const k = name + '#N' + strength;
       if (cache[k]) return cache[k];
-      const base = this.get(name), src = base.image, [c, g] = C(src.width, src.height);
-      g.filter = 'blur(1px)'; g.drawImage(src, 0, 0); g.filter = 'none';
-      const t = normalFrom(c, strength); t.wrapS = base.wrapS; t.wrapT = base.wrapT;
-      return (cache[k] = t);
+      return (cache[k] = reliefOf(this.get(name), tiered.has(name) ? strength * this.get(name).userData.q / 2 : strength));
+    },
+    // the resolution setting changed: redraw the surfaces drawn to it (a moment after the last change, so stepping
+    // through the settings doesn't redraw them at every one), and have everything showing them load them afresh
+    retier(scene) {
+      clearTimeout(retierT);
+      retierT = setTimeout(() => {
+        const q = tierQ(), done = new Set();
+        for (const name of tiered) {
+          const t = cache[name]; if (!t || t.userData.q === q) continue;
+          building = name; Q = q; let fresh; try { fresh = build[name](); } finally { building = null; }
+          t.image = fresh.image; t.userData.q = q; t.needsUpdate = true; done.add(t.source);
+          for (const k in cache) if (k.startsWith(name + '#N')) { const r = reliefOf(t, +k.slice(name.length + 2) * q / 2); cache[k].image = r.image; cache[k].needsUpdate = true; done.add(cache[k].source); }
+        }
+        // (copies tiled differently share the picture but load it on their own)
+        if (scene && done.size) scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const s of ['map', 'normalMap', 'bumpMap']) if (m[s] && done.has(m[s].source)) m[s].needsUpdate = true; });
+      }, 600);
     },
     sign,
     canvas: C,

@@ -12,6 +12,7 @@
 // has picked up.
 const CrewCam = (() => {
   const W = 768, H = 336, BAR = 26, FPS = 8, NEAR = 15;
+  const _cl = new THREE.Vector3(), _cs = new THREE.Vector3();
   let rt = null, canvas = null, g = null, otex = null, mat = null, cam = null, self = null, timer = 0, last = '';
   let mcv = null, mg = null, mtex = null, view = 0, sweep = null, blips = [];
   const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _t = new THREE.Vector3();
@@ -254,10 +255,12 @@ const CrewCam = (() => {
     if (!rt || !G.ship || !G.run) return;
     const t = performance.now() / 1000;
     mat.uniforms.uT.value = t;
-    // only while someone here could see it: you in (or by) the ship, near the screen
+    // only while someone here could see it: you in the ship (or on its ramp), near the screen and looking its way.
+    // (Standing round the ship outside, its feeds aren't worth rendering the whole site over again for)
     const me = G.me(); if (!me) return;
     const screen = G.ship.monMesh.getWorldPosition(new THREE.Vector3());
-    const near = me.zone === 'out' && R.camera.position.distanceTo(screen) < NEAR;
+    const eye = R.camera.position, lc = G.ship.group.worldToLocal(_cl.copy(eye)), pr = _cs.copy(screen).project(R.camera);
+    const near = me.zone === 'out' && eye.distanceTo(screen) < NEAR && (G.ship.onFootprint(lc.x, lc.z) || G.ship.rampAt(lc.x, lc.z) != null) && pr.z < 1 && Math.abs(pr.x) < 1.2 && Math.abs(pr.y) < 1.2;
     mat.uniforms.uLive.value = 1;
     if (!near) return;
     timer -= dt; if (timer > 0) return;

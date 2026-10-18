@@ -217,7 +217,7 @@ const Menu = (() => {
     slider('VOLUME', 'volume', 0, 1, 0.01, (v) => Math.round(v * 100) + '%', () => SFX.setVolume(Settings.volume));
     slider('FIELD OF VIEW', 'fov', 55, 100, 1, (v) => v + '°', () => R.resize());
     slider('BRIGHTNESS', 'bright', 0.6, 2, 0.05, (v) => v.toFixed(2));
-    toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); });
+    toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); TEX.retier(R.scene); });
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
     toggle('VOLUMETRIC FOG', () => ['OFF', 'LOW', 'HIGH'][Settings.volumetric | 0], () => { Settings.volumetric = ((Settings.volumetric | 0) + 1) % 3; R.resize(); });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });

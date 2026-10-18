@@ -20,7 +20,7 @@ const Ship = (() => {
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _smJ = new THREE.Vector3(), _smD = new THREE.Vector3(), _occ = new THREE.Vector3(), _lf = new THREE.Vector3(), _lu = new THREE.Vector3(), _lc = new THREE.Vector3(), _camP = new THREE.Vector3(0, 1.6, 0), _pq = new THREE.Quaternion();
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
-  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
+  const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
   const _sw = new THREE.Vector3(), _sl = new THREE.Vector3(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
@@ -491,6 +491,55 @@ const Ship = (() => {
       this.buildExterior();
       this.buildRoofDeck();
       this.flushBuckets();
+      this.mergeStatic();
+    }
+    // Hundreds of the ship's parts are meshes of their own: merged by material into one mesh each, the ship draws in a
+    // few dozen calls instead of several hundred (a phone can't keep up with that many, and the shadow pass doubles
+    // it). What the ship keeps hold of (it moves, swaps, lights up or comes and goes) keeps its own; the parts that only
+    // ride along with one (a leg's struts, a door's hardware) are merged into it. Anything see-through, drawn in a set
+    // order or with its own shadow is left alone. Then the small things inside the cabin (labels, gauges, papers) are
+    // set apart, to be left out while you're too far outside to see them (see update)
+    mergeStatic() {
+      const held = new Set(), seen = new Set(), noop = THREE.Object3D.prototype.onBeforeRender;
+      const hold = (v, depth) => {
+        if (!v || typeof v !== 'object' || depth > 4 || seen.has(v)) return;
+        seen.add(v);
+        if (v.isObject3D) { held.add(v); return; }
+        if (v.isMaterial || v.isTexture || v.isBufferGeometry) return;
+        if (Array.isArray(v)) { for (const x of v) hold(x, depth + 1); return; }
+        if (v.constructor === Object) for (const k in v) hold(v[k], depth + 1);
+      };
+      for (const k of Object.keys(this)) if (k !== 'group') hold(this[k], 0);
+      const ok = (o) => {
+        if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.frustumCulled || o.renderOrder || o.customDepthMaterial || o.onBeforeRender !== noop) return false;
+        const m = o.material, g = o.geometry;
+        return !Array.isArray(m) && !m.transparent && !m.alphaTest && !!g.attributes.normal && !g.morphAttributes.position && Object.keys(g.attributes).every((n) => n === 'position' || n === 'normal' || n === 'uv');
+      };
+      this.group.updateMatrixWorld(true);
+      const under = (root) => {
+        const inv = root.matrixWorld.clone().invert(), by = new Map();
+        const walk = (o) => { for (const c of o.children) { if (held.has(c) || !c.visible) continue; if (ok(c)) { const key = c.material.uuid + (c.castShadow ? '+c' : '') + (c.receiveShadow ? '+r' : ''); if (!by.has(key)) by.set(key, []); by.get(key).push(c); } walk(c); } };
+        walk(root);
+        for (const list of by.values()) {
+          if (list.length < 2) continue;
+          const geo = mergeGeoList(list.map((o) => ({ geo: o.geometry, matrix: inv.clone().multiply(o.matrixWorld) })));
+          if (!geo) continue;
+          const me = new THREE.Mesh(geo, list[0].material); me.castShadow = list[0].castShadow; me.receiveShadow = list[0].receiveShadow;
+          for (const o of list) o.parent.remove(o);
+          root.add(me);
+        }
+      };
+      under(this.group);
+      for (const r of held) { let p = r.parent; while (p && p !== this.group) p = p.parent; if (p) under(r); }
+      this.cabinBits = new THREE.Group(); this.cabinBits.name = 'cabin bits';
+      const sp = new THREE.Sphere();
+      for (const o of [...this.group.children]) {
+        if (held.has(o) || !o.isMesh || !o.geometry) continue;
+        if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+        sp.copy(o.geometry.boundingSphere).applyMatrix4(o.matrix);
+        if (sp.radius < 0.9 && this.inside(sp.center.x, sp.center.y, sp.center.z)) { this.group.remove(o); this.cabinBits.add(o); }
+      }
+      this.group.add(this.cabinBits);
     }
     // ---------- the roof deck: a grating platform on stilts over the crown, a safety rail round it, and the hatch up
     // into it from a ladder in the airlock (somewhere to ride the takeoff and landing out in the wind) ----------
@@ -3106,6 +3155,8 @@ const Ship = (() => {
       return hit;
     }
     update(dt, time, mode) {
+      // (the cabin's small things only while you're aboard or near enough outside to see in)
+      if (this.cabinBits) { const e = this.group.worldToLocal(_eye.copy(R.camera.position)), dx = Math.max(0, -7.4 - e.x, e.x - 8.2), dz = Math.max(0, Math.abs(e.z) - 4.3); this.cabinBits.visible = Math.hypot(dx, dz) < 9 && e.y > -6 && e.y < 14; }
       // the bay clock: site time down there, the ship's own (the real time) up here
       if (this.clock) {
         const sm = this.clockMinutes ? this.clockMinutes() : null, d = new Date();

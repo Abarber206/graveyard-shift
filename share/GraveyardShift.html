@@ -2114,10 +2114,14 @@ const TEX = (() => {
   // (kept in ordinary memory rather than on the graphics card: nearly every texture reads its pixels back to add grain
   // or relief, which on a GPU canvas means waiting on the card each time, a big part of a landing's build on a phone)
   function C(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d', { willReadFrequently: true })]; }
-  // a few of the ship's own surfaces (its insulation, ceiling panels, pegboard) are drawn at twice the pixels: same layout
-  // in the same coordinates, finer and sharper (everything else keeps the old, grainier resolution)
-  const Q = 2;
-  function CQ(w, h) { const [c, g] = C(w * Q, h * Q); g.scale(Q, Q); return [c, g]; }
+  // the ship's own surfaces (its skin, insulation, ceiling panels, pegboard) and the doors are drawn finer: the same
+  // layout in the same coordinates at Q pixels to the unit, which follows the picture's resolution setting (one on
+  // RETRO and LOW, two on MEDIUM and HIGH, three on ULTRA), so they're sharper where there are pixels to show it and
+  // lighter on a phone (everything else keeps the old, grainier resolution). Changing the setting redraws them (retier)
+  const QS = [1, 1, 2, 2, 3], tiered = new Set();
+  let Q = 2, building = null, retierT = 0;
+  const tierQ = () => QS[Math.max(0, Math.min(QS.length - 1, typeof Settings !== 'undefined' ? Settings.res | 0 : 2))];
+  function CQ(w, h) { if (building) tiered.add(building); const [c, g] = C(w * Q, h * Q); g.scale(Q, Q); return [c, g]; }
   function finish(c, repeatS = true, repeatT = true) {
     const t = new THREE.CanvasTexture(c);
     t.wrapS = repeatS ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
@@ -2156,6 +2160,11 @@ const TEX = (() => {
     }
     g.putImageData(id, 0, 0);
     const t = finish(c); t.colorSpace = THREE.NoColorSpace; return t;
+  }
+  function reliefOf(base, strength) {
+    const src = base.image, [c, g] = C(src.width, src.height);
+    g.filter = 'blur(1px)'; g.drawImage(src, 0, 0); g.filter = 'none';
+    const t = normalFrom(c, strength); t.wrapS = base.wrapS; t.wrapT = base.wrapT; return t;
   }
   // the hull's plate layout (in a 512 px = 4 m tile), shared by the colour map and its relief
   const HULL_HATCHES = [[300, 30, 70, 50], [60, 300, 90, 60], [380, 410, 50, 70]];
@@ -3037,8 +3046,7 @@ const TEX = (() => {
     // only a whisper of tone between them, grime gathered at the seams and below the rivet rows, a few hatches
     // and stencils. The relief (seams, rivets, hatch grooves) is in hullSkinN.
     hullSkin() {
-      const [c, g] = C(1024, 1024), rr = new RNG(77);
-      g.scale(2, 2);
+      const [c, g] = CQ(512, 512), rr = new RNG(77);
       g.fillStyle = '#8f897d'; g.fillRect(0, 0, 512, 512);
       hullPlates((x, y, w, h, row, k) => {
         const v = rr.range(-5, 5) | 0;
@@ -3062,21 +3070,20 @@ const TEX = (() => {
       g.fillStyle = 'rgba(160,40,20,.5)'; g.fillRect(150, 227, 56, 2.5);
       { const gr = g.createRadialGradient(440, 120, 4, 440, 120, 60); gr.addColorStop(0, 'rgba(24,20,15,.22)'); gr.addColorStop(1, 'rgba(24,20,15,0)'); g.fillStyle = gr; g.fillRect(370, 50, 140, 140); }
       g.setTransform(1, 0, 0, 1, 0, 0);
-      speckle(g, 1024, 1024, 6);
+      speckle(g, 512, 512, 6);
       return finish(c);
     },
     // relief for the hull skin: recessed seams, domed rivets, grooved hatch outlines, a slight crown on every plate
     hullSkinN() {
-      const S = 1024, k = S / 512, [c, g] = C(S, S);
-      g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, S, S);
-      g.scale(k, k);
+      const [c, g] = CQ(512, 512);
+      g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, 512, 512);
       // plates crown very slightly toward their middles (stiff sheet pulled over ribs)
       hullPlates((x, y, w, h) => { const gr = g.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, 'rgb(118,118,118)'); gr.addColorStop(0.5, 'rgb(136,136,136)'); gr.addColorStop(1, 'rgb(118,118,118)'); g.fillStyle = gr; g.fillRect(x, y, w, h); });
       g.fillStyle = 'rgb(40,40,40)'; hullSeams((x, y, w, h) => g.fillRect(x, y, w, h));
       for (const [x, y, w, h] of HULL_HATCHES) { g.strokeStyle = 'rgb(70,70,70)'; g.lineWidth = 1.6; g.strokeRect(x, y, w, h); }
       hullRivets((x, y) => { const gr = g.createRadialGradient(x, y, 0, x, y, 2.6); gr.addColorStop(0, 'rgb(230,230,230)'); gr.addColorStop(1, 'rgba(128,128,128,0)'); g.fillStyle = gr; g.fillRect(x - 3, y - 3, 6, 6); });
       g.setTransform(1, 0, 0, 1, 0, 0);
-      return normalFrom(c, 2.2);
+      return normalFrom(c, 1.1 * Q);
     },
     // a solid stellar disc with a short soft limb (the wide glare is added in post)
     sunDisc() {
@@ -3161,16 +3168,33 @@ const TEX = (() => {
   }
 
   return {
-    get(name) { return cache[name] || (cache[name] = build[name]()); },
+    get(name) {
+      if (!cache[name]) { const was = building; building = name; Q = tierQ(); try { cache[name] = build[name](); cache[name].userData.q = Q; } finally { building = was; } }
+      return cache[name];
+    },
     // relief for a surface, read off its own tones (dark = sunk: grout, seams, cracks, pits, the gaps in a grating),
-    // softened a touch first so it's the shapes that stand out and not the grain
+    // softened a touch first so it's the shapes that stand out and not the grain (as deep at any resolution: a finer
+    // one spreads each slope over more pixels)
     normal(name, strength = 2) {
       const k = name + '#N' + strength;
       if (cache[k]) return cache[k];
-      const base = this.get(name), src = base.image, [c, g] = C(src.width, src.height);
-      g.filter = 'blur(1px)'; g.drawImage(src, 0, 0); g.filter = 'none';
-      const t = normalFrom(c, strength); t.wrapS = base.wrapS; t.wrapT = base.wrapT;
-      return (cache[k] = t);
+      return (cache[k] = reliefOf(this.get(name), tiered.has(name) ? strength * this.get(name).userData.q / 2 : strength));
+    },
+    // the resolution setting changed: redraw the surfaces drawn to it (a moment after the last change, so stepping
+    // through the settings doesn't redraw them at every one), and have everything showing them load them afresh
+    retier(scene) {
+      clearTimeout(retierT);
+      retierT = setTimeout(() => {
+        const q = tierQ(), done = new Set();
+        for (const name of tiered) {
+          const t = cache[name]; if (!t || t.userData.q === q) continue;
+          building = name; Q = q; let fresh; try { fresh = build[name](); } finally { building = null; }
+          t.image = fresh.image; t.userData.q = q; t.needsUpdate = true; done.add(t.source);
+          for (const k in cache) if (k.startsWith(name + '#N')) { const r = reliefOf(t, +k.slice(name.length + 2) * q / 2); cache[k].image = r.image; cache[k].needsUpdate = true; done.add(cache[k].source); }
+        }
+        // (copies tiled differently share the picture but load it on their own)
+        if (scene && done.size) scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const s of ['map', 'normalMap', 'bumpMap']) if (m[s] && done.has(m[s].source)) m[s].needsUpdate = true; });
+      }, 600);
     },
     sign,
     canvas: C,
@@ -9295,7 +9319,7 @@ const Ship = (() => {
   const _dh = new THREE.Vector3(), _washInv = new THREE.Matrix4(), _washP = new THREE.Vector3(), _smN = new THREE.Vector3(), _smB = new THREE.Vector3(), _smJ = new THREE.Vector3(), _smD = new THREE.Vector3(), _occ = new THREE.Vector3(), _lf = new THREE.Vector3(), _lu = new THREE.Vector3(), _lc = new THREE.Vector3(), _camP = new THREE.Vector3(0, 1.6, 0), _pq = new THREE.Quaternion();
   // turning the nose onto the world (see orbit): the turn, the full turn, and where the world ends up: first under
   // the nose, then (the nose dipped) dead ahead
-  const _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
+  const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _tgt = new THREE.Vector3();
   const _sw = new THREE.Vector3(), _sl = new THREE.Vector3(), _up0 = new THREE.Vector3(0, 1, 0), _below = new THREE.Vector3(1, -0.3, 0).normalize(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
@@ -9766,6 +9790,55 @@ const Ship = (() => {
       this.buildExterior();
       this.buildRoofDeck();
       this.flushBuckets();
+      this.mergeStatic();
+    }
+    // Hundreds of the ship's parts are meshes of their own: merged by material into one mesh each, the ship draws in a
+    // few dozen calls instead of several hundred (a phone can't keep up with that many, and the shadow pass doubles
+    // it). What the ship keeps hold of (it moves, swaps, lights up or comes and goes) keeps its own; the parts that only
+    // ride along with one (a leg's struts, a door's hardware) are merged into it. Anything see-through, drawn in a set
+    // order or with its own shadow is left alone. Then the small things inside the cabin (labels, gauges, papers) are
+    // set apart, to be left out while you're too far outside to see them (see update)
+    mergeStatic() {
+      const held = new Set(), seen = new Set(), noop = THREE.Object3D.prototype.onBeforeRender;
+      const hold = (v, depth) => {
+        if (!v || typeof v !== 'object' || depth > 4 || seen.has(v)) return;
+        seen.add(v);
+        if (v.isObject3D) { held.add(v); return; }
+        if (v.isMaterial || v.isTexture || v.isBufferGeometry) return;
+        if (Array.isArray(v)) { for (const x of v) hold(x, depth + 1); return; }
+        if (v.constructor === Object) for (const k in v) hold(v[k], depth + 1);
+      };
+      for (const k of Object.keys(this)) if (k !== 'group') hold(this[k], 0);
+      const ok = (o) => {
+        if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.frustumCulled || o.renderOrder || o.customDepthMaterial || o.onBeforeRender !== noop) return false;
+        const m = o.material, g = o.geometry;
+        return !Array.isArray(m) && !m.transparent && !m.alphaTest && !!g.attributes.normal && !g.morphAttributes.position && Object.keys(g.attributes).every((n) => n === 'position' || n === 'normal' || n === 'uv');
+      };
+      this.group.updateMatrixWorld(true);
+      const under = (root) => {
+        const inv = root.matrixWorld.clone().invert(), by = new Map();
+        const walk = (o) => { for (const c of o.children) { if (held.has(c) || !c.visible) continue; if (ok(c)) { const key = c.material.uuid + (c.castShadow ? '+c' : '') + (c.receiveShadow ? '+r' : ''); if (!by.has(key)) by.set(key, []); by.get(key).push(c); } walk(c); } };
+        walk(root);
+        for (const list of by.values()) {
+          if (list.length < 2) continue;
+          const geo = mergeGeoList(list.map((o) => ({ geo: o.geometry, matrix: inv.clone().multiply(o.matrixWorld) })));
+          if (!geo) continue;
+          const me = new THREE.Mesh(geo, list[0].material); me.castShadow = list[0].castShadow; me.receiveShadow = list[0].receiveShadow;
+          for (const o of list) o.parent.remove(o);
+          root.add(me);
+        }
+      };
+      under(this.group);
+      for (const r of held) { let p = r.parent; while (p && p !== this.group) p = p.parent; if (p) under(r); }
+      this.cabinBits = new THREE.Group(); this.cabinBits.name = 'cabin bits';
+      const sp = new THREE.Sphere();
+      for (const o of [...this.group.children]) {
+        if (held.has(o) || !o.isMesh || !o.geometry) continue;
+        if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+        sp.copy(o.geometry.boundingSphere).applyMatrix4(o.matrix);
+        if (sp.radius < 0.9 && this.inside(sp.center.x, sp.center.y, sp.center.z)) { this.group.remove(o); this.cabinBits.add(o); }
+      }
+      this.group.add(this.cabinBits);
     }
     // ---------- the roof deck: a grating platform on stilts over the crown, a safety rail round it, and the hatch up
     // into it from a ladder in the airlock (somewhere to ride the takeoff and landing out in the wind) ----------
@@ -12381,6 +12454,8 @@ const Ship = (() => {
       return hit;
     }
     update(dt, time, mode) {
+      // (the cabin's small things only while you're aboard or near enough outside to see in)
+      if (this.cabinBits) { const e = this.group.worldToLocal(_eye.copy(R.camera.position)), dx = Math.max(0, -7.4 - e.x, e.x - 8.2), dz = Math.max(0, Math.abs(e.z) - 4.3); this.cabinBits.visible = Math.hypot(dx, dz) < 9 && e.y > -6 && e.y < 14; }
       // the bay clock: site time down there, the ship's own (the real time) up here
       if (this.clock) {
         const sm = this.clockMinutes ? this.clockMinutes() : null, d = new Date();
@@ -15598,6 +15673,7 @@ const Meteors = Pods.meteors;
 // has picked up.
 const CrewCam = (() => {
   const W = 768, H = 336, BAR = 26, FPS = 8, NEAR = 15;
+  const _cl = new THREE.Vector3(), _cs = new THREE.Vector3();
   let rt = null, canvas = null, g = null, otex = null, mat = null, cam = null, self = null, timer = 0, last = '';
   let mcv = null, mg = null, mtex = null, view = 0, sweep = null, blips = [];
   const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _t = new THREE.Vector3();
@@ -15840,10 +15916,12 @@ const CrewCam = (() => {
     if (!rt || !G.ship || !G.run) return;
     const t = performance.now() / 1000;
     mat.uniforms.uT.value = t;
-    // only while someone here could see it: you in (or by) the ship, near the screen
+    // only while someone here could see it: you in the ship (or on its ramp), near the screen and looking its way.
+    // (Standing round the ship outside, its feeds aren't worth rendering the whole site over again for)
     const me = G.me(); if (!me) return;
     const screen = G.ship.monMesh.getWorldPosition(new THREE.Vector3());
-    const near = me.zone === 'out' && R.camera.position.distanceTo(screen) < NEAR;
+    const eye = R.camera.position, lc = G.ship.group.worldToLocal(_cl.copy(eye)), pr = _cs.copy(screen).project(R.camera);
+    const near = me.zone === 'out' && eye.distanceTo(screen) < NEAR && (G.ship.onFootprint(lc.x, lc.z) || G.ship.rampAt(lc.x, lc.z) != null) && pr.z < 1 && Math.abs(pr.x) < 1.2 && Math.abs(pr.y) < 1.2;
     mat.uniforms.uLive.value = 1;
     if (!near) return;
     timer -= dt; if (timer > 0) return;
@@ -22608,7 +22686,7 @@ const Menu = (() => {
     slider('VOLUME', 'volume', 0, 1, 0.01, (v) => Math.round(v * 100) + '%', () => SFX.setVolume(Settings.volume));
     slider('FIELD OF VIEW', 'fov', 55, 100, 1, (v) => v + '°', () => R.resize());
     slider('BRIGHTNESS', 'bright', 0.6, 2, 0.05, (v) => v.toFixed(2));
-    toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); });
+    toggle('RESOLUTION', () => RES_LEVELS[Settings.res].label + (RES_LEVELS[Settings.res].h ? ' ' + RES_LEVELS[Settings.res].h + 'p' : ''), () => { Settings.res = (Settings.res + 1) % RES_LEVELS.length; R.resize(); TEX.retier(R.scene); });
     toggle('FLASHLIGHT SHADOWS', () => (Settings.shadows ? 'ON' : 'OFF'), () => { Settings.shadows = !Settings.shadows; R.resize(); });
     toggle('VOLUMETRIC FOG', () => ['OFF', 'LOW', 'HIGH'][Settings.volumetric | 0], () => { Settings.volumetric = ((Settings.volumetric | 0) + 1) % 3; R.resize(); });
     toggle('INVERT LOOK Y', () => (Settings.invertY ? 'ON' : 'OFF'), () => { Settings.invertY = !Settings.invertY; });

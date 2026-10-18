@@ -41,7 +41,7 @@ const Input = {
 
 const Player = (() => {
   const vel = new THREE.Vector3(), kick = new THREE.Vector3();
-  let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0;
+  let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0, prevWade = 0;
   let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
   let target = null;
   // a ship seat (index into G.ship.seats) while sitting in it, and how far into the sitting-down move the view is
@@ -389,7 +389,7 @@ const Player = (() => {
       // walking down stairs or a slope keeps your feet on it instead of stepping off into the air every frame
       if (onGround && vel.y <= 0 && me.pos.y > ground && me.pos.y - ground < (me.zone === 'in' ? 0.45 : 0.3)) me.pos.y = ground;
       if (me.pos.y <= ground) {
-        if (!onGround && airT > 0.25) { SFX.play('step', null, { surf: surface(me), vol: 0.7, pitch: 0.8 }); shake = Math.max(shake, Math.min(0.3, -vel.y * 0.02)); }
+        if (!onGround && airT > 0.25) { const sf = surface(me); SFX.play('step', null, { surf: sf, vol: 0.7, pitch: 0.8 }); if (sf === 'water') SFX.play('splash', null, { k: 0.8, vol: 0.8 }); shake = Math.max(shake, Math.min(0.3, -vel.y * 0.02)); FX.step(me.pos, sf, Math.min(2, 0.8 + airT), me.zone, null, wadeDepth(me)); }
         me.pos.y = ground; vel.y = Math.max(0, vel.y); onGround = true; airT = 0;
       } else if (me.pos.y - ground > 0.08) { onGround = false; airT += dt; }
       // ceiling
@@ -405,8 +405,10 @@ const Player = (() => {
       if (onGround && hs > 0.5) {
         stepAcc += hs * dt;
         const stride = sprint ? 2.3 : crouch ? 1.3 : 1.75;
-        if (stepAcc > stride) { stepAcc = 0; SFX.play('step', null, { surf: surface(me), vol: crouch ? 0.18 : sprint ? 0.75 : 0.45 }); }
+        if (stepAcc > stride) { stepAcc = 0; SFX.play('step', null, { surf: surface(me), vol: crouch ? 0.18 : sprint ? 0.75 : 0.45 }); FX.step(me.pos, surface(me), crouch ? 0.35 : sprint ? 1.3 : 0.8, me.zone, vel, wadeDepth(me)); }
       }
+      // wading in: a splash as you break the water
+      { const wd = wadeDepth(me); if (wd > 0.25 && prevWade <= 0.25 && hs > 1.2) { FX.splash(new THREE.Vector3(me.pos.x, G.ext.water, me.pos.z), 1, 'out'); SFX.play('splash', null, { k: 1, vol: 0.8 }); } prevWade = wd; }
       bob += hs * dt * 2.1;
       const moveAmt = onGround ? clamp(hs / 4, 0, 1.4) : 0;
       // camera

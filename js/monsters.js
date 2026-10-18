@@ -501,7 +501,7 @@ const MonModels = (() => {
   return { tintSlime, retri, FIT, build(type) { const g = B[type](); g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } }); if (FIT[type]) g.scale.setScalar(FIT[type]); return g; } };
 })();
 
-const _dp = new THREE.Vector3(), _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3(), _bx = new THREE.Box3(), _hp = new THREE.Vector3(), _ft = new THREE.Vector3();
+const _dp = new THREE.Vector3(), _sp = new THREE.Vector3(), _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3(), _bx = new THREE.Box3(), _hp = new THREE.Vector3(), _ft = new THREE.Vector3();
 // the long ones' heads, kept out of the walls as well as their middles (how far ahead of its centre, how wide)
 const MON_FRONT = { crawler: [0.85, 0.32], hound: [1.0, 0.3] };
 // which way a body goes down, from its feet (relative to its facing), and how far it reaches lying there
@@ -1814,6 +1814,8 @@ class Monster {
       v.stepNow = false;
       if (!this.dead && v.speed > 0.4) {
       const ln = localPlayer && Math.hypot(localPlayer.pos.x - this.rpos.x, localPlayer.pos.z - this.rpos.z);
+      // (and what it kicks up: the big ones a cloud of grit and dust, the rest a scuff)
+      if (ln < 30) FX.foot(this.rpos, this.zone, ({ executioner: 1.7, clown: 1.4, hound: 1.1, slime: 0 })[this.type] ?? 0.6);
       if (this.type === 'crawler') SFX.play('slap', this.rpos, { vol: 0.9 + v.speed * 0.06 });
       else if (this.type === 'pale') { if (v.speed > 3 || ln < 5) SFX.play('soft', this.rpos, { vol: v.speed > 5 ? 0.9 : 0.35 }); }
       else if (this.type === 'mannequin') SFX.play('ceramic', this.rpos, { vol: 1.1 });
@@ -1832,6 +1834,8 @@ class Monster {
       if (this.glow) { this.glow.x = _sl.x; this.glow.y = _sl.y + 0.15; this.glow.z = _sl.z; this.glow.power = drag && Math.random() < 0.3 ? 0.12 + Math.random() * 0.3 : 0; }
       v.dragT = (v.dragT || 0) - dt;
       if (drag && v.dragT <= 0) { v.dragT = 0.5 + Math.random() * 0.25; SFX.play('blade_drag', _sl.clone(), { vol: 1.1, ref: 5, rev: 0.8 }); }
+      // (the sparks themselves, sprayed back off the edge where it bites, skittering along the floor)
+      if (drag && Math.random() < dt * 14) { const a = this.rry; FX.sparks(_sl, { n: [1, 4], dir: _sp.set(-Math.sin(a) * 0.7, 0.7, -Math.cos(a) * 0.7), spread: 0.8, speed: [1.5, 4.5], floor: this.rpos.y, life: [0.25, 0.7] }); }
     }
     // ambient creature sounds
     v.sfx -= dt;

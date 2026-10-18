@@ -1754,6 +1754,7 @@ const Ship = (() => {
       bell(ENGINES.main[1], X0, ENGINES.main[0], 0);
       // (where the main engine fires from, for the flight's sound and the burn it leaves on the ground)
       this.exhaust = V(ENGINES.mx, ENGINES.main[0], 0);
+      this.exhausts = [this.exhaust, V(ENGINES.sx, ENGINES.side[0], ENGINES.side[1]), V(ENGINES.sx, ENGINES.side[0], -ENGINES.side[1])];
       this.col(X0 - 0.7, X0, -1.6, 1.6);
       // a flat swept surface (fin, pylon, strake) from its planform in (x, out): rounded edges, thickness t, then
       // placed by m4 (its root runs along x at out = 0, its upper face at y = 0 before placing)

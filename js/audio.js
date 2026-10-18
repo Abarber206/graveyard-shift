@@ -553,6 +553,27 @@ const SFX = (() => {
       s.connect(g); g.connect(lp); s.start(t); s.stop(t + dur + 0.1);
       nz(d, t, dur, 0.6, 'lowpass', 55, 95, 5, dur * 0.3, brownBuf);
     },
+    // the ship's engines winding up before it lifts: the turbines' blades whirring up through the ducts' resonances,
+    // and the air drawn in through the intakes rushing up with them
+    spool(d, t) {
+      smp(d, t, take('spool', 2, () => fade(add(buzz(3.2, (u) => 26 + 330 * Math.pow(u, 1.25), (u) => 0.25 + 0.75 * u, [[230, 1, 0.05], [470, 0.7, 0.04], [920, 0.45, 0.03], [1700, 0.25, 0.02]], { duty: 0.3, jit: 0.012, shim: 0.25 }),
+        norm(bq(noise(3.3), 'bp', (u) => 260 + 1600 * u * u, 0.8)), 0, 0.45), (u) => Math.min(1, u * 5) * Math.min(1, (1 - u) * 5)), 32000), 1);
+    },
+    // the mains lighting: a deep whump as the fuel catches (the air in the bells knocked in its lowest modes), then the
+    // roar opening up and the jet's tearing hiss on top of it
+    ignite(d, t) {
+      smp(d, t, take('whump', 2, () => add(struck({ modes: [1, 1.5, 2.2, 3.1], f0: rnd(38, 46), T: 0.6, hf: 5, tc: 0.025, grit: 0.4, len: 1.6 }), norm(bq(fade(noise(1.6), (u) => Math.min(1, u * 30) * Math.exp(-u * 4)), 'lp', (u) => 900 * Math.exp(-u * 3) + 80, 0.8)), 0, 0.8), 32000), 1.2);
+      nz(d, t + 0.03, 2.8, 0.7, 'lowpass', 180, 2600, 0.7, 0.18, brownBuf);
+      nz(d, t + 0.08, 2.4, 0.22, 'bandpass', 1900, 900, 0.6, 0.25);
+    },
+    // breaking water: the slap of it, the bubbles knocked under ringing, spray hissing up, the drops pattering back
+    splash(d, t, o) {
+      const k = o.k ?? 1;
+      nz(d, t, 0.07, 0.7 * k, 'bandpass', 800, 350, 0.7, 0.002, brownBuf);
+      nz(d, t + 0.01, 0.45, 0.22 * k, 'highpass', 2200, 1300, 0.5, 0.01);
+      smp(d, t + 0.015, take('splash_b', 4, () => { const y = arr(0.9); for (let i = 0; i < 16; i++) bubble(y, nS(rnd(0, 0.45)), rnd(1.6, 7), rnd(0.2, 0.7)); return norm(y); }), 0.55 * k);
+      smp(d, t + 0.28, take('splash_d', 4, () => { const y = arr(1.1); for (let i = 0; i < 22; i++) bubble(y, nS(rnd(0, 0.8)), rnd(0.8, 2.6), rnd(0.1, 0.35)); return norm(y); }), 0.3 * k);
+    },
     // snacks: a ring pull cracking and the fizz, a crinkling wrapper, then gulps or chewing
     can_open(d, t) {
       nz(d, t, 0.012, 0.9, 'bandpass', 3800, null, 4, 0.0005); nz(d, t, 0.04, 0.7, 'highpass', 3500);
@@ -1056,7 +1077,7 @@ const SFX = (() => {
 
   // how loud each sound sits in the mix (where its takes need bringing up or down to sit where it always has)
   const LEVEL = {
-    clown_step: 1.1, clown_giggle: 0.7, clown_box: 0.45, clown_honk: 0.4,
+    spool: 0.7, ignite: 1.2, splash: 0.9, clown_step: 1.1, clown_giggle: 0.7, clown_box: 0.45, clown_honk: 0.4,
     step: 0.31, run_far: 0.31, click: 0.53, pickup: 0.65, door_open: 0.35, crunch: 1.5, stinger: 1.7,
     stinger_hi: 1.1, heartbeat: 0.54, crawler_screech: 0.41, crawler_growl: 1.5, ceramic: 0.23, slime_slosh: 0.27,
     slime_gurgle: 0.22, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
@@ -1190,6 +1211,8 @@ const SFX = (() => {
       olp.connect(og); og.connect(g);
       bed('burn', () => looped(add(buzz(5, () => 38, () => rnd(0.3, 1), [[38, 1, 0.15], [76, 0.6, 0.1], [120, 0.3, 0.06]], { duty: 0.5, jit: 0.25, shim: 0.6 }), norm(bq(noise(5.1), 'lp', 200, 0.7)), 0, 0.5), 0.8), 8000, olp, (o) => { loops.thrustRate = o.playbackRate; });
       loops.thrust = g; loops.thrustLp = lp; loops.thrustHiss = hg;
+      // (outside, heard from where the ship is: panned, not made quieter by it, as the game sets its level)
+      g.disconnect(); const pan = ctx.createPanner(); pan.panningModel = 'equalpower'; pan.distanceModel = 'linear'; pan.rolloffFactor = 0; g.connect(pan); pan.connect(sfxBus); loops.thrustPan = pan;
     }
     // wind tearing past an open hatch in flight
     {
@@ -1447,10 +1470,12 @@ const SFX = (() => {
     ambience,
     chase: chaseTick,
     setWeather(rain, wind) { rainAmt = rain; windAmt = wind; applyEnv(); },
-    // level 0..1 of the ship's engines as heard here (inside: through the hull), gale 0..1 through an open hatch
-    setThrust(level, inside, gale) {
+    // level 0..1 of the ship's engines as heard here (inside: through the hull; outside, from at), gale 0..1 through
+    // an open hatch
+    setThrust(level, inside, gale, at) {
       if (!ready) return;
       const t = ctx.currentTime;
+      if (loops.thrustPan) { const l = ctx.listener, p = !inside && at ? at : l.positionX ? { x: l.positionX.value, y: l.positionY.value, z: l.positionZ.value } : _v; setPannerPos(loops.thrustPan, p.x, p.y, p.z); }
       loops.thrust.gain.setTargetAtTime(level * (inside ? 0.75 : 1.1), t, 0.12);
       loops.thrustLp.frequency.setTargetAtTime(140 + level * (inside ? 420 : 1300), t, 0.15);
       loops.thrustHiss.gain.setTargetAtTime(level * (inside ? 0.03 : 0.16), t, 0.15);

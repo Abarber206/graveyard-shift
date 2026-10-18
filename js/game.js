@@ -238,7 +238,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _lampP = new THREE.Vector3();
+const _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
@@ -262,6 +262,7 @@ const G = {
     R.scene.add(G.ship.group); R.scene.add(G.ship.wash); R.scene.add(G.ship.smoke); R.scene.add(G.ship.scorch); R.setBackdrop(G.ship.space, G.ship.sunCore);
     CrewCam.init(G.ship);
     Rover.init(G.ship);
+    FX.init(R.scene);
     SFX.setOcclusion((p) => {
       const cam = R.camera.position;
       if (G.fac && cam.y < -50 && p.y < -50) return G.fac.los(cam.x, cam.z, p.x, p.z) ? 0 : 0.85;
@@ -417,7 +418,7 @@ const G = {
         it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
         it.vis.x = damp(it.vis.x, it.pos.x, 10, dt); it.vis.z = damp(it.vis.z, it.pos.z, 10, dt);
-        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, mat: ITEM_MAT[it.type], w: ITEMS[it.type].weight }); it.fallV = 0; }
+        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, mat: ITEM_MAT[it.type], w: ITEMS[it.type].weight }); FX.foot(it.pos, G.itemZone(it), Math.min(1.2, 0.3 + ITEMS[it.type].weight / 40)); it.fallV = 0; }
       } else it.fallV = 0;
       it.mesh.position.copy(it.vis); it.mesh.rotation.set(0, it.ry, 0);
       if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
@@ -499,6 +500,7 @@ const G = {
     const disposeGroup = (g) => { if (!g) return; R.scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); };
     if (G.fac) { disposeGroup(G.fac.group); G.fac = null; }
     if (G.ext) { disposeGroup(G.ext.group); G.ext = null; }
+    FX.clear();
     for (const c of G.corpses) c.dispose();
     G.corpses = [];
     G.lightSources = [...G.ship.lights];
@@ -996,7 +998,7 @@ const G = {
       }
       if (G.leechOn === p.id) G.leechOn = null;
     },
-    sound(e) { SFX.play(e.s, new THREE.Vector3(e.x, e.y, e.z), e.o || {}); if (e.s === 'charge' && G.ship) G.ship.charging(); },
+    sound(e) { const at = new THREE.Vector3(e.x, e.y, e.z); SFX.play(e.s, at, e.o || {}); FX.onSound(e.s, at); if (e.s === 'charge' && G.ship) G.ship.charging(); },
     // a warning from the director (see Brain): your light stutters a moment
     cue(e) { if (e.pid === G.localId && e.k === 'light') G.cueT = 1.8; },
     monSpawn(e) { G.spawnMonster(e); },
@@ -1064,6 +1066,8 @@ const G = {
       else HUD.notice('DEPARTING', e.reason === 'dead' ? 'No life signs.' : e.reason === 'midnight' ? 'Midnight.' : '', false, 3);
       G.flight = { kind: 'takeoff', t: 0, aboard: null };
       G.updateFlight(0);
+      // (the engines winding up: heard through the hull aboard, from the tail outside)
+      SFX.play('spool', me && G.inShip(me) ? null : G.ship.exhaust.clone(), { vol: me && G.inShip(me) ? 0.55 : 1.2, ref: 12 });
     },
     orbit(e) {
       G.seq = { kind: 'orbit', t: 0, data: e };
@@ -1608,6 +1612,20 @@ const G = {
       if (pos) SFX.play('fuse', pos, { dur: 0.45, vol: 0.9 });
     }
   },
+  // a failing tube now and then spits a shower of sparks onto the floor under it, with a crackle (only the ones near
+  // you on your own floor: each about every ten seconds)
+  lampSparks(dt) {
+    const me = G.me(); if (!G.fac || !me || me.zone !== 'in' || (G.sparkT = (G.sparkT || 0) - dt) > 0) return;
+    G.sparkT = 0.5;
+    const cam = R.camera.position;
+    for (const l of G.fac.lamps) {
+      if (l.state !== 'flicker' || !l.lit || Math.abs(l.fy - me.pos.y) > 2.5 || Math.hypot(l.x - cam.x, l.z - cam.z) > 16 || Math.random() > 0.05) continue;
+      const at = new THREE.Vector3(l.x, l.y - 0.08, l.z);
+      FX.sparks(at, { dir: new THREE.Vector3(0, -1, 0), spread: 1.0, n: [6, 14], speed: [0.4, 2.4], floor: l.fy, life: [0.5, 1.1] });
+      SFX.play('zap', at, { vol: 0.55 });
+      break;
+    }
+  },
   // a blast: a fireball that swells and burns out, black smoke rolling up and spreading under the ceiling, a hot
   // flash of light on everything around, and a scorch mark left on the floor
   blastFx(pos, zone) {
@@ -1615,6 +1633,12 @@ const G = {
     const ceil = inside ? G.fac.ceilY(pos.x, pos.z, pos.y) - 0.35 : pos.y + 40;
     const floor = inside ? G.fac.floorY(pos.x, pos.z, pos.y) : G.groundAt(pos.x, pos.z);
     const puff = TEX.get('puff'), parts = [];
+    // (sparks and burning bits flung out, grit and chips off everything round it, dust rolling out across the floor)
+    { const l = FX.lit(pos, inside ? 'in' : 'out');
+      FX.sparks(pos, { n: 40, spread: Math.PI, speed: [4, 14], floor, life: [0.5, 1.4], streak: 0.05 });
+      FX.embers(pos, { n: 14, speed: [1, 4], life: [1.5, 3] });
+      FX.grit(pos, { n: 26, spread: 1.4, speed: [3, 10], floor, color: [0.12, 0.11, 0.1] });
+      FX.puff(pos.clone().setY(floor + 0.3), { n: 10, r: 1, spread: 1.5, speed: [1.5, 4], size: [0.6, 1.1], color: [0.42 * l, 0.4 * l, 0.36 * l], alpha: 0.3 }); }
     const fire = new THREE.Sprite(new THREE.SpriteMaterial({ map: puff, color: new THREE.Color(9, 4.2, 1.4), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
     fire.position.copy(pos); R.scene.add(fire); parts.push({ o: fire, kind: 'fire' });
     for (let i = 0; i < 10; i++) {
@@ -2314,12 +2338,16 @@ const G = {
     // who is aboard is settled the moment the ship leaves the ground
     if (f.kind === 'takeoff' && !f.aboard && S.airborne) { f.aboard = new Set(G.alivePlayers().filter((q) => q.zone === 'out' && G.posAboard(q.pos)).map((q) => q.id)); G.leftBehind(f); }
     const me = G.me(), aboard = G.playerAboard(me);
-    if (f.kind === 'land' && !f.down && f.t >= FLY.landDur) { f.down = true; SFX.play('thud', new THREE.Vector3(-1, 0.2, 0), { vol: 1.1 }); if (me && me.alive) Player.addShake(aboard ? 0.9 : 0.35); }
+    if (f.kind === 'land' && !f.down && f.t >= FLY.landDur) {
+      f.down = true; SFX.play('thud', new THREE.Vector3(-1, 0.2, 0), { vol: 1.1 }); if (me && me.alive) Player.addShake(aboard ? 0.9 : 0.35);
+      // (grit kicked up round each foot as the struts take the weight)
+      if (G.ext) for (const [x, z] of [[-6.1, -4], [-6.1, 4], [2.9, -4], [2.9, 4]]) { const gy = G.ext.height(x, z); FX.grit(_fxA.set(x, gy + 0.05, z), { n: [6, 10], spread: 1.2, speed: [1.5, 4], floor: gy, color: [0.14, 0.13, 0.12] }); }
+    }
     if (f.kind === 'takeoff' && !f.up && f.t >= FLY.liftAt) { f.up = true; SFX.play('clunk', new THREE.Vector3(-1, -0.3, 0), { vol: 0.9, pitch: 0.7 }); }
     // the burst: a thump you feel through the deck (or hear roll across the ground) and the roar of the mains opening up
     if (f.kind === 'takeoff' && !f.boom && f.t >= FLY.liftAt + FLY.burst - 0.1) {
       f.boom = true; const tail = aboard ? null : S.exhaust.clone().applyMatrix4(G.shipM);
-      SFX.play('explosion', tail, { vol: aboard ? 0.4 : 0.8, ref: 40, pitch: 0.6 }); SFX.play('engine', tail, { dur: 5, vol: 1.5, ref: 60 });
+      SFX.play('ignite', tail, { vol: aboard ? 0.7 : 1.3, ref: 30 }); SFX.play('engine', tail, { dur: 5, vol: 1.5, ref: 60 });
       // where the flame hits: straight down the exhaust from the main nozzle (or under the tail, if it's pointing too
       // flat to reach the ground): it blows a cloud of smoke and a ring of dust out across it and burns it black
       if (G.ext) {
@@ -2327,6 +2355,7 @@ const G = {
         let hit = false; for (let s = 0; s < 60 && !hit; s += 0.5) { q.copy(at).addScaledVector(dir, s); hit = q.y <= h(q.x, q.z); }
         if (!hit) q.copy(at);
         q.y = h(q.x, q.z); S.burstAt(q.x, q.y, q.z, h); f.boomAt = { x: q.x, z: q.z, t: f.t };
+        for (const e of S.exhausts) { const ep = e.clone().applyMatrix4(G.shipM); FX.sparks(ep, { n: 40, r: 0.3, dir: dir, spread: 0.5, speed: [8, 24], floor: h(ep.x, ep.z), life: [0.5, 1.4], size: [0.05, 0.09], streak: 0.06 }); }
         // (its firelight joins the lamps the renderer picks from, until the site is gone)
         for (const L of S.fireLights) if (!G.lightSources.includes(L)) G.lightSources.push(L);
       }
@@ -2345,6 +2374,17 @@ const G = {
       const col = new THREE.Color(base[0] * day, base[1] * day, base[2] * day), glow = new THREE.Color(0.7, 0.3, 0.08).multiplyScalar(p.lift * (1 - sstep(2, 18, alt)));
       S.washVac = !!B.airless; S.updateWash(dt, strength, p.x, gy, p.z, (x, z) => G.ext.height(x, z), col, glow);
       S.updateSmoke(dt, p, _smokeCol.setRGB(0.34 * day, 0.33 * day, 0.32 * day), (x, z) => G.ext.height(x, z));
+      // grit the jets tear off the ground and fling out from under it; once the mains are lit, embers streaming back
+      // off the bells (thrown at the ship's own speed, so they trail it)
+      const sv = _fxV.copy(S.group.position).sub(G.fxShip || S.group.position).divideScalar(dt); G.fxShip = (G.fxShip || new THREE.Vector3()).copy(S.group.position);
+      if (strength > 0.2 && Math.random() < strength * dt * 26) {
+        const a = Math.random() * TAU, r = 2 + Math.random() * 6, at = _fxA.set(p.x + Math.cos(a) * r, gy + 0.05, p.z + Math.sin(a) * r);
+        FX.grit(at, { n: [1, 3], dir: _fxD.set(Math.cos(a), 0.5, Math.sin(a)), spread: 0.45, speed: [4, 4 + 9 * strength], floor: gy, color: [base[0] * 0.4 * day, base[1] * 0.4 * day, base[2] * 0.4 * day] });
+      }
+      if (p.main > 0.4 && sv.lengthSq() < 1e6) for (const e of S.exhausts) {
+        if (Math.random() > dt * 36 * p.main) continue;
+        FX.embers(_fxA.copy(e).applyMatrix4(G.shipM), { n: [2, 4], r: 0.3, dir: _fxD.set(-1, 0, 0).transformDirection(G.shipM), spread: 0.16, speed: [10, 26], drag: 2.2, grav: 0.4, life: [0.4, 0.9], size: [0.08, 0.15], streak: 0.035, color: [2.2, 1.9, 1.5], color1: [1.4, 0.38, 0.05], flicker: 0.3, vel: sv });
+      }
       // and its wind: the downwash flattening the grass and bending the trees under it while it's low, then the blast
       // when the mains fire, rolling out from where the flame hit (heard as a roaring gust by anyone near enough)
       const w = f.boomAt ? Math.exp(-(f.t - f.boomAt.t) * 1.2) : 0, cam = R.camera.position;
@@ -2527,7 +2567,7 @@ const G = {
     } else if (G.seq && G.seq.kind === 'jump') {
       const t = G.seq.t; level = t < JUMP.punch ? 0.25 + 0.6 * (t / JUMP.punch) ** 2 : t < JUMP.drop ? 0.75 : 0.75 * Math.max(0, 1 - (t - JUMP.drop) / 2.5);
     }
-    SFX.setThrust(level, inside, gale);
+    SFX.setThrust(level, inside, gale, S.group.position);
   },
   // ======================= deliveries =======================
   // Orders wait on the run (run.orders) until they can be brought: in orbit the Company's drone carries them in
@@ -2786,7 +2826,7 @@ const G = {
     G.updateSeq(dt);
     G.updateFlight(dt);
     G.updateDelivery(dt);
-    Pods.update(dt);
+    Pods.update(dt); G.lampSparks(dt); FX.update(dt);
     G.stepEmergency(dt); G.stepMists(dt);
     // input not tied to the player body
     if (!HUD.blocking) {
@@ -2848,6 +2888,8 @@ const G = {
       av.setLamp(!!p.flash);
       p.swingT = Math.max(0, (p.swingT || 0) - dt);
       av.update(dt, { at: p.rpos, yaw: bodyYaw, speed: p.speed, crouch: p.crouch, sit: p.seat != null, air: !!p.air, pitch: p.rpitch || 0, look: seat ? angDiff(seat.yaw, p.ryaw || 0) : null, swing: p.swingT > 0 ? Math.sin((1 - p.swingT / 0.45) * Math.PI) : 0 });
+      // (a scuff of dust, snow or spray off their feet each stride)
+      if (p.speed > 0.6 && !p.air && p.seat == null && !(G.shipMoved && G.playerAboard(p))) { p.strideAcc = (p.strideAcc || 0) + p.speed * dt; if (p.strideAcc > 1.8) { p.strideAcc = 0; FX.foot(p.rpos, p.zone, Math.min(1.4, p.speed / 3.5)); } }
       const me = G.me();
       av.tag.visible = me && p.rpos.distanceTo(R.camera.position) < 14;
       if (G.leechOn === p.id) { /* leech mesh shows on their head */ }
@@ -3153,6 +3195,16 @@ const G = {
       }
       const raining = G.round.weather === 'rain' || G.round.weather === 'storm';
       G.ext.rain.visible = raining; G.ext.rainMat.uniforms.uTime.value = t; G.ext.rainMat.uniforms.uCam.value.copy(cam);
+      // (and the rain splashing up off the ground and the water all round you)
+      if (raining && dt > 0 && !G.camCarried) {
+        const n = dt * (G.round.weather === 'storm' ? 110 : 60) + Math.random(), w = G.ext.water, l = FX.lit(cam, 'out');
+        for (let k = 0; k < n - 1; k++) {
+          const a = Math.random() * TAU, d = 0.8 + Math.random() * 11, x = cam.x + Math.cos(a) * d, z = cam.z + Math.sin(a) * d;
+          if (G.ship.onFootprint(x, z)) continue;
+          const gy = Math.max(G.groundAt(x, z), w ?? -1e9);
+          FX.emit({ at: _fxA.set(x, gy + 0.02, z), n: 2, spread: 0.7, speed: [0.5, 1.5], grav: 9.8, floor: gy, die: true, life: 0.5, size: [0.012, 0.022], streak: 0.03, color: [0.6 * l, 0.65 * l, 0.7 * l], alpha: 0.55 });
+        }
+      }
       G.ext.setShipFrame(G.shipM);
       G.ext.update(t, cam, L);
       G.ship.setFlood(!!G.run.upgrades.flood && G.round.time > 16 * 60);

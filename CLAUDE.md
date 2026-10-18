@@ -70,6 +70,12 @@ Keep that file current when gameplay changes.
     `bed()`) and a first take of every recipe as background jobs, a second of audio at a time. `LEVEL` sets each recipe's
     loudness; `SFX.render(name, o)` renders one offline for checking levels. Noise through filters (`nz`) is fine for air,
     hiss and rustle.
+- **Particles** (`fx.js`): one pool of short-lived bits in two layers (glowing: sparks, embers; solid: dust, spray,
+  grit), each drawn in one call as camera-facing cards stretched along their flight, with fog. `FX.emit(o)` throws them;
+  `FX.step` / `FX.foot` (a foot coming down: dust, snow, ash, marsh mud, spray, facility grit), `FX.splash`, `FX.sparks`,
+  `FX.embers`, `FX.grit`, `FX.puff` are the usual throws; `FX.onSound` adds what a networked sound throws off (blows on
+  flesh or metal, a smashed door), so every peer sees the same. Solid bits take their light from `FX.lit` (time of day,
+  lamps, the flashlight), since nothing lights them.
 - **Touch** (`touch.js`) drives the same `Input` the keyboard and mouse do (`Input.analog` for the stick). On a touch
   screen, `Input.lock()` / `unlock()` just mean playing / not playing. The hosted copy installs as an app
   (`manifest.webmanifest`, `sw.js`, `icons/`).

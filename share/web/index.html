@@ -12506,9 +12506,11 @@ const Ship = (() => {
         }
       }
       this.pdU.sunW.value.copy(this.sunDir);
-      // the air shell is seen from outside, or (falling into it) from within
+      // the air shell is seen from outside, or (sinking into it) from within: then its far side is drawn, over
+      // everything out there (where the ground cuts the line of sight the shader stops it there). It turns over right
+      // at the shell, so it never blinks out on the way in
       this.atmo.updateWorldMatrix(true, false); this.atmo.getWorldPosition(this.atmo.material.uniforms.uC.value);
-      this.atmo.material.side = this.alt < R * 0.055 ? THREE.BackSide : THREE.FrontSide;
+      { const inAir = this.alt < R * 0.06 + 2; this.atmo.material.side = inAir ? THREE.BackSide : THREE.FrontSide; this.atmo.material.depthTest = !inAir; }
       // the sun as the planet's surface sees it (for where cloud shadows fall)
       this.planet.updateWorldMatrix(false, false); this.pdU.sunObj.value.copy(this.sunDir).applyQuaternion(_pq.setFromRotationMatrix(this.planet.matrixWorld).invert());
       {

@@ -2232,33 +2232,41 @@ const G = {
       P.shake = t < D ? 0.1 + 0.16 * P.lift : 0;
     } else {
       const L = FLY.liftAt, k = Math.max(0, t - L), B = FLY.burst;
-      // straight up off the struts to a hover; the nose comes up and it eases forward, heavy and slow... then the main
-      // engines open up all at once, a kick of flame and smoke, and it's gone, streaking away up its heading and banking
-      // onto it as it climbs. The path always follows the nose: it flies, it never slides.
-      const pitchAt = (q) => 0.6 * sstep(1.4, 4.8, q), yawAt = (q) => 0.4 * sstep(2, 8, q);
-      const speedAt = (q) => (q < 1.8 ? 0 : 4 * sstep(1.8, 3.6, q) + 170 * sstep(B, B + 1.3, q) ** 1.5);
-      let x = 0, y = 0, z = 0;
-      for (let q = 1.8; q < k; q += 1 / 30) {
-        const dq = Math.min(1 / 30, k - q), m = q + dq / 2, v = speedAt(m) * dq, p = pitchAt(m), yw = yawAt(m);
-        x += v * Math.cos(p) * Math.cos(yw); y += v * Math.sin(p); z -= v * Math.cos(p) * Math.sin(yw);
+      // Off the pad the way a freighter leaves a spaceport: it rises straight up off its struts on the belly jets,
+      // slow and heavy and a little unsteady, tucks its gear and steadies in a hover; swings its nose round onto the
+      // heading, banking into the turn, and lifts it a little. Then the mains light and it surges away along its nose,
+      // gathering speed before your eyes (about three g: no jump to full speed), climbing steeper as it goes. The path
+      // always follows the nose: it flies, it never slides.
+      const pitchAt = (q) => 0.1 * sstep(1.6, 3.6, q) + 0.44 * sstep(B, B + 5, q);
+      const yawAt = (q) => 0.38 * sstep(1.8, 5.8, q);
+      const accAt = (q) => 0.5 * sstep(2.4, 3.4, q) * (1 - sstep(B - 0.4, B, q)) + 34 * sstep(B - 0.1, B + 1.2, q);
+      let x = 0, y = 0, z = 0, v = 0;
+      for (let q = 0; q < k; q += 1 / 30) {
+        const dq = Math.min(1 / 30, k - q), m = q + dq / 2, p = pitchAt(m), yw = yawAt(m);
+        v += accAt(m) * dq; const d = v * dq;
+        x += d * Math.cos(p) * Math.cos(yw); y += d * Math.sin(p); z -= d * Math.cos(p) * Math.sin(yw);
       }
-      P.x = x + 0.15 * Math.sin(k * 1.4) * (1 - sstep(2, 4, k)); P.z = z;
-      P.y = 7 * sstep(0, 2.4, k) + y;
-      P.yaw = yawAt(k); P.pitch = pitchAt(k);
-      P.roll = -0.18 * Math.sin(Math.PI * sstep(2, 8, k));
+      // (the hover: a slow sway on the jets, settling once it's under way)
+      const hov = sstep(0.4, 1.6, k) * (1 - sstep(B, B + 2, k));
+      P.x = x + 0.14 * Math.sin(k * 1.3) * hov; P.z = z + 0.1 * Math.sin(k * 1.7 + 1) * hov;
+      P.y = 6.5 * sstep(0, 2.8, k) + y + 0.12 * Math.sin(k * 2.1) * hov;
+      P.yaw = yawAt(k); P.pitch = pitchAt(k) + 0.012 * Math.sin(k * 1.9 + 2) * hov;
+      // banked into the turn, as much as it's turning, and level again once it's on its heading
+      P.roll = -1.1 * (yawAt(k + 0.05) - yawAt(k - 0.05)) / 0.1 + 0.016 * Math.sin(k * 1.5 + 0.5) * hov;
       const air = sstep(0, 4, P.y);
-      P.pitch += w(1.9, 0.5) * 0.01 * air; P.roll += w(1.4, 1.5) * 0.014 * air;
+      P.pitch += w(1.9, 0.5) * 0.006 * air; P.roll += w(1.4, 1.5) * 0.008 * air;
       // spooling up, the whole frame trembles on its struts
       const spool = sstep(0.3, L, t) * (1 - sstep(0, 1.2, k));
       P.y += spool * 0.02 * Math.sin(t * 37); P.roll += spool * 0.004 * Math.sin(t * 29);
-      // (the mains idle along while it hovers; at the burst they flare out long and white-hot, then hold a roaring burn)
-      const kick = sstep(B - 0.1, B + 0.25, k), flare = k > B ? Math.exp(-(k - B) * 3) : 0;
-      P.lift = t < L ? 0.15 + 0.7 * sstep(0.3, L, t) : (1 - 0.35 * sstep(4, 9, k)) * (1 - 0.55 * sstep(B, B + 1, k));
-      P.main = 0.12 * sstep(0.3, L, t) + 0.3 * sstep(1.6, 3.6, k) + 1.15 * kick + 0.5 * flare * kick;
+      // (the mains idle along while it hovers and glow up as they're brought to readiness; they light with a flare
+      // and settle into a roaring burn while the belly jets fade)
+      const kick = sstep(B - 0.1, B + 0.4, k), flare = k > B ? Math.exp(-(k - B) * 2.5) : 0;
+      P.lift = t < L ? 0.15 + 0.7 * sstep(0.3, L, t) : (1 - 0.25 * sstep(2.8, 4, k)) * (1 - 0.65 * sstep(B, B + 2.2, k));
+      P.main = 0.1 * sstep(0.3, L, t) + 0.2 * sstep(B - 1.4, B - 0.2, k) + 0.95 * kick + 0.35 * flare * kick;
       P.burst = sstep(B - 0.1, B + 0.4, k);
-      P.gear = P.y > 6 ? 0 : 1;
+      P.gear = P.y > 3 ? 0 : 1;
       P.ramp = t < 0.35 ? 1 : 0;
-      P.shake = 0.06 + 0.22 * spool + 0.12 * P.lift + 0.6 * kick * (1 - sstep(B + 0.3, B + 2.2, k));
+      P.shake = 0.05 + 0.2 * spool + 0.1 * P.lift + 0.32 * kick * (1 - sstep(B + 0.4, B + 2.6, k)) + 0.08 * sstep(B, B + 2, k);
     }
     return P;
   },
@@ -2310,12 +2318,12 @@ const G = {
     if (f.kind === 'takeoff' && !f.up && f.t >= FLY.liftAt) { f.up = true; SFX.play('clunk', new THREE.Vector3(-1, -0.3, 0), { vol: 0.9, pitch: 0.7 }); }
     // the burst: a thump you feel through the deck (or hear roll across the ground) and the roar of the mains opening up
     if (f.kind === 'takeoff' && !f.boom && f.t >= FLY.liftAt + FLY.burst - 0.1) {
-      f.boom = true; const tail = aboard ? null : new THREE.Vector3(-18, 2.5, 0).applyMatrix4(G.shipM);
-      SFX.play('explosion', tail, { vol: aboard ? 0.7 : 1.3, ref: 40 }); SFX.play('engine', tail, { dur: 4.5, vol: 1.5, ref: 60 });
+      f.boom = true; const tail = aboard ? null : S.exhaust.clone().applyMatrix4(G.shipM);
+      SFX.play('explosion', tail, { vol: aboard ? 0.4 : 0.8, ref: 40, pitch: 0.6 }); SFX.play('engine', tail, { dur: 5, vol: 1.5, ref: 60 });
       // where the flame hits: straight down the exhaust from the main nozzle (or under the tail, if it's pointing too
       // flat to reach the ground): it blows a cloud of smoke and a ring of dust out across it and burns it black
       if (G.ext) {
-        const h = (x, z) => G.ext.height(x, z), at = new THREE.Vector3(-18.1, 2.55, 0).applyMatrix4(G.shipM), dir = new THREE.Vector3(-1, 0, 0).transformDirection(G.shipM), q = at.clone();
+        const h = (x, z) => G.ext.height(x, z), at = S.exhaust.clone().applyMatrix4(G.shipM), dir = new THREE.Vector3(-1, 0, 0).transformDirection(G.shipM), q = at.clone();
         let hit = false; for (let s = 0; s < 60 && !hit; s += 0.5) { q.copy(at).addScaledVector(dir, s); hit = q.y <= h(q.x, q.z); }
         if (!hit) q.copy(at);
         q.y = h(q.x, q.z); S.burstAt(q.x, q.y, q.z, h); f.boomAt = { x: q.x, z: q.z, t: f.t };

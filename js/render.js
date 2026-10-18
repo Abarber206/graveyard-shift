@@ -289,7 +289,7 @@ const R = (() => {
       }
       // (none of it inside the ship)
       vec3 sl = (uShipInv * vec4(p, 1.0)).xyz;
-      if (sl.x > -18.6 && sl.x < 12.6 && abs(sl.z) < 5.2 && sl.y > -1.1 && sl.y < 5.3) return 0.0;
+      if (sl.x > -16.9 && sl.x < 12.6 && abs(sl.z) < 4.85 && sl.y > -1.0 && sl.y < 4.9) return 0.0;
       return air + mist + cl;
     }
     float sunLit(vec3 p) {

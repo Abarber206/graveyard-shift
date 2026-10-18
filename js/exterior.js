@@ -813,7 +813,7 @@ const Exterior = (() => {
             float a = dens * vA * soft * (vKind > 0.5 ? uVis.y : uVis.x);
             // (and none of it in the ship)
             vec3 sl = (uShipInv * vec4(vW, 1.0)).xyz;
-            if (a < 0.004 || (sl.x > -18.6 && sl.x < 12.6 && abs(sl.z) < 5.2 && sl.y > -1.1 && sl.y < 5.3)) discard;
+            if (a < 0.004 || (sl.x > -16.9 && sl.x < 12.6 && abs(sl.z) < 4.85 && sl.y > -1.0 && sl.y < 4.9)) discard;
             gl_FragColor = vec4(col, a);
           }`,
         transparent: true, depthWrite: false, fog: false,
@@ -1256,7 +1256,7 @@ const Exterior = (() => {
             vA = smoothstep(14.0, 6.0, length(p - uCam)) * smoothstep(0.4, 1.5, d) * (0.4 + aSeed * 0.6);
             // nothing drifts through the cabin
             vec3 l = (uShipInv * vec4(p, 1.0)).xyz;
-            if (l.x > -18.4 && l.x < 12.4 && abs(l.z) < 4.9 && l.y > -0.9 && l.y < 5.0) vA = 0.0;
+            if (l.x > -16.7 && l.x < 12.4 && abs(l.z) < 4.6 && l.y > -0.9 && l.y < 4.6) vA = 0.0;
             gl_Position = projectionMatrix * mv; gl_PointSize = vA > 0.0 ? clamp(5.0 / d, 1.0, 3.0) * (1.0 + uGlow * 0.5 + vE * 0.4) : 0.0; }`,
         fragmentShader: `uniform vec3 uCol; uniform float uOp, uGlow; varying float vA; varying float vE; varying float vB;
           void main(){ float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5));
@@ -2247,7 +2247,7 @@ const Exterior = (() => {
             h.x = mod(h.x - uCam.x + 20.0, 40.0) - 20.0 + uCam.x; h.z = mod(h.z - uCam.z + 20.0, 40.0) - 20.0 + uCam.z; h.y += uCam.y;
             // no rain inside (or through) the ship's hull, wherever the ship is
             vec3 l = (uShipInv * vec4(h, 1.0)).xyz;
-            if (l.x > -18.6 && l.x < 12.6 && l.z > -5.2 && l.z < 5.2 && l.y < 5.3 && l.y > -1.1) h.y -= 2000.0;
+            if (l.x > -16.9 && l.x < 12.6 && l.z > -4.85 && l.z < 4.85 && l.y < 4.9 && l.y > -1.0) h.y -= 2000.0;
             vec3 p = h + aOff;
             vA = 1.0 - clamp(length(p.xz - uCam.xz) / 20.0, 0.0, 1.0);
             gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`,

@@ -46,31 +46,36 @@ const Ship = (() => {
       return (2 * t3 - 3 * t2 + 1) * pts[i][1] + (t3 - 2 * t2 + t) * h * m[i] + (3 * t2 - 2 * t3) * pts[i + 1][1] + (t3 - t2) * h * m[i + 1];
     };
   };
-  // the tail ends in the engine bulkhead at x0; ahead of the windshield the nose closes in a full rounded cap (an
-  // airliner's), from cap to x1, onto a tip at yc
-  const HULL = { x0: -17.5, x1: 12.0, cap: CK.x1, yc: 0.15 };
-  // the engine bells in the tail bulkhead: the main one's height; the side ones' height and offset
-  const ENGINES = { main: [2.55, 0.66], side: [2.08, 1.06, 0.42] };
-  const hA = curve([[-17.5, 1.75], [-16.5, 2.45], [-15.0, 3.3], [-13.0, 4.05], [-11.0, 4.6], [-9.0, 4.86], [-7.4, 4.9], [1.0, 4.9], [3.7, 4.82], [5.0, 4.35], [6.0, 3.75], [6.6, 3.42], [7.4, 3.08], [8.2, 2.82], [9.0, 2.66], [10.0, 2.45], [11.0, 2.2], [12.0, 1.95]]);
-  const hYm = curve([[-17.5, 2.35], [-16.5, 2.2], [-15.0, 2.0], [-13.0, 1.8], [-11.0, 1.62], [-9.0, 1.52], [-7.4, 1.5], [3.7, 1.5], [5.0, 1.4], [6.6, 1.05], [8.2, 0.42], [12.0, 0.3]]);
-  const hB = curve([[-17.5, 1.4], [-16.5, 0.85], [-15.0, 0.25], [-13.0, -0.3], [-11.0, -0.62], [-9.0, -0.78], [-7.4, -0.8], [3.7, -0.8], [6.6, -0.76], [8.2, -0.7], [12.0, -0.5]]);
-  const hFb = curve([[-17.5, 0.2], [-16.5, 0.4], [-15.0, 0.6], [-13.0, 1.0], [-11.0, 1.4], [-9.0, 1.7], [-7.4, 1.8], [3.7, 1.8], [6.6, 1.35], [8.2, 1.1], [12.0, 0.6]]);
-  const hNu = curve([[-17.5, 2.4], [-7.4, 2.5], [1.0, 2.5], [3.7, 3.0], [5.0, 2.8], [6.6, 2.4], [8.2, 2.4], [12.0, 2.2]]);
-  const hNl = curve([[-17.5, 2.3], [-7.4, 2.6], [3.7, 2.6], [8.2, 2.4], [12.0, 2.2]]);
-  // the crown: level over the bay, sweeping down over the flight deck to the brow; across the windshield the skin is a
-  // plane just proud of the glass; ahead of it the nose drops away below the pilots' sightline
-  const hTa = curve([[-17.5, 3.3], [-16.5, 3.75], [-15.0, 4.2], [-13.0, 4.6], [-11.0, 4.85], [-9.0, 4.98], [-7.4, 5.0], [0, 5.0], [3.7, 4.62], [5.0, 4.05], [6.0, 3.5], [6.6, 3.12]]);
-  const hFa = curve([[-17.5, 0], [3.0, 0], [4.2, 0.55], [5.4, 1.75], [6.6, halfAt(6.6) + 0.17]]);
-  const hTn = curve([[8.2, 1.02], [12.0, 0.9]]);
-  const hFn = curve([[8.2, halfAt(8.2) + 0.17], [9.0, 1.2], [9.6, 0], [12.0, 0]]);
+  // the tail ends in the engine bulkhead at x0; ahead of the windshield the nose closes in a cap from cap to x1, pointed
+  // seen from above and rounded seen side on (a shark's), onto a tip at yc
+  const HULL = { x0: -16.2, x1: 12.6, cap: CK.x1, yc: 0.4 };
+  // the engines: the main bell in the tail bulkhead (its height and radius, the plane it fires from), and the two
+  // nacelles slung either side of the tail on stub pylons (height, offset, radius; where they start and where their
+  // bells fire from)
+  const ENGINES = { main: [2.12, 0.8], mx: HULL.x0 - 0.7, side: [1.3, 5.5, 0.82], nx0: -8.2, nx1: -15.7 };
+  ENGINES.sx = ENGINES.nx1 + 0.4 - ENGINES.side[2] * 0.92 * 0.87;
+  // A lean hauler: the skin hugs the cabin (a rounded box in section, its crown flat enough to carry the roof deck),
+  // the nose runs out long and low past the windshield, and the tail tapers to the engine bulkhead between the nacelles
+  const hA = curve([[-16.2, 2.3], [-15.2, 2.95], [-13.8, 3.6], [-12.0, 4.1], [-10.2, 4.42], [-8.6, 4.54], [-7.4, 4.56], [3.0, 4.56], [3.7, 4.54], [4.6, 4.12], [5.4, 3.72], [6.2, 3.38], [7.0, 3.1], [8.2, 2.78], [9.4, 2.56], [10.6, 2.36], [12.6, 2.1]]);
+  const hYm = curve([[-16.2, 2.0], [-14.0, 1.75], [-11.0, 1.5], [-8.6, 1.42], [3.7, 1.42], [5.0, 1.32], [6.6, 1.0], [8.2, 0.55], [12.6, 0.45]]);
+  const hB = curve([[-16.2, 1.05], [-15.2, 0.55], [-13.8, 0.0], [-12.0, -0.42], [-10.2, -0.66], [-8.6, -0.75], [3.7, -0.75], [6.6, -0.72], [8.2, -0.66], [12.6, -0.42]]);
+  const hFb = curve([[-16.2, 0.4], [-14.0, 1.0], [-11.0, 1.9], [-8.6, 2.4], [3.7, 2.4], [6.6, 1.6], [8.2, 1.2], [12.6, 0.7]]);
+  const hNu = curve([[-16.2, 3.0], [-7.4, 3.4], [3.7, 3.4], [5.0, 3.0], [6.6, 2.6], [8.2, 2.4], [12.6, 2.2]]);
+  const hNl = curve([[-16.2, 3.0], [-7.4, 3.4], [3.7, 3.4], [8.2, 2.6], [12.6, 2.2]]);
+  // the crown: flat and level over the bay, sweeping down over the flight deck to the brow; across the windshield the
+  // skin is a plane just proud of the glass; ahead of it the nose drops away below the pilots' sightline
+  const hTa = curve([[-16.2, 3.2], [-15.2, 3.62], [-13.8, 3.98], [-12.0, 4.24], [-10.2, 4.4], [-8.6, 4.48], [-7.0, 4.53], [3.0, 4.55], [3.7, 4.38], [5.0, 3.86], [6.0, 3.42], [6.6, 3.12]]);
+  const hFa = curve([[-16.2, 0.6], [-14.0, 1.2], [-11.0, 1.7], [-8.6, 1.86], [3.0, 1.86], [4.6, 1.92], [5.6, 2.16], [6.6, halfAt(6.6) + 0.17]]);
+  const hTn = curve([[8.2, 1.02], [10.4, 1.0], [12.6, 0.85]]);
+  const hFn = curve([[8.2, halfAt(8.2) + 0.17], [9.0, 1.2], [9.6, 0], [12.6, 0]]);
   const hullSec = (x) => {
     const p = { A: hA(x), ym: hYm(x), B: hB(x), fb: hFb(x), nu: hNu(x), nl: hNl(x) };
     if (x <= CK.wsTop) { p.T = hTa(x); p.ft = hFa(x); }
     else if (x < CK.x1) { p.T = 3.12 + ((x - CK.wsTop) / (CK.x1 - CK.wsTop)) * (1.02 - 3.12); p.ft = halfAt(x) + 0.17; }
     else { p.T = hTn(x); p.ft = hFn(x); }
     if (x > HULL.cap) {
-      const c = Math.sqrt(Math.max(0, 1 - ((x - HULL.cap) / (HULL.x1 - HULL.cap)) ** 2)), yc = HULL.yc;
-      p.A *= c; p.ft *= c; p.fb *= c; p.T = yc + (p.T - yc) * c; p.B = yc + (p.B - yc) * c; p.ym = yc + (p.ym - yc) * c;
+      const u = (x - HULL.cap) / (HULL.x1 - HULL.cap), c = Math.sqrt(Math.max(0, 1 - u * u)), cw = Math.max(0, 1 - Math.pow(u, 1.7)) * Math.pow(c, 0.25), yc = HULL.yc;
+      p.A *= cw; p.ft *= cw; p.fb *= cw; p.T = yc + (p.T - yc) * c; p.B = yc + (p.B - yc) * c; p.ym = yc + (p.ym - yc) * c;
     }
     return p;
   };
@@ -1495,15 +1500,22 @@ const Ship = (() => {
           return s > -0.04 && s < ${f(wsL + 0.04)} && h > -0.2 && h < 0.35 && az < ${f(CK.w1 + 0.05)} + ${f(halfAt(CK.wsTop) - CK.w1)} * s / ${f(wsL)};
         }
 `;
-      const cut = (m) => {
+      // (and the paint, on the skin itself: charcoal below the chine, the top of the nose dark ahead of the glass, each
+      // edge crisp at any distance)
+      const paint = `#include <color_fragment>
+          { float aa = fwidth(vHullP.y) + 0.002;
+            diffuseColor.rgb *= mix(0.46, 1.0, smoothstep(0.36 - aa, 0.36 + aa, vHullP.y));
+            diffuseColor.rgb *= mix(1.0, 0.4, step(${f(CK.x1 + 0.05)}, vHullP.x) * smoothstep(0.62 - aa, 0.62 + aa, vHullP.y)); }`;
+      const cut = (m, painted) => {
         m.onBeforeCompile = (sh) => {
           sh.vertexShader = 'varying vec3 vHullP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vHullP = position;');
           sh.fragmentShader = holes + sh.fragmentShader.replace('void main() {', 'void main() {\n  if (hullHole(vHullP)) discard;');
+          if (painted) sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', paint);
         };
-        m.customProgramCacheKey = () => 'hullHoles';
+        m.customProgramCacheKey = () => (painted ? 'hullSkin' : 'hullHoles');
         return m;
       };
-      cut(skinMat);
+      cut(skinMat, true);
       // ---- the skin ----
       // half a section (the +z side), from the bottom centre round to the top centre: [z, y]
       const halfSec = (p) => {
@@ -1532,7 +1544,7 @@ const Ship = (() => {
             if (j) s += Math.hypot(z - pts[j - 1][0], y - pts[j - 1][1]);
             pos.push(x, y, z); uv.push(x / 4, (s * k) / 4);
             // grime: darker toward the belly, sooty toward the engines; the radome a darker grey
-            const c = (0.52 + 0.48 * sstep(-0.9, 1.2, y)) * (0.68 + 0.32 * sstep(-16.9, -13.8, x)) * (x > HULL.x1 - 0.75 ? 0.62 : 1);
+            const c = (0.52 + 0.48 * sstep(-0.9, 1.2, y)) * (0.68 + 0.32 * sstep(HULL.x0 + 0.6, HULL.x0 + 3.7, x)) * (x > HULL.x1 - 0.75 ? 0.62 : 1);
             col.push(c, c, c * 0.98);
           });
         }
@@ -1653,10 +1665,10 @@ const Ship = (() => {
             quad(arr, sk(a, yc - h(a), s, 0.006), sk(b, yc - h(b), s, 0.006), sk(b, yc + h(b), s, 0.006), sk(a, yc + h(a), s, 0.006));
           }
         };
-        const taper = (x) => sstep(-11.2, -9.6, x) * (1 - sstep(6.2, 7.6, x));
-        for (const [s, x0, x1] of [[1, -11.2, DOOR.x0 - 0.15], [1, DOOR.x1 + 0.15, 7.6], [-1, -11.2, 7.6]]) {
-          strip(o, s, x0, x1, 0.84, (x) => 0.14 * taper(x));
-          strip(k, s, x0, x1, 0.64, (x) => 0.02 * taper(x));
+        const taper = (x) => sstep(-13.6, -11.6, x) * (1 - sstep(8.6, 10.4, x));
+        for (const [s, x0, x1] of [[1, -13.6, DOOR.x0 - 0.15], [1, DOOR.x1 + 0.15, 10.4], [-1, -13.6, 10.4]]) {
+          strip(o, s, x0, x1, 0.74, (x) => 0.17 * taper(x));
+          strip(k, s, x0, x1, 0.5, (x) => 0.025 * taper(x));
         }
         const dm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
         mk(o, dm(0xc2541a)).castShadow = false; mk(k, dm(0x151617)).castShadow = false;
@@ -1680,52 +1692,75 @@ const Ship = (() => {
       const glowDisc = (r, x, y, z, faceX) => { const gl = new THREE.Mesh(new THREE.CircleGeometry(r, 24), new THREE.MeshBasicMaterial({ color: 0x331208 })); gl.position.set(x, y, z); gl.rotation.y = faceX; this.group.add(gl); this.engineGlows.push(gl); };
       // a cylinder standing along an axis
       const pcAx = (m, r1, r2, h, p, axis, seg = 12) => this.put(m, new THREE.CylinderGeometry(r1, r2, h, seg), new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), axis.clone().normalize()), V(1, 1, 1)));
-      // the engines: three bells set into the tail's bulkhead, nothing hung off the flanks (the main one high in the
-      // middle, a smaller one either side below it), each with a lip, a rusted throat, a centre cone and its glow
+      // the engines: the main bell set into the tail's bulkhead, and a nacelle either side of the tail on a stub pylon,
+      // each bell with a lip, a rusted throat, a centre cone and its glow
       const X0 = HULL.x0;
-      const bell = (r, y, z) => {
-        this.pc('darkmetal', r, r * 0.78, r * 0.9, X0 - r * 0.42, y, z, 0, 0, Math.PI / 2, 24, true);
-        this.pt('darkmetal', r, r * 0.06, X0 - r * 0.87, y, z, 0, Math.PI / 2, 0, 24);
-        this.pc('rust', r * 0.6, r * 0.6, r * 0.4, X0 - r * 0.2, y, z, 0, 0, Math.PI / 2, 20, true);
-        this.pc('darkmetal', 0.0, r * 0.3, r * 0.7, X0 - r * 0.45, y, z, 0, 0, Math.PI / 2, 16);
-        glowDisc(r * 0.6, X0 - r * 0.22, y, z, -Math.PI / 2);
+      const bell = (r, x, y, z) => {
+        this.pc('darkmetal', r, r * 0.78, r * 0.9, x - r * 0.42, y, z, 0, 0, Math.PI / 2, 24, true);
+        this.pt('darkmetal', r, r * 0.06, x - r * 0.87, y, z, 0, Math.PI / 2, 0, 24);
+        this.pc('rust', r * 0.6, r * 0.6, r * 0.4, x - r * 0.2, y, z, 0, 0, Math.PI / 2, 20, true);
+        this.pc('darkmetal', 0.0, r * 0.3, r * 0.7, x - r * 0.45, y, z, 0, 0, Math.PI / 2, 16);
+        glowDisc(r * 0.6, x - r * 0.22, y, z, -Math.PI / 2);
       };
-      bell(ENGINES.main[1], ENGINES.main[0], 0);
-      for (const s of [-1, 1]) bell(ENGINES.side[2], ENGINES.side[0], s * ENGINES.side[1]);
+      bell(ENGINES.main[1], X0, ENGINES.main[0], 0);
+      // (where the main engine fires from, for the flight's sound and the burn it leaves on the ground)
+      this.exhaust = V(ENGINES.mx, ENGINES.main[0], 0);
       this.col(X0 - 0.7, X0, -1.6, 1.6);
-      // a flat swept surface (wing, winglet, fin) from its planform in (x, out): rounded edges, thickness t, then
+      // a flat swept surface (fin, pylon, strake) from its planform in (x, out): rounded edges, thickness t, then
       // placed by m4 (its root runs along x at out = 0, its upper face at y = 0 before placing)
-      const surface = (pts, t, m4) => {
+      const surface = (pts, t, m4, m = this.cm.hullPanel) => {
         const sh = new THREE.Shape(); pts.forEach(([x, w], i) => (i ? sh.lineTo(x, w) : sh.moveTo(x, w))); sh.closePath();
         const g = new THREE.ExtrudeGeometry(sh, { depth: t, bevelEnabled: true, bevelThickness: Math.min(0.06, t * 0.3), bevelSize: Math.min(0.08, t * 0.4), bevelSegments: 3, curveSegments: 4 });
         g.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2)); g.applyMatrix4(m4);
         // (a mirrored copy is wound inside out: swap two corners of every triangle to turn it the right way round)
         if (m4.determinant() < 0) for (const a of Object.values(g.attributes)) { const n = a.itemSize, v = a.array; for (let i = 0; i < a.count; i += 3) for (let k = 0; k < n; k++) { const t = v[(i + 1) * n + k]; v[(i + 1) * n + k] = v[(i + 2) * n + k]; v[(i + 2) * n + k] = t; } }
-        return this.mesh(g, this.cm.hullPanel);
+        return this.mesh(g, m);
       };
       const mirror = new THREE.Matrix4().makeScale(1, 1, -1);
-      // twin canted tail fins in a V, their roots following the crown down the tail, a strobe in each tip
-      for (const s of [-1, 1]) {
-        const xr = -12.0, yr = skinTop(xr, 0.95) - 0.04, slope = Math.atan2(yr - (skinTop(xr - 4, 0.95) - 0.04), 4);
-        const m4 = new THREE.Matrix4().makeTranslation(xr, yr, s * 0.95).multiply(new THREE.Matrix4().makeRotationZ(slope)).multiply(new THREE.Matrix4().makeRotationX(-s * (Math.PI / 2 - 0.42)));
-        if (s < 0) m4.multiply(mirror);
-        surface([[-4.0, 0], [0, 0], [-2.1, 2.35], [-3.5, 2.35]], 0.12, m4);
-        const tip = V(-2.8, 0, 2.42).applyMatrix4(m4); this.navLight(tip.x, tip.y, tip.z, 0xffffff, true);
+      // the nacelles: long round pods either side of the tail, an intake ring with its fan up front, a bell out the back,
+      // a raised spine of panels along the top and the nav light (red to port, green to starboard) in each nose; a
+      // swept pylon fairs each one into the hull
+      {
+        const [ny, nz, nr] = ENGINES.side, a = ENGINES.nx0, b = ENGINES.nx1, len = a - b, ax = (m, r1, r2, h, x, y, z, seg = 24, open) => this.pc(m, r1, r2, h, x, y, z, 0, 0, Math.PI / 2, seg, open);
+        for (const s of [-1, 1]) {
+          const z = s * nz;
+          ax('hullPanel', nr, nr, len - 1.8, (a + b) / 2 + 0.1, ny, z, 28);
+          ax('hullPanel', nr, nr * 0.86, 0.8, a - 0.4, ny, z, 28, true);
+          this.pt('darkmetal', nr * 0.86, 0.06, a, ny, z, 0, Math.PI / 2, 0, 28);
+          ax('black', nr * 0.8, nr * 0.8, 0.05, a - 0.35, ny, z, 24);
+          ax('darkmetal', nr * 0.3, 0.0, 0.5, a - 0.12, ny, z, 16);
+          for (let i = 0; i < 9; i++) this.pb('darkmetal', 0.05, nr * 1.5, 0.03, a - 0.33, ny, z, (i / 9) * Math.PI, 0, 0);
+          ax('hullPanel', nr * 0.9, nr, 0.6, b + 0.7, ny, z, 28);
+          for (const x of [a - 1.1, (a + b) / 2, b + 1.0]) this.pt('darkmetal', nr + 0.01, 0.025, x, ny, z, 0, Math.PI / 2, 0, 28);
+          this.pb('darkmetal', len - 1.8, 0.1, 0.32, (a + b) / 2, ny + nr - 0.01, z);
+          ax('orange', nr + 0.012, nr + 0.012, 0.42, a - 1.45, ny, z, 28);
+          bell(nr * 0.92, b + 0.4, ny, z);
+          this.navLight(a - 0.3, ny + nr * 0.72, z + s * nr * 0.5, s < 0 ? 0xff2010 : 0x20ff40, false);
+          const m4 = new THREE.Matrix4().makeTranslation(0, ny + 0.12, 0); if (s < 0) m4.multiply(mirror);
+          surface([[a - 1.2, 3.0], [a - 2.4, nz - 0.2], [b + 1.6, nz - 0.2], [b + 0.9, 3.0]], 0.24, m4);
+          this.col(b - 0.6, a, s > 0 ? nz - nr - 0.05 : -nz - nr - 0.05, s > 0 ? nz + nr + 0.05 : -nz + nr + 0.05);
+        }
       }
-      // big swept wings set high on the shoulders (clear above the hatch), a little dihedral, upturned winglets with
-      // the nav lights in their tips; a fillet fairs each root into the hull
-      for (const s of [-1, 1]) {
-        const m4 = new THREE.Matrix4().makeTranslation(0, 3.0, s * 4.45).multiply(new THREE.Matrix4().makeRotationX(-s * 0.06));
-        if (s < 0) m4.multiply(mirror);
-        surface([[-2.8, 0], [-8.9, 6.2], [-10.7, 6.2], [-9.7, 0]], 0.22, m4);
-        // winglet: rising from the tip, canted outward
-        const wl = m4.clone().multiply(new THREE.Matrix4().makeTranslation(0, -0.1, 6.2)).multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2 + 0.35));
-        surface([[-8.9, 0], [-10.7, 0], [-10.95, 1.15], [-10.25, 1.15]], 0.09, wl);
-        const tip = V(-10.6, 0.0, 1.2).applyMatrix4(wl); this.navLight(tip.x, tip.y, tip.z, s < 0 ? 0xff2010 : 0x20ff40, false);
-        // a dark leading-edge strip and a flap line along the trailing edge
-        this.beam('darkmetal', V(-2.95, 2.9, s * 4.6), V(-8.85, 2.9 + 0.37, s * 10.6), 0.06, 0.08);
-        this.beam('darkmetal', V(-9.6, 2.82, s * 4.7), V(-10.6, 2.82 + 0.35, s * 10.3), 0.04, 0.05);
-        this.ps('hullPanel', 1, -6.2, 2.9, s * 4.55, 3.5, 0.24, 0.3, 16);
+      // a tall swept fin up the tail's spine, its root following the crown, a strobe in its tip
+      {
+        const xr = -8.9, yr = skinTop(xr, 0) - 0.06, slope = Math.atan2(yr - (skinTop(-15.4, 0) - 0.06), xr + 15.4);
+        const m4 = new THREE.Matrix4().makeTranslation(xr, yr, 0).multiply(new THREE.Matrix4().makeRotationZ(slope)).multiply(new THREE.Matrix4().makeTranslation(0, 0, -0.08)).multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+        surface([[0.2, 0], [-6.6, 0], [-7.1, 2.45], [-5.1, 2.45]], 0.16, m4);
+        this.beam('darkmetal', V(0.2, -0.08, 0).applyMatrix4(m4), V(-5.1, -0.08, 2.45).applyMatrix4(m4), 0.05, 0.07);
+        const tip = V(-6.3, -0.08, 2.55).applyMatrix4(m4); this.navLight(tip.x, tip.y, tip.z, 0xffffff, true);
+      }
+      // a sharp chine down each flank, low on the hull, from the nose back to the pylons (broken by the hatch): it
+      // throws a long shadow line that keeps the hull from reading as one round lump
+      {
+        const y = 0.36, out = (x) => 0.04 + 0.14 * sstep(9.6, 5.0, x) * sstep(-13.8, -9.4, x) + 0.16 * sstep(-6.5, -9.2, x) * sstep(-13.8, -11.8, x);
+        const strip = (x0, x1, s) => {
+          const pts = [], n = Math.max(4, Math.ceil((x0 - x1) / 0.4));
+          for (let i = 0; i <= n; i++) { const x = lerp(x0, x1, i / n); pts.push([x, skinW(x, y) + out(x)]); }
+          for (let i = n; i >= 0; i--) { const x = lerp(x0, x1, i / n); pts.push([x, skinW(x, y) - 0.25]); }
+          const m4 = new THREE.Matrix4().makeTranslation(0, y + 0.03, 0); if (s < 0) m4.multiply(mirror);
+          surface(pts, 0.06, m4, this.cm.black);
+        };
+        strip(10.4, -13.0, -1); strip(10.4, DOOR.x1 + 0.1, 1); strip(DOOR.x0 - 0.1, -13.0, 1);
       }
       // pitot probes on the flanks of the nose, landing lights tucked under the chin
       for (const sd of [-1, 1]) {
@@ -1809,7 +1844,7 @@ const Ship = (() => {
       }
       hc('NOSE', V(3.6, skinTop(3.6, 0) + 0.12, 0), V(60, -9, -4), false, null, true);
       hc('BAY', V(3.25, 3.18, 3.55), V(-4.5, 0.3, -1.8), true);
-      hc('TAIL', V(-16.9, skinTop(-16.9, 0) + 0.1, 0), V(-45, SHIP.ground, 0));
+      hc('TAIL', V(HULL.x0 + 0.4, skinTop(HULL.x0 + 0.4, 0.4) + 0.1, 0.4), V(-45, SHIP.ground, 0.4));
       // name plate and hull number, laid on the skin
       const decal = (m, x, y, s) => {
         const d = 0.05, n = V(-(skinW(x + d, y) - skinW(x - d, y)) / (2 * d), -(skinW(x, y + d) - skinW(x, y - d)) / (2 * d), s).normalize();
@@ -1849,8 +1884,8 @@ const Ship = (() => {
         plume(this.liftMat, x, y - 0.08, z, 0, 3.2);
       }
       // the main engines push out of the tail
-      for (const s of [-1, 1]) plume(this.mainMat, HULL.x0 - ENGINES.side[2] * 0.87, ENGINES.side[0], s * ENGINES.side[1], -Math.PI / 2, 3.4).scale.set(0.5, 1, 0.5);
-      plume(this.mainMat, HULL.x0 - ENGINES.main[1] * 0.87, ENGINES.main[0], 0, -Math.PI / 2, 5).scale.set(0.75, 1, 0.75);
+      for (const s of [-1, 1]) plume(this.mainMat, ENGINES.sx, ENGINES.side[0], s * ENGINES.side[1], -Math.PI / 2, 4.6).scale.set(0.82, 1, 0.82);
+      plume(this.mainMat, ENGINES.mx, ENGINES.main[0], 0, -Math.PI / 2, 4.2).scale.set(0.7, 1, 0.7);
       // the jets light up whatever is under them
       this.thrustLight = new THREE.PointLight(0xffa25a, 0, 38, 2); this.thrustLight.position.set(-1.8, -2.4, 0); this.group.add(this.thrustLight);
       this.lift = 0; this.main = 0;
@@ -2062,7 +2097,7 @@ const Ship = (() => {
     // the tail swept this frame (so a fast ship leaves it unbroken); and the scorch it left smoulders
     updateSmoke(dt, P, color, groundAt) {
       const M = this.group.matrixWorld, R = Math.random, sx = this.group.position.x, sz = this.group.position.z, gy = groundAt(sx, sz);
-      const nz = _smN.set(HULL.x0 - ENGINES.main[1] * 0.87 - 0.6, ENGINES.main[0], 0).applyMatrix4(M), back = _smB.set(-1, 0, 0).transformDirection(M), from = this.smokeFrom || nz;
+      const nz = _smN.set(ENGINES.mx - 0.6, ENGINES.main[0], 0).applyMatrix4(M), back = _smB.set(-1, 0, 0).transformDirection(M), from = this.smokeFrom || nz;
       this.smokeAcc = Math.min(this.smokeAcc + dt * (130 * P.burst + 8 * clamp(P.main - 0.25, 0, 1)), 40);
       while (this.smokeAcc >= 1) {
         this.smokeAcc -= 1;
@@ -2128,7 +2163,7 @@ const Ship = (() => {
     stepFire(dt, groundAt) {
       const R = Math.random, [flame, glow, b0, b1] = this.fireLights;
       // (the flame out of the mains, a few metres down the exhaust, as bright as they're burning)
-      const at = _smJ.set(HULL.x0 - ENGINES.main[1] * 0.87 - 4, ENGINES.main[0], 0).applyMatrix4(this.group.matrixWorld);
+      const at = _smJ.set(ENGINES.mx - 4, ENGINES.main[0], 0).applyMatrix4(this.group.matrixWorld);
       flame.x = at.x; flame.y = at.y; flame.z = at.z; flame.power = clamp((this.main - 0.5) * 6, 0, 8);
       glow.x = this.scorchC.x; glow.y = this.scorchC.y + 1.5; glow.z = this.scorchC.z; glow.power = 3.2 * this.scorchT * this.scorchT;
       let big = [null, null];

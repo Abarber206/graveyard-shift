@@ -117,6 +117,11 @@ Keep that file current when gameplay changes.
   height follows `G.glideAlt` (on a log scale), and the world turns under it about `g.A`. `planGlide` picks that heading,
   and how far round to go, so it comes down into the morning, with the sun about `ENTRY.sunUp` up and not behind
   anything (`sunHidden`). When a moon is in its world's shadow, the sun slides out from behind it on the way down (`g.shQ`).
+- **Leech nests** (`leechNest` / `buildNest` in `facility.js`): some days, on sites with leeches (`fac.nestK` from
+  `SITES[k].mon.leech`), from the facility's own numbers off the seed. `fac.nest` holds the corner, the hit points up it
+  (`spine`), the ceiling perches the brood keep to (`spots`), hp. The column is one lathed, displaced mesh; the burrows'
+  glow is an unlit vertex-coloured material. The host seeds and breeds the brood (`hostNestBreed`, `m.home`), a
+  shovel blow is a `'nest'` event, and `fullState` carries its hp.
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style

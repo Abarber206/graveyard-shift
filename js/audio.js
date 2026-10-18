@@ -501,6 +501,13 @@ const SFX = (() => {
       for (let i = 0; i < 3; i++) nz(d, t + 0.05 + i * rnd(0.08, 0.15), 0.12, 0.28, 'bandpass', rnd(380, 820), 200, 5, 0.01);
       smp(d, t + 0.12, take('glug', 4, () => bubble(bubble(arr(0.5), 0, rnd(16, 26)), nS(rnd(0.05, 0.12)), rnd(20, 32), 0.6), 16000), 1);
     },
+    // a leech nest breathing: the whole wet mass of it heaving in, slow, and settling, small bubbles popping down in
+    // its burrows
+    nest_breath(d, t) {
+      nz(d, t, 1.9, 0.5, 'lowpass', 280, 130, 1.1, 0.7, brownBuf);
+      nz(d, t + 0.3, 1.2, 0.18, 'bandpass', 520, 300, 3, 0.4);
+      smp(d, t + 0.6, take('nestpop', 4, () => { const y = arr(1.4); for (let i = 0, a = 0; i < 6; i++, a += rnd(0.1, 0.25)) bubble(y, nS(a), rnd(6, 16), rnd(0.3, 0.8)); return y; }, 16000), 0.6);
+    },
     // ...bubbles welling up through it and bursting...
     slime_gurgle(d, t) {
       smp(d, t, take('gurgle', 4, () => { const y = arr(1.5); for (let i = 0, a = 0; i < 8; i++, a += rnd(0.06, 0.17)) bubble(y, nS(a), rnd(14, 38), rnd(0.5, 1)); return y; }, 16000), 1);
@@ -1080,7 +1087,7 @@ const SFX = (() => {
     spool: 0.7, ignite: 1.2, splash: 0.9, clown_step: 1.1, clown_giggle: 0.7, clown_box: 0.45, clown_honk: 0.4,
     step: 0.31, run_far: 0.31, click: 0.53, pickup: 0.65, door_open: 0.35, crunch: 1.5, stinger: 1.7,
     stinger_hi: 1.1, heartbeat: 0.54, crawler_screech: 0.41, crawler_growl: 1.5, ceramic: 0.23, slime_slosh: 0.27,
-    slime_gurgle: 0.22, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
+    slime_gurgle: 0.22, nest_breath: 0.3, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
     can_open: 0.71, wrapper: 0.51, death_rattle: 1.4, warp_charge: 1.5, servo: 0.45, glint: 0.12, beep: 0.75,
     err: 1.5, scan: 2, locker_open: 0.6, alarm: 0.62, power_down: 1.6, metal_bang: 1.4, drip: 0.17, knock: 1.3,
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,

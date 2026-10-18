@@ -226,7 +226,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 15;
+const PROTO = 16;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -458,7 +458,7 @@ const G = {
     // (a step that's built in pieces takes a piece a frame, and says false until it's done)
     const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
-      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); },
+      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); b.fac.nestK = site.mon.leech || 0; },
       pieces(() => b.fac.generateGen(), () => {}),
       // (and the host works out the plan of it the creatures go by: see Facility.nav)
       pieces(() => (G.isHost ? b.fac.navGen() : [].values()), () => {}),
@@ -627,6 +627,7 @@ const G = {
       players: [...G.players.values()].map(G.pinfo),
       items: [...G.items.values()].map(G.iinfo),
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
+      nest: G.fac && G.fac.nest ? G.fac.nest.hp : null,
       // 0 shut, 1 open into the room, 3 open into the corridor, 2 broken
       doors: G.fac ? G.fac.doors.map((d) => (d.broken ? 2 : d.open ? (d.dir < 0 ? 3 : 1) : 0)) : [],
       boxes: G.fac ? G.fac.containers.map((c) => (c.open ? 1 : 0)) : [],
@@ -651,6 +652,7 @@ const G = {
       s.doors.forEach((o, i) => { const d = G.fac.doors[i]; if (!d) return; if (o === 2) { G.fac.breakDoor(d); return; } d.open = !!o; d.dir = o === 3 ? -1 : 1; d.anim = o ? 1 : 0; G.fac.applyDoor(d); });
       (s.boxes || []).forEach((o, i) => { const c = G.fac.containers[i]; if (!c) return; c.open = !!o; c.anim = o ? 1 : 0; c.mesh.rotation.y = c.closedRy + c.swing * c.anim; });
       (s.blasts || []).forEach((o, i) => { const d = G.fac.blasts[i]; if (!d) return; d.open = !!o; d.anim = o ? 1 : 0; G.fac.applyBlast(d); });
+      if (s.nest != null && G.fac.nest) { G.fac.nest.hp = s.nest; G.fac.nest.dead = s.nest <= 0; G.fac.nest.sag = s.nest <= 0 ? 1 : 0; }
       G.ship.space.visible = false;
     } else G.enterOrbitState();
     for (const p of s.players) G.addPlayer(p);
@@ -1019,6 +1021,12 @@ const G = {
     // a warning from the director (see Brain): your light stutters a moment
     cue(e) { if (e.pid === G.localId && e.k === 'light') G.cueT = 1.8; },
     monSpawn(e) { G.spawnMonster(e); },
+    // the nest hit (hp left); at none it's burst
+    nest(e) {
+      const n = G.fac && G.fac.nest; if (!n) return;
+      n.hp = e.hp; n.hitT = 0.35;
+      if (e.hp <= 0) n.dead = true;
+    },
     monDel(e) { const m = G.monsters.get(e.id); if (m) { R.scene.remove(m.mesh); m.dispose(); G.monsters.delete(e.id); if (m.glow) G.lightSources = G.lightSources.filter((s) => s !== m.glow); } },
     leech(e) {
       G.leechOn = e.pid;
@@ -1140,6 +1148,7 @@ const G = {
   spawnMonster(e) {
     if (G.monsters.has(e.id)) return G.monsters.get(e.id);
     const m = new Monster(G, e.id, e.type, e.x, e.y, e.z);
+    if (e.home) m.home = true;
     G.monsters.set(e.id, m); R.scene.add(m.mesh);
     if (e.id >= G.nextMonId) G.nextMonId = e.id + 1;
     return m;
@@ -1543,6 +1552,18 @@ const G = {
       if (perp < 0.8 + m.def.radius * 0.6 && along < bestAlong) { bestAlong = along; best = m; }
     }
     if (best) { best.onHit(1, pid); return; }
+    // the nest: anywhere up it, in reach
+    const nest = p.zone === 'in' && G.fac && G.fac.nest;
+    if (nest && !nest.dead) for (const c of nest.spine) {
+      const v = c.clone().sub(o), along = v.dot(d);
+      if (along < 0 || along > 2.9 || v.sub(d.clone().multiplyScalar(along)).length() > 0.95) continue;
+      const at = o.clone().addScaledVector(d, Math.max(0.3, along - 0.6));
+      G.emit({ e: 'nest', hp: nest.hp - 1 }); G.emitSound('hit_flesh', at, { vol: 1.2, ref: 5 });
+      // (the brood come to see what's hurting it)
+      for (const m of G.monsters.values()) if (m.home && !m.dead && (m.state === 'crawl' || m.state === 'wait')) { m.heardAt = { x: p.pos.x, z: p.pos.z, y: p.pos.y, pd: 4 }; m.goal = null; m.stalk = null; m.setState('crawl'); }
+      if (nest.dead) { G.emitSound('slime_slosh', at, { vol: 1.6, ref: 6 }); for (const s of nest.spine) G.emitSound('hit_flesh', s, { vol: 1, ref: 5 }); }
+      return;
+    }
     for (const q of G.alivePlayers()) {
       if (q.id === pid || q.zone !== p.zone) continue;
       const v = q.pos.clone().setY(q.pos.y + 1.2).sub(o), along = v.dot(d);
@@ -1833,6 +1854,8 @@ const G = {
           G.emit({ e: 'land', site: key, seed, weather, items });
           const first = (key === 'hollow' ? 2 : 1) + (G.fac.levels >= 6 ? 1 : 0);
           for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
+          // (a nest has its brood about it already: two, three on the worse sites)
+          if (G.fac.nest) for (let i = 0, n = site.power >= 7 ? 3 : 2; i < n; i++) G.hostNestBreed(true);
         };
         const wait = (t) => (G.siteShown || t > 6 ? go() : G.timers.push({ t: 0.1, fn: () => wait(t + 0.1) }));
         wait(0);
@@ -1927,6 +1950,18 @@ const G = {
     // (the Sisters come in twos and threes)
     if (type === 'sister') for (let k = 0, n = R0.chance(0.35) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.8 + k * 0.9, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     if (spot.vent) G.emitSound('vent', new THREE.Vector3(spot.vent.x, spot.vent.y, spot.vent.z), { vol: 1.2, ref: 3 });
+  },
+  // a leech out of the nest, onto the ceiling by it (not right over anyone's head); false if it couldn't (anyone too
+  // near, or its brood's at full strength). seed: the ones it has at landing, quietly
+  hostNestBreed(seed) {
+    const n = G.fac && G.fac.nest; if (!n || n.dead) return false;
+    if ([...G.monsters.values()].filter((m) => m.home && !m.dead).length >= 3 + (G.fac.levels >= 5 ? 1 : 0)) return true;
+    const near = (s) => G.alivePlayers().some((p) => p.zone === 'in' && Math.hypot(p.pos.x - s.x, p.pos.z - s.z) < 5 && Math.abs(p.pos.y - (n.Y + 1)) < 3);
+    const ok = n.spots.filter((s) => !near(s)); if (!ok.length) return false;
+    const s = ok[Math.floor(Math.random() * ok.length)];
+    G.emit({ e: 'monSpawn', id: G.nextMonId++, type: 'leech', x: s.x, y: s.y, z: s.z, home: 1 });
+    if (!seed) G.emitSound('slime_gurgle', new THREE.Vector3(n.x, n.Y + n.h * 0.6, n.z), { vol: 1.1, ref: 4 });
+    return true;
   },
   hostSpawnHound() {
     const outside = G.alivePlayers().filter((p) => p.zone === 'out');
@@ -2278,6 +2313,8 @@ const G = {
       // spawns
       r.spawnT -= dt;
       if (r.spawnT <= 0) { r.spawnT = (55 + Math.random() * 50) * (1 - clamp((r.time - 480) / 960, 0, 1) * 0.35); G.hostSpawnInterior(null, false); }
+      // a nest left alone breeds: another leech crawls out of it every minute or two, while its brood's thin
+      if (G.fac.nest && !G.fac.nest.dead) { r.nestT = (r.nestT ?? 90) - dt; if (r.nestT <= 0) r.nestT = G.hostNestBreed() ? 80 + Math.random() * 60 : 15; }
       if (r.time >= 19 * 60) {
         r.houndT -= dt;
         const hounds = [...G.monsters.values()].filter((m) => m.type === 'hound' && !m.dead).length;
@@ -2921,6 +2958,15 @@ const G = {
     for (const o of parts) for (const mat of [shell, rim]) { const x = new THREE.Mesh(o.geometry, mat); x.userData.scanMark = true; x.renderOrder = 6; x.castShadow = false; o.add(x); ov.push(x); }
     G.marks.push({ m, u, ov, mats: [shell, rim], t: -delay, life: 5.5 });
   },
+  // the nest, heard as you come near it: the slow wet heave of it breathing in, in time with it (each of us hears it
+  // for ourselves)
+  nestSound() {
+    const n = G.fac && G.fac.nest, me = G.me(); if (!n || !n.piv) return;
+    const ph = Math.sin((n.t || 0) * 1.3), rising = n.ph < 0 && ph >= 0; n.ph = ph;
+    if (!rising || n.dead || !me || G.zoneOf(me) !== 'in') return;
+    const cam = R.camera.position;
+    if (Math.hypot(cam.x - n.x, cam.z - n.z) < 18 && Math.abs(cam.y - n.Y - 1.5) < 3) SFX.play('nest_breath', new THREE.Vector3(n.x, n.Y + n.h * 0.6, n.z), { vol: 1, ref: 3 });
+  },
   updateMarks(dt) {
     for (let i = G.marks.length - 1; i >= 0; i--) {
       const k = G.marks[i]; k.t += dt;
@@ -2971,6 +3017,7 @@ const G = {
     G.updateItems(dt);
     G.updateGrenades(dt);
     if (G.fac) G.fac.update(dt);
+    G.nestSound();
     G.ship.update(dt, performance.now() / 1000, G.mode);
     G.environment(dt);
     G.director(dt);

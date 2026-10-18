@@ -1168,6 +1168,8 @@ const MATS = (() => {
     doorFreezer: () => N('doorFreezer', 1.4, { color: 0xc8d4dc, roughness: 0.5, metalness: 0.15 }),
     bunker: () => N('bunker', 2, { roughness: 0.95 }),
     locker: () => N('locker', 1.8, { roughness: 0.6, metalness: 0.4 }),
+    // (a locker's carcass: the door's paint, plain, so its top, floor and shelf don't wear the door's vents)
+    lockerBody: () => wear(S({ color: 0x4b5a63, roughness: 0.6, metalness: 0.4 }), { tint: true, kind: 'paint', k: [0.5, 0.45, 0.0025, 0.2], bare: 0x4a2c1a, s: 1, edge: 0.02 }),
     vent: () => N('vent', 3, { roughness: 0.7, metalness: 0.4 }),
     dark: () => wear(S({ color: 0x141414, roughness: 0.8 }), { kind: 'metal', k: [0.45, 0.25, 0.0012], bare: 0x3a3c3e }),
     darkmetal: () => wear(S({ color: 0x23262a, roughness: 0.5, metalness: 0.6 }), { kind: 'metal', k: [0.5, 0.3, 0.0015], bare: 0x5c6064, edge: 0.01 }),

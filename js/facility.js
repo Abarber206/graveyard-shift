@@ -162,7 +162,7 @@ const Facility = (() => {
   // further down, the plant was given over to the heavy plant and the dead, and nobody came to clean it
   const DEEP_W = { boiler: 1.9, machine: 1.6, storage: 1.1, morgue: 1.5, hall: 1.3, lab: 0.8, lockers: 0.8, office: 0.4 };
   // the surfaces a lower level wears down: they take that level's darker, grimier finish ('wall@2' and so on)
-  const AGED = new Set(['wall', 'wallTile', 'floor', 'floorTile', 'ceiling', 'painted', 'rust', 'darkmetal', 'metal', 'wood', 'crate', 'door', 'locker', 'vent', 'bunker', 'cloth', 'sheet', 'hazard', 'labPanel', 'grate', 'frame', 'shaft', 'steel', 'blast']);
+  const AGED = new Set(['wall', 'wallTile', 'floor', 'floorTile', 'ceiling', 'painted', 'rust', 'darkmetal', 'metal', 'wood', 'crate', 'door', 'locker', 'lockerBody', 'vent', 'bunker', 'cloth', 'sheet', 'hazard', 'labPanel', 'grate', 'frame', 'shaft', 'steel', 'blast']);
   const TYPE_W = { storage: 3, office: 2, machine: 1.5, lab: 2, lockers: 1.5, boiler: 1, morgue: 1.2, hall: 0.6 };
   // what each site was before it was abandoned decides what its rooms are
   const THEME_W = {
@@ -431,6 +431,7 @@ const Facility = (() => {
       for (const s of this.shafts) this.shaftColliders(s);
       this.pruneIslands();
       this.bloodTrail();
+      for (const _ of this.leechNest()) if (busy()) { yield; t0 = performance.now(); }
       this._dig = null;
     }
     // a corridor dug from A to B within one level's region (from and to each room's anchor tile)
@@ -695,7 +696,7 @@ const Facility = (() => {
       this.spot(room, sx, Y0 + (r.chance(0.65) ? 0.06 : shelfY + 0.02), sz, kind === 'locker' ? 0.5 : 0.9, false, id);
       return id;
     }
-    locker(room, x, z, ry) { this.container(room, 'locker', x, z, ry, 0.58, 2.0, 0.5, 1.6, 'locker'); }
+    locker(room, x, z, ry) { this.container(room, 'locker', x, z, ry, 0.58, 2.0, 0.5, 1.6, 'lockerBody'); }
     cabinet(room, x, z, ry) {
       this.container(room, 'cabinet', x, z, ry, 0.55, 1.35, 0.6, 0.68, 'painted');
       this.spot(room, x, this.roomY(room) + 1.35, z, 0.25, false);
@@ -1284,6 +1285,263 @@ const Facility = (() => {
       this.put('blood', new THREE.PlaneGeometry(1.8, 1.8), mat4(e.x, Y0 + 0.017, e.z, r.range(0, TAU), -Math.PI / 2));
       this.lv = 0;
     }
+    // ---------- a leech nest ----------
+    // Some days, where leeches live (nestK: how much they do here), they've bred. One room, the further down the likelier,
+    // has a nest grown up out of a corner like a termite hill: wet flesh, its foot spread over the floor, its crown spread
+    // over the ceiling, crusted lumps up the walls beside it, pocked with chimneys that glow a dull red down inside,
+    // clusters of egg sacs stuck to it and strands hanging off it. Veins creep away from it over the ceiling and the walls,
+    // out through the doorways and along the corridors outside, thinning as they go, so you know what's ahead before
+    // you've seen it. (Worked out from its own numbers off the seed: the rest of the plant is laid out as it would be.)
+    *leechNest() {
+      const r = new RNG((this.seed ^ 0x6e3571) >>> 0);
+      if (!this.nestK || !r.chance(clamp(0.2 + 0.15 * this.nestK, 0, 0.55))) return;
+      const W = this.W, solid = (k, nk) => !this.connected(k, nk);
+      // the room: somewhere off the beaten track, the deeper the likelier; in it, a corner with nothing standing in it
+      const cand = this.rooms.filter((o) => !['entrance', 'stairs', 'core', 'exit'].includes(o.type) && o.w * o.h >= 9);
+      let pick = null;
+      for (let tries = 0; tries < 12 && cand.length && !pick; tries++) {
+        let tot = 0; const ws = cand.map((o) => { const w = (1 + 1.5 * o.lv) * Math.sqrt(o.w * o.h); tot += w; return w; });
+        let x = r.next() * tot, q = 0; for (; q < cand.length - 1; q++) { x -= ws[q]; if (x <= 0) break; }
+        const room = cand.splice(q, 1)[0], Y = this.roomY(room), h = RT[room.type].h, corners = [];
+        for (const [i, j, dx, dz] of [[room.i, room.j, -1, -1], [room.i + room.w - 1, room.j, 1, -1], [room.i, room.j + room.h - 1, -1, 1], [room.i + room.w - 1, room.j + room.h - 1, 1, 1]]) {
+          const k = this.idx(i, j);
+          if (!solid(k, this.idx(i + dx, j)) || !solid(k, this.idx(i, j + dz)) || this.clear[k] || this.block[k]) continue;
+          if ([this.idx(i + dx, j), this.idx(i, j + dz), this.idx(i + dx, j + dz)].some((q) => q >= 0 && this.grid[q])) continue;
+          const cx = this.cx(i) + dx * TS / 2, cz = this.cz(j) + dz * TS / 2, x0 = Math.min(cx, cx - dx * 1.6), x1 = Math.max(cx, cx - dx * 1.6), z0 = Math.min(cz, cz - dz * 1.6), z1 = Math.max(cz, cz - dz * 1.6);
+          if (this.cols.some((c) => c.x0 < x1 && c.x1 > x0 && c.z0 < z1 && c.z1 > z0 && Math.abs(c.y0 - Y) < 1)) continue;
+          if (this.lamps.some((l) => Math.hypot(l.x - cx, l.z - cz) < 3.2 && Math.abs(l.y - Y - h) < 1.5) || this.vents.some((v) => Math.hypot(v.x - cx, v.z - cz) < 3.2 && Math.abs(v.y - Y) < h + 0.5)) continue;
+          corners.push({ cx, cz, ux: -dx, uz: -dz, i, j });
+        }
+        if (corners.length) pick = { room, Y, h, ...r.pick(corners) };
+      }
+      if (!pick) return;
+      const { room, Y, h, cx, cz, ux, uz } = pick, top = Y + h, lv = room.lv;
+      const at = (a, b) => [cx + ux * a, cz + uz * b], V = (x, y, z) => new THREE.Vector3(x, y, z);
+      const G3 = { mound: [], fixed: [], glow: [], hill: null };
+      // the flesh: dark in the folds, redder over the swellings, mottled; veins darker and bluer; eggs a pale yellow
+      const PAL = { flesh: [[0.022, 0.006, 0.006], [0.1, 0.026, 0.022], [0.24, 0.075, 0.058]], vein: [[0.035, 0.006, 0.012], [0.08, 0.012, 0.024], [0.17, 0.035, 0.045]], egg: [[0.1, 0.06, 0.04], [0.25, 0.17, 0.12], [0.42, 0.31, 0.22]] };
+      const paint = (c, i, t, pal) => {
+        t = clamp(t, 0, 1); const [a, b, d] = pal, u = t < 0.5 ? t * 2 : (t - 0.5) * 2, p = t < 0.5 ? a : b, q = t < 0.5 ? b : d, j = 0.88 + r.next() * 0.24;
+        for (let e = 0; e < 3; e++) c[i * 3 + e] = (p[e] + (q[e] - p[e]) * u) * j;
+      };
+      const lumpy = (x, y, z, o) => (Math.sin(x * 2.3 + o) * Math.sin(y * 2.9 + o * 1.7) * Math.sin(z * 2.1 + o * 0.6) * 1.4 + Math.sin(x * 5.1 - z * 3.7 + o * 2.3) * Math.sin(y * 4.3 + x * 2.2 + o) * 0.6) / 1.4;
+      // a lump of it: a ball pushed in and out by a lumpy field and squashed (sx, sy, sz); gives back where its surface
+      // lies in a direction, and which way that faces, for things to be set on it
+      const blob = (list, rad, sx, sy, sz, x, y, z, amp = 0.13, pal = PAL.flesh, seg = 18) => {
+        const o = r.range(0, 100);
+        let g = new THREE.SphereGeometry(1, seg, Math.round(seg * 0.67)); g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = BufferGeometryUtils.mergeVertices(g);
+        const p = g.attributes.position, c = new Float32Array(p.count * 3);
+        for (let i = 0; i < p.count; i++) {
+          const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i), n = lumpy(vx, vy, vz, o), s = 1 + amp * n;
+          p.setXYZ(i, x + vx * s * sx * rad, y + vy * s * sy * rad, z + vz * s * sz * rad); paint(c, i, (n + 1) / 2, pal);
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(c, 3)); g.computeVertexNormals(); list.push(g.toNonIndexed());
+        return (dx, dy, dz) => { const s = 1 + amp * lumpy(dx, dy, dz, o); return { p: V(x + dx * s * sx * rad, y + dy * s * sy * rad, z + dz * s * sz * rad), n: V(dx / sx, dy / sy, dz / sz).normalize(), R: rad * Math.min(sx, sy, sz) }; };
+      };
+      const lump = (list, rad, sx, sy, sz, a, y, b, amp, pal) => { const [x, z] = at(a, b); return blob(list, rad, sx, sy, sz, x, y, z, amp, pal); };
+      // (an open shape's faces turned inward too, so looking into it you see its inside)
+      const inward = (g) => {
+        const o = g.clone();
+        for (const k in o.attributes) { const a = o.attributes[k], s = a.itemSize, v = a.array; for (let t = 0; t + 2 < a.count; t += 3) for (let e = 0; e < s; e++) { const i = (t + 1) * s + e, j = (t + 2) * s + e, w = v[i]; v[i] = v[j]; v[j] = w; } }
+        const n = o.attributes.normal.array; for (let i = 0; i < n.length; i++) n[i] = -n[i];
+        return o;
+      };
+      const colour = (g, f) => { const p = g.attributes.position, c = new Float32Array(p.count * 3); for (let i = 0; i < p.count; i++) f(c, i, p.getX(i), p.getY(i), p.getZ(i)); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g; };
+      const bare = (g) => { g = g.index ? g.toNonIndexed() : g; g.deleteAttribute('uv'); return g; };
+      // the hill itself: one wet column grown up out of the corner, its foot flaring out over the floor and its crown
+      // spreading out over the ceiling in lobes, fluted up its length like a termite hill, swollen here and there, and
+      // pocked with burrows, each a pit with a raised lip. (Round a centre a little out from the corner; what's behind
+      // the two walls is pressed flat just behind them.)
+      const a0 = 0.45, oA = r.range(0, 100), oB = r.range(0, 100), oC = r.range(0, 100);
+      const prof = new THREE.SplineCurve([[1.35, -0.02], [1.1, 0.07], [0.9, 0.22], [0.75, 0.5], [0.66, 0.95], [0.58, h * 0.5], [0.64, h - 1.0], [0.78, h - 0.55], [1.05, h - 0.28], [1.45, h - 0.12], [1.95, h - 0.04], [2.3, h + 0.02]].map(([x, y]) => new THREE.Vector2(x, y)));
+      const bumps = []; for (let q = 0; q < 9; q++) bumps.push([r.range(-0.2, Math.PI / 2 + 0.2), r.range(0.4, h - 0.5), r.range(0.12, 0.3)]);
+      const pits = [];
+      for (let t = 0; t < 200 && pits.length < 22; t++) {
+        const th = r.range(0.12, Math.PI / 2 - 0.12), sk = r.range(0.12, 0.74), y = prof.getPointAt(sk).y, rho = r.range(0.07, 0.13);
+        if (y < 0.35 || y > h - 0.7 || pits.some((q) => Math.hypot(angDiff(th, q.th) * 0.65, y - q.y) < rho + q.rho + 0.1)) continue;
+        pits.push({ th, sk, y, rho });
+      }
+      const hill = (th, s, pr = prof.getPointAt(s), near = pits) => {
+        const y = pr.y, top = sstep(h - 0.6, h, y), foot = 1 - sstep(0, 0.4, y), mid = (1 - top) * (1 - foot);
+        const lobes = 1 + (top + foot * 0.45) * (0.32 * Math.sin(3 * th + oA) + 0.18 * Math.sin(7 * th + oB));
+        let rel = 0.16 * lumpy(Math.cos(th) * 1.7, y * 0.9, Math.sin(th) * 1.7, oC), rad = pr.x * (lobes + rel);
+        const flute = 0.08 * mid * Math.sin(9 * th + 0.8 * Math.sin(y * 1.3 + oA)); rad += flute; rel += flute / 0.4;
+        for (const [bt, by, ba] of bumps) { const g = ba * mid * Math.exp(-(angDiff(th, bt) ** 2) / 0.12 - ((y - by) ** 2) / 0.2); rad += g; rel += g / 0.5; }
+        for (const q of near) {
+          const d = Math.hypot(angDiff(th, q.th) * pr.x, y - q.y); if (d > q.rho * 2.2) continue;
+          const lip = 0.035 * Math.exp(-(((d - q.rho) / 0.035) ** 2)), pit = 0.14 * Math.exp(-((d / (q.rho * 0.8)) ** 4));
+          rad += lip - pit; rel += lip * 6 - pit * 9;
+        }
+        const la = Math.max(-0.3, a0 + Math.cos(th) * rad), lb = Math.max(-0.3, a0 + Math.sin(th) * rad), [x, z] = at(la, lb);
+        return { p: V(x, Y + clamp(y, -0.02, h + 0.02), z), rel, la, lb };
+      };
+      const NA = 96, NS = 150, hp = [], hc = [], idx = [];
+      for (let j = 0; j <= NS; j++) {
+        const pr = prof.getPointAt(j / NS), near = pits.filter((q) => Math.abs(pr.y - q.y) < q.rho * 2.3);
+        for (let i = 0; i < NA; i++) { const q = hill((i / NA) * TAU, j / NS, pr, near); hp.push(q.p.x, q.p.y, q.p.z); paint(hc, j * NA + i, 0.5 + q.rel * 1.8, PAL.flesh); }
+        if (j % 6 === 5) yield;
+      }
+      for (let j = 0; j < NS; j++) for (let i = 0; i < NA; i++) { const a = j * NA + i, b = j * NA + (i + 1) % NA, c = a + NA, d = b + NA; ux * uz > 0 ? idx.push(a, c, b, b, c, d) : idx.push(a, b, c, b, d, c); }
+      { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(hc, 3)); g.setIndex(idx); g.computeVertexNormals(); G3.hill = g; }
+      yield;
+      // (a point on it, the way it faces there and how round it is)
+      const onHill = (th, s) => {
+        const q = hill(th, s), e = 0.01, ta = hill(th + e, s).p.sub(hill(th - e, s).p), ts = hill(th, s + e).p.sub(hill(th, s - e).p);
+        const n = ta.cross(ts).normalize(); if (n.x * ux * (q.la - a0) + n.z * uz * (q.lb - a0) < 0) n.negate();
+        return { p: q.p, n, R: 0.45 };
+      };
+      const hillAt = (down) => { for (let t = 0; t < 30; t++) { const th = r.range(0.15, Math.PI / 2 - 0.15), s = down ? r.range(0.8, 0.88) : r.range(0.1, 0.78), q = onHill(th, s); if (q.p.y > Y + 0.15 && q.p.y < top - 0.15) return q; } return null; };
+      // a few swellings more on the crown, pressed flat to the ceiling
+      const crown = [];
+      for (let q = 0; q < 6; q++) {
+        const d = r.range(0.7, 2.0), ang = r.range(0.15, Math.PI / 2 - 0.15), rad = r.range(0.25, 0.42);
+        crown.push(lump(G3.mound, rad, 1, 0.42, 1, Math.cos(ang) * d, top - rad * 0.08, Math.sin(ang) * d, 0.12));
+        if (q % 2) yield;
+      }
+      // and further out over the ceiling, smaller and thinner, as it creeps
+      for (let q = 0; q < 8; q++) {
+        const d = r.range(2.4, 3.6), ang = r.range(0.08, Math.PI / 2 - 0.08), rad = r.range(0.12, 0.26);
+        lump(G3.fixed, rad, 1, 0.4, 1, Math.cos(ang) * d, top - rad * 0.06, Math.sin(ang) * d, 0.1, PAL.flesh);
+        if (q % 2) yield;
+      }
+      // a point on it facing out into the room (not into the walls, the floor or the ceiling)
+      const surfAt = (list, down) => {
+        if (!list) return hillAt(down);
+        for (let t = 0; t < 30; t++) {
+          const L = r.pick(list), dir = V(r.range(-1, 1) + ux * 0.9, down ? r.range(-1.6, -0.3) : r.range(-0.8, 0.6), r.range(-1, 1) + uz * 0.9).normalize(), s = L(dir.x, dir.y, dir.z);
+          const la = (s.p.x - cx) * ux, lb = (s.p.z - cz) * uz;
+          if (la > 0.12 && lb > 0.12 && s.p.y > Y + 0.15 && s.p.y < top - 0.12 && s.R > 0.06) return s;
+        }
+        return null;
+      };
+      // down in each burrow, a dull red glow
+      for (const q of pits) {
+        const s = onHill(q.th, q.sk), quat = new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), s.n);
+        const disc = bare(new THREE.CircleGeometry(q.rho * 0.48, 14));
+        G3.glow.push(colour(disc, (c, i, x, y) => { const k = 0.85 * (1 - Math.min(1, Math.hypot(x, y) / (q.rho * 0.48)) * 0.75); c[i * 3] = k; c[i * 3 + 1] = k * 0.08; c[i * 3 + 2] = k * 0.04; }).applyMatrix4(new THREE.Matrix4().compose(s.p.clone().addScaledVector(s.n, 0.028), quat, V(1, 1, 1))));
+      }
+      yield;
+      // egg sacs, in clutches stuck to it
+      for (let q = 0; q < 6; q++) {
+        const s = surfAt(q < 4 ? null : crown, q >= 4); if (!s) continue;
+        const t1 = V(0, 1, 0).cross(s.n); if (t1.lengthSq() < 1e-4) t1.set(1, 0, 0); t1.normalize(); const t2 = s.n.clone().cross(t1);
+        for (let e = 0, ne = r.int(4, 8); e < ne; e++) {
+          const er = r.range(0.025, 0.045), a = r.range(0, TAU), d = r.range(0, 0.06), p = s.p.clone().addScaledVector(t1, Math.cos(a) * d).addScaledVector(t2, Math.sin(a) * d).addScaledVector(s.n, er * 0.15 - (d * d) / (2 * s.R));
+          blob(G3.mound, er, 1, 1.15, 1, p.x, p.y, p.z, 0.05, PAL.egg, 10);
+        }
+        yield;
+      }
+      // strands hanging off the underside of the crown
+      for (let q = 0; q < 10; q++) {
+        const s = q < 6 ? hillAt(true) : crown.length && r.pick(crown)(r.range(-0.4, 0.4), -1, r.range(-0.4, 0.4)), len = r.range(0.15, 0.55);
+        if (!s || (s.p.x - cx) * ux < 0.15 || (s.p.z - cz) * uz < 0.15) continue;
+        G3.mound.push(colour(bare(new THREE.CylinderGeometry(0.013, 0.004, len, 5)).translate(s.p.x, s.p.y + 0.03 - len / 2, s.p.z), (c, i, x, y) => paint(c, i, 0.3 + (s.p.y - y) / len * 0.5, PAL.flesh)));
+      }
+      yield;
+      // a vein: a tube through pts lying on a surface (normal up), swelling from nothing and tapering away to nothing
+      const vein = (pts, r0) => {
+        const n = pts.length; if (n < 3) return;
+        const pos = [], nor = [], c = [], ring = [];
+        for (let i = 0; i < n; i++) {
+          const u = i / (n - 1), rr = r0 * Math.min(1, u * 7) * Math.pow(1 - u, 0.6), T = pts[Math.min(n - 1, i + 1)].p.clone().sub(pts[Math.max(0, i - 1)].p).normalize();
+          const B = pts[i].up.clone().cross(T).normalize(), N = T.clone().cross(B), k = [];
+          for (let s = 0; s < 6; s++) { const a = (s / 6) * TAU, d = N.clone().multiplyScalar(Math.cos(a)).addScaledVector(B, Math.sin(a)); k.push({ p: pts[i].p.clone().addScaledVector(d, rr), n: d }); }
+          ring.push(k);
+        }
+        for (let i = 0; i < n - 1; i++) for (let s = 0; s < 6; s++) {
+          const a = ring[i][s], b = ring[i][(s + 1) % 6], d = ring[i + 1][s], e = ring[i + 1][(s + 1) % 6];
+          for (const v of [a, d, b, b, d, e]) { pos.push(v.p.x, v.p.y, v.p.z); nor.push(v.n.x, v.n.y, v.n.z); }
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+        G3.fixed.push(colour(g, (cc, i) => paint(cc, i, 0.3 + r.next() * 0.5, PAL.vein)));
+      };
+      const DN = V(0, -1, 0), rx0 = this.ox + room.i * TS + 0.15, rx1 = this.ox + (room.i + room.w) * TS - 0.15, rz0 = this.oz + room.j * TS + 0.15, rz1 = this.oz + (room.j + room.h) * TS - 0.15;
+      const inRoom = (x, z) => x > rx0 && x < rx1 && z > rz0 && z < rz1;
+      // (a vein creeping over a ceiling from (x, z): heading ang, wandering, or steering for a goal; on the ceiling of
+      // the tile it started on's height, and only as far as that ceiling goes)
+      const creep = (x, z, ang, len, r0, keep, goal, branch = true) => {
+        const pts = [], y0 = (k) => this.tileY(k) + this.ceil[k] - r0 * 0.45, k0 = this.idx(this.ti(x), this.tj(z)), h0 = this.ceil[k0];
+        for (let d = 0; d < len; d += 0.2) {
+          const k = this.idx(this.ti(x), this.tj(z));
+          if (k < 0 || !this.grid[k] || this.grid[k] === 4 || this.ceil[k] !== h0 || this.lvl[k] !== this.lvl[k0] || !keep(x, z)) break;
+          pts.push({ p: V(x, y0(k), z), up: DN });
+          if (goal) { if (Math.hypot(goal[0] - x, goal[1] - z) < 0.3) break; const want = Math.atan2(goal[1] - z, goal[0] - x); ang += clamp(angDiff(ang, want), -0.14, 0.14); }
+          ang += r.range(-0.22, 0.22); x += Math.cos(ang) * 0.2; z += Math.sin(ang) * 0.2;
+        }
+        vein(pts, r0);
+        if (branch && pts.length > 10 && r.chance(0.6)) { const b = pts[r.int(Math.floor(pts.length * 0.3), pts.length - 4)]; creep(b.p.x, b.p.z, ang + (r.chance(0.5) ? 1 : -1) * r.range(0.5, 1), len * 0.45, r0 * 0.6, keep, null, false); }
+        return pts;
+      };
+      // ... a vein down (or up) a wall from y0 to y1, at (x, z), the wall facing (nx, nz)
+      const climb = (x, z, nx, nz, y0, y1, r0) => {
+        const pts = [], n = Math.max(3, Math.ceil(Math.abs(y1 - y0) / 0.15)), up = V(nx, 0, nz), tx = -nz, tz = nx;
+        let w = 0; for (let i = 0; i <= n; i++) { w += r.range(-0.05, 0.05); pts.push({ p: V(x + nx * r0 * 0.45 + tx * w, y0 + (y1 - y0) * i / n, z + nz * r0 * 0.45 + tz * w), up }); }
+        vein(pts, r0);
+      };
+      yield;
+      // over the room's ceiling, every way from the crown
+      for (let q = 0; q < 7; q++) { const ang0 = r.range(0.1, Math.PI / 2 - 0.1), d = r.range(0.6, 1.3), [x, z] = at(Math.cos(ang0) * d, Math.sin(ang0) * d); creep(x, z, Math.atan2(uz * Math.sin(ang0), ux * Math.cos(ang0)), r.range(3, 8), r.range(0.03, 0.05), inRoom); }
+      yield;
+      // along the walls beside it, above anything standing against them
+      if (h > 2.8) for (let side = 0; side < 2; side++) for (let q = 0; q < 2; q++) {
+        const pts = [], y = r.range(2.25, top - Y - 0.3), nx = side ? ux : 0, nz = side ? 0 : uz, r0 = r.range(0.025, 0.04);
+        let along = 0.6, yy = Y + y;
+        for (; along < 6; along += 0.2) {
+          const [x, z] = side ? at(0.02, along) : at(along, 0.02), k = this.idx(this.ti(x + nx * 0.3), this.tj(z + nz * 0.3)), kw = this.idx(this.ti(x - nx * 0.3), this.tj(z - nz * 0.3));
+          if (k < 0 || this.room[k] !== room.id || !solid(k, kw)) break;
+          yy = clamp(yy + r.range(-0.06, 0.06), Y + 2.2, top - 0.2); pts.push({ p: V(x + nx * r0 * 0.45, yy, z + nz * r0 * 0.45), up: V(nx, 0, nz) });
+        }
+        vein(pts, r0);
+      }
+      yield;
+      // and out of the room: to each way out of it, down over the lintel, and away along the corridor beyond
+      const outs = [];
+      for (let i = room.i; i < room.i + room.w; i++) for (let j = room.j; j < room.j + room.h; j++) {
+        const k = this.idx(i, j);
+        for (const [dx, dz] of DIRS) { const nk = this.idx(i + dx, j + dz); if (nk >= 0 && this.room[nk] !== room.id && this.connected(k, nk) && this.grid[nk] !== 4) outs.push({ k, nk, dx, dz, x: this.cx(i) + dx * TS / 2, z: this.cz(j) + dz * TS / 2 }); }
+      }
+      const spots = [];
+      for (const o of r.shuffle(outs).slice(0, 4)) {
+        yield;
+        const door = this.doorEdge.get(this.edgeKey(o.k, o.nk)), nh = this.ceil[o.nk], lat = r.range(-0.55, 0.55), tx = -o.dz, tz = o.dx, r0 = r.range(0.035, 0.05);
+        const [sx, sz] = at(r.range(0.7, 1.2), r.range(0.7, 1.2));
+        creep(sx, sz, Math.atan2(o.z - sz, o.x - sx), 30, r0, inRoom, [o.x - o.dx * 0.25 + tx * lat, o.z - o.dz * 0.25 + tz * lat], false);
+        const lo = door ? DH + 0.22 : Math.min(h, nh);
+        if (h - lo > 0.3) climb(o.x + tx * lat, o.z + tz * lat, -o.dx, -o.dz, top - 0.02, Y + lo, r0 * 0.8);
+        const lo2 = door ? DH + 0.22 : h;
+        if (nh - lo2 > 0.3) climb(o.x + tx * lat, o.z + tz * lat, o.dx, o.dz, Y + lo2, Y + nh - 0.02, r0 * 0.8);
+        const fx = o.x + o.dx * 0.25 + tx * lat, fz = o.z + o.dz * 0.25 + tz * lat, outside = (x, z) => { const k = this.idx(this.ti(x), this.tj(z)); return k >= 0 && this.room[k] !== room.id; };
+        const trail = creep(fx, fz, Math.atan2(o.dz, o.dx), r.range(4, 8), r0, outside);
+        creep(fx - tx * 0.3, fz - tz * 0.3, Math.atan2(o.dz, o.dx) + r.range(-0.4, 0.4), r.range(2, 5), r0 * 0.6, outside, null, false);
+        for (let q = 0; q < 7 && trail.length > 4; q++) { const p = trail[r.int(0, Math.min(trail.length - 1, 16))].p; blob(G3.fixed, r.range(0.1, 0.22), 1, 0.4, 1, p.x + r.range(-0.25, 0.25), p.y + 0.02, p.z + r.range(-0.25, 0.25), 0.1, PAL.flesh, 12); }
+        spots.push({ x: o.x - o.dx * 0.9, y: top - 0.18, z: o.z - o.dz * 0.9 });
+      }
+      for (let q = 0; q < 3; q++) { const d = r.range(1.4, 2.6), a = r.range(0.2, Math.PI / 2 - 0.2), [x, z] = at(Math.cos(a) * d, Math.sin(a) * d); spots.push({ x, y: top - 0.18, z }); }
+      // what it leaves on the floor: a wet stain round its foot, and where it's dragged things in
+      this.lv = lv;
+      { const [x, z] = at(0.9, 0.9); this.put('blood', new THREE.PlaneGeometry(2.4, 2.4), mat4(x, Y + 0.013, z, r.range(0, TAU), -Math.PI / 2)); }
+      if (outs.length) {
+        const o = r.pick(outs), [x, z] = at(1.4, 1.4), path = this.findPath(x, z, o.x - o.dx * 0.6, o.z - o.dz * 0.6, true);
+        if (path) for (let q = 0; q < path.length - 1; q++) { const p = path[q], s = path[q + 1]; this.put('smear', new THREE.PlaneGeometry(0.6, TS * 1.05), mat4((p.x + s.x) / 2 + r.range(-0.15, 0.15), Y + 0.015, (p.z + s.z) / 2, Math.atan2(s.x - p.x, s.z - p.z), -Math.PI / 2)); }
+      }
+      this.lv = 0;
+      // nothing walks into it, and nothing's left lying inside it
+      { const [x0, z0] = at(0, 0), [x1, z1] = at(1.32, 1.32); this.addCol(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), h, null); }
+      this.spots = this.spots.filter((s) => { const a = (s.x - cx) * ux, b = (s.z - cz) * uz; return !(a > -0.1 && b > -0.1 && a < 1.7 && b < 1.7 && Math.abs(s.y - Y) < 3) && !(a > -0.1 && b > -0.1 && a < 2.6 && b < 2.6 && s.y > top - 1); });
+      const [mx, mz] = at(0.5, 0.5), [kx, kz] = at(0.8, 0.8);
+      this.nest = { room: room.id, lv, Y, h, cx, cz, ux, uz, x: mx, z: mz, spine: [V(mx, Y + 0.6, mz), V(mx, Y + h / 2, mz), V(kx, top - 0.3, kz)], spots, hp: 5, dead: false, geo: G3 };
+    }
+    // (built: the mound, crown, chimneys and eggs on a pivot at the corner that breathes; the veins and crust fixed)
+    buildNest(parts) {
+      const n = this.nest, M = Fac.nestMats(), piv = new THREE.Group(); piv.position.set(n.cx, n.Y, n.cz);
+      const mesh = (list, mat, local) => { if (!list.length) return null; const g = BufferGeometryUtils.mergeGeometries(list, false); if (local) g.translate(-n.cx, -n.Y, -n.cz); const m = new THREE.Mesh(g, mat); m.castShadow = mat !== M.glow; m.receiveShadow = mat !== M.glow; return m; };
+      const mound = mesh(n.geo.mound, M.flesh, true), glow = mesh(n.geo.glow, M.glow, true), fixed = mesh(n.geo.fixed, M.flesh, false);
+      const hill = new THREE.Mesh(n.geo.hill.translate(-n.cx, -n.Y, -n.cz), M.flesh); hill.castShadow = true; hill.receiveShadow = true;
+      piv.add(hill); if (mound) piv.add(mound); if (glow) piv.add(glow);
+      parts[n.lv].add(piv); if (fixed) parts[n.lv].add(fixed);
+      M.glow.color.setScalar(1);
+      n.piv = piv; n.geo = null;
+    }
 
     // ---------- mesh building ----------
     // (built in pieces, so a landing can put it together a frame or so apart: see G.stageSite)
@@ -1502,6 +1760,7 @@ const Facility = (() => {
         hous.castShadow = false; tubes.castShadow = false; shafts.castShadow = false; shafts.renderOrder = 3; shafts.frustumCulled = false;
         parts[pi].add(hous, tubes, shafts);
       });
+      if (this.nest) this.buildNest(parts);
       this.lampMeshes = { lamps };
       this.group = grp;
       return grp;
@@ -1778,6 +2037,15 @@ const Facility = (() => {
       for (const d of this.blasts) {
         const tgt = d.open ? 1 : 0;
         if (d.anim !== tgt) { d.anim = tgt > d.anim ? Math.min(1, d.anim + dt / 2.4) : Math.max(0, d.anim - dt / 1.3); this.applyBlast(d); }
+      }
+      // the nest breathes, slow, its chimneys glowing up and dimming with it; hit, it shudders and flares; burst, it
+      // goes dark and shrinks in on itself
+      const n = this.nest;
+      if (n && n.piv) {
+        n.t = (n.t || 0) + dt; n.hitT = Math.max(0, (n.hitT || 0) - dt); n.sag = damp(n.sag || 0, n.dead ? 1 : 0, 1.2, dt);
+        const br = 0.5 + 0.5 * Math.sin(n.t * 1.3), live = n.dead ? 0 : 1, s = 1 + live * 0.016 * br + 0.03 * Math.sin(n.t * 34) * n.hitT * 2.5 - 0.05 * n.sag;
+        n.piv.scale.set(s, 1, s);
+        Fac.nestMats().glow.color.setScalar(live ? 0.7 + 0.3 * br + n.hitT * 2 : 0.04 + 0.5 * n.hitT);
       }
     }
 
@@ -2302,6 +2570,9 @@ const Facility = (() => {
   function mat4(x, y, z, ry = 0, rx = 0, rz = 0) { return mat(x, y, z, rx, ry, rz); }
   // (a doorway's size, for anything that has to squeeze through one)
   Fac.DW = DW; Fac.DH = DH;
+  // (the nest's flesh, coloured vertex by vertex, and its glow, which needs no light to be seen)
+  let nestM = null;
+  Fac.nestMats = () => nestM || (nestM = { flesh: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.04 }), glow: new THREE.MeshBasicMaterial({ vertexColors: true }) });
   Fac.fitOf = fitOf;
   return Fac;
 })();

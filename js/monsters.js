@@ -1389,7 +1389,8 @@ class Monster {
       case 'crawl': {
         if (!this.goal) {
           // somewhere on a low ceiling on its own floor (it never crawls down a stairwell) where the crew will pass under
-          this.goal = this.perch(this.heardAt) || this.randomGoal(4, 16, (p) => fac.ceilAt(p.x, p.z) <= 3.6) || this.randomGoal(3, 10);
+          // (one of a nest's brood mostly keeps by it, over the ways in)
+          this.goal = (this.home && !this.heardAt && Math.random() < 0.75 && this.homeGoal()) || this.perch(this.heardAt) || this.randomGoal(4, 16, (p) => fac.ceilAt(p.x, p.z) <= 3.6) || this.randomGoal(3, 10);
           this.hurry = !!this.heardAt; this.heardAt = null; this.st = 0;
         }
         // (down on the floor, it was knocked off or fell: it scuttles to the nearest wall, turns its back to the room
@@ -1495,6 +1496,12 @@ class Monster {
       if ((d < 1.05 || Math.hypot(ax - this.pos.x, az - this.pos.z) < 0.9) && this.clearTo(p)) { this.victim = p.id; this.dropTo = { x: ax, z: az }; this.stalk = null; this.setState('drop'); this.g.emitSound('leech_drop', this.pos, { vol: 0.9 }); return true; }
     }
     return false;
+  }
+  // somewhere about the nest it came out of: up by it, or over one of the ways into its room
+  homeGoal() {
+    const n = this.g.fac.nest; if (!n || Math.abs(this.pos.y - (n.Y + n.h)) > 2) return null;
+    const s = n.spots[Math.floor(Math.random() * n.spots.length)];
+    return { x: s.x + (Math.random() - 0.5) * 0.6, z: s.z + (Math.random() - 0.5) * 0.6 };
   }
   // someone it can see down below it, on this floor, within r (and not already right underneath)
   seesBelow(p, r) {

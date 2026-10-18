@@ -89,12 +89,16 @@ const Pods = (() => {
     for (const a of [Math.PI - 0.55, Math.PI, Math.PI + 0.55]) mk(inside(new THREE.BoxGeometry(0.035, hy1 - hy0, 0.03), a, hm, 0.045), M.dark, 0, 0, 0);
     mk(band(hm - 0.03, hm + 0.03, Math.PI - 0.95, Math.PI + 0.95, 8, -0.062, true), M.strap, 0, 0, 0);
     mk(new THREE.SphereGeometry(R, 24, 12, 0, TAU, Math.PI / 2, Math.PI / 2), M.shield, 0, -L * 0.23, 0, 0, 0, 0).scale.set(1, 0.7, 1);
-    mk(new THREE.CylinderGeometry(R * 0.86, R * 0.5, 0.35, 24), M.fin, 0, L * 0.39 + 0.17, 0);
-    mk(twoSided(new THREE.CylinderGeometry(R * 0.28, R * 0.36, 0.22, 16, 1, true)), M.dark, 0, L * 0.39 + 0.42, 0);
+    // the tail: the body narrows on into a boat-tail cone (no step, no gap round it) capped by the drogue canister,
+    // with four small swept fins back along it to keep it falling shield first
+    const ty = by0 + bh;
+    mk(new THREE.CylinderGeometry(R * 0.6, rAt(ty), 0.26, 24), M.fin, 0, ty + 0.13, 0);
+    mk(new THREE.CylinderGeometry(R * 0.36, R * 0.42, 0.12, 18), M.dark, 0, ty + 0.32, 0);
+    mk(new THREE.TorusGeometry(0.045, 0.012, 6, 12), M.dark, 0, ty + 0.41, 0);
     for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * TAU + Math.PI / 4, s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0.42, -0.1); s.lineTo(0.42, 0.28); s.lineTo(0, 0.55); s.closePath();
-      const geo = new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: false }); geo.translate(0, 0, -0.02);
-      const f = mk(geo, M.fin, Math.cos(a) * R * 0.8, L * 0.18, Math.sin(a) * R * 0.8); f.rotation.y = -a;
+      const a = (i / 4) * TAU + Math.PI / 4, s = new THREE.Shape(); s.moveTo(-0.03, 0); s.lineTo(0.2, 0.2); s.lineTo(0.2, 0.42); s.lineTo(-0.03, 0.5); s.closePath();
+      const geo = new THREE.ExtrudeGeometry(s, { depth: 0.024, bevelEnabled: false }); geo.translate(0, 0, -0.012);
+      const fy = ty - 0.5, f = mk(geo, M.fin, Math.cos(a) * rAt(fy + 0.25), fy, Math.sin(a) * rAt(fy + 0.25)); f.rotation.y = -a;
     }
     // the side hatch: a curved plate lying flush on the hull just over the opening, with a red pull handle, hazard
     // edging and a bolt at each corner (it blows off when the pod is opened; built round its own middle, so it tumbles

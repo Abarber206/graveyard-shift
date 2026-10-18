@@ -1902,7 +1902,7 @@ const G = {
     // a few snacks somebody never came back for: mostly in lockers and cabinets, desks, the front office
     const nf = r.int(2, 4);
     for (let i = 0; i < nf && spots.length; i++) {
-      let tot = 0; const ws = spots.map((s) => { const w = (FOOD_SPOTS[s.tag] || 0.15) * (s.c != null ? 1.3 : 1); tot += w; return w; });
+      let tot = 0; const ws = spots.map((s) => { const w = (FOOD_SPOTS[s.tag] || 0.15) * (s.c != null ? 2.5 : 1); tot += w; return w; });
       let x = r.next() * tot, k = 0; for (; k < spots.length - 1; k++) { x -= ws[k]; if (x <= 0) break; }
       const s = spots.splice(k, 1)[0];
       out.push({ id: G.nextItemId++, type: r.weighted(FOOD_FIND), value: 0, x: s.x, y: s.y, z: s.z, ry: r.range(0, TAU), c: s.c });

@@ -238,7 +238,7 @@ const FLY = {
 // leaving orbit for the ground (seconds after the lever): the de-orbit burn, the fall, the burning entry, into cloud;
 // the site is built and the descent over it begins at `site`
 const ENTRY = { burn: 1.4, heat0: 5.4, heat1: 6.6, white: 8.4, site: 8.6 };
-const _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
+const _shQ = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 9.8 };
@@ -1611,6 +1611,20 @@ const G = {
       } else { const g = G.grenades.find((q) => q.bomb === f.id); if (g) pos = g.mesh.position.clone(); }
       if (pos) SFX.play('fuse', pos, { dur: 0.45, vol: 0.9 });
     }
+  },
+  // is p in the ship's shadow, the sun being off along dir? (its hull and its nacelles, as boxes, in its own frame)
+  shipShades(p, dir) {
+    const S = G.ship.group, o = S.worldToLocal(_fxA.copy(p)), d = _fxD.copy(dir).applyQuaternion(_shQ.copy(S.quaternion).invert());
+    const hit = (x0, x1, y0, y1, z0, z1) => {
+      let t0 = 0, t1 = 80;
+      for (const [a, v, lo, hi] of [[o.x, d.x, x0, x1], [o.y, d.y, y0, y1], [o.z, d.z, z0, z1]]) {
+        if (Math.abs(v) < 1e-6) { if (a < lo || a > hi) return false; continue; }
+        let ta = (lo - a) / v, tb = (hi - a) / v; if (ta > tb) [ta, tb] = [tb, ta];
+        t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return false;
+      }
+      return true;
+    };
+    return hit(-16.6, 12.6, -0.85, 4.6, -4.6, 4.6) || hit(-16.6, -8.2, 0.4, 2.2, -6.4, 6.4);
   },
   // a failing tube now and then spits a shower of sparks onto the floor under it, with a crackle (only the ones near
   // you on your own floor: each about every ten seconds)
@@ -3185,6 +3199,8 @@ const G = {
       G.ext.sky.position.copy(cam); G.ext.stars.position.copy(cam);
       R.hemi.intensity = L.hemi; R.hemi.color.copy(L.hemiSky); R.hemi.groundColor.set(0x1a1712);
       R.sun.intensity = L.sun; R.sun.color.copy(L.sunColor);
+      // (and whether the sun's on your hands, or you're standing in the ship's shadow under its hull: see R.lightVM)
+      R.fx.sunlit = damp(R.fx.sunlit, G.shipShades(cam, L.sunDir) ? 0 : 1, 6, dt);
       // a wide shadow frustum that follows the camera, snapped to whole shadow-map texels so edges don't crawl
       R.setSunShadow(42, 300);
       {

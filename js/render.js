@@ -2,8 +2,8 @@
 // Renderer: low-res HDR scene pass + first-person viewmodel pass + retro horror post-process.
 const R = (() => {
   const POOL = 6, REMOTE_FLASH = 3;
-  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2(), sun: 0, sunDir: new THREE.Vector3(0, 1, 0) };
-  let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint;
+  const fx = { fear: 0, damage: 0, fade: 0, leech: 0, flash: 0, static: 0, lowhp: 0, exposure: 1, health: 1, bloom: 0.3, white: 0, heat: 0, cabin: 1, warp: 0, heatCol: new THREE.Color(1.2, 0.4, 0.1), peek: 0, peekUV: new THREE.Vector2(), sun: 0, sunDir: new THREE.Vector3(0, 1, 0), sunlit: 1 };
+  let renderer, scene, camera, vmScene, vmCamera, rt, post, postScene, postCam, hemi, sun, flash, remote = [], beams = [], pool = [], vmHemi, vmPoint, vmSun, vmPool = [];
   let glowLocal, glowRemote = [], dust, dustMat;
   let poolSel = [], poolT = 0;
   // space backdrop: its own scene + camera (near 20 / far 40000) so the planet, clouds and rings keep full depth precision
@@ -378,7 +378,11 @@ const R = (() => {
     bgHemi = new THREE.HemisphereLight(0x2a3448, 0x000000, 0.3); bgScene.add(bgHemi);
     vmScene = new THREE.Scene();
     vmCamera = new THREE.PerspectiveCamera(62, 1, 0.01, 10);
+    // (what lights your hands and what's in them: the world's own sky, sun and nearest lamps, set each frame by lightVM,
+    // and the flashlight's spill)
     vmHemi = new THREE.HemisphereLight(0xffffff, 0x222222, 0.3); vmScene.add(vmHemi);
+    vmSun = new THREE.DirectionalLight(0xffffff, 0); vmScene.add(vmSun);
+    for (let i = 0; i < 3; i++) { const p = new THREE.PointLight(0xffffff, 0, 10, 2); vmScene.add(p); vmPool.push(p); }
     vmPoint = new THREE.PointLight(0xfff2dc, 0, 3, 2); vmPoint.position.set(0.3, 0.2, 0.2); vmScene.add(vmPoint);
     rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
     // (the frame's depth, kept so the air can be marched out to whatever each pixel hits)
@@ -518,6 +522,28 @@ const R = (() => {
   // the lamps nearest a spot lighting it, for that one view: picked the way updateLights picks them (only those it can
   // see), but at once, and leaving what your own view has picked alone
   const _at = [];
+  // Your hands and what you're holding are lit the way anything else would be where you stand: the sky's light (kept out
+  // of the ship's cabin, as it is off every surface in there), the sun from where it really is (unless you're in the
+  // shade: fx.sunlit), and the lamps nearest you (the scene's own pool, each placed round you where it really stands).
+  // They're drawn in a scene of their own, round the eye, so the lights are turned into the eye's frame
+  const _wq = new THREE.Quaternion(), _wp = new THREE.Vector3(), _ws = new THREE.Vector3(), _wShip = new THREE.Matrix4(), _wRank = [];
+  function lightVM() {
+    camera.getWorldQuaternion(_wq).invert(); camera.getWorldPosition(_wp);
+    const sl = _ws.copy(_wp).applyMatrix4(_wShip.fromArray(SHIP_INV)), hw = sl.x < 3.65 ? 4.1 : 3.32 - (sl.x - 3.7) * 0.2889;
+    const inCab = sl.x > -7.2 && sl.x < 8.2 && Math.abs(sl.z) < hw && sl.y > -0.2 && sl.y < 3.45;
+    vmHemi.color.copy(hemi.color); vmHemi.groundColor.copy(hemi.groundColor); vmHemi.intensity = hemi.intensity * (inCab ? 1 - SHIP_C[1] : 1);
+    vmHemi.position.set(0, 1, 0).applyQuaternion(_wq);
+    vmSun.color.copy(sun.color); vmSun.intensity = sun.intensity * (inCab ? 0 : fx.sunlit);
+    vmSun.position.copy(sun.position).sub(sun.target.position).normalize().applyQuaternion(_wq).multiplyScalar(5);
+    _wRank.length = 0;
+    for (const L of pool) if (L.intensity > 0) _wRank.push([L.intensity / Math.max(1, L.position.distanceToSquared(_wp)), L]);
+    _wRank.sort((a, b) => b[0] - a[0]);
+    for (let i = 0; i < vmPool.length; i++) {
+      const V = vmPool[i], c = _wRank[i];
+      if (!c) { V.intensity = 0; continue; }
+      const L = c[1]; V.position.copy(L.position).sub(_wp).applyQuaternion(_wq); V.color.copy(L.color); V.intensity = L.intensity; V.distance = L.distance; V.decay = L.decay;
+    }
+  }
   function lightsAt(sources, at, zone, t, power, losFn) {
     _at.length = 0;
     for (const s of sources) {
@@ -612,6 +638,7 @@ const R = (() => {
       }
     }
     renderer.clearDepth();
+    lightVM();
     renderer.render(vmScene, vmCamera);
     // bloom: bright pass into A, then blur A -> B -> A twice with a widening kernel
     u.uBloom.value = fx.bloom;

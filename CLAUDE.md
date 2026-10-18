@@ -44,6 +44,9 @@ Keep that file current when gameplay changes.
   - The crew cams (`crewcam.js`) relight the scene for each crewmate's feed (`G.feedLight`: the facility's dark, the
     lamps near them via `R.lightsAt`, their flashlight), between `R.rig()` and `R.rig(true)`, which put your own view back.
   - Fog, the scanner wave and the cabin fog-clearing are injected into three's shader chunks.
+  - Your hands and what they hold are drawn in their own scene (`vmScene`), lit each frame by `lightVM` from the world's
+    own lights as they stand round the eye: the sky (kept out of the ship's cabin), the sun (`fx.sunlit`: out of it in
+    the ship's shadow, `G.shipShades`) and the nearest of the lamp pool. Never give it fixed lights of its own.
   - Volumetric air (`Settings.volumetric`, off by default on touch devices): `R.vol` marches each pixel's ray through
     a density field (height fog, ground mist from the land's height map, cloud banks among the far hills, sun shadow
     map for light shafts) at half resolution, using the frame's depth texture, and post composites it. The outdoors sets

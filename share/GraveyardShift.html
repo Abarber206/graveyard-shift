@@ -1196,8 +1196,8 @@ const SFX = (() => {
     // the ship's engines winding up before it lifts: the turbines' blades whirring up through the ducts' resonances,
     // and the air drawn in through the intakes rushing up with them
     spool(d, t) {
-      smp(d, t, take('spool', 2, () => fade(add(buzz(3.2, (u) => 26 + 330 * Math.pow(u, 1.25), (u) => 0.25 + 0.75 * u, [[230, 1, 0.05], [470, 0.7, 0.04], [920, 0.45, 0.03], [1700, 0.25, 0.02]], { duty: 0.3, jit: 0.012, shim: 0.25 }),
-        norm(bq(noise(3.3), 'bp', (u) => 260 + 1600 * u * u, 0.8)), 0, 0.45), (u) => Math.min(1, u * 5) * Math.min(1, (1 - u) * 5)), 32000), 1);
+      smp(d, t, take('spool', 2, () => fade(add(buzz(7, (u) => 18 + 340 * Math.pow(u, 1.5), (u) => 0.2 + 0.8 * u, [[230, 1, 0.05], [470, 0.7, 0.04], [920, 0.45, 0.03], [1700, 0.25, 0.02]], { duty: 0.3, jit: 0.012, shim: 0.25 }),
+        norm(bq(noise(7.1), 'bp', (u) => 240 + 1600 * u * u, 0.8)), 0, 0.45), (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 14)), 32000), 1);
     },
     // the mains lighting: a deep whump as the fuel catches (the air in the bells knocked in its lowest modes), then the
     // roar opening up and the jet's tearing hiss on top of it
@@ -19720,11 +19720,14 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 14;
+const PROTO = 15;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
-  liftAt: 2.8, toDur: 11.5,              // takeoff: engines spool up for liftAt seconds, then lift; orbit at toDur
+  liftAt: 7, toDur: 15.7,                // takeoff: the engines fire up for liftAt seconds (time to run for it), then it
+                                         // lifts; orbit at toDur
+  grab: 1,                               // ...and for this long after it lifts, someone right under the hatch can still
+                                         // catch the sill and haul themselves in
   burst: 4.4,                            // ...and this long after lifting off, the main engines open up all at once
   sendoff: 4.5,                          // ...and this much longer when it leaves anyone behind (they watch it go)
   doorAlt: 40,                           // the hatch can be open below this altitude, and shuts itself above it
@@ -20552,6 +20555,13 @@ const G = {
     },
     // takeoff: the engines spool up (last chance to run for it), then the ship lifts, tucks its gear and climbs out.
     // The hatch stays as it is; it shuts itself once the ship is too high.
+    // someone caught the hatch's sill as the ship lifted and hauled themselves in: aboard after all
+    board(e) {
+      const f = G.flight, p = G.players.get(e.pid); if (!f || !f.aboard || !p) return;
+      f.aboard.add(e.pid); if (f.left) f.left = f.left.filter((id) => id !== e.pid);
+      p.pos.set((SHIP.doorX0 + SHIP.doorX1) / 2, 0, 3.4);
+      if (e.pid === G.localId) { Player.spawn(p.pos.x, 0, p.pos.z, Math.PI); Player.addShake(0.6); SFX.play('clunk', null, { vol: 1 }); SFX.play('pant', null, { vol: 0.9 }); }
+    },
     depart(e) {
       G.mode = 'leaving';
       SFX.play('alarm', null, { vol: 0.6 });
@@ -20671,6 +20681,15 @@ const G = {
         break;
       }
       case 'swing': G.hostSwing(pid, r); break;
+      // (caught the sill of the hatch as the ship lifted: see updateFlight)
+      case 'board': {
+        const f = G.flight;
+        if (!f || f.kind !== 'takeoff' || !f.aboard || f.aboard.has(pid) || f.t > FLY.liftAt + FLY.grab + 0.5 || !p.alive || p.zone !== 'out') return;
+        const sill = new THREE.Vector3((SHIP.doorX0 + SHIP.doorX1) / 2, 0, 4.35).applyMatrix4(G.shipM);
+        if (Math.hypot(sill.x - p.pos.x, sill.z - p.pos.z) > 3) return;
+        G.emit({ e: 'board', pid });
+        break;
+      }
       case 'throw': G.hostThrow(pid, r); break;
       case 'noise': {
         const it = G.items.get(r.item); if (!it || it.holder !== pid) return;
@@ -21787,17 +21806,21 @@ const G = {
       P.roll = -1.1 * (yawAt(k + 0.05) - yawAt(k - 0.05)) / 0.1 + 0.016 * Math.sin(k * 1.5 + 0.5) * hov;
       const air = sstep(0, 4, P.y);
       P.pitch += w(1.9, 0.5) * 0.006 * air; P.roll += w(1.4, 1.5) * 0.008 * air;
-      // spooling up, the whole frame trembles on its struts
+      // firing up, the whole frame trembles on its struts, harder as the jets build
       const spool = sstep(0.3, L, t) * (1 - sstep(0, 1.2, k));
       P.y += spool * 0.02 * Math.sin(t * 37); P.roll += spool * 0.004 * Math.sin(t * 29);
       // (the mains idle along while it hovers and glow up as they're brought to readiness; they light with a flare
       // and settle into a roaring burn while the belly jets fade)
       const kick = sstep(B - 0.1, B + 0.4, k), flare = k > B ? Math.exp(-(k - B) * 2.5) : 0;
-      P.lift = t < L ? 0.15 + 0.7 * sstep(0.3, L, t) : (1 - 0.25 * sstep(2.8, 4, k)) * (1 - 0.65 * sstep(B, B + 2.2, k));
+      // (the lift jets cough alight one after another, sputtering and catching, then build steadily to a roar: no
+      // countdown, just the noise and the dust, and a few seconds to get aboard)
+      const cough = t < 3.2 ? Math.max(0, Math.sin(t * 7.3 + 1) * Math.sin(t * 2.9)) * 0.55 * sstep(0.4, 1, t) : 0;
+      P.lift = t < L ? Math.max(0.06 + cough, 0.12 + 0.75 * sstep(2.2, L, t)) : (1 - 0.25 * sstep(2.8, 4, k)) * (1 - 0.65 * sstep(B, B + 2.2, k));
       P.main = 0.1 * sstep(0.3, L, t) + 0.2 * sstep(B - 1.4, B - 0.2, k) + 0.95 * kick + 0.35 * flare * kick;
       P.burst = sstep(B - 0.1, B + 0.4, k);
       P.gear = P.y > 3 ? 0 : 1;
-      P.ramp = t < 0.35 ? 1 : 0;
+      // (the ramp stays down until the last moment: it comes up as the ship lifts, tipping in whoever is on it)
+      P.ramp = t < L - 1.5 ? 1 : 0;
       P.shake = 0.05 + 0.2 * spool + 0.1 * P.lift + 0.32 * kick * (1 - sstep(B + 0.4, B + 2.6, k)) + 0.08 * sstep(B, B + 2, k);
     }
     return P;
@@ -21843,9 +21866,24 @@ const G = {
     S.airborne = f.kind === 'land' ? f.t < FLY.landDur : f.t >= FLY.liftAt;
     S.setThrust(p.lift, p.main);
     S.gearTarget = p.gear; S.rampTarget = p.ramp;
-    // who is aboard is settled the moment the ship leaves the ground
-    if (f.kind === 'takeoff' && !f.aboard && S.airborne) { f.aboard = new Set(G.alivePlayers().filter((q) => q.zone === 'out' && G.posAboard(q.pos)).map((q) => q.id)); G.leftBehind(f); }
-    const me = G.me(), aboard = G.playerAboard(me);
+    const me = G.me();
+    // the ramp coming up tips whoever is standing on it in through the hatch (all the while it's on its way up)
+    if (f.kind === 'takeoff' && f.t >= FLY.liftAt - 1.5 && f.t < FLY.liftAt && S.rampT > 0.45) {
+      const onRamp = (q) => q && q.alive && q.zone === 'out' && G.ship.rampAt(q.pos.x, q.pos.z) != null && Math.abs(q.pos.y - G.ship.rampAt(q.pos.x, q.pos.z)) < 0.9;
+      const inside = (q) => { q.pos.set((SHIP.doorX0 + SHIP.doorX1) / 2, 0, 3.6); if (q === me) { Player.spawn(q.pos.x, 0, q.pos.z, me.yaw); Player.addShake(0.3); } };
+      if (onRamp(me)) { inside(me); SFX.play('clunk', null, { vol: 0.8 }); }
+      if (G.isHost) for (const q of G.players.values()) if (q.bot && onRamp(q)) inside(q);
+    }
+    // who is aboard is settled the moment the ship leaves the ground (but see 'board': whoever catches the sill)
+    if (f.kind === 'takeoff' && !f.aboard && S.airborne) f.aboard = new Set(G.alivePlayers().filter((q) => q.zone === 'out' && G.posAboard(q.pos)).map((q) => q.id));
+    // for a moment after it lifts, someone right under the hatch can still jump for the sill and haul themselves in
+    if (f.kind === 'takeoff' && f.aboard && !f.grabbed && f.t < FLY.liftAt + FLY.grab && me && me.alive && me.zone === 'out' && !f.aboard.has(me.id)) {
+      const sill = _fxA.set((SHIP.doorX0 + SHIP.doorX1) / 2, 0, 4.35).applyMatrix4(G.shipM);
+      if (Math.hypot(sill.x - me.pos.x, sill.z - me.pos.z) < 1.5 && sill.y - me.pos.y < 2.7) { f.grabbed = true; G.request({ a: 'board' }); }
+    }
+    // only once it's past catching are those still on the ground left behind
+    if (f.kind === 'takeoff' && f.aboard && !f.leftDone && f.t >= FLY.liftAt + FLY.grab + 0.2) { f.leftDone = true; G.leftBehind(f); }
+    const aboard = G.playerAboard(me);
     if (f.kind === 'land' && !f.down && f.t >= FLY.landDur) {
       f.down = true; SFX.play('thud', new THREE.Vector3(-1, 0.2, 0), { vol: 1.1 }); if (me && me.alive) Player.addShake(aboard ? 0.9 : 0.35);
       // (grit kicked up round each foot as the struts take the weight)

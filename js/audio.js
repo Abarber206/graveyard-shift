@@ -556,8 +556,8 @@ const SFX = (() => {
     // the ship's engines winding up before it lifts: the turbines' blades whirring up through the ducts' resonances,
     // and the air drawn in through the intakes rushing up with them
     spool(d, t) {
-      smp(d, t, take('spool', 2, () => fade(add(buzz(3.2, (u) => 26 + 330 * Math.pow(u, 1.25), (u) => 0.25 + 0.75 * u, [[230, 1, 0.05], [470, 0.7, 0.04], [920, 0.45, 0.03], [1700, 0.25, 0.02]], { duty: 0.3, jit: 0.012, shim: 0.25 }),
-        norm(bq(noise(3.3), 'bp', (u) => 260 + 1600 * u * u, 0.8)), 0, 0.45), (u) => Math.min(1, u * 5) * Math.min(1, (1 - u) * 5)), 32000), 1);
+      smp(d, t, take('spool', 2, () => fade(add(buzz(7, (u) => 18 + 340 * Math.pow(u, 1.5), (u) => 0.2 + 0.8 * u, [[230, 1, 0.05], [470, 0.7, 0.04], [920, 0.45, 0.03], [1700, 0.25, 0.02]], { duty: 0.3, jit: 0.012, shim: 0.25 }),
+        norm(bq(noise(7.1), 'bp', (u) => 240 + 1600 * u * u, 0.8)), 0, 0.45), (u) => Math.min(1, u * 8) * Math.min(1, (1 - u) * 14)), 32000), 1);
     },
     // the mains lighting: a deep whump as the fuel catches (the air in the bells knocked in its lowest modes), then the
     // roar opening up and the jet's tearing hiss on top of it

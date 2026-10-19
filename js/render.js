@@ -373,7 +373,7 @@ const R = (() => {
     for (let i = 0; i < 2; i++) { const g = new THREE.PointLight(0xffffff, 0, 4.5, 2); scene.add(g); glowRemote.push(g); }
     dust = makeDust(); scene.add(dust);
     bgScene = new THREE.Scene();
-    bgCam = new THREE.PerspectiveCamera(Settings.fov, 1, 20, 40000);
+    bgCam = new THREE.PerspectiveCamera(Settings.fov, 1, 20, 250000);   // (far enough for a world seen from well out, dropping out of a jump)
     bgSun = new THREE.DirectionalLight(0xfff1dc, 5); bgScene.add(bgSun); bgScene.add(bgSun.target);
     bgHemi = new THREE.HemisphereLight(0x2a3448, 0x000000, 0.3); bgScene.add(bgHemi);
     vmScene = new THREE.Scene();

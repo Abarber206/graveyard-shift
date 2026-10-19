@@ -22,7 +22,10 @@ function restOn(list, x, z, y, aim, floor, h = 0) {
   // (and only onto a shelf with room under the one above for something h tall)
   let i = 0; while (i < over.length - 1 && over[i].k === 'open' && aim < over[i].y - 0.12 && over[i].y - 0.05 - over[i + 1].y >= h) i++;
   const t = over[i];
-  return t ? { y: t.y, t, busy: busyOn(list, t, x, z) } : { y: floor, t: null, busy: false };
+  if (!t) return { y: floor, t: null, busy: false };
+  // (cramped: the board over it, reachable or not, leaves no room for something h tall)
+  let lid = Infinity; for (const u of list) if (u.k !== 'on' && u.y > t.y && u.y < lid && x > u.x0 && x < u.x1 && z > u.z0 && z < u.z1) lid = u.y;
+  return { y: t.y, t, busy: busyOn(list, t, x, z), cramped: lid - 0.05 - t.y < h };
 }
 // whether clutter already stands on top t at (x, z), within the half-width (mx, mz) of what's being put down
 function busyOn(list, t, x, z, mx = 0.09, mz = mx) {

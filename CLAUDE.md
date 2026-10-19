@@ -136,7 +136,7 @@ Keep that file current when gameplay changes.
   `fullState` carries its hp.
 - **Resting heights:** `fac.top(x, z, ry, w, d, y, k)` / `ship.top(x0, x1, z0, z1, y, k)` register the flat top of a prop
   (desk, table, bench, crate, drum, shelf, gurney); `k` is `'open'` for a shelf with room under it and `'on'` for clutter
-  standing on a top (a mug, a monitor, the stock). `restOn` (`util.js`) picks the level: the highest within reach, or
+  standing on a top (a mug, a monitor, the stock), which things are set down clear of. `restOn` (`util.js`) picks the level: the highest within reach, or
   an open shelf's lower neighbour when the eye's line passes under it. `dropHeld` sets things down square, clear of
   clutter (`clearOn`, at the item's own size from `G.footprint`), and aboard `ship.reach` keeps them out of walls and
   console bodies.

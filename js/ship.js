@@ -403,8 +403,9 @@ const Ship = (() => {
       let k = 0, gap = 0;
       for (let s = 0.05; s < d + 0.01; s += 0.05) {
         const qx = x + dx * s, qz = z + dz * s; if (!this.inside(qx, 0.3, qz)) break;
-        // (the edge of a desk's or a rack's footprint short of its top is crossed, not stopped on)
-        if (!on(qx, qz) && this.collide(_drop.set(qx, 0, qz), 0.15)) { if ((gap += 0.05) > 0.32) break; continue; }
+        // (the edge of a desk's or a rack's footprint short of its top is crossed, not stopped on; and from a seat, the
+        // seat's own footprint round you)
+        if (!on(qx, qz) && this.collide(_drop.set(qx, 0, qz), 0.15)) { if (k > 0 && (gap += 0.05) > 0.32) break; continue; }
         gap = 0; k = s;
       }
       return k;
@@ -1019,10 +1020,8 @@ const Ship = (() => {
       {
         const D = 'darkmetal', P = 'painted', x0 = 1.9, x1 = 3.4, z0 = -3.95, z1 = -2.95, top = 0.9, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
         this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz); this.top(x0 + 0.02, x1 - 0.02, z0 + 0.02, z1 - 0.02, top);
-        // (what's on it: the monitor on its stand, the coffee machine, a mug, the desk lamp, the trackball; the keyboard
-        // is low enough to set something on)
+        // (what's on it: the monitor on its stand, the coffee machine, a mug, the desk lamp, the trackball, the keyboard)
         for (const [a, b, c, d] of [[2.12, 3.18, -4, -3.55], [1.92, 2.12, -3.87, -3.62], [2.0, 2.14, -3.2, -3.1], [3.0, 3.38, -3.88, -3.47], [3.03, 3.17, -3.21, -3.07], [2.29, 2.95, -3.27, -3.05]]) this.top(a, b, c, d, top, 'on');
-        this.top(2.29, 2.95, -3.27, -3.05, top + 0.05);
         this.pc(P, 0.024, 0.024, x1 - x0, cx, top - 0.024, z1, 0, 0, Math.PI / 2, 10);
         this.pb('pad', 0.9, 0.005, 0.42, 2.75, top + 0.0025, -3.18);
         // the pedestal: three drawers with pulls (the bottom one won't quite shut)
@@ -1256,7 +1255,7 @@ const Ship = (() => {
       // the charger's battery pack and its cable
       this.pb('yellow', 0.42, 0.32, 0.3, -3.6, 0.16, -3.8); this.pb('black', 0.08, 0.05, 0.06, -3.72, 0.345, -3.8); this.pb('red', 0.08, 0.05, 0.06, -3.48, 0.345, -3.8);
       this.tube('cable', [V(-3.75, 1.02, -3.88), V(-3.84, 0.72, -3.74), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16); this.pc('darkmetal', 0.025, 0.02, 0.04, -3.75, 1.03, -3.88, 0, 0, 0, 8);
-      this.col(-3.82, -3.38, -4.0, -3.63); this.top(-3.81, -3.39, -3.95, -3.65, 0.37);
+      this.col(-3.82, -3.38, -4.0, -3.63); this.top(-3.81, -3.39, -3.95, -3.65, 0.32); this.top(-3.77, -3.67, -3.84, -3.76, 0.32, 'on'); this.top(-3.53, -3.43, -3.84, -3.76, 0.32, 'on');
       // intercom with a coiled handset cord
       this.pb('painted', 0.24, 0.34, 0.07, -6.0, 1.45, -3.965); this.pb('vent', 0.16, 0.1, 0.01, -6.0, 1.55, -3.928);
       this.pb('black', 0.06, 0.24, 0.06, -5.92, 1.4, -3.9); this.pb('glowRed', 0.02, 0.02, 0.006, -6.08, 1.58, -3.927);

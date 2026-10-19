@@ -226,7 +226,7 @@ const SITE_LOOT = {
 };
 const SEC_PER_MIN = 0.75;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 17;
+const PROTO = 18;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -422,10 +422,12 @@ const G = {
         continue;
       }
       if (it.vis.y > it.pos.y + 0.001 || Math.abs(it.vis.x - it.pos.x) > 0.001 || Math.abs(it.vis.z - it.pos.z) > 0.001) {
-        it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
+        // (it only gathers speed while it's still coming down: once down, it just slides the last bit into place)
+        const up = it.vis.y > it.pos.y + 0.001;
+        if (up) it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
         it.vis.x = damp(it.vis.x, it.pos.x, 10, dt); it.vis.z = damp(it.vis.z, it.pos.z, 10, dt);
-        if (it.vis.y <= it.pos.y + 0.001 && it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, mat: ITEM_MAT[it.type], w: ITEMS[it.type].weight }); FX.foot(it.pos, G.itemZone(it), Math.min(1.2, 0.3 + ITEMS[it.type].weight / 40)); it.fallV = 0; }
+        if (up && it.vis.y <= it.pos.y + 0.001) { if (it.fallV > 2) { SFX.play('drop', it.pos, { vol: 0.6, mat: ITEM_MAT[it.type], w: ITEMS[it.type].weight }); FX.foot(it.pos, G.itemZone(it), Math.min(1.2, 0.3 + ITEMS[it.type].weight / 40)); } it.fallV = 0; }
       } else it.fallV = 0;
       it.mesh.position.copy(it.vis); it.mesh.rotation.set(0, it.ry, 0);
       if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
@@ -459,10 +461,11 @@ const G = {
       if (r.t) {
         // set down square on the bare top (turned a quarter if it fits better), clear of what stands on it already, and
         // not hanging off its edge
-        const t = r.t, ry0 = Math.round(me.yaw / (Math.PI / 2)) * (Math.PI / 2), fit = [ry0, ry0 + Math.PI / 2].map((q) => {
+        // (only a way round it fits on whole; with no room over it either, it can't go there at all)
+        const t = r.t, ry0 = Math.round(me.yaw / (Math.PI / 2)) * (Math.PI / 2), fit = r.cramped ? [] : [ry0, ry0 + Math.PI / 2].map((q) => {
           const sw = Math.abs(Math.sin(q)) > 0.5, ex = (sw ? ft.z : ft.x) + 0.01, ez = (sw ? ft.x : ft.z) + 0.01;
-          return { ry: q, ex, ez, kx: (v) => clamp(v, Math.min(t.x0 + ex, (t.x0 + t.x1) / 2), Math.max(t.x1 - ex, (t.x0 + t.x1) / 2)), kz: (v) => clamp(v, Math.min(t.z0 + ez, (t.z0 + t.z1) / 2), Math.max(t.z1 - ez, (t.z0 + t.z1) / 2)) };
-        });
+          return { ry: q, ex, ez, kx: (v) => clamp(v, t.x0 + ex, t.x1 - ex), kz: (v) => clamp(v, t.z0 + ez, t.z1 - ez) };
+        }).filter((o) => 2 * o.ex <= t.x1 - t.x0 && 2 * o.ez <= t.z1 - t.z0);
         let bx = x, bz = z, ok = false;
         find: for (let rr = 0; rr < 0.72; rr += 0.05) for (const o of fit) for (let k = 0; k < (rr ? 16 : 1); k++) {
           const a = Math.atan2(-fw.z, -fw.x) + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (TAU / 16), qx = o.kx(x + Math.cos(a) * rr), qz = o.kz(z + Math.sin(a) * rr);
@@ -678,7 +681,7 @@ const G = {
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
       nest: G.fac && G.fac.nest ? G.fac.nest.hp : null,
       // (on the way down out of orbit, before the site's there: how far down)
-      seq: G.mode === 'landing' && !G.round && G.seq && G.seq.kind === 'land' ? { t: +G.seq.t.toFixed(2), site: G.seq.site } : null,
+      seq: G.mode === 'landing' && !G.round && G.seq && G.seq.kind === 'land' ? { t: +G.seq.t.toFixed(2), site: G.seq.site, h0: G.ship.glide ? +G.ship.glide.h0.toFixed(5) : null } : null,
       // 0 shut, 1 open into the room, 3 open into the corridor, 2 broken
       doors: G.fac ? G.fac.doors.map((d) => (d.broken ? 2 : d.open ? (d.dir < 0 ? 3 : 1) : 0)) : [],
       boxes: G.fac ? G.fac.containers.map((c) => (c.open ? 1 : 0)) : [],
@@ -712,7 +715,9 @@ const G = {
     G.ship.setDoor(!!s.hatch); G.ship.door.t = s.hatch ? 1 : 0;
     G.mode = s.mode === 'landing' && !s.seq ? 'site' : s.mode;
     // (joining on the way down: aboard, coming down with everyone)
-    if (s.seq) { G.seq = { kind: 'land', t: s.seq.t, site: s.seq.site }; G.ship.setEngines(1); }
+    // (joining partway down: from the same height the host started from, and with the cues already gone by marked done,
+    // so they don't all go off at once)
+    if (s.seq) { const t = s.seq.t, E = ENTRY; G.seq = { kind: 'land', t, site: s.seq.site, h0: s.seq.h0, rcs0: t > E.turn0, rcs1: t > E.turn0 + 2, roar: t > E.burn, boom: t > E.air, boomT: 1 }; G.ship.setEngines(1); }
     // mid-flight: pick the flight up where it is, gear and ramp already where they should be
     if (s.flight) {
       G.flight = { kind: s.flight.kind, t: s.flight.t, aboard: s.flight.aboard ? new Set(s.flight.aboard) : null, down: s.flight.kind === 'land' && s.flight.t >= FLY.landDur, up: s.flight.kind === 'takeoff' && s.flight.t >= FLY.liftAt };
@@ -942,7 +947,9 @@ const G = {
       const it = G.items.get(e.item); if (!it) return;
       const p = G.players.get(it.holder);
       // (from the hand, or from a little over a shelf above it, so it's never seen to jump up onto it)
-      if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; it.vis.set(p.pos.x, Math.max(p.pos.y + 1.1, e.y + 0.15), p.pos.z); }
+      // (set down on something raised, a desk or a shelf, it's lowered in just over it rather than dropped from the hand,
+      // so it never passes through the shelf above)
+      if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; it.vis.set(p.pos.x, e.y > p.pos.y + 0.1 ? e.y + 0.12 : p.pos.y + 1.1, p.pos.z); }
       else it.vis.set(e.x, e.y + 0.5, e.z);
       it.holder = null; it.pos.set(e.x, e.y, e.z); it.ry = e.ry || 0; it.inShip = !!e.inShip;
       if (e.battery != null) it.battery = e.battery; if (e.on != null) it.on = e.on;
@@ -2821,7 +2828,7 @@ const G = {
       const hr = S.alt / S.R;
       level = 0.95 * G.burnK(t) + 0.15 + 0.12 * sstep(0.45, 0.09, hr) + 0.85 * (G.entryHeat || 0);
       // (and the air tearing past the hull, louder the faster and deeper it goes)
-      gale = Math.max(G.entryHeat || 0, 0.5 * sstep(ENTRY.air - 1, ENTRY.white, t), 0.14 * sstep(0.15, 0.075, hr)) * 1.1;
+      gale = Math.max(G.entryHeat || 0, 0.5 * sstep(ENTRY.air - 1, ENTRY.white, t), G.ship.airless ? 0 : 0.14 * sstep(0.15, 0.075, hr)) * 1.1;
     } else if (G.seq && G.seq.kind === 'fired' && G.seq.blown) {
       // (the air roaring out of the hatch, dying away as it goes)
       gale = 1.5 * (G.seq.gale || 0);
@@ -3253,7 +3260,7 @@ const G = {
         // braking burn; then the long slide down round the world, the ground streaming by faster and faster beneath,
         // the horizon flattening, until it skims into the top of the air (see the ship's orbit code)
         const ease = (a, b) => { const u = clamp((t - a) / (b - a), 0, 1); return u * u * u * (u * (u * 6 - 15) + 10); };
-        const g = S.glide || (S.glide = { t: 0, turn: 0, hr: null, phi: 0, A: null, dur: 4.4, h0: S.alt / S.R });
+        const g = S.glide || (S.glide = { t: 0, turn: 0, hr: null, phi: 0, A: null, dur: 4.4, h0: s.h0 || S.alt / S.R });
         g.t = t; g.turn = ease(E.turn0, E.turn0 + g.dur); g.hr = G.glideAlt(g.h0, t);
         // (the thrusters puff to start the swing and again to stop it, a pair at a time out on the nose)
         for (const [k, at] of [['rcs0', E.turn0], ['rcs1', E.turn0 + g.dur - 1.1]]) if (!s[k] && t > at) {

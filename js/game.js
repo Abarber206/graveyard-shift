@@ -245,7 +245,7 @@ const FLY = {
 // On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
 // sunUp over the ground under it; starting deep on the night side, only just up)
 const ENTRY = { turn0: 0.4, burn: 6.5, drop: 7, air: 27, white: 35, site: 35.2, hAir: 0.07, hEnd: 0.02, trip: 1.3, tripMax: 1.75, sunUp: 0.65 };
-const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
+const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3(), _rainV = new THREE.Vector3(), _rainP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 17.4 };
@@ -553,6 +553,7 @@ const G = {
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
   },
   teardownSite(full) {
+    G.ship.glassU.uRainK.value = 0; G.rainAt = false;
     G.clearMarks(); Pods.clear(); G.podBusy = false; G.ship.clearSmoke(); G.mists = [];
     for (const m of G.monsters.values()) { R.scene.remove(m.mesh); m.dispose(); }
     G.monsters.clear();
@@ -3642,6 +3643,10 @@ const G = {
       }
       const raining = G.round.weather === 'rain' || G.round.weather === 'storm';
       G.ext.rain.visible = raining; G.ext.rainMat.uniforms.uTime.value = t; G.ext.rainMat.uniforms.uCam.value.copy(cam);
+      // (the rain smears the way it's passing you: straight down standing still, slanting back past the glass flying)
+      { const rv = G.ext.rainMat.uniforms.uVel.value; if (G.rainAt && dt > 0) { _rainV.copy(cam).sub(_rainP).divideScalar(dt); if (_rainV.lengthSq() > 200 * 200) _rainV.set(0, 0, 0); rv.lerp(_rainV, 1 - Math.exp(-6 * dt)); } _rainP.copy(cam); G.rainAt = true; }
+      // (and beads and runs on the ship's windows, out here or flying up through it; none once it's out in space)
+      { const gu = G.ship.glassU.uRainK; gu.value = damp(gu.value, raining && !G.ship.space.visible ? (G.round.weather === 'storm' ? 1 : 0.75) : 0, 0.5, dt); }
       // (and the rain splashing up off the ground and the water all round you)
       if (raining && dt > 0 && !G.camCarried) {
         const n = dt * (G.round.weather === 'storm' ? 110 : 60) + Math.random(), w = G.ext.water, l = FX.lit(cam, 'out');

@@ -536,14 +536,14 @@ const Player = (() => {
         R.flash.distance = L.range; R.flash.angle = L.angle;
         R.flash.position.set(inHand ? 0.22 : 0.05, inHand ? -0.18 : -0.42, 0.05);
       } else R.flash.intensity = 0;
-      // (the hand lit by the flashlight's spill, or warm from the lamp it's holding)
+      // (the hand warm from a lamp it's holding; a flashlight's light goes out of its lens, ahead, not back over itself)
       const lampLit = cur && ITEMS[cur.type].lamp && cur.on;
-      R.vmPoint.intensity = fl ? 1.5 : lampLit ? 2.2 : 0; R.vmPoint.color.setHex(lampLit && !fl ? ITEMS[cur.type].lamp.color : 0xfff2dc);
+      R.vmPoint.intensity = lampLit && !fl ? 2.2 : 0; R.vmPoint.color.setHex(lampLit && !fl ? ITEMS[cur.type].lamp.color : 0xfff2dc);
       updateVM(dt, me, moveAmt);
       if (vm.lens && cur && ITEMS[cur.type].light) {
         const lit = cur.on ? clamp(R.flash.intensity / FLASH_K, 0, 1.5) : 0;
-        vm.lens.material.emissiveIntensity = 0.1 + lit * 1.4;
-        if (vm.lensGlow) vm.lensGlow.material.opacity = lit * 0.45;
+        vm.lens.material.emissiveIntensity = 0.1 + lit * 2.2;
+        if (vm.lensGlow) vm.lensGlow.material.opacity = lit * 0.22;
       }
     },
   };

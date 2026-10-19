@@ -33,6 +33,30 @@ function busyOn(list, t, x, z, mx = 0.09, mz = mx) {
   return false;
 }
 
+// ---------- the ship's hull, for shaders ----------
+// In ship coordinates: its half-width along its length (shipHW), and whether a point is inside the hull itself
+// (inShipHull: a rounded section, flat crown over the bay sweeping down to the nose), so the air, the mist and the motes
+// stop at the skin, rather than at a box round it that shows in the fog
+const SHIP_HULL_GLSL = `
+  float shipHW(float x) {
+    if (x < -16.2 || x > 12.6) return 0.0;
+    if (x < -13.8) return mix(2.3, 3.6, (x + 16.2) / 2.4);
+    if (x < -10.2) return mix(3.6, 4.42, (x + 13.8) / 3.6);
+    if (x < -7.4) return mix(4.42, 4.56, (x + 10.2) / 2.8);
+    if (x < 3.7) return 4.56;
+    if (x < 6.2) return mix(4.54, 3.38, (x - 3.7) / 2.5);
+    if (x < 10.6) return mix(3.38, 2.36, (x - 6.2) / 4.4);
+    return mix(2.36, 0.6, (x - 10.6) / 2.0);
+  }
+  bool inShipHull(vec3 sl) {
+    float hw = shipHW(sl.x) - 0.04; if (hw <= 0.0) return false;
+    float ty = sl.x > 3.7 ? mix(4.5, 1.0, clamp((sl.x - 3.7) / 4.5, 0.0, 1.0)) : (sl.x < -13.8 ? mix(3.2, 4.0, (sl.x + 16.2) / 2.4) : 4.5);
+    float by = -0.72, yc = (ty + by) * 0.5, hy = (ty - by) * 0.5;
+    vec2 q = abs(vec2(sl.z / hw, (sl.y - yc) / hy)); q *= q;
+    return dot(q, q) < 1.0;
+  }
+`;
+
 // ---------- seeded RNG (mulberry32) ----------
 class RNG {
   constructor(seed) { this.s = (seed >>> 0) || 0x9e3779b9; }

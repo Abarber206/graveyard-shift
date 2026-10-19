@@ -265,6 +265,7 @@ const R = (() => {
     #include <packing>
     precision highp sampler3D;
     uniform sampler2D tDepth, tH, tShadow; uniform sampler3D tN; uniform mat4 uProjInv, uViewInv, uShadowM, uShipInv;
+    ${SHIP_HULL_GLSL}
     uniform vec3 uCam, uSunDir, uFogCol, uScat, uOrg; uniform vec4 uHB, uDen, uCloud; uniform vec2 uHR, uWind, uRes; uniform float uTime, uFar, uShadowOn, uFrame; uniform int uSteps;
     // the flashlights (yours first, then up to three of the crew's): where (xyz) and how bright (w), which way and the
     // cosine of the cone's edge, colour and reach; yours throws shadows when its shadow map's on
@@ -287,9 +288,8 @@ const R = (() => {
         float cn = noise3(cq) * 0.6 + noise3(cq * 2.4 + 1.3) * 0.4;
         cl = uCloud.x * band * smoothstep(0.48, 0.7, cn + 0.15 * n) * smoothstep(uCloud.w, uCloud.w + 60.0, r);
       }
-      // (none of it inside the ship)
-      vec3 sl = (uShipInv * vec4(p, 1.0)).xyz;
-      if (sl.x > -16.9 && sl.x < 12.6 && abs(sl.z) < 4.85 && sl.y > -1.0 && sl.y < 4.9) return 0.0;
+      // (none of it inside the ship's hull)
+      if (inShipHull((uShipInv * vec4(p, 1.0)).xyz)) return 0.0;
       return air + mist + cl;
     }
     float sunLit(vec3 p) {

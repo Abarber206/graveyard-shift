@@ -24,6 +24,7 @@ const Ship = (() => {
   const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   const _gA = new THREE.Matrix4(), _gB = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _gF = new THREE.Vector3(), _gTr = new THREE.Quaternion();
   const _gS = new THREE.Vector3(), _gN = new THREE.Vector3(), _gM = new THREE.Vector3(), _gX = new THREE.Vector3(), _gV = new THREE.Vector3();
+  const _rw = new THREE.Vector3(), _rv = new THREE.Vector3(), _rq = new THREE.Quaternion();
   const _drop = new THREE.Vector3(), _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
   // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round gathers
   // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
@@ -503,6 +504,34 @@ const Ship = (() => {
       // window glass: a faint grey-green tint with smudges and grime at the edges, unlit, so the cabin lamps never
       // turn into blooming hot spots on it
       this.glassMat = new THREE.MeshBasicMaterial({ map: TEX.get('cabinGlass'), color: 0x9fb4b4, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      // rain on the outside of it (k: how hard; V: the air going past the glass, in the ship's own frame; inv: the world
+      // to the ship): beads sitting on it and runs trickling down when it's still, and, the faster it flies, the beads
+      // torn off and the runs dragged back across it in streaks by the wind. Only on glass out in the weather.
+      const GU = (this.glassU = { uRainK: { value: 0 }, uRainT: { value: 0 }, uRainV: { value: V() }, uGlassInv: { value: new THREE.Matrix4() } });
+      this.glassMat.onBeforeCompile = (sh) => {
+        Object.assign(sh.uniforms, GU);
+        sh.vertexShader = 'varying vec3 vGW, vGN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vGW = (modelMatrix * vec4(position, 1.0)).xyz; vGN = normalize(mat3(modelMatrix) * normal);');
+        sh.fragmentShader = `uniform float uRainK, uRainT; uniform vec3 uRainV; uniform mat4 uGlassInv; varying vec3 vGW, vGN;
+          float rgH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          ` + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+          if (uRainK > 0.002) {
+            vec3 P = (uGlassInv * vec4(vGW, 1.0)).xyz, N = normalize(mat3(uGlassInv) * vGN);
+            if (P.x > 3.7 || abs(P.z) > 3.9) {
+              // (which way the water runs over this pane: the wind over it, and its own weight)
+              vec3 F = uRainV + vec3(0.0, -1.2, 0.0); F -= N * dot(F, N); float sp = length(F);
+              vec3 A = sp > 0.01 ? F / sp : vec3(0.0, -1.0, 0.0), B = normalize(cross(N, A));
+              vec2 q = vec2(dot(P, A), dot(P, B));
+              float w = 0.0, run = min(sp, 70.0);
+              { vec2 c = q * 30.0, i = floor(c), f = fract(c) - 0.5, o = vec2(rgH(i + 3.1), rgH(i + 7.7)) - 0.5; float r = 0.1 + 0.18 * rgH(i + 1.3);
+                w += step(rgH(i), 0.4 * uRainK * (1.0 - smoothstep(4.0, 25.0, run))) * smoothstep(r, r * 0.55, length(f - o * 0.6)); }
+              { float st = 1.0 + run * 0.3; vec2 c = vec2((q.x - uRainT * (0.15 + run * 0.9)) / st, q.y) * 36.0, i = floor(c), f = fract(c) - 0.5; float hw = 0.05 + 0.07 * rgH(i + 5.0);
+                w += step(rgH(i + 11.0), (0.12 + 0.3 * smoothstep(2.0, 20.0, run)) * uRainK) * smoothstep(hw, hw * 0.4, abs(f.y + (rgH(i + 2.0) - 0.5) * 0.6)) * smoothstep(0.5, 0.15, abs(f.x)); }
+              w = clamp(w, 0.0, 1.0);
+              diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78, 0.84, 0.9), w * 0.55); diffuseColor.a = max(diffuseColor.a, w * 0.5);
+            }
+          }`);
+      };
+      this.glassMat.customProgramCacheKey = () => 'shipGlassRain';
       this.bk = {};
       this.makeMaterials();
       // ===== cargo bay shell (the cabin side; the curved hull skin wraps around it in buildHull) =====
@@ -618,26 +647,26 @@ const Ship = (() => {
       this.pt('hazard', 0.47, 0.035, R.hx, R.y + 0.32, R.hz, Math.PI / 2, 0, 0, 24);
       this.pc(D, 0.5, 0.5, 0.06, R.hx, R.y + 0.36 + 0.45, R.hz + 0.56, Math.PI / 2 + 0.2, 0, 0, 20);
       this.pc('steelBolt', 0.06, 0.06, 0.12, R.hx, R.y + 0.34, R.hz + 0.47, 0, 0, Math.PI / 2, 8);
-      this.pt(Y, 0.22, 0.02, R.hx + 0.42, R.y + 0.32 + 0.2, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
-      // down inside it: the trunk's own walls (seen from within), the rungs of a ladder going down it, and the dark
-      // where it drops away into the ship
+      // (the ladder's grab hoop: up over the top of the coaming from the head of one rail to the other)
+      this.pt(Y, 0.22, 0.022, AIRLOCK.x1 - 0.2, R.y + 0.32, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
+      // the trunk: open right through, its own walls seen from within, from the coaming down to the airlock's ceiling,
+      // so looking down it you see the ladder going down into the lit chamber
       {
-        const y0 = top + 0.04, y1 = R.y + 0.32, lin = new THREE.Mesh(new THREE.CylinderGeometry(0.445, 0.445, y1 - y0, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x1a1b1e, roughness: 0.85, metalness: 0.3, side: THREE.BackSide }));
+        const y0 = SHIP.h - 0.02, y1 = R.y + 0.32, lin = new THREE.Mesh(new THREE.CylinderGeometry(0.445, 0.445, y1 - y0, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.8, metalness: 0.35, side: THREE.BackSide }));
         lin.position.set(R.hx, (y0 + y1) / 2, R.hz); lin.receiveShadow = true; this.group.add(lin);
-        const pit = new THREE.Mesh(new THREE.CircleGeometry(0.445, 20), new THREE.MeshBasicMaterial({ color: 0x030303 })); pit.rotation.x = -Math.PI / 2; pit.position.set(R.hx, y0, R.hz); this.group.add(pit);
-        for (const s of [-1, 1]) this.pc('steelBolt', 0.018, 0.018, y1 - y0, R.hx + 0.3, (y0 + y1) / 2, R.hz + s * 0.2, 0, 0, 0, 6);
-        for (let y = R.y - 0.1; y > y0 + 0.08; y -= 0.25) this.pc('steelBolt', 0.014, 0.014, 0.4, R.hx + 0.3, y, R.hz, Math.PI / 2, 0, 0, 6);
       }
       // and below, in the airlock: a steel ladder up the chamber's front wall to a hatch in its ceiling
       const lx = AIRLOCK.x1 - 0.2, H = SHIP.h;
+      // (its rails run on up through the hatch in the ceiling and the trunk to the top of the coaming, the hoop over them)
+      const LH = R.y + 0.32;
       for (const s of [-1, 1]) {
-        this.pc('steelBolt', 0.022, 0.022, H, lx, H / 2, R.hz + s * 0.22, 0, 0, 0, 6);
+        this.pc('steelBolt', 0.022, 0.022, LH, lx, LH / 2, R.hz + s * 0.22, 0, 0, 0, 6);
         for (const y of [0.4, 1.6, 2.8]) this.pb(D, 0.14, 0.04, 0.04, lx + 0.08, y, R.hz + s * 0.22);
       }
-      for (let y = 0.3; y < H - 0.1; y += 0.3) this.pc('steelBolt', 0.016, 0.016, 0.44, lx, y, R.hz, Math.PI / 2, 0, 0, 6);
-      this.pb(D, 0.86, 0.06, 0.86, R.hx, H - 0.03, R.hz);
-      this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.43); this.pb('hazard', 0.9, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.43);
-      this.pt(D, 0.3, 0.03, R.hx, H - 0.08, R.hz, Math.PI / 2, 0, 0, 16);
+      for (let y = 0.3; y < LH - 0.15; y += 0.3) this.pc('steelBolt', 0.016, 0.016, 0.44, lx, y, R.hz, Math.PI / 2, 0, 0, 6);
+      // the hatch in the airlock's ceiling: a framed round opening up into the trunk
+      for (const s of [-1, 1]) { this.pb(D, 1.08, 0.06, 0.1, R.hx, H - 0.03, R.hz + s * 0.49); this.pb(D, 0.1, 0.06, 0.88, R.hx + s * 0.49, H - 0.03, R.hz); }
+      this.pb('hazard', 1.1, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.55); this.pb('hazard', 1.1, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.55);
       this.col(lx - 0.05, AIRLOCK.x1, R.hz - 0.28, R.hz + 0.28);
       // you take hold of the ladder by looking at the rungs themselves (anywhere up them), not just near it
       this.interact.push({ kind: 'ladder', x: lx - 0.04, y: 1.6, z: R.hz, r: 0.1, h: 1.3 });
@@ -728,13 +757,14 @@ const Ship = (() => {
         for (const [yy, c] of [[0.07, 0x1c8a3a], [-0.06, 0x8a1c14]]) { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 12), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.25, roughness: 0.4 })); k.rotation.x = Math.PI / 2; k.position.set(0, yy, 0.035); g.add(k); }
       };
       ctl(A.x1 - 0.09, 1.35, 3.45, -Math.PI / 2);
-      // (the outside one is set into the jamb of the doorway, in the thickness of the hull, its face flush with it)
-      ctl(DOOR.x1 + 0.02, 1.25, 4.27, -Math.PI / 2);
+      // (the outside one is on the hull beside the doorway, flat to the skin, clear of the hatch when it's open)
+      const hx = DOOR.x1 + 0.34, hz = skinW(hx, 1.3);
+      ctl(hx, 1.3, hz + 0.02, 0);
       // and the inner door's own: one on the bay wall beside it, one inside the chamber
       ctl(-1.65, 1.3, A.z0 - 0.26, Math.PI); ctl(-1.67, 1.3, A.z0 + 0.07, 0);
       // (worked by pressing the buttons themselves, not by looking at the door)
       this.interact.push({ kind: 'hatch', x: A.x1 - 0.13, y: 1.35, z: 3.45, r: 0.16 });
-      this.interact.push({ kind: 'hatch', x: DOOR.x1 - 0.02, y: 1.25, z: 4.27, r: 0.16 });
+      this.interact.push({ kind: 'hatch', x: hx, y: 1.3, z: hz + 0.06, r: 0.16 });
       this.interact.push({ kind: 'idoor', x: -1.65, y: 1.3, z: A.z0 - 0.3, r: 0.16 });
       this.interact.push({ kind: 'idoor', x: -1.67, y: 1.3, z: A.z0 + 0.11, r: 0.16 });
       // walls and the inner door are solid (the door only while it's shut)
@@ -1385,7 +1415,14 @@ const Ship = (() => {
       blanket(1, -7.05, AIRLOCK.x0, [-5.8]);
       blanket(1, AIRLOCK.x1, 3.5, [2.5]);
       // perforated steel panels over the whole ceiling
-      { const c = this.mesh(new THREE.PlaneGeometry(10.55, 8.0), MATS.rep('perf', 10.55 / 1.3, 8 / 1.3)); c.rotation.x = Math.PI / 2; c.position.set(-1.775, H - 0.004, 0); c.castShadow = false; }
+      // (with the roof hatch's opening cut in it, over the airlock)
+      {
+        const W = 10.55, Dp = 8.0, sh = new THREE.Shape(); sh.moveTo(-W / 2, -Dp / 2); sh.lineTo(W / 2, -Dp / 2); sh.lineTo(W / 2, Dp / 2); sh.lineTo(-W / 2, Dp / 2); sh.closePath();
+        const ho = new THREE.Path(); ho.absarc(ROOF.hx + 1.775, ROOF.hz, 0.44, 0, TAU, true); sh.holes.push(ho);
+        const g = new THREE.ShapeGeometry(sh, 24), p = g.attributes.position, uv = g.attributes.uv;
+        for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) + W / 2) / W, (p.getY(i) + Dp / 2) / Dp);
+        const c = this.mesh(g, MATS.rep('perf', W / 1.3, Dp / 1.3)); c.rotation.x = Math.PI / 2; c.position.set(-1.775, H - 0.004, 0); c.castShadow = false;
+      }
       // deck access hatches: a framed plate with a lift handle and four bolts
       for (const [x, z] of [[-4.0, 0.7], [-1.0, -1.6], [1.6, 0.9]]) {
         this.pb('metal', 0.9, 0.012, 0.9, x, 0.006, z);
@@ -1607,6 +1644,7 @@ const Ship = (() => {
         float hullBox(vec2 p, vec2 c, vec2 h, float r) { vec2 q = abs(p - c) - h + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
         bool hullHole(vec3 p) {
           float az = abs(p.z);
+          if (p.y > 3.6 && length(p.xz - vec2(${f(ROOF.hx)}, ${f(ROOF.hz)})) < 0.44) return true;
           if (az > 4.0 && p.x > -7.4 && p.x < 3.7) {
             ${PORTS.map(([x, s]) => `if (p.z * ${f(s)} > 0.0 && length(p.xy - vec2(${f(x)}, 1.75)) < ${f(PORT_R)}) return true;`).join('\n            ')}
             if (p.z > 0.0 && p.y > ${f(DOOR.y0)} && hullBox(p.xy, vec2(${f((DOOR.x0 + DOOR.x1) / 2)}, ${f((DOOR.y1 + DOOR.y0 - 1) / 2)}), vec2(${f((DOOR.x1 - DOOR.x0) / 2)}, ${f((DOOR.y1 - DOOR.y0 + 1) / 2)}), ${f(DOOR.r)}) < 0.0) return true;
@@ -1914,7 +1952,25 @@ const Ship = (() => {
       // roof: antenna, dish, vents, floodlight, each seated on the curve of the crown
       const tilt = (x, z) => Math.atan(-(skinTop(x, z + 0.05) - skinTop(x, z - 0.05)) / 0.1);
       { const y = skinTop(-3.0, -2.2); this.cyl(0.03, 0.03, 2.2, dm, -3.0, y + 1.1, -2.2, 0, 0, 0, 6); this.navLight(-3.0, y + 2.22, -2.2, 0xff2010, true); }
-      { const y = skinTop(0.6, -2.05); const dish = this.mesh(new THREE.SphereGeometry(0.65, 14, 8, 0, TAU, 0, Math.PI / 3), MATS.get('painted')); dish.position.set(0.6, y + 0.65, -2.05); dish.rotation.set(-0.7, 0.4, 0); this.cyl(0.05, 0.05, 0.6, dm, 0.6, y + 0.3, -2.05, 0, 0, 0, 6); }
+      // (the dish: a flange on the crown, a mast, a hinge at its head; the bowl turned up and out on it, and the feed
+      // horn held out at its focus on three struts)
+      {
+        const y = skinTop(0.6, -2.05), g = new THREE.Group(); g.position.set(0.6, y, -2.05); this.group.add(g);
+        const add = (geo, m, x, yy, z, par, rx = 0, ry = 0, rz = 0) => { const me = new THREE.Mesh(geo, m); me.position.set(x, yy, z); me.rotation.set(rx, ry, rz); me.castShadow = true; me.receiveShadow = true; par.add(me); return me; };
+        add(new THREE.CylinderGeometry(0.16, 0.19, 0.05, 14), dm, 0, 0.0, 0, g);
+        add(new THREE.CylinderGeometry(0.045, 0.055, 0.62, 8), dm, 0, 0.33, 0, g);
+        const h = new THREE.Group(); h.position.set(0, 0.64, 0); h.rotation.y = 0.4; g.add(h);
+        add(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 8), dm, 0, 0, 0, h, 0, 0, Math.PI / 2);
+        const t = new THREE.Group(); t.rotation.x = -0.8; h.add(t);
+        const f = 0.32, Rd = 0.58, pts = []; for (let i = 0; i <= 10; i++) { const rr = (i / 10) * Rd; pts.push(new THREE.Vector2(rr, 0.08 + rr * rr / (4 * f))); }
+        add(new THREE.LatheGeometry(pts, 24), new THREE.MeshStandardMaterial({ color: 0xd2cec2, roughness: 0.55, metalness: 0.2, side: THREE.DoubleSide }), 0, 0, 0, t);
+        add(new THREE.CylinderGeometry(0.06, 0.04, 0.09, 10), dm, 0, 0.045, 0, t);
+        const fy = 0.08 + f; add(new THREE.CylinderGeometry(0.035, 0.025, 0.09, 10), dm, 0, fy, 0, t);
+        for (let k = 0; k < 3; k++) {
+          const a = k * TAU / 3 + 0.5, rr = Rd * 0.94, rim = V(Math.cos(a) * rr, 0.08 + rr * rr / (4 * f), Math.sin(a) * rr), tip = V(0, fy - 0.04, 0);
+          const o = add(new THREE.CylinderGeometry(0.008, 0.008, rim.distanceTo(tip), 5), dm, 0, 0, 0, t); o.position.copy(rim).add(tip).multiplyScalar(0.5); o.quaternion.setFromUnitVectors(V(0, 1, 0), tip.clone().sub(rim).normalize());
+        }
+      }
       for (const [x, z] of [[-5.5, 1.95], [-1.0, -1.95], [1.0, 1.85]]) this.box(1.0, 0.3, 0.7, MATS.get('vent'), x, skinTop(x, z) + 0.08, z).rotation.x = tilt(x, z);
       // RCS thruster quads seated on the rounded shoulders, nozzles out along the skin's normal and fore and aft (where
       // each nozzle's mouth is and which way it fires, for the puffs in space)
@@ -3433,6 +3489,13 @@ const Ship = (() => {
       return hit;
     }
     update(dt, time, mode) {
+      // (the air going past the glass, in the ship's own frame, for the rain on it: how fast the ship is moving)
+      if (this.glassU) {
+        const U = this.glassU, M = this.group.matrixWorld; U.uGlassInv.value.copy(M).invert(); U.uRainT.value = time;
+        _rw.setFromMatrixPosition(M);
+        if (this.rwPrev && dt > 0) { _rv.copy(this.rwPrev).sub(_rw).divideScalar(dt); if (_rv.lengthSq() > 250 * 250) _rv.set(0, 0, 0); _rv.applyQuaternion(_rq.setFromRotationMatrix(M).invert()); U.uRainV.value.lerp(_rv, 1 - Math.exp(-4 * dt)); }
+        (this.rwPrev || (this.rwPrev = V())).copy(_rw);
+      }
       // (the cabin's small things only while you're aboard or near enough outside to see in)
       if (this.cabinBits) { const e = this.group.worldToLocal(_eye.copy(R.camera.position)), dx = Math.max(0, -7.4 - e.x, e.x - 8.2), dz = Math.max(0, Math.abs(e.z) - 4.3); this.cabinBits.visible = Math.hypot(dx, dz) < 9 && e.y > -6 && e.y < 14; }
       // the bay clock: site time down there, the ship's own (the real time) up here

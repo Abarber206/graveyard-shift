@@ -5756,7 +5756,8 @@ const Facility = (() => {
       // a hill: one wet column grown up out of corner c (k: how big), its foot flaring out over the floor and its crown
       // spreading out over the ceiling in lobes, fluted up its length like a termite hill, swollen here and there, and
       // pocked with burrows, each a pit with a raised lip and a dull red glow down in it. (Round a centre a little out
-      // from the corner; what's behind the two walls is pressed flat just behind them.)
+      // from the corner; where it would go into the two walls it's pressed flat against them, never through: what's on
+      // the far side would see it, breathing in and out of the wall.)
       const cols = [];
       function* column(c, k, holes) {
         const { ux, uz } = c, a0 = 0.45 * k, oA = r.range(0, 100), oB = r.range(0, 100), oC = r.range(0, 100), G = { hill: null, mound: [], glow: [] };
@@ -5781,7 +5782,7 @@ const Facility = (() => {
             const lip = 0.035 * Math.exp(-(((d - q.rho) / 0.035) ** 2)), pit = 0.14 * Math.exp(-((d / (q.rho * 0.8)) ** 4));
             rad += lip - pit; rel += lip * 6 - pit * 9;
           }
-          const la = Math.max(-0.3, a0 + Math.cos(th) * rad), lb = Math.max(-0.3, a0 + Math.sin(th) * rad), [x, z] = at(la, lb, c);
+          const la = Math.max(0.01, a0 + Math.cos(th) * rad), lb = Math.max(0.01, a0 + Math.sin(th) * rad), [x, z] = at(la, lb, c);
           return { p: V(x, Y + clamp(y, -0.02, h + 0.02), z), rel, la, lb };
         };
         if (holes) for (let t = 0; t < 120 && pits.filter((q) => q.hole).length < 7; t++) {
@@ -5843,6 +5844,8 @@ const Facility = (() => {
           if (!s || (s.p.x - c.cx) * ux < 0.15 || (s.p.z - c.cz) * uz < 0.15) continue;
           G.mound.push(colour(bare(new THREE.CylinderGeometry(0.013, 0.004, len, 5)).translate(s.p.x, s.p.y + 0.03 - len / 2, s.p.z), (cc, i, x, y) => paint(cc, i, 0.3 + (s.p.y - y) / len * 0.5, PAL.flesh)));
         }
+        // (the swellings, eggs and strands pressed flat against the walls too, never through them)
+        for (const g of [...G.mound, ...G.glow]) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { if ((p.getX(i) - c.cx) * ux < 0.01) p.setX(i, c.cx + ux * 0.01); if ((p.getZ(i) - c.cz) * uz < 0.01) p.setZ(i, c.cz + uz * 0.01); } }
         // nothing walks into it, and nothing's left lying inside it
         { const [x0, z0] = at(0, 0, c), [x1, z1] = at(1.45 * k, 1.45 * k, c); this.addCol(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), h, null); }
         this.spots = this.spots.filter((s) => { const a = (s.x - c.cx) * ux, b = (s.z - c.cz) * uz; return !(a > -0.1 && b > -0.1 && a < 1.8 * k && b < 1.8 * k && Math.abs(s.y - Y) < 3) && !(a > -0.1 && b > -0.1 && a < 2.7 * k && b < 2.7 * k && s.y > top - 1); });
@@ -9181,20 +9184,20 @@ const Exterior = (() => {
       const r = this.rng;
       const a = r.range(0, TAU), off = r.range(45, 75) * (r.chance(0.5) ? 1 : -1);
       const dir = { x: Math.cos(a), z: Math.sin(a) }, nrm = { x: -dir.z, z: dir.x };
-      const parts = [];
-      const H = 24;
-      for (const [lx, lz] of [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]]) {
-        const len = Math.hypot(H, Math.hypot(lx, lz) * 0.7);
-        parts.push({ geo: new THREE.BoxGeometry(0.25, len, 0.25), matrix: mat(lx * 0.6, H / 2, lz * 0.6, -lz * 0.025, 0, lx * 0.025) });
-      }
-      for (let y = 3; y < H; y += 3.5) {
-        const w = 4.4 * (1 - (y / H) * 0.6);
-        parts.push({ geo: new THREE.BoxGeometry(w, 0.12, 0.12), matrix: mat(0, y, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(0.12, 0.12, w), matrix: mat(0, y, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(w * 1.4, 0.08, 0.08), matrix: mat(0, y + 1.6, 0, 0, Math.PI / 4, 0.6) });
+      // a lattice tower: four legs leaning in from its feet, girts across between them at each storey and an X of
+      // bracing on every face, every member running leg to leg; the crossarms up top, the lines hung on insulators
+      const parts = [], H = 24, B = 1.32, T = 0.55, at = (sx, sz, y) => { const w = B + (T - B) * y / H; return new THREE.Vector3(sx * w, y, sz * w); };
+      const member = (a, b, t) => { const o = new THREE.Object3D(); o.position.copy(a).add(b).multiplyScalar(0.5); o.lookAt(b); o.updateMatrix(); parts.push({ geo: new THREE.BoxGeometry(t, t, a.distanceTo(b)), matrix: o.matrix.clone() }); };
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]], ys = [0, 3.6, 7.2, 10.6, 13.8, 16.8, 19, H - 2, H];
+      for (const [sx, sz] of corners) member(at(sx, sz, 0), at(sx, sz, H), 0.24);
+      for (let q = 1; q < ys.length; q++) for (let e = 0; e < 4; e++) {
+        const [ax, az] = corners[e], [bx, bz] = corners[(e + 1) % 4], y0 = ys[q - 1], y1 = ys[q];
+        member(at(ax, az, y1), at(bx, bz, y1), 0.11);
+        member(at(ax, az, y0), at(bx, bz, y1), 0.07); member(at(bx, bz, y0), at(ax, az, y1), 0.07);
       }
       parts.push({ geo: new THREE.BoxGeometry(11, 0.3, 0.3), matrix: mat(0, H - 2, 0) });
       parts.push({ geo: new THREE.BoxGeometry(7, 0.3, 0.3), matrix: mat(0, H - 5, 0) });
+      for (const x of [-5, 0, 5]) parts.push({ geo: new THREE.CylinderGeometry(0.07, 0.07, 0.7, 8), matrix: mat(x, H - 2.5, 0) });
       const pg = mergeGeoList(parts);
       const tops = [];
       for (let n = -3; n <= 3; n++) {
@@ -9209,7 +9212,7 @@ const Exterior = (() => {
         // in the Hollow the towers have buckled and lean; their lines are down
         m.rotation.set(leaning ? r.range(-0.14, 0.14) : 0, yaw, leaning ? r.range(-0.12, 0.12) : 0, 'YXZ'); m.castShadow = true; grp.add(m);
         this.addCircle(x, z, 2.2);
-        tops.push({ x, y: y + H - 2.3, z });
+        tops.push({ x, y: y - 0.5 + H - 2.85, z });
       }
       const lm = new THREE.LineBasicMaterial({ color: 0x0b0b0b });
       if (this.key !== 'hollow') for (let n = 0; n < tops.length - 1; n++) for (const s of [-5, 0, 5]) {
@@ -10370,8 +10373,11 @@ const Ship = (() => {
     // into it from a ladder in the airlock (somewhere to ride the takeoff and landing out in the wind) ----------
     buildRoofDeck() {
       const R = ROOF, D = 'darkmetal', Y = 'yellow', cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2, w = R.x1 - R.x0, d = R.z1 - R.z0;
-      this.cm.deckGrate = MATS.rep('grate', w, d);
-      this.pb('deckGrate', w, 0.05, d, cx, R.y - 0.025, cz);
+      // (the grating stops round the hatch: it's a hole, down into the trunk)
+      const hh = 0.46;
+      [[R.x0, R.hx - hh, R.z0, R.z1], [R.hx + hh, R.x1, R.z0, R.z1], [R.hx - hh, R.hx + hh, R.z0, R.hz - hh], [R.hx - hh, R.hx + hh, R.hz + hh, R.z1]].forEach(([a, b, c, e], i) => {
+        this.cm['deckGrate' + i] = MATS.rep('grate', b - a, e - c); this.pb('deckGrate' + i, b - a, 0.05, e - c, (a + b) / 2, R.y - 0.025, (c + e) / 2);
+      });
       // its frame, and stilts down onto the hull (longer toward the shoulder, where the crown falls away)
       for (const z of [R.z0, R.z1]) this.pb(D, w, 0.12, 0.08, cx, R.y - 0.11, z);
       for (const x of [R.x0, R.x1]) this.pb(D, 0.08, 0.12, d, x, R.y - 0.11, cz);
@@ -10397,6 +10403,15 @@ const Ship = (() => {
       this.pc(D, 0.5, 0.5, 0.06, R.hx, R.y + 0.36 + 0.45, R.hz + 0.56, Math.PI / 2 + 0.2, 0, 0, 20);
       this.pc('steelBolt', 0.06, 0.06, 0.12, R.hx, R.y + 0.34, R.hz + 0.47, 0, 0, Math.PI / 2, 8);
       this.pt(Y, 0.22, 0.02, R.hx + 0.42, R.y + 0.32 + 0.2, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
+      // down inside it: the trunk's own walls (seen from within), the rungs of a ladder going down it, and the dark
+      // where it drops away into the ship
+      {
+        const y0 = top + 0.04, y1 = R.y + 0.32, lin = new THREE.Mesh(new THREE.CylinderGeometry(0.445, 0.445, y1 - y0, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x1a1b1e, roughness: 0.85, metalness: 0.3, side: THREE.BackSide }));
+        lin.position.set(R.hx, (y0 + y1) / 2, R.hz); lin.receiveShadow = true; this.group.add(lin);
+        const pit = new THREE.Mesh(new THREE.CircleGeometry(0.445, 20), new THREE.MeshBasicMaterial({ color: 0x030303 })); pit.rotation.x = -Math.PI / 2; pit.position.set(R.hx, y0, R.hz); this.group.add(pit);
+        for (const s of [-1, 1]) this.pc('steelBolt', 0.018, 0.018, y1 - y0, R.hx + 0.3, (y0 + y1) / 2, R.hz + s * 0.2, 0, 0, 0, 6);
+        for (let y = R.y - 0.1; y > y0 + 0.08; y -= 0.25) this.pc('steelBolt', 0.014, 0.014, 0.4, R.hx + 0.3, y, R.hz, Math.PI / 2, 0, 0, 6);
+      }
       // and below, in the airlock: a steel ladder up the chamber's front wall to a hatch in its ceiling
       const lx = AIRLOCK.x1 - 0.2, H = SHIP.h;
       for (const s of [-1, 1]) {
@@ -10497,11 +10512,15 @@ const Ship = (() => {
         for (const [yy, c] of [[0.07, 0x1c8a3a], [-0.06, 0x8a1c14]]) { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 12), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.25, roughness: 0.4 })); k.rotation.x = Math.PI / 2; k.position.set(0, yy, 0.035); g.add(k); }
       };
       ctl(A.x1 - 0.09, 1.35, 3.45, -Math.PI / 2);
-      // (the outside one is on the jamb of the doorway, in the thickness of the hull)
-      ctl(DOOR.x1 - 0.03, 1.25, 4.62, -Math.PI / 2);
-      this.interact.push({ kind: 'hatch', x: A.x1 - 0.14, y: 1.35, z: 3.45, r: 0.3 });
-      this.interact.push({ kind: 'hatch', x: DOOR.x1 - 0.08, y: 1.25, z: 4.62, r: 0.3 });
-      this.interact.push({ kind: 'idoor', x: cx, y: 1.2, z: A.z0, r: 0.55 });
+      // (the outside one is set into the jamb of the doorway, in the thickness of the hull, its face flush with it)
+      ctl(DOOR.x1 + 0.02, 1.25, 4.27, -Math.PI / 2);
+      // and the inner door's own: one on the bay wall beside it, one inside the chamber
+      ctl(-1.65, 1.3, A.z0 - 0.26, Math.PI); ctl(-1.67, 1.3, A.z0 + 0.07, 0);
+      // (worked by pressing the buttons themselves, not by looking at the door)
+      this.interact.push({ kind: 'hatch', x: A.x1 - 0.13, y: 1.35, z: 3.45, r: 0.16 });
+      this.interact.push({ kind: 'hatch', x: DOOR.x1 - 0.02, y: 1.25, z: 4.27, r: 0.16 });
+      this.interact.push({ kind: 'idoor', x: -1.65, y: 1.3, z: A.z0 - 0.3, r: 0.16 });
+      this.interact.push({ kind: 'idoor', x: -1.67, y: 1.3, z: A.z0 + 0.11, r: 0.16 });
       // walls and the inner door are solid (the door only while it's shut)
       this.col(A.x0, A.x0 + 0.08, A.z0 - 0.06, 4.0); this.col(A.x1 - 0.08, A.x1, A.z0 - 0.06, 4.0);
       this.col(A.x0, A.ix0, A.z0 - 0.06, A.z0 + 0.06); this.col(A.ix1, A.x1, A.z0 - 0.06, A.z0 + 0.06);
@@ -11544,7 +11563,7 @@ const Ship = (() => {
           const n = Math.max(2, Math.ceil((x1 - x0) / 0.25));
           for (let i = 0; i < n; i++) {
             const a = lerp(x0, x1, i / n), b = lerp(x0, x1, (i + 1) / n);
-            quad(arr, sk(a, yc - h(a), s, 0.006), sk(b, yc - h(b), s, 0.006), sk(b, yc + h(b), s, 0.006), sk(a, yc + h(a), s, 0.006));
+            quad(arr, sk(a, yc - h(a), s, 0.01), sk(b, yc - h(b), s, 0.01), sk(b, yc + h(b), s, 0.01), sk(a, yc + h(a), s, 0.01));
           }
         };
         const taper = (x) => sstep(-13.6, -11.6, x) * (1 - sstep(8.6, 10.4, x));
@@ -11552,7 +11571,9 @@ const Ship = (() => {
           strip(o, s, x0, x1, 0.74, (x) => 0.17 * taper(x));
           strip(k, s, x0, x1, 0.5, (x) => 0.025 * taper(x));
         }
-        const dm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+        // (lifted off the skin a little and drawn a fixed hair nearer, not by how steeply the skin is seen: that much
+        // more again where the nose curves away, and the paint would show through the nose and the lights in front of it)
+        const dm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4 });
         mk(o, dm(0xc2541a)).castShadow = false; mk(k, dm(0x151617)).castShadow = false;
       }
       // a raised seam along each shoulder
@@ -18905,11 +18926,13 @@ const Player = (() => {
       // something tall (h: half its height) is aimed at anywhere up it: the point on it level with where you're looking
       let oy = o.y;
       if (o.h) { const hd = Math.hypot(o.x - eye.x, o.z - eye.z), hl = Math.hypot(dir.x, dir.z); oy = clamp(eye.y + dir.y * hd / Math.max(hl, 0.05), o.y - o.h, o.y + o.h); }
+      // (within arm's reach: a couple of metres from the eye, a little more for something big; and aimed at, not just
+      // somewhere near the middle of the view)
       const v = new THREE.Vector3(o.x - eye.x, oy - eye.y, o.z - eye.z);
       const along = v.dot(dir);
-      if (along < 0.1 || along > 2.6 + (o.r || 0.3)) return;
+      if (along < 0.1 || v.length() > 1.9 + Math.min(o.r || 0.3, 0.4)) return;
       const perp = v.clone().sub(dir.clone().multiplyScalar(along)).length();
-      if (perp > (o.r || 0.3) + 0.12 + along * 0.08) return;
+      if (perp > (o.r || 0.3) + 0.06 + along * 0.04) return;
       const score = along + perp * 2 + (o.pen || 0);
       if (score < bestScore) { bestScore = score; best = o; }
     };

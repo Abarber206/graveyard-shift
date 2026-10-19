@@ -1379,7 +1379,8 @@ const Facility = (() => {
       // a hill: one wet column grown up out of corner c (k: how big), its foot flaring out over the floor and its crown
       // spreading out over the ceiling in lobes, fluted up its length like a termite hill, swollen here and there, and
       // pocked with burrows, each a pit with a raised lip and a dull red glow down in it. (Round a centre a little out
-      // from the corner; what's behind the two walls is pressed flat just behind them.)
+      // from the corner; where it would go into the two walls it's pressed flat against them, never through: what's on
+      // the far side would see it, breathing in and out of the wall.)
       const cols = [];
       function* column(c, k, holes) {
         const { ux, uz } = c, a0 = 0.45 * k, oA = r.range(0, 100), oB = r.range(0, 100), oC = r.range(0, 100), G = { hill: null, mound: [], glow: [] };
@@ -1404,7 +1405,7 @@ const Facility = (() => {
             const lip = 0.035 * Math.exp(-(((d - q.rho) / 0.035) ** 2)), pit = 0.14 * Math.exp(-((d / (q.rho * 0.8)) ** 4));
             rad += lip - pit; rel += lip * 6 - pit * 9;
           }
-          const la = Math.max(-0.3, a0 + Math.cos(th) * rad), lb = Math.max(-0.3, a0 + Math.sin(th) * rad), [x, z] = at(la, lb, c);
+          const la = Math.max(0.01, a0 + Math.cos(th) * rad), lb = Math.max(0.01, a0 + Math.sin(th) * rad), [x, z] = at(la, lb, c);
           return { p: V(x, Y + clamp(y, -0.02, h + 0.02), z), rel, la, lb };
         };
         if (holes) for (let t = 0; t < 120 && pits.filter((q) => q.hole).length < 7; t++) {
@@ -1466,6 +1467,8 @@ const Facility = (() => {
           if (!s || (s.p.x - c.cx) * ux < 0.15 || (s.p.z - c.cz) * uz < 0.15) continue;
           G.mound.push(colour(bare(new THREE.CylinderGeometry(0.013, 0.004, len, 5)).translate(s.p.x, s.p.y + 0.03 - len / 2, s.p.z), (cc, i, x, y) => paint(cc, i, 0.3 + (s.p.y - y) / len * 0.5, PAL.flesh)));
         }
+        // (the swellings, eggs and strands pressed flat against the walls too, never through them)
+        for (const g of [...G.mound, ...G.glow]) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { if ((p.getX(i) - c.cx) * ux < 0.01) p.setX(i, c.cx + ux * 0.01); if ((p.getZ(i) - c.cz) * uz < 0.01) p.setZ(i, c.cz + uz * 0.01); } }
         // nothing walks into it, and nothing's left lying inside it
         { const [x0, z0] = at(0, 0, c), [x1, z1] = at(1.45 * k, 1.45 * k, c); this.addCol(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), h, null); }
         this.spots = this.spots.filter((s) => { const a = (s.x - c.cx) * ux, b = (s.z - c.cz) * uz; return !(a > -0.1 && b > -0.1 && a < 1.8 * k && b < 1.8 * k && Math.abs(s.y - Y) < 3) && !(a > -0.1 && b > -0.1 && a < 2.7 * k && b < 2.7 * k && s.y > top - 1); });

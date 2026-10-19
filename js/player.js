@@ -201,11 +201,13 @@ const Player = (() => {
       // something tall (h: half its height) is aimed at anywhere up it: the point on it level with where you're looking
       let oy = o.y;
       if (o.h) { const hd = Math.hypot(o.x - eye.x, o.z - eye.z), hl = Math.hypot(dir.x, dir.z); oy = clamp(eye.y + dir.y * hd / Math.max(hl, 0.05), o.y - o.h, o.y + o.h); }
+      // (within arm's reach: a couple of metres from the eye, a little more for something big; and aimed at, not just
+      // somewhere near the middle of the view)
       const v = new THREE.Vector3(o.x - eye.x, oy - eye.y, o.z - eye.z);
       const along = v.dot(dir);
-      if (along < 0.1 || along > 2.6 + (o.r || 0.3)) return;
+      if (along < 0.1 || v.length() > 1.9 + Math.min(o.r || 0.3, 0.4)) return;
       const perp = v.clone().sub(dir.clone().multiplyScalar(along)).length();
-      if (perp > (o.r || 0.3) + 0.12 + along * 0.08) return;
+      if (perp > (o.r || 0.3) + 0.06 + along * 0.04) return;
       const score = along + perp * 2 + (o.pen || 0);
       if (score < bestScore) { bestScore = score; best = o; }
     };

@@ -1792,20 +1792,20 @@ const Exterior = (() => {
       const r = this.rng;
       const a = r.range(0, TAU), off = r.range(45, 75) * (r.chance(0.5) ? 1 : -1);
       const dir = { x: Math.cos(a), z: Math.sin(a) }, nrm = { x: -dir.z, z: dir.x };
-      const parts = [];
-      const H = 24;
-      for (const [lx, lz] of [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]]) {
-        const len = Math.hypot(H, Math.hypot(lx, lz) * 0.7);
-        parts.push({ geo: new THREE.BoxGeometry(0.25, len, 0.25), matrix: mat(lx * 0.6, H / 2, lz * 0.6, -lz * 0.025, 0, lx * 0.025) });
-      }
-      for (let y = 3; y < H; y += 3.5) {
-        const w = 4.4 * (1 - (y / H) * 0.6);
-        parts.push({ geo: new THREE.BoxGeometry(w, 0.12, 0.12), matrix: mat(0, y, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(0.12, 0.12, w), matrix: mat(0, y, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(w * 1.4, 0.08, 0.08), matrix: mat(0, y + 1.6, 0, 0, Math.PI / 4, 0.6) });
+      // a lattice tower: four legs leaning in from its feet, girts across between them at each storey and an X of
+      // bracing on every face, every member running leg to leg; the crossarms up top, the lines hung on insulators
+      const parts = [], H = 24, B = 1.32, T = 0.55, at = (sx, sz, y) => { const w = B + (T - B) * y / H; return new THREE.Vector3(sx * w, y, sz * w); };
+      const member = (a, b, t) => { const o = new THREE.Object3D(); o.position.copy(a).add(b).multiplyScalar(0.5); o.lookAt(b); o.updateMatrix(); parts.push({ geo: new THREE.BoxGeometry(t, t, a.distanceTo(b)), matrix: o.matrix.clone() }); };
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]], ys = [0, 3.6, 7.2, 10.6, 13.8, 16.8, 19, H - 2, H];
+      for (const [sx, sz] of corners) member(at(sx, sz, 0), at(sx, sz, H), 0.24);
+      for (let q = 1; q < ys.length; q++) for (let e = 0; e < 4; e++) {
+        const [ax, az] = corners[e], [bx, bz] = corners[(e + 1) % 4], y0 = ys[q - 1], y1 = ys[q];
+        member(at(ax, az, y1), at(bx, bz, y1), 0.11);
+        member(at(ax, az, y0), at(bx, bz, y1), 0.07); member(at(bx, bz, y0), at(ax, az, y1), 0.07);
       }
       parts.push({ geo: new THREE.BoxGeometry(11, 0.3, 0.3), matrix: mat(0, H - 2, 0) });
       parts.push({ geo: new THREE.BoxGeometry(7, 0.3, 0.3), matrix: mat(0, H - 5, 0) });
+      for (const x of [-5, 0, 5]) parts.push({ geo: new THREE.CylinderGeometry(0.07, 0.07, 0.7, 8), matrix: mat(x, H - 2.5, 0) });
       const pg = mergeGeoList(parts);
       const tops = [];
       for (let n = -3; n <= 3; n++) {
@@ -1820,7 +1820,7 @@ const Exterior = (() => {
         // in the Hollow the towers have buckled and lean; their lines are down
         m.rotation.set(leaning ? r.range(-0.14, 0.14) : 0, yaw, leaning ? r.range(-0.12, 0.12) : 0, 'YXZ'); m.castShadow = true; grp.add(m);
         this.addCircle(x, z, 2.2);
-        tops.push({ x, y: y + H - 2.3, z });
+        tops.push({ x, y: y - 0.5 + H - 2.85, z });
       }
       const lm = new THREE.LineBasicMaterial({ color: 0x0b0b0b });
       if (this.key !== 'hollow') for (let n = 0; n < tops.length - 1; n++) for (const s of [-5, 0, 5]) {

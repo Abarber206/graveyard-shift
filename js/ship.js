@@ -589,8 +589,11 @@ const Ship = (() => {
     // into it from a ladder in the airlock (somewhere to ride the takeoff and landing out in the wind) ----------
     buildRoofDeck() {
       const R = ROOF, D = 'darkmetal', Y = 'yellow', cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2, w = R.x1 - R.x0, d = R.z1 - R.z0;
-      this.cm.deckGrate = MATS.rep('grate', w, d);
-      this.pb('deckGrate', w, 0.05, d, cx, R.y - 0.025, cz);
+      // (the grating stops round the hatch: it's a hole, down into the trunk)
+      const hh = 0.46;
+      [[R.x0, R.hx - hh, R.z0, R.z1], [R.hx + hh, R.x1, R.z0, R.z1], [R.hx - hh, R.hx + hh, R.z0, R.hz - hh], [R.hx - hh, R.hx + hh, R.hz + hh, R.z1]].forEach(([a, b, c, e], i) => {
+        this.cm['deckGrate' + i] = MATS.rep('grate', b - a, e - c); this.pb('deckGrate' + i, b - a, 0.05, e - c, (a + b) / 2, R.y - 0.025, (c + e) / 2);
+      });
       // its frame, and stilts down onto the hull (longer toward the shoulder, where the crown falls away)
       for (const z of [R.z0, R.z1]) this.pb(D, w, 0.12, 0.08, cx, R.y - 0.11, z);
       for (const x of [R.x0, R.x1]) this.pb(D, 0.08, 0.12, d, x, R.y - 0.11, cz);
@@ -616,6 +619,15 @@ const Ship = (() => {
       this.pc(D, 0.5, 0.5, 0.06, R.hx, R.y + 0.36 + 0.45, R.hz + 0.56, Math.PI / 2 + 0.2, 0, 0, 20);
       this.pc('steelBolt', 0.06, 0.06, 0.12, R.hx, R.y + 0.34, R.hz + 0.47, 0, 0, Math.PI / 2, 8);
       this.pt(Y, 0.22, 0.02, R.hx + 0.42, R.y + 0.32 + 0.2, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
+      // down inside it: the trunk's own walls (seen from within), the rungs of a ladder going down it, and the dark
+      // where it drops away into the ship
+      {
+        const y0 = top + 0.04, y1 = R.y + 0.32, lin = new THREE.Mesh(new THREE.CylinderGeometry(0.445, 0.445, y1 - y0, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x1a1b1e, roughness: 0.85, metalness: 0.3, side: THREE.BackSide }));
+        lin.position.set(R.hx, (y0 + y1) / 2, R.hz); lin.receiveShadow = true; this.group.add(lin);
+        const pit = new THREE.Mesh(new THREE.CircleGeometry(0.445, 20), new THREE.MeshBasicMaterial({ color: 0x030303 })); pit.rotation.x = -Math.PI / 2; pit.position.set(R.hx, y0, R.hz); this.group.add(pit);
+        for (const s of [-1, 1]) this.pc('steelBolt', 0.018, 0.018, y1 - y0, R.hx + 0.3, (y0 + y1) / 2, R.hz + s * 0.2, 0, 0, 0, 6);
+        for (let y = R.y - 0.1; y > y0 + 0.08; y -= 0.25) this.pc('steelBolt', 0.014, 0.014, 0.4, R.hx + 0.3, y, R.hz, Math.PI / 2, 0, 0, 6);
+      }
       // and below, in the airlock: a steel ladder up the chamber's front wall to a hatch in its ceiling
       const lx = AIRLOCK.x1 - 0.2, H = SHIP.h;
       for (const s of [-1, 1]) {
@@ -716,11 +728,15 @@ const Ship = (() => {
         for (const [yy, c] of [[0.07, 0x1c8a3a], [-0.06, 0x8a1c14]]) { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 12), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.25, roughness: 0.4 })); k.rotation.x = Math.PI / 2; k.position.set(0, yy, 0.035); g.add(k); }
       };
       ctl(A.x1 - 0.09, 1.35, 3.45, -Math.PI / 2);
-      // (the outside one is on the jamb of the doorway, in the thickness of the hull)
-      ctl(DOOR.x1 - 0.03, 1.25, 4.62, -Math.PI / 2);
-      this.interact.push({ kind: 'hatch', x: A.x1 - 0.14, y: 1.35, z: 3.45, r: 0.3 });
-      this.interact.push({ kind: 'hatch', x: DOOR.x1 - 0.08, y: 1.25, z: 4.62, r: 0.3 });
-      this.interact.push({ kind: 'idoor', x: cx, y: 1.2, z: A.z0, r: 0.55 });
+      // (the outside one is set into the jamb of the doorway, in the thickness of the hull, its face flush with it)
+      ctl(DOOR.x1 + 0.02, 1.25, 4.27, -Math.PI / 2);
+      // and the inner door's own: one on the bay wall beside it, one inside the chamber
+      ctl(-1.65, 1.3, A.z0 - 0.26, Math.PI); ctl(-1.67, 1.3, A.z0 + 0.07, 0);
+      // (worked by pressing the buttons themselves, not by looking at the door)
+      this.interact.push({ kind: 'hatch', x: A.x1 - 0.13, y: 1.35, z: 3.45, r: 0.16 });
+      this.interact.push({ kind: 'hatch', x: DOOR.x1 - 0.02, y: 1.25, z: 4.27, r: 0.16 });
+      this.interact.push({ kind: 'idoor', x: -1.65, y: 1.3, z: A.z0 - 0.3, r: 0.16 });
+      this.interact.push({ kind: 'idoor', x: -1.67, y: 1.3, z: A.z0 + 0.11, r: 0.16 });
       // walls and the inner door are solid (the door only while it's shut)
       this.col(A.x0, A.x0 + 0.08, A.z0 - 0.06, 4.0); this.col(A.x1 - 0.08, A.x1, A.z0 - 0.06, 4.0);
       this.col(A.x0, A.ix0, A.z0 - 0.06, A.z0 + 0.06); this.col(A.ix1, A.x1, A.z0 - 0.06, A.z0 + 0.06);
@@ -1763,7 +1779,7 @@ const Ship = (() => {
           const n = Math.max(2, Math.ceil((x1 - x0) / 0.25));
           for (let i = 0; i < n; i++) {
             const a = lerp(x0, x1, i / n), b = lerp(x0, x1, (i + 1) / n);
-            quad(arr, sk(a, yc - h(a), s, 0.006), sk(b, yc - h(b), s, 0.006), sk(b, yc + h(b), s, 0.006), sk(a, yc + h(a), s, 0.006));
+            quad(arr, sk(a, yc - h(a), s, 0.01), sk(b, yc - h(b), s, 0.01), sk(b, yc + h(b), s, 0.01), sk(a, yc + h(a), s, 0.01));
           }
         };
         const taper = (x) => sstep(-13.6, -11.6, x) * (1 - sstep(8.6, 10.4, x));
@@ -1771,7 +1787,9 @@ const Ship = (() => {
           strip(o, s, x0, x1, 0.74, (x) => 0.17 * taper(x));
           strip(k, s, x0, x1, 0.5, (x) => 0.025 * taper(x));
         }
-        const dm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+        // (lifted off the skin a little and drawn a fixed hair nearer, not by how steeply the skin is seen: that much
+        // more again where the nose curves away, and the paint would show through the nose and the lights in front of it)
+        const dm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4 });
         mk(o, dm(0xc2541a)).castShadow = false; mk(k, dm(0x151617)).castShadow = false;
       }
       // a raised seam along each shoulder

@@ -9,6 +9,27 @@ const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if
 const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
 const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
+// ---------- resting places ----------
+// Where something let go of at hand height y over (x, z) comes to rest among tops { x0, x1, z0, z1, y, k }: the
+// highest within reach (up to half a metre over the hand), or a lower one when the eye's line, at height aim there,
+// passes in under an open shelf (k 'open') to it; the floor if it's over none. A top with k 'on' is clutter standing
+// on the one at its y (a mug, a monitor, the stock on a shelf): that patch of it is taken (busy).
+const NO_TOPS = [];
+function restOn(list, x, z, y, aim, floor, h = 0) {
+  const over = [];
+  for (const t of list) if (t.k !== 'on' && x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > floor + 0.05) over.push(t);
+  over.sort((p, q) => q.y - p.y);
+  // (and only onto a shelf with room under the one above for something h tall)
+  let i = 0; while (i < over.length - 1 && over[i].k === 'open' && aim < over[i].y - 0.12 && over[i].y - 0.05 - over[i + 1].y >= h) i++;
+  const t = over[i];
+  return t ? { y: t.y, t, busy: busyOn(list, t, x, z) } : { y: floor, t: null, busy: false };
+}
+// whether clutter already stands on top t at (x, z), within the half-width (mx, mz) of what's being put down
+function busyOn(list, t, x, z, mx = 0.09, mz = mx) {
+  for (const c of list) if (c.k === 'on' && Math.abs(c.y - t.y) < 0.03 && x > c.x0 - mx && x < c.x1 + mx && z > c.z0 - mz && z < c.z1 + mz) return true;
+  return false;
+}
+
 // ---------- seeded RNG (mulberry32) ----------
 class RNG {
   constructor(seed) { this.s = (seed >>> 0) || 0x9e3779b9; }

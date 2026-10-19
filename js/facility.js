@@ -677,17 +677,20 @@ const Facility = (() => {
       const hw = (swap ? d : w) / 2, hd = (swap ? w : d) / 2;
       this.addCol(x - hw, x + hw, z - hd, z + hd, h, null);
     }
-    // a flat top at height y over a prop's footprint (w x d, turned by ry: a quarter turn swaps them)
-    top(x, z, ry, w, d, y) {
-      const swap = Math.abs(Math.sin(ry)) > 0.5, hw = (swap ? d : w) / 2, hd = (swap ? w : d) / 2, t = { x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd, y };
+    // a flat top at height y over a prop's footprint (w x d, turned by ry: a quarter turn swaps them); k 'open' for a
+    // shelf with room under it, 'on' for clutter standing on the top at y (see restOn)
+    top(x, z, ry, w, d, y, k) {
+      const swap = Math.abs(Math.sin(ry)) > 0.5, hw = (swap ? d : w) / 2, hd = (swap ? w : d) / 2, t = { x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd, y, k };
       for (let i = this.ti(t.x0); i <= this.ti(t.x1); i++) for (let j = this.tj(t.z0); j <= this.tj(t.z1); j++) { const k = this.idx(i, j); if (k < 0) continue; let l = this.tops.get(k); if (!l) this.tops.set(k, (l = [])); l.push(t); }
     }
-    // where something let go of at hand height y over (x, z) comes to rest: the floor, or the top of whatever it's over
-    // (set on it, if it stands a little higher than the hand)
-    restY(x, z, y) {
-      let f = this.floorY(x, z, y); const l = this.tops.get(this.idx(this.ti(x), this.tj(z)));
-      if (l) for (const t of l) if (x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > f) f = t.y;
-      return f;
+    // where something let go of at hand height y over (x, z) comes to rest, the eye's line at height aim there: the
+    // floor, or the top of whatever it's over (set on it, if it stands a little higher than the hand), the shelf looked at
+    restAt(x, z, y, aim = y, h = 0) { return restOn(this.tops.get(this.idx(this.ti(x), this.tj(z))) || NO_TOPS, x, z, y, aim, this.floorY(x, z, y), h); }
+    restY(x, z, y, aim) { return this.restAt(x, z, y, aim).y; }
+    // nothing stands on top t within (mx, mz) of (x, z) yet
+    clearOn(t, x, z, mx = 0.09, mz = mx) {
+      for (let i = this.ti(x - mx); i <= this.ti(x + mx); i++) for (let j = this.tj(z - mz); j <= this.tj(z + mz); j++) { const l = this.tops.get(this.idx(i, j)); if (l && busyOn(l, t, x, z, mx, mz)) return false; }
+      return true;
     }
     // a place loot can be: tagged with its room's theme; big = room for a two-handed item; c = inside a container
     spot(room, x, y, z, w, big, c = null) {
@@ -881,10 +884,10 @@ const Facility = (() => {
           for (const s of [-1, 1]) this.lbox('darkmetal', L, ry, Math.hypot(w, 2.0) * 0.98, 0.035, 0.012, 0, Y0 + 1.1 - 0.0175, -d / 2 + 0.02, s * Math.atan2(2.0, w));
           for (const e of [-1, 1]) for (let q = 0; q < 3; q++) this.lbox('darkmetal', L, ry, 0.03, 0.03, d - 0.06, e * (w / 2 - 0.03), Y0 + 0.4 + q * 0.65, 0);
           for (const sy of [0.1, 0.75, 1.4, 2.05]) {
-            this.pbox('painted', w, 0.04, d, x, Y0 + sy, z, ry); this.top(x, z, ry, w - 0.1, d - 0.06, Y0 + sy + 0.04);
+            this.pbox('painted', w, 0.04, d, x, Y0 + sy, z, ry); this.top(x, z, ry, w - 0.1, d - 0.06, Y0 + sy + 0.04, 'open');
             for (const e of [-1, 1]) this.lbox('darkmetal', L, ry, w, 0.06, 0.025, 0, Y0 + sy - 0.02, e * (d / 2 - 0.0125));
             const n = r.int(0, 3);
-            for (let b = 0; b < n; b++) { const bw = r.range(0.3, 0.6), bh = r.range(0.2, 0.5); const [px, pz] = L(r.range(-1.0, 1.0), r.range(-0.1, 0.1)); this.pbox(r.chance(0.6) ? 'crate' : 'cloth', bw, Math.min(bh, 0.55), Math.min(bw, 0.5), px, Y0 + sy + 0.04, pz, ry + r.range(-0.2, 0.2)); }
+            for (let b = 0; b < n; b++) { const bw = r.range(0.3, 0.6), bh = r.range(0.2, 0.5); const [px, pz] = L(r.range(-1.0, 1.0), r.range(-0.1, 0.1)); this.pbox(r.chance(0.6) ? 'crate' : 'cloth', bw, Math.min(bh, 0.55), Math.min(bw, 0.5), px, Y0 + sy + 0.04, pz, ry + r.range(-0.2, 0.2)); this.top(px, pz, ry, bw + 0.06, Math.min(bw, 0.5) + 0.06, Y0 + sy + 0.04, 'on'); }
             // between the boxes on a shelf, at any height you can still reach
             if (sy > 0.5 && sy < 1.5 && r.chance(0.6)) { const [px, pz] = L(r.range(-0.9, 0.9), 0.05); this.spot(room, px, Y0 + sy + 0.04, pz, 1.1, false); }
             if (sy < 0.5 && r.chance(0.35)) { const [px, pz] = L(r.range(-0.9, 0.9), -0.05); this.spot(room, px, Y0 + sy + 0.04, pz, 0.9, false); }
@@ -925,12 +928,13 @@ const Facility = (() => {
           this.lbox('painted', L, ry, w - 0.55, 0.45, 0.02, -0.25, Y0 + 0.27, -0.25 - d / 2 + 0.06);
           const [mx, mz] = L(r.range(-0.4, 0.1), -0.42), crt = 'beige';
           this.pbox(crt, 0.42, 0.36, 0.3, mx, Y0 + 0.83, mz, ry);
+          { const [qx, qz] = this.frame(mx, mz, ry)(0, -0.065); this.top(qx, qz, ry, 0.44, 0.45, Y0 + 0.79, 'on'); const [kx, kz] = this.frame(mx, mz, ry)(0.02, 0.36); this.top(kx, kz, ry, 0.48, 0.2, Y0 + 0.79, 'on'); }
           { const [bx, bz] = this.frame(mx, mz, ry)(0, -0.2); this.pbox(crt, 0.3, 0.26, 0.16, bx, Y0 + 0.86, bz, ry); }
           { const [sx, sz] = this.frame(mx, mz, ry)(0, 0.151); this.pbox('dark', 0.32, 0.25, 0.01, sx, Y0 + 0.885, sz, ry); }
           this.pbox(crt, 0.24, 0.05, 0.2, mx, Y0 + 0.775, mz, ry);
           { const [kx, kz] = this.frame(mx, mz, ry)(0.02, 0.36); this.pbox(crt, 0.44, 0.025, 0.15, kx, Y0 + 0.77, kz, ry + r.range(-0.15, 0.15)); }
           for (let p = 0; p < 3; p++) { const [px, pz] = L(r.range(-0.7, 0.7), r.range(-0.5, 0)); this.put('paper', new THREE.PlaneGeometry(0.21, 0.29), mat4(px, Y0 + 0.772 + p * 0.002, pz, r.range(0, TAU), -Math.PI / 2)); }
-          if (r.chance(0.6)) { const [ux, uz] = L(r.range(-0.75, -0.45), r.range(-0.4, -0.1)); this.pcyl('sheet', 0.042, 0.038, 0.1, ux, Y0 + 0.82, uz, 0, 0, 0, 12); }
+          if (r.chance(0.6)) { const [ux, uz] = L(r.range(-0.75, -0.45), r.range(-0.4, -0.1)); this.pcyl('sheet', 0.042, 0.038, 0.1, ux, Y0 + 0.82, uz, 0, 0, 0, 12); this.top(ux, uz, 0, 0.1, 0.1, Y0 + 0.79, 'on'); }
           const [cx, cz] = L(r.range(-0.3, 0.3), 0.45), cry = ry + r.range(-0.6, 0.6), C = this.frame(cx, cz, cry);
           this.pbox('cloth', 0.46, 0.08, 0.44, cx, Y0 + 0.44, cz, cry);
           { const [bx, bz] = C(0, 0.22); this.put('cloth', new THREE.BoxGeometry(0.44, 0.48, 0.06), mat4(bx, Y0 + 0.78, bz, cry, -0.12)); }
@@ -1001,8 +1005,9 @@ const Facility = (() => {
           const sx0 = r.pick([-0.8, 0.8]);
           this.lbox('hardware', L, ry, 0.5, 0.012, 0.42, sx0, Y0 + 0.95, 0.02);
           { const [tx, tz] = L(sx0, -0.28); this.pcyl('hardware', 0.015, 0.015, 0.3, tx, Y0 + 1.1, tz, 0, 0, 0, 8); const [nx, nz] = L(sx0, -0.2); this.pcyl('hardware', 0.013, 0.013, 0.18, nx, Y0 + 1.25, nz, Math.PI / 2, ry, 0, 8); }
-          for (let c = 0; c < r.int(1, 4); c++) { const [px, pz] = L(-sx0 * r.range(0.5, 1.1), r.range(-0.2, 0.2)); this.pcyl('glass', 0.06, 0.08, 0.25, px, Y0 + 1.07, pz, 0, 0, 0, 12); }
-          if (r.chance(0.6)) { this.lbox('darkmetal', L, ry, 0.36, 0.06, 0.12, 0, Y0 + 0.95, -0.25); for (let q = 0; q < 6; q++) { const [tx, tz] = L(-0.15 + q * 0.06, -0.25); this.pcyl('glass', 0.012, 0.012, 0.16, tx, Y0 + 1.06, tz, 0, 0, 0, 6); } }
+          for (let c = 0; c < r.int(1, 4); c++) { const [px, pz] = L(-sx0 * r.range(0.5, 1.1), r.range(-0.2, 0.2)); this.pcyl('glass', 0.06, 0.08, 0.25, px, Y0 + 1.07, pz, 0, 0, 0, 12); this.top(px, pz, 0, 0.17, 0.17, Y0 + 0.95, 'on'); }
+          { const [tx, tz] = L(sx0, -0.24); this.top(tx, tz, ry, 0.14, 0.2, Y0 + 0.95, 'on'); }
+          if (r.chance(0.6)) { this.lbox('darkmetal', L, ry, 0.36, 0.06, 0.12, 0, Y0 + 0.95, -0.25); { const [qx, qz] = L(0, -0.25); this.top(qx, qz, ry, 0.38, 0.14, Y0 + 0.95, 'on'); } for (let q = 0; q < 6; q++) { const [tx, tz] = L(-0.15 + q * 0.06, -0.25); this.pcyl('glass', 0.012, 0.012, 0.16, tx, Y0 + 1.06, tz, 0, 0, 0, 6); } }
           // among the glassware on the bench
           { const [sx, sz] = L(r.range(-0.9, 0.9), r.range(-0.2, 0.15)); this.spot(room, sx, Y0 + 0.95, sz, 1, false); }
           this.colFor(x, z, ry, 2.4, 0.8, 1);

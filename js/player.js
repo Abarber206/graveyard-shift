@@ -216,6 +216,7 @@ const Player = (() => {
   return {
     init() { initVM(); },
     get crouching() { return crouch; },
+    get eye() { return eyeH(); },
     get stamina() { return stamina; },
     get exhausted() { return exhausted; },
     get target() { return target; },

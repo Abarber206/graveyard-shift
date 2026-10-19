@@ -125,8 +125,12 @@ Keep that file current when gameplay changes.
   seeds the watch (`hostNestBreed`), keeps the rest in `G.round.nestPool` and floods them out (`hostNestFlood`) when
   someone comes in or hits it (`m.home`: not counted against the site's cap); a shovel blow is a `'nest'` event, and
   `fullState` carries its hp.
-- **Resting heights:** `fac.top(...)` registers the flat top of a prop (desk, bench, crate, drum, shelf, gurney); a
-  drop lands on `fac.restY(x, z, handY)`.
+- **Resting heights:** `fac.top(x, z, ry, w, d, y, k)` / `ship.top(x0, x1, z0, z1, y, k)` register the flat top of a prop
+  (desk, table, bench, crate, drum, shelf, gurney); `k` is `'open'` for a shelf with room under it and `'on'` for clutter
+  standing on a top (a mug, a monitor, the stock). `restOn` (`util.js`) picks the level: the highest within reach, or
+  an open shelf's lower neighbour when the eye's line passes under it. `dropHeld` sets things down square, clear of
+  clutter (`clearOn`, at the item's own size from `G.footprint`), and aboard `ship.reach` keeps them out of walls and
+  console bodies.
 - **The robot avatar** is modelled in rig units and drawn at `AV_SCALE` so its visor matches the 1.62 m eye height.
 
 ## Style

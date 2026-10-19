@@ -24,7 +24,7 @@ const Ship = (() => {
   const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   const _gA = new THREE.Matrix4(), _gB = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _gF = new THREE.Vector3(), _gTr = new THREE.Quaternion();
   const _gS = new THREE.Vector3(), _gN = new THREE.Vector3(), _gM = new THREE.Vector3(), _gX = new THREE.Vector3(), _gV = new THREE.Vector3();
-  const _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
+  const _drop = new THREE.Vector3(), _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
   // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round gathers
   // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
   // as it shrinks; any extra way round, to come down into daylight, goes only while it's high, where it reads as the
@@ -383,11 +383,27 @@ const Ship = (() => {
     extrude(shape, depth, mat, m4) { const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 20 }); if (m4) g.applyMatrix4(m4); return this.mesh(g, mat); }
     col(x0, x1, z0, z1, tag) { const c = { x0, x1, z0, z1, tag }; this.cols.push(c); return c; }
     // the flat top of something aboard at height y over x0..x1, z0..z1 (the desk, the table, a rack's shelf): what's put
-    // down over it comes to rest there
-    top(x0, x1, z0, z1, y) { this.tops.push({ x0, x1, z0, z1, y }); }
-    // where something let go of at hand height y over (x, z) aboard comes to rest: the deck, or the top of whatever it's
-    // over (set on it, if it stands a little higher than the hand)
-    restY(x, z, y) { let f = 0; for (const t of this.tops) if (x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > f) f = t.y; return f; }
+    // down over it comes to rest there; k 'open' for a shelf with room under it, 'on' for clutter standing on the top at
+    // y (a mug, the monitor, the stock on a shelf; see restOn)
+    top(x0, x1, z0, z1, y, k) { this.tops.push({ x0, x1, z0, z1, y, k }); }
+    // where something let go of at hand height y over (x, z) aboard comes to rest, the eye's line at height aim there:
+    // the deck, or the top of whatever it's over (set on it, if it stands a little higher than the hand), the shelf looked at
+    restAt(x, z, y, aim = y, h = 0) { return restOn(this.tops, x, z, y, aim, 0, h); }
+    restY(x, z, y, aim) { return this.restAt(x, z, y, aim).y; }
+    // nothing stands on top t within (mx, mz) of (x, z) yet
+    clearOn(t, x, z, mx, mz) { return !busyOn(this.tops, t, x, z, mx, mz); }
+    // how far from (x, z) along (dx, dz), up to d, something can be put down aboard: a wall or a console's body stops it
+    // short (it's never put through one), though it passes over the tops of desks and shelves (on)
+    reach(x, z, dx, dz, d, on) {
+      let k = 0, gap = 0;
+      for (let s = 0.05; s < d + 0.01; s += 0.05) {
+        const qx = x + dx * s, qz = z + dz * s; if (!this.inside(qx, 0.3, qz)) break;
+        // (the edge of a desk's or a rack's footprint short of its top is crossed, not stopped on)
+        if (!on(qx, qz) && this.collide(_drop.set(qx, 0, qz), 0.15)) { if ((gap += 0.05) > 0.32) break; continue; }
+        gap = 0; k = s;
+      }
+      return k;
+    }
     obb(x, z, hw, hd, ry) { this.obbs.push({ x, z, hw, hd, ry }); }
     // ---- detail buckets: hundreds of small parts, merged per material into a handful of meshes ----
     put(m, geo, matrix) { (this.bk[m] || (this.bk[m] = [])).push({ geo, matrix }); }
@@ -998,6 +1014,10 @@ const Ship = (() => {
       {
         const D = 'darkmetal', P = 'painted', x0 = 1.9, x1 = 3.4, z0 = -3.95, z1 = -2.95, top = 0.9, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
         this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz); this.top(x0 + 0.02, x1 - 0.02, z0 + 0.02, z1 - 0.02, top);
+        // (what's on it: the monitor on its stand, the coffee machine, a mug, the desk lamp, the trackball; the keyboard
+        // is low enough to set something on)
+        for (const [a, b, c, d] of [[2.12, 3.18, -4, -3.55], [1.92, 2.12, -3.87, -3.62], [2.0, 2.14, -3.2, -3.1], [3.0, 3.38, -3.88, -3.47], [3.03, 3.17, -3.21, -3.07], [2.29, 2.95, -3.27, -3.05]]) this.top(a, b, c, d, top, 'on');
+        this.top(2.29, 2.95, -3.27, -3.05, top + 0.05);
         this.pc(P, 0.024, 0.024, x1 - x0, cx, top - 0.024, z1, 0, 0, Math.PI / 2, 10);
         this.pb('pad', 0.9, 0.005, 0.42, 2.75, top + 0.0025, -3.18);
         // the pedestal: three drawers with pulls (the bottom one won't quite shut)
@@ -1119,6 +1139,7 @@ const Ship = (() => {
         this.pb('pad', 1.5, 0.34, 0.08, 2.55, 0.74, 3.86, -0.12, 0, 0);
         // the table: a scuffed wooden top on a steel rim, one heavy post, a foot plate bolted down
         this.pb('wood', 1.3, 0.045, 0.62, tx, ty - 0.0225, tz); this.pb(D, 1.32, 0.025, 0.64, tx, ty - 0.055, tz); this.top(tx - 0.64, tx + 0.64, tz - 0.3, tz + 0.3, ty);
+        for (const [a, b, c, d] of [[2.69, 2.77, 2.84, 2.94], [2.45, 2.59, 3.1, 3.2], [2.86, 2.96, 3.06, 3.2], [2.83, 3.11, 2.73, 2.93], [2.0, 2.1, 2.76, 2.86]]) this.top(a, b, c, d, ty, 'on');
         this.pc(D, 0.05, 0.06, ty - 0.07, tx, (ty - 0.07) / 2, tz, 0, 0, 0, 12); this.pc(D, 0.24, 0.27, 0.025, tx, 0.0125, tz, 0, 0, 0, 18);
         for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; this.pc('steelBolt', 0.014, 0.014, 0.012, tx + Math.cos(a) * 0.2, 0.028, tz + Math.sin(a) * 0.2, 0, 0, 0, 6); }
         // a hand of cards fanned out, the deck, a card face-down; two mugs; a lunchbox; a thermos; a pair of dice
@@ -1225,11 +1246,12 @@ const Ship = (() => {
       this.pb('black', 0.3, 0.18, 0.12, 0.35, 1.09, -3.85); this.pc('black', 0.008, 0.008, 0.3, 0.46, 1.33, -3.85, 0, 0, 0, 6); this.pb('glowGreen', 0.07, 0.03, 0.005, 0.3, 1.13, -3.788);
       this.pb(SB, 0.28, 0.012, 0.035, 0.78, 1.008, -3.64, 0, 0.4, 0); this.pb(SB, 0.05, 0.012, 0.07, 0.9, 1.008, -3.7, 0, 0.4, 0);
       this.pc('white', 0.042, 0.038, 0.1, -0.05, 1.05, -3.6, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, -0.005, 1.05, -3.6, 0, 0, 0, 8); this.pc('black', 0.037, 0.037, 0.005, -0.05, 1.096, -3.6, 0, 0, 0, 12);
-      this.col(-1.08, 1.08, -4.0, -3.5);
+      this.col(-1.08, 1.08, -4.0, -3.5); this.top(-1.05, 1.05, -3.98, -3.52, 1.0);
+      for (const [a, b, c, d] of [[-0.8, -0.3, -3.91, -3.69], [0.2, 0.5, -3.91, -3.79], [-0.09, 0.04, -3.64, -3.56], [-0.43, 0.43, -3.98, -3.85]]) this.top(a, b, c, d, 1.0, 'on');
       // the charger's battery pack and its cable
       this.pb('yellow', 0.42, 0.32, 0.3, -3.6, 0.16, -3.8); this.pb('black', 0.08, 0.05, 0.06, -3.72, 0.345, -3.8); this.pb('red', 0.08, 0.05, 0.06, -3.48, 0.345, -3.8);
       this.tube('cable', [V(-3.75, 1.02, -3.88), V(-3.84, 0.72, -3.74), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16); this.pc('darkmetal', 0.025, 0.02, 0.04, -3.75, 1.03, -3.88, 0, 0, 0, 8);
-      this.col(-3.82, -3.38, -4.0, -3.63);
+      this.col(-3.82, -3.38, -4.0, -3.63); this.top(-3.81, -3.39, -3.95, -3.65, 0.37);
       // intercom with a coiled handset cord
       this.pb('painted', 0.24, 0.34, 0.07, -6.0, 1.45, -3.965); this.pb('vent', 0.16, 0.1, 0.01, -6.0, 1.55, -3.928);
       this.pb('black', 0.06, 0.24, 0.06, -5.92, 1.4, -3.9); this.pb('glowRed', 0.02, 0.02, 0.006, -6.08, 1.58, -3.927);
@@ -1277,6 +1299,9 @@ const Ship = (() => {
       this.lights.push({ x: -6.6, y: 3.0, z: 0, color: 0xffc890, power: 0.45, state: 'on', zone: 'out', range: 5.5, lit: 1, ship: true, phase: 4 });
       // stock on the back racks
       const sy = [0.075, 0.925, 1.775];
+      for (const z of [-2.6, 2.6]) for (const y of sy) this.top(-6.98, -6.32, z - 0.92, z + 0.92, y, 'open');
+      for (const [a, b, c, d, l] of [[-6.96, -6.4, -3.48, -2.92, 0], [-6.9, -6.4, -2.8, -2.3, 0], [-6.8, -6.6, -3.44, -2.76, 1], [-6.84, -6.48, -2.45, -1.95, 1], [-6.84, -6.46, -3.39, -3.01, 2], [-6.94, -6.46, -2.62, -2.18, 2],
+        [-7, -6.4, 1.95, 2.65, 0], [-6.87, -6.45, 2.91, 3.54, 0], [-6.86, -6.48, 1.87, 2.33, 1], [-6.72, -6.48, 2.71, 3.09, 1], [-6.93, -6.43, 1.94, 2.46, 2], [-6.95, -6.37, 2.79, 3.41, 2]]) this.top(a, b, c, d, sy[l], 'on');
       this.pb('crate', 0.5, 0.42, 0.5, -6.68, sy[0] + 0.21, -3.2, 0, 0.1, 0); this.pb('crate', 0.45, 0.34, 0.45, -6.65, sy[0] + 0.17, -2.55, 0, -0.08, 0);
       for (const z of [-3.35, -3.1, -2.85]) { this.pc('green', 0.09, 0.09, 0.32, -6.7, sy[1] + 0.16, z, 0, 0, 0, 12); this.pc('black', 0.03, 0.03, 0.04, -6.7, sy[1] + 0.34, z, 0, 0, 0, 8); }
       this.pb('red', 0.36, 0.2, 0.5, -6.66, sy[1] + 0.1, -2.2); this.pt('black', 0.12, 0.012, -6.66, sy[1] + 0.2, -2.2, 0, Math.PI / 2, 0, 10, Math.PI);

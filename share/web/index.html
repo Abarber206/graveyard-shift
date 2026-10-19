@@ -428,6 +428,27 @@ const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if
 const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
 const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
+// ---------- resting places ----------
+// Where something let go of at hand height y over (x, z) comes to rest among tops { x0, x1, z0, z1, y, k }: the
+// highest within reach (up to half a metre over the hand), or a lower one when the eye's line, at height aim there,
+// passes in under an open shelf (k 'open') to it; the floor if it's over none. A top with k 'on' is clutter standing
+// on the one at its y (a mug, a monitor, the stock on a shelf): that patch of it is taken (busy).
+const NO_TOPS = [];
+function restOn(list, x, z, y, aim, floor, h = 0) {
+  const over = [];
+  for (const t of list) if (t.k !== 'on' && x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > floor + 0.05) over.push(t);
+  over.sort((p, q) => q.y - p.y);
+  // (and only onto a shelf with room under the one above for something h tall)
+  let i = 0; while (i < over.length - 1 && over[i].k === 'open' && aim < over[i].y - 0.12 && over[i].y - 0.05 - over[i + 1].y >= h) i++;
+  const t = over[i];
+  return t ? { y: t.y, t, busy: busyOn(list, t, x, z) } : { y: floor, t: null, busy: false };
+}
+// whether clutter already stands on top t at (x, z), within the half-width (mx, mz) of what's being put down
+function busyOn(list, t, x, z, mx = 0.09, mz = mx) {
+  for (const c of list) if (c.k === 'on' && Math.abs(c.y - t.y) < 0.03 && x > c.x0 - mx && x < c.x1 + mx && z > c.z0 - mz && z < c.z1 + mz) return true;
+  return false;
+}
+
 // ---------- seeded RNG (mulberry32) ----------
 class RNG {
   constructor(seed) { this.s = (seed >>> 0) || 0x9e3779b9; }
@@ -5024,17 +5045,20 @@ const Facility = (() => {
       const hw = (swap ? d : w) / 2, hd = (swap ? w : d) / 2;
       this.addCol(x - hw, x + hw, z - hd, z + hd, h, null);
     }
-    // a flat top at height y over a prop's footprint (w x d, turned by ry: a quarter turn swaps them)
-    top(x, z, ry, w, d, y) {
-      const swap = Math.abs(Math.sin(ry)) > 0.5, hw = (swap ? d : w) / 2, hd = (swap ? w : d) / 2, t = { x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd, y };
+    // a flat top at height y over a prop's footprint (w x d, turned by ry: a quarter turn swaps them); k 'open' for a
+    // shelf with room under it, 'on' for clutter standing on the top at y (see restOn)
+    top(x, z, ry, w, d, y, k) {
+      const swap = Math.abs(Math.sin(ry)) > 0.5, hw = (swap ? d : w) / 2, hd = (swap ? w : d) / 2, t = { x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd, y, k };
       for (let i = this.ti(t.x0); i <= this.ti(t.x1); i++) for (let j = this.tj(t.z0); j <= this.tj(t.z1); j++) { const k = this.idx(i, j); if (k < 0) continue; let l = this.tops.get(k); if (!l) this.tops.set(k, (l = [])); l.push(t); }
     }
-    // where something let go of at hand height y over (x, z) comes to rest: the floor, or the top of whatever it's over
-    // (set on it, if it stands a little higher than the hand)
-    restY(x, z, y) {
-      let f = this.floorY(x, z, y); const l = this.tops.get(this.idx(this.ti(x), this.tj(z)));
-      if (l) for (const t of l) if (x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > f) f = t.y;
-      return f;
+    // where something let go of at hand height y over (x, z) comes to rest, the eye's line at height aim there: the
+    // floor, or the top of whatever it's over (set on it, if it stands a little higher than the hand), the shelf looked at
+    restAt(x, z, y, aim = y, h = 0) { return restOn(this.tops.get(this.idx(this.ti(x), this.tj(z))) || NO_TOPS, x, z, y, aim, this.floorY(x, z, y), h); }
+    restY(x, z, y, aim) { return this.restAt(x, z, y, aim).y; }
+    // nothing stands on top t within (mx, mz) of (x, z) yet
+    clearOn(t, x, z, mx = 0.09, mz = mx) {
+      for (let i = this.ti(x - mx); i <= this.ti(x + mx); i++) for (let j = this.tj(z - mz); j <= this.tj(z + mz); j++) { const l = this.tops.get(this.idx(i, j)); if (l && busyOn(l, t, x, z, mx, mz)) return false; }
+      return true;
     }
     // a place loot can be: tagged with its room's theme; big = room for a two-handed item; c = inside a container
     spot(room, x, y, z, w, big, c = null) {
@@ -5228,10 +5252,10 @@ const Facility = (() => {
           for (const s of [-1, 1]) this.lbox('darkmetal', L, ry, Math.hypot(w, 2.0) * 0.98, 0.035, 0.012, 0, Y0 + 1.1 - 0.0175, -d / 2 + 0.02, s * Math.atan2(2.0, w));
           for (const e of [-1, 1]) for (let q = 0; q < 3; q++) this.lbox('darkmetal', L, ry, 0.03, 0.03, d - 0.06, e * (w / 2 - 0.03), Y0 + 0.4 + q * 0.65, 0);
           for (const sy of [0.1, 0.75, 1.4, 2.05]) {
-            this.pbox('painted', w, 0.04, d, x, Y0 + sy, z, ry); this.top(x, z, ry, w - 0.1, d - 0.06, Y0 + sy + 0.04);
+            this.pbox('painted', w, 0.04, d, x, Y0 + sy, z, ry); this.top(x, z, ry, w - 0.1, d - 0.06, Y0 + sy + 0.04, 'open');
             for (const e of [-1, 1]) this.lbox('darkmetal', L, ry, w, 0.06, 0.025, 0, Y0 + sy - 0.02, e * (d / 2 - 0.0125));
             const n = r.int(0, 3);
-            for (let b = 0; b < n; b++) { const bw = r.range(0.3, 0.6), bh = r.range(0.2, 0.5); const [px, pz] = L(r.range(-1.0, 1.0), r.range(-0.1, 0.1)); this.pbox(r.chance(0.6) ? 'crate' : 'cloth', bw, Math.min(bh, 0.55), Math.min(bw, 0.5), px, Y0 + sy + 0.04, pz, ry + r.range(-0.2, 0.2)); }
+            for (let b = 0; b < n; b++) { const bw = r.range(0.3, 0.6), bh = r.range(0.2, 0.5); const [px, pz] = L(r.range(-1.0, 1.0), r.range(-0.1, 0.1)); this.pbox(r.chance(0.6) ? 'crate' : 'cloth', bw, Math.min(bh, 0.55), Math.min(bw, 0.5), px, Y0 + sy + 0.04, pz, ry + r.range(-0.2, 0.2)); this.top(px, pz, ry, bw + 0.06, Math.min(bw, 0.5) + 0.06, Y0 + sy + 0.04, 'on'); }
             // between the boxes on a shelf, at any height you can still reach
             if (sy > 0.5 && sy < 1.5 && r.chance(0.6)) { const [px, pz] = L(r.range(-0.9, 0.9), 0.05); this.spot(room, px, Y0 + sy + 0.04, pz, 1.1, false); }
             if (sy < 0.5 && r.chance(0.35)) { const [px, pz] = L(r.range(-0.9, 0.9), -0.05); this.spot(room, px, Y0 + sy + 0.04, pz, 0.9, false); }
@@ -5272,12 +5296,13 @@ const Facility = (() => {
           this.lbox('painted', L, ry, w - 0.55, 0.45, 0.02, -0.25, Y0 + 0.27, -0.25 - d / 2 + 0.06);
           const [mx, mz] = L(r.range(-0.4, 0.1), -0.42), crt = 'beige';
           this.pbox(crt, 0.42, 0.36, 0.3, mx, Y0 + 0.83, mz, ry);
+          { const [qx, qz] = this.frame(mx, mz, ry)(0, -0.065); this.top(qx, qz, ry, 0.44, 0.45, Y0 + 0.79, 'on'); const [kx, kz] = this.frame(mx, mz, ry)(0.02, 0.36); this.top(kx, kz, ry, 0.48, 0.2, Y0 + 0.79, 'on'); }
           { const [bx, bz] = this.frame(mx, mz, ry)(0, -0.2); this.pbox(crt, 0.3, 0.26, 0.16, bx, Y0 + 0.86, bz, ry); }
           { const [sx, sz] = this.frame(mx, mz, ry)(0, 0.151); this.pbox('dark', 0.32, 0.25, 0.01, sx, Y0 + 0.885, sz, ry); }
           this.pbox(crt, 0.24, 0.05, 0.2, mx, Y0 + 0.775, mz, ry);
           { const [kx, kz] = this.frame(mx, mz, ry)(0.02, 0.36); this.pbox(crt, 0.44, 0.025, 0.15, kx, Y0 + 0.77, kz, ry + r.range(-0.15, 0.15)); }
           for (let p = 0; p < 3; p++) { const [px, pz] = L(r.range(-0.7, 0.7), r.range(-0.5, 0)); this.put('paper', new THREE.PlaneGeometry(0.21, 0.29), mat4(px, Y0 + 0.772 + p * 0.002, pz, r.range(0, TAU), -Math.PI / 2)); }
-          if (r.chance(0.6)) { const [ux, uz] = L(r.range(-0.75, -0.45), r.range(-0.4, -0.1)); this.pcyl('sheet', 0.042, 0.038, 0.1, ux, Y0 + 0.82, uz, 0, 0, 0, 12); }
+          if (r.chance(0.6)) { const [ux, uz] = L(r.range(-0.75, -0.45), r.range(-0.4, -0.1)); this.pcyl('sheet', 0.042, 0.038, 0.1, ux, Y0 + 0.82, uz, 0, 0, 0, 12); this.top(ux, uz, 0, 0.1, 0.1, Y0 + 0.79, 'on'); }
           const [cx, cz] = L(r.range(-0.3, 0.3), 0.45), cry = ry + r.range(-0.6, 0.6), C = this.frame(cx, cz, cry);
           this.pbox('cloth', 0.46, 0.08, 0.44, cx, Y0 + 0.44, cz, cry);
           { const [bx, bz] = C(0, 0.22); this.put('cloth', new THREE.BoxGeometry(0.44, 0.48, 0.06), mat4(bx, Y0 + 0.78, bz, cry, -0.12)); }
@@ -5348,8 +5373,9 @@ const Facility = (() => {
           const sx0 = r.pick([-0.8, 0.8]);
           this.lbox('hardware', L, ry, 0.5, 0.012, 0.42, sx0, Y0 + 0.95, 0.02);
           { const [tx, tz] = L(sx0, -0.28); this.pcyl('hardware', 0.015, 0.015, 0.3, tx, Y0 + 1.1, tz, 0, 0, 0, 8); const [nx, nz] = L(sx0, -0.2); this.pcyl('hardware', 0.013, 0.013, 0.18, nx, Y0 + 1.25, nz, Math.PI / 2, ry, 0, 8); }
-          for (let c = 0; c < r.int(1, 4); c++) { const [px, pz] = L(-sx0 * r.range(0.5, 1.1), r.range(-0.2, 0.2)); this.pcyl('glass', 0.06, 0.08, 0.25, px, Y0 + 1.07, pz, 0, 0, 0, 12); }
-          if (r.chance(0.6)) { this.lbox('darkmetal', L, ry, 0.36, 0.06, 0.12, 0, Y0 + 0.95, -0.25); for (let q = 0; q < 6; q++) { const [tx, tz] = L(-0.15 + q * 0.06, -0.25); this.pcyl('glass', 0.012, 0.012, 0.16, tx, Y0 + 1.06, tz, 0, 0, 0, 6); } }
+          for (let c = 0; c < r.int(1, 4); c++) { const [px, pz] = L(-sx0 * r.range(0.5, 1.1), r.range(-0.2, 0.2)); this.pcyl('glass', 0.06, 0.08, 0.25, px, Y0 + 1.07, pz, 0, 0, 0, 12); this.top(px, pz, 0, 0.17, 0.17, Y0 + 0.95, 'on'); }
+          { const [tx, tz] = L(sx0, -0.24); this.top(tx, tz, ry, 0.14, 0.2, Y0 + 0.95, 'on'); }
+          if (r.chance(0.6)) { this.lbox('darkmetal', L, ry, 0.36, 0.06, 0.12, 0, Y0 + 0.95, -0.25); { const [qx, qz] = L(0, -0.25); this.top(qx, qz, ry, 0.38, 0.14, Y0 + 0.95, 'on'); } for (let q = 0; q < 6; q++) { const [tx, tz] = L(-0.15 + q * 0.06, -0.25); this.pcyl('glass', 0.012, 0.012, 0.16, tx, Y0 + 1.06, tz, 0, 0, 0, 6); } }
           // among the glassware on the bench
           { const [sx, sz] = L(r.range(-0.9, 0.9), r.range(-0.2, 0.15)); this.spot(room, sx, Y0 + 0.95, sz, 1, false); }
           this.colFor(x, z, ry, 2.4, 0.8, 1);
@@ -9770,7 +9796,7 @@ const Ship = (() => {
   const _eye = new THREE.Vector3(), _tq = new THREE.Quaternion(), _tqFull = new THREE.Quaternion(), _tqI = new THREE.Quaternion(), _Dw = new THREE.Vector3(), _ahead = new THREE.Vector3(1, -0.03, 0).normalize();
   const _gA = new THREE.Matrix4(), _gB = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _gF = new THREE.Vector3(), _gTr = new THREE.Quaternion();
   const _gS = new THREE.Vector3(), _gN = new THREE.Vector3(), _gM = new THREE.Vector3(), _gX = new THREE.Vector3(), _gV = new THREE.Vector3();
-  const _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
+  const _drop = new THREE.Vector3(), _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
   // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round gathers
   // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
   // as it shrinks; any extra way round, to come down into daylight, goes only while it's high, where it reads as the
@@ -10129,11 +10155,27 @@ const Ship = (() => {
     extrude(shape, depth, mat, m4) { const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 20 }); if (m4) g.applyMatrix4(m4); return this.mesh(g, mat); }
     col(x0, x1, z0, z1, tag) { const c = { x0, x1, z0, z1, tag }; this.cols.push(c); return c; }
     // the flat top of something aboard at height y over x0..x1, z0..z1 (the desk, the table, a rack's shelf): what's put
-    // down over it comes to rest there
-    top(x0, x1, z0, z1, y) { this.tops.push({ x0, x1, z0, z1, y }); }
-    // where something let go of at hand height y over (x, z) aboard comes to rest: the deck, or the top of whatever it's
-    // over (set on it, if it stands a little higher than the hand)
-    restY(x, z, y) { let f = 0; for (const t of this.tops) if (x > t.x0 && x < t.x1 && z > t.z0 && z < t.z1 && t.y <= y + 0.5 && t.y > f) f = t.y; return f; }
+    // down over it comes to rest there; k 'open' for a shelf with room under it, 'on' for clutter standing on the top at
+    // y (a mug, the monitor, the stock on a shelf; see restOn)
+    top(x0, x1, z0, z1, y, k) { this.tops.push({ x0, x1, z0, z1, y, k }); }
+    // where something let go of at hand height y over (x, z) aboard comes to rest, the eye's line at height aim there:
+    // the deck, or the top of whatever it's over (set on it, if it stands a little higher than the hand), the shelf looked at
+    restAt(x, z, y, aim = y, h = 0) { return restOn(this.tops, x, z, y, aim, 0, h); }
+    restY(x, z, y, aim) { return this.restAt(x, z, y, aim).y; }
+    // nothing stands on top t within (mx, mz) of (x, z) yet
+    clearOn(t, x, z, mx, mz) { return !busyOn(this.tops, t, x, z, mx, mz); }
+    // how far from (x, z) along (dx, dz), up to d, something can be put down aboard: a wall or a console's body stops it
+    // short (it's never put through one), though it passes over the tops of desks and shelves (on)
+    reach(x, z, dx, dz, d, on) {
+      let k = 0, gap = 0;
+      for (let s = 0.05; s < d + 0.01; s += 0.05) {
+        const qx = x + dx * s, qz = z + dz * s; if (!this.inside(qx, 0.3, qz)) break;
+        // (the edge of a desk's or a rack's footprint short of its top is crossed, not stopped on)
+        if (!on(qx, qz) && this.collide(_drop.set(qx, 0, qz), 0.15)) { if ((gap += 0.05) > 0.32) break; continue; }
+        gap = 0; k = s;
+      }
+      return k;
+    }
     obb(x, z, hw, hd, ry) { this.obbs.push({ x, z, hw, hd, ry }); }
     // ---- detail buckets: hundreds of small parts, merged per material into a handful of meshes ----
     put(m, geo, matrix) { (this.bk[m] || (this.bk[m] = [])).push({ geo, matrix }); }
@@ -10744,6 +10786,10 @@ const Ship = (() => {
       {
         const D = 'darkmetal', P = 'painted', x0 = 1.9, x1 = 3.4, z0 = -3.95, z1 = -2.95, top = 0.9, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
         this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz); this.top(x0 + 0.02, x1 - 0.02, z0 + 0.02, z1 - 0.02, top);
+        // (what's on it: the monitor on its stand, the coffee machine, a mug, the desk lamp, the trackball; the keyboard
+        // is low enough to set something on)
+        for (const [a, b, c, d] of [[2.12, 3.18, -4, -3.55], [1.92, 2.12, -3.87, -3.62], [2.0, 2.14, -3.2, -3.1], [3.0, 3.38, -3.88, -3.47], [3.03, 3.17, -3.21, -3.07], [2.29, 2.95, -3.27, -3.05]]) this.top(a, b, c, d, top, 'on');
+        this.top(2.29, 2.95, -3.27, -3.05, top + 0.05);
         this.pc(P, 0.024, 0.024, x1 - x0, cx, top - 0.024, z1, 0, 0, Math.PI / 2, 10);
         this.pb('pad', 0.9, 0.005, 0.42, 2.75, top + 0.0025, -3.18);
         // the pedestal: three drawers with pulls (the bottom one won't quite shut)
@@ -10865,6 +10911,7 @@ const Ship = (() => {
         this.pb('pad', 1.5, 0.34, 0.08, 2.55, 0.74, 3.86, -0.12, 0, 0);
         // the table: a scuffed wooden top on a steel rim, one heavy post, a foot plate bolted down
         this.pb('wood', 1.3, 0.045, 0.62, tx, ty - 0.0225, tz); this.pb(D, 1.32, 0.025, 0.64, tx, ty - 0.055, tz); this.top(tx - 0.64, tx + 0.64, tz - 0.3, tz + 0.3, ty);
+        for (const [a, b, c, d] of [[2.69, 2.77, 2.84, 2.94], [2.45, 2.59, 3.1, 3.2], [2.86, 2.96, 3.06, 3.2], [2.83, 3.11, 2.73, 2.93], [2.0, 2.1, 2.76, 2.86]]) this.top(a, b, c, d, ty, 'on');
         this.pc(D, 0.05, 0.06, ty - 0.07, tx, (ty - 0.07) / 2, tz, 0, 0, 0, 12); this.pc(D, 0.24, 0.27, 0.025, tx, 0.0125, tz, 0, 0, 0, 18);
         for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; this.pc('steelBolt', 0.014, 0.014, 0.012, tx + Math.cos(a) * 0.2, 0.028, tz + Math.sin(a) * 0.2, 0, 0, 0, 6); }
         // a hand of cards fanned out, the deck, a card face-down; two mugs; a lunchbox; a thermos; a pair of dice
@@ -10971,11 +11018,12 @@ const Ship = (() => {
       this.pb('black', 0.3, 0.18, 0.12, 0.35, 1.09, -3.85); this.pc('black', 0.008, 0.008, 0.3, 0.46, 1.33, -3.85, 0, 0, 0, 6); this.pb('glowGreen', 0.07, 0.03, 0.005, 0.3, 1.13, -3.788);
       this.pb(SB, 0.28, 0.012, 0.035, 0.78, 1.008, -3.64, 0, 0.4, 0); this.pb(SB, 0.05, 0.012, 0.07, 0.9, 1.008, -3.7, 0, 0.4, 0);
       this.pc('white', 0.042, 0.038, 0.1, -0.05, 1.05, -3.6, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, -0.005, 1.05, -3.6, 0, 0, 0, 8); this.pc('black', 0.037, 0.037, 0.005, -0.05, 1.096, -3.6, 0, 0, 0, 12);
-      this.col(-1.08, 1.08, -4.0, -3.5);
+      this.col(-1.08, 1.08, -4.0, -3.5); this.top(-1.05, 1.05, -3.98, -3.52, 1.0);
+      for (const [a, b, c, d] of [[-0.8, -0.3, -3.91, -3.69], [0.2, 0.5, -3.91, -3.79], [-0.09, 0.04, -3.64, -3.56], [-0.43, 0.43, -3.98, -3.85]]) this.top(a, b, c, d, 1.0, 'on');
       // the charger's battery pack and its cable
       this.pb('yellow', 0.42, 0.32, 0.3, -3.6, 0.16, -3.8); this.pb('black', 0.08, 0.05, 0.06, -3.72, 0.345, -3.8); this.pb('red', 0.08, 0.05, 0.06, -3.48, 0.345, -3.8);
       this.tube('cable', [V(-3.75, 1.02, -3.88), V(-3.84, 0.72, -3.74), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16); this.pc('darkmetal', 0.025, 0.02, 0.04, -3.75, 1.03, -3.88, 0, 0, 0, 8);
-      this.col(-3.82, -3.38, -4.0, -3.63);
+      this.col(-3.82, -3.38, -4.0, -3.63); this.top(-3.81, -3.39, -3.95, -3.65, 0.37);
       // intercom with a coiled handset cord
       this.pb('painted', 0.24, 0.34, 0.07, -6.0, 1.45, -3.965); this.pb('vent', 0.16, 0.1, 0.01, -6.0, 1.55, -3.928);
       this.pb('black', 0.06, 0.24, 0.06, -5.92, 1.4, -3.9); this.pb('glowRed', 0.02, 0.02, 0.006, -6.08, 1.58, -3.927);
@@ -11023,6 +11071,9 @@ const Ship = (() => {
       this.lights.push({ x: -6.6, y: 3.0, z: 0, color: 0xffc890, power: 0.45, state: 'on', zone: 'out', range: 5.5, lit: 1, ship: true, phase: 4 });
       // stock on the back racks
       const sy = [0.075, 0.925, 1.775];
+      for (const z of [-2.6, 2.6]) for (const y of sy) this.top(-6.98, -6.32, z - 0.92, z + 0.92, y, 'open');
+      for (const [a, b, c, d, l] of [[-6.96, -6.4, -3.48, -2.92, 0], [-6.9, -6.4, -2.8, -2.3, 0], [-6.8, -6.6, -3.44, -2.76, 1], [-6.84, -6.48, -2.45, -1.95, 1], [-6.84, -6.46, -3.39, -3.01, 2], [-6.94, -6.46, -2.62, -2.18, 2],
+        [-7, -6.4, 1.95, 2.65, 0], [-6.87, -6.45, 2.91, 3.54, 0], [-6.86, -6.48, 1.87, 2.33, 1], [-6.72, -6.48, 2.71, 3.09, 1], [-6.93, -6.43, 1.94, 2.46, 2], [-6.95, -6.37, 2.79, 3.41, 2]]) this.top(a, b, c, d, sy[l], 'on');
       this.pb('crate', 0.5, 0.42, 0.5, -6.68, sy[0] + 0.21, -3.2, 0, 0.1, 0); this.pb('crate', 0.45, 0.34, 0.45, -6.65, sy[0] + 0.17, -2.55, 0, -0.08, 0);
       for (const z of [-3.35, -3.1, -2.85]) { this.pc('green', 0.09, 0.09, 0.32, -6.7, sy[1] + 0.16, z, 0, 0, 0, 12); this.pc('black', 0.03, 0.03, 0.04, -6.7, sy[1] + 0.34, z, 0, 0, 0, 8); }
       this.pb('red', 0.36, 0.2, 0.5, -6.66, sy[1] + 0.1, -2.2); this.pt('black', 0.12, 0.012, -6.66, sy[1] + 0.2, -2.2, 0, Math.PI / 2, 0, 10, Math.PI);
@@ -18738,6 +18789,7 @@ const Player = (() => {
   return {
     init() { initVM(); },
     get crouching() { return crouch; },
+    get eye() { return eyeH(); },
     get stamina() { return stamina; },
     get exhausted() { return exhausted; },
     get target() { return target; },
@@ -20596,7 +20648,7 @@ const G = {
         if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
         continue;
       }
-      if (it.vis.y > it.pos.y + 0.001 || Math.abs(it.vis.x - it.pos.x) > 0.001) {
+      if (it.vis.y > it.pos.y + 0.001 || Math.abs(it.vis.x - it.pos.x) > 0.001 || Math.abs(it.vis.z - it.pos.z) > 0.001) {
         it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
         it.vis.x = damp(it.vis.x, it.pos.x, 10, dt); it.vis.z = damp(it.vis.z, it.pos.z, 10, dt);
@@ -20611,19 +20663,57 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    // (onto whatever you're facing if it's in reach: a desk, a crate, a drum, a shelf; down in the plant, or aboard)
-    const hand = me.pos.y + 1.3, aboard = me.zone !== 'in' && !me.roof && G.ship.inside(me.pos.x, me.pos.y + 0.3, me.pos.z);
-    const rest = me.zone === 'in' && G.fac ? (qx, qz) => G.fac.restY(qx, qz, hand) : aboard ? (qx, qz) => G.ship.restY(qx, qz, hand) : null;
-    if (rest) {
-      const fl = me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : 0, clear = (qx, qz) => me.zone !== 'in' || G.fac.los(me.pos.x, me.pos.z, qx, qz);
-      if (rest(x, z) < fl + 0.2) for (let d = 0.6; d <= 1.05; d += 0.05) {
-        const qx = me.pos.x + fw.x * d, qz = me.pos.z + fw.z * d; if (rest(qx, qz) < fl + 0.2 || !clear(qx, qz)) continue;
-        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = rest(ix, iz) >= fl + 0.2;
+    // (onto whatever you're facing if it's in reach: a desk, a crate, a drum, the shelf you look at; down in the plant,
+    // or aboard)
+    const hand = me.pos.y + 1.3, eye = me.pos.y + Player.eye, lk = Math.tan(clamp(me.pitch, -1.35, 1.35)), S = G.ship, ft = G.footprint(it);
+    const F = me.zone === 'in' && G.fac, aboard = !F && me.zone !== 'in' && !me.roof && S.inside(me.pos.x, me.pos.y + 0.3, me.pos.z);
+    const look = (qx, qz) => eye + lk * Math.hypot(qx - me.pos.x, qz - me.pos.z);
+    const at = F ? (qx, qz) => F.restAt(qx, qz, hand, look(qx, qz), ft.h) : aboard ? (qx, qz) => S.restAt(qx, qz, hand, look(qx, qz), ft.h) : null;
+    let r = null, ry = me.yaw;
+    if (at) {
+      const fl = F ? F.floorY(x, z, me.pos.y) : 0, on = (qx, qz) => at(qx, qz).y >= fl + 0.2;
+      // aboard, a wall or a console's body stops it short; then, if it'd go down on the deck, a top a little further on
+      // in reach takes it (in the plant, the same reach past the end of a desk or a crate, with nothing in the way)
+      const d = aboard ? S.reach(me.pos.x, me.pos.z, fw.x, fw.z, 0.55, on) : 0.55, far = aboard ? S.reach(me.pos.x, me.pos.z, fw.x, fw.z, 1.05, on) : 1.05;
+      if (aboard) { x = me.pos.x + fw.x * d; z = me.pos.z + fw.z * d; }
+      const clear = (qx, qz) => !F || F.los(me.pos.x, me.pos.z, qx, qz);
+      if (!on(x, z)) for (let q = Math.max(0.6, d + 0.05); q <= far + 1e-3; q += 0.05) {
+        const qx = me.pos.x + fw.x * q, qz = me.pos.z + fw.z * q; if (!on(qx, qz) || !clear(qx, qz)) continue;
+        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = q + 0.1 <= far + 1e-3 && on(ix, iz);
         x = inn ? ix : qx; z = inn ? iz : qz; break;
       }
+      r = at(x, z);
+      if (r.t) {
+        // set down square on the bare top (turned a quarter if it fits better), clear of what stands on it already, and
+        // not hanging off its edge
+        const t = r.t, ry0 = Math.round(me.yaw / (Math.PI / 2)) * (Math.PI / 2), fit = [ry0, ry0 + Math.PI / 2].map((q) => {
+          const sw = Math.abs(Math.sin(q)) > 0.5, ex = (sw ? ft.z : ft.x) + 0.01, ez = (sw ? ft.x : ft.z) + 0.01;
+          return { ry: q, ex, ez, kx: (v) => clamp(v, Math.min(t.x0 + ex, (t.x0 + t.x1) / 2), Math.max(t.x1 - ex, (t.x0 + t.x1) / 2)), kz: (v) => clamp(v, Math.min(t.z0 + ez, (t.z0 + t.z1) / 2), Math.max(t.z1 - ez, (t.z0 + t.z1) / 2)) };
+        });
+        let bx = x, bz = z, ok = false;
+        find: for (let rr = 0; rr < 0.72; rr += 0.05) for (const o of fit) for (let k = 0; k < (rr ? 16 : 1); k++) {
+          const a = Math.atan2(-fw.z, -fw.x) + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (TAU / 16), qx = o.kx(x + Math.cos(a) * rr), qz = o.kz(z + Math.sin(a) * rr);
+          if ((F || S).clearOn(t, qx, qz, o.ex, o.ez)) { bx = qx; bz = qz; ry = o.ry; ok = true; break find; }
+        }
+        if (ok) {
+          // (and on anything low and flat it's been moved onto, a keyboard on the desk)
+          x = bx; z = bz; const q = at(x, z); if (q.t && q.y > t.y && q.y < t.y + 0.1) r = q;
+        } else {
+          // no room on it: down on the floor in front of it instead (aboard, short of it; in the plant, at your feet)
+          ry = me.yaw; const e = aboard ? S.reach(me.pos.x, me.pos.z, fw.x, fw.z, 0.55, () => false) : 0;
+          x = me.pos.x + fw.x * e; z = me.pos.z + fw.z * e; r = { y: F ? F.floorY(x, z, me.pos.y) : 0 };
+        }
+      }
     }
-    const y = me.roof ? ROOF.y : rest ? rest(x, z) : G.groundAt(x, z);
-    G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
+    const y = me.roof ? ROOF.y : r ? r.y : G.groundAt(x, z);
+    G.request({ a: 'drop', item: id, x, y, z, ry, battery: it.battery, on: it.on });
+  },
+  // an item's half-size across the floor in its own frame (x, z) and its height, from its model
+  footprint(it) {
+    const c = G.feet || (G.feet = {}); if (c[it.type]) return c[it.type];
+    const m = it.mesh, p = m.position.clone(), r = m.rotation.clone(); m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(m); m.position.copy(p); m.rotation.copy(r); m.updateMatrixWorld(true);
+    return (c[it.type] = b.isEmpty() ? { x: 0.1, z: 0.1, h: 0.2 } : { x: Math.max(-b.min.x, b.max.x), z: Math.max(-b.min.z, b.max.z), h: b.max.y });
   },
   // ======================= world =======================
   // noShip: for someone left on the ground while the ship is in the air (its deck and ramp are not there)
@@ -21078,7 +21168,8 @@ const G = {
     drop(e) {
       const it = G.items.get(e.item); if (!it) return;
       const p = G.players.get(it.holder);
-      if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; it.vis.set(p.pos.x, p.pos.y + 1.1, p.pos.z); }
+      // (from the hand, or from a little over a shelf above it, so it's never seen to jump up onto it)
+      if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; it.vis.set(p.pos.x, Math.max(p.pos.y + 1.1, e.y + 0.15), p.pos.z); }
       else it.vis.set(e.x, e.y + 0.5, e.z);
       it.holder = null; it.pos.set(e.x, e.y, e.z); it.ry = e.ry || 0; it.inShip = !!e.inShip;
       if (e.battery != null) it.battery = e.battery; if (e.on != null) it.on = e.on;
@@ -21616,9 +21707,11 @@ const G = {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     p.alive = false;
     const ground = p.zone === 'in' ? G.fac.floorY(p.pos.x, p.pos.z, p.pos.y) : G.groundAt(p.pos.x, p.pos.z);
+    // (aboard, what they held goes down on the deck round them, short of the walls and the consoles)
+    const aboard = p.zone !== 'in' && !p.roof && G.ship.inside(p.pos.x, p.pos.y + 0.3, p.pos.z);
     p.slots.forEach((id, i) => {
       if (id == null) return;
-      const a = Math.random() * TAU, x = p.pos.x + Math.cos(a) * 0.5, z = p.pos.z + Math.sin(a) * 0.5;
+      const a = Math.random() * TAU, d = aboard ? G.ship.reach(p.pos.x, p.pos.z, Math.cos(a), Math.sin(a), 0.5, () => false) : 0.5, x = p.pos.x + Math.cos(a) * d, z = p.pos.z + Math.sin(a) * d;
       const ok = p.zone !== 'in' || !G.fac || G.fac.walkable(G.fac.ti(x), G.fac.tj(z)) || G.fac.floorAt(G.fac.ti(x), G.fac.tj(z));
       const fx = ok ? x : p.pos.x, fz = ok ? z : p.pos.z;
       G.emit({ e: 'drop', item: id, x: fx, y: ground, z: fz, ry: Math.random() * TAU, inShip: p.zone === 'out' && G.ship.inside(fx, ground + 0.3, fz) });

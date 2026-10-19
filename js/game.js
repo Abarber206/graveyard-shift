@@ -421,7 +421,7 @@ const G = {
         if (G.shipMoved && G.posAboard(it.vis)) { it.mesh.position.applyMatrix4(G.shipM); it.mesh.quaternion.premultiply(G.shipQ); }
         continue;
       }
-      if (it.vis.y > it.pos.y + 0.001 || Math.abs(it.vis.x - it.pos.x) > 0.001) {
+      if (it.vis.y > it.pos.y + 0.001 || Math.abs(it.vis.x - it.pos.x) > 0.001 || Math.abs(it.vis.z - it.pos.z) > 0.001) {
         it.fallV += 20 * G.gravity(G.itemZone(it), it.vis.x, it.vis.y, it.vis.z) * dt;
         it.vis.y = Math.max(it.pos.y, it.vis.y - it.fallV * dt);
         it.vis.x = damp(it.vis.x, it.pos.x, 10, dt); it.vis.z = damp(it.vis.z, it.pos.z, 10, dt);
@@ -436,19 +436,57 @@ const G = {
     const fw = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     let x = me.pos.x + fw.x * 0.55, z = me.pos.z + fw.z * 0.55;
     if (me.zone === 'in' && G.fac && !G.fac.los(me.pos.x, me.pos.z, x, z)) { x = me.pos.x; z = me.pos.z; }
-    // (onto whatever you're facing if it's in reach: a desk, a crate, a drum, a shelf; down in the plant, or aboard)
-    const hand = me.pos.y + 1.3, aboard = me.zone !== 'in' && !me.roof && G.ship.inside(me.pos.x, me.pos.y + 0.3, me.pos.z);
-    const rest = me.zone === 'in' && G.fac ? (qx, qz) => G.fac.restY(qx, qz, hand) : aboard ? (qx, qz) => G.ship.restY(qx, qz, hand) : null;
-    if (rest) {
-      const fl = me.zone === 'in' ? G.fac.floorY(x, z, me.pos.y) : 0, clear = (qx, qz) => me.zone !== 'in' || G.fac.los(me.pos.x, me.pos.z, qx, qz);
-      if (rest(x, z) < fl + 0.2) for (let d = 0.6; d <= 1.05; d += 0.05) {
-        const qx = me.pos.x + fw.x * d, qz = me.pos.z + fw.z * d; if (rest(qx, qz) < fl + 0.2 || !clear(qx, qz)) continue;
-        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = rest(ix, iz) >= fl + 0.2;
+    // (onto whatever you're facing if it's in reach: a desk, a crate, a drum, the shelf you look at; down in the plant,
+    // or aboard)
+    const hand = me.pos.y + 1.3, eye = me.pos.y + Player.eye, lk = Math.tan(clamp(me.pitch, -1.35, 1.35)), S = G.ship, ft = G.footprint(it);
+    const F = me.zone === 'in' && G.fac, aboard = !F && me.zone !== 'in' && !me.roof && S.inside(me.pos.x, me.pos.y + 0.3, me.pos.z);
+    const look = (qx, qz) => eye + lk * Math.hypot(qx - me.pos.x, qz - me.pos.z);
+    const at = F ? (qx, qz) => F.restAt(qx, qz, hand, look(qx, qz), ft.h) : aboard ? (qx, qz) => S.restAt(qx, qz, hand, look(qx, qz), ft.h) : null;
+    let r = null, ry = me.yaw;
+    if (at) {
+      const fl = F ? F.floorY(x, z, me.pos.y) : 0, on = (qx, qz) => at(qx, qz).y >= fl + 0.2;
+      // aboard, a wall or a console's body stops it short; then, if it'd go down on the deck, a top a little further on
+      // in reach takes it (in the plant, the same reach past the end of a desk or a crate, with nothing in the way)
+      const d = aboard ? S.reach(me.pos.x, me.pos.z, fw.x, fw.z, 0.55, on) : 0.55, far = aboard ? S.reach(me.pos.x, me.pos.z, fw.x, fw.z, 1.05, on) : 1.05;
+      if (aboard) { x = me.pos.x + fw.x * d; z = me.pos.z + fw.z * d; }
+      const clear = (qx, qz) => !F || F.los(me.pos.x, me.pos.z, qx, qz);
+      if (!on(x, z)) for (let q = Math.max(0.6, d + 0.05); q <= far + 1e-3; q += 0.05) {
+        const qx = me.pos.x + fw.x * q, qz = me.pos.z + fw.z * q; if (!on(qx, qz) || !clear(qx, qz)) continue;
+        const ix = qx + fw.x * 0.1, iz = qz + fw.z * 0.1, inn = q + 0.1 <= far + 1e-3 && on(ix, iz);
         x = inn ? ix : qx; z = inn ? iz : qz; break;
       }
+      r = at(x, z);
+      if (r.t) {
+        // set down square on the bare top (turned a quarter if it fits better), clear of what stands on it already, and
+        // not hanging off its edge
+        const t = r.t, ry0 = Math.round(me.yaw / (Math.PI / 2)) * (Math.PI / 2), fit = [ry0, ry0 + Math.PI / 2].map((q) => {
+          const sw = Math.abs(Math.sin(q)) > 0.5, ex = (sw ? ft.z : ft.x) + 0.01, ez = (sw ? ft.x : ft.z) + 0.01;
+          return { ry: q, ex, ez, kx: (v) => clamp(v, Math.min(t.x0 + ex, (t.x0 + t.x1) / 2), Math.max(t.x1 - ex, (t.x0 + t.x1) / 2)), kz: (v) => clamp(v, Math.min(t.z0 + ez, (t.z0 + t.z1) / 2), Math.max(t.z1 - ez, (t.z0 + t.z1) / 2)) };
+        });
+        let bx = x, bz = z, ok = false;
+        find: for (let rr = 0; rr < 0.72; rr += 0.05) for (const o of fit) for (let k = 0; k < (rr ? 16 : 1); k++) {
+          const a = Math.atan2(-fw.z, -fw.x) + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (TAU / 16), qx = o.kx(x + Math.cos(a) * rr), qz = o.kz(z + Math.sin(a) * rr);
+          if ((F || S).clearOn(t, qx, qz, o.ex, o.ez)) { bx = qx; bz = qz; ry = o.ry; ok = true; break find; }
+        }
+        if (ok) {
+          // (and on anything low and flat it's been moved onto, a keyboard on the desk)
+          x = bx; z = bz; const q = at(x, z); if (q.t && q.y > t.y && q.y < t.y + 0.1) r = q;
+        } else {
+          // no room on it: down on the floor in front of it instead (aboard, short of it; in the plant, at your feet)
+          ry = me.yaw; const e = aboard ? S.reach(me.pos.x, me.pos.z, fw.x, fw.z, 0.55, () => false) : 0;
+          x = me.pos.x + fw.x * e; z = me.pos.z + fw.z * e; r = { y: F ? F.floorY(x, z, me.pos.y) : 0 };
+        }
+      }
     }
-    const y = me.roof ? ROOF.y : rest ? rest(x, z) : G.groundAt(x, z);
-    G.request({ a: 'drop', item: id, x, y, z, ry: me.yaw, battery: it.battery, on: it.on });
+    const y = me.roof ? ROOF.y : r ? r.y : G.groundAt(x, z);
+    G.request({ a: 'drop', item: id, x, y, z, ry, battery: it.battery, on: it.on });
+  },
+  // an item's half-size across the floor in its own frame (x, z) and its height, from its model
+  footprint(it) {
+    const c = G.feet || (G.feet = {}); if (c[it.type]) return c[it.type];
+    const m = it.mesh, p = m.position.clone(), r = m.rotation.clone(); m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(m); m.position.copy(p); m.rotation.copy(r); m.updateMatrixWorld(true);
+    return (c[it.type] = b.isEmpty() ? { x: 0.1, z: 0.1, h: 0.2 } : { x: Math.max(-b.min.x, b.max.x), z: Math.max(-b.min.z, b.max.z), h: b.max.y });
   },
   // ======================= world =======================
   // noShip: for someone left on the ground while the ship is in the air (its deck and ramp are not there)
@@ -903,7 +941,8 @@ const G = {
     drop(e) {
       const it = G.items.get(e.item); if (!it) return;
       const p = G.players.get(it.holder);
-      if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; it.vis.set(p.pos.x, p.pos.y + 1.1, p.pos.z); }
+      // (from the hand, or from a little over a shelf above it, so it's never seen to jump up onto it)
+      if (p) { const k = p.slots.indexOf(it.id); if (k >= 0) p.slots[k] = null; it.vis.set(p.pos.x, Math.max(p.pos.y + 1.1, e.y + 0.15), p.pos.z); }
       else it.vis.set(e.x, e.y + 0.5, e.z);
       it.holder = null; it.pos.set(e.x, e.y, e.z); it.ry = e.ry || 0; it.inShip = !!e.inShip;
       if (e.battery != null) it.battery = e.battery; if (e.on != null) it.on = e.on;
@@ -1441,9 +1480,11 @@ const G = {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     p.alive = false;
     const ground = p.zone === 'in' ? G.fac.floorY(p.pos.x, p.pos.z, p.pos.y) : G.groundAt(p.pos.x, p.pos.z);
+    // (aboard, what they held goes down on the deck round them, short of the walls and the consoles)
+    const aboard = p.zone !== 'in' && !p.roof && G.ship.inside(p.pos.x, p.pos.y + 0.3, p.pos.z);
     p.slots.forEach((id, i) => {
       if (id == null) return;
-      const a = Math.random() * TAU, x = p.pos.x + Math.cos(a) * 0.5, z = p.pos.z + Math.sin(a) * 0.5;
+      const a = Math.random() * TAU, d = aboard ? G.ship.reach(p.pos.x, p.pos.z, Math.cos(a), Math.sin(a), 0.5, () => false) : 0.5, x = p.pos.x + Math.cos(a) * d, z = p.pos.z + Math.sin(a) * d;
       const ok = p.zone !== 'in' || !G.fac || G.fac.walkable(G.fac.ti(x), G.fac.tj(z)) || G.fac.floorAt(G.fac.ti(x), G.fac.tj(z));
       const fx = ok ? x : p.pos.x, fz = ok ? z : p.pos.z;
       G.emit({ e: 'drop', item: id, x: fx, y: ground, z: fz, ry: Math.random() * TAU, inShip: p.zone === 'out' && G.ship.inside(fx, ground + 0.3, fz) });

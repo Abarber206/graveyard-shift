@@ -2842,17 +2842,25 @@ const Ship = (() => {
       this.cloudU.uFade.value = this.pdU.cfade.value = X.fade * X.fade * (3 - 2 * X.fade);
       this.clouds.visible = this.cloudsOn && X.fade > 0;
     }
-    // lightning in today's storms: a flash every second or two somewhere in one of them, flickering two or three times
-    // (just what the eye sees; nobody else needs the same)
+    // lightning, the way real storms throw it: a few thunderstorm cells going at once, each flickering in its own patch
+    // of sky for a while (a flash every second or two somewhere in it, two or three strokes at a time) before it dies
+    // out and another starts up somewhere else; in today's big storms most of all, else anywhere along the tropics and
+    // the storm tracks (it only shows where there's cloud to light). Just what the eye sees; nobody else needs the same
     stepLightning(dt) {
-      const F = this.cloudU.uFlash.value, st = this.wxStorms, fl = this.flashes || (this.flashes = []);
-      if (st && st.length && this.clouds.visible) {
-        this.flashT = (this.flashT || 0) - dt;
-        if (this.flashT <= 0) {
-          this.flashT = 0.25 + Math.random() * 1.8; const s = st[Math.floor(Math.random() * st.length)];
-          const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(s.c, -v.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.8);
-          fl[this.flashK = ((this.flashK || 0) + 1) % 3] = { d: s.c.clone().add(v).normalize(), t: 0, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
-        }
+      const F = this.cloudU.uFlash.value, st = this.wxStorms || [], fl = this.flashes || (this.flashes = []), cells = this.lCells || (this.lCells = []);
+      const on = this.clouds.visible && !this.airless;
+      for (let i = cells.length - 1; i >= 0; i--) if ((cells[i].life -= dt) <= 0) cells.splice(i, 1);
+      while (on && cells.length < 4) {
+        let c;
+        if (st.length && Math.random() < 0.55) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 1.1).add(s.c); }
+        else { const lat = (Math.random() < 0.5 ? Math.random() * 0.35 : 0.6 + Math.random() * 0.45) * (Math.random() < 0.5 ? 1 : -1), lon = Math.random() * TAU; c = _gV.set(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat)); }
+        cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.01 + Math.random() * 0.025, next: Math.random() * 1.5 });
+      }
+      for (const c of on ? cells : []) {
+        if ((c.next -= dt) > 0) continue;
+        c.next = 0.6 + Math.random() * 2.6;
+        const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(c.c, -v.dot(c.c)).normalize().multiplyScalar(c.r * Math.random());
+        fl[this.flashK = ((this.flashK || 0) + 1) % 3] = { d: c.c.clone().add(v).normalize(), t: 0, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
       }
       for (let i = 0; i < 3; i++) {
         const f = fl[i]; if (!f) { F[i].w = 0; continue; }

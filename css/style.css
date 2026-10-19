@@ -37,6 +37,8 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: va
 
 #lobbycode { position: absolute; top: 22px; right: 30px; font-size: 20px; opacity: .8; text-align: right; }
 
+#hold { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; opacity: 0; pointer-events: none; --p: 0; background: conic-gradient(var(--amber) calc(var(--p) * 1turn), rgba(242,166,90,.14) 0); -webkit-mask: radial-gradient(circle, transparent 11px, #000 12px); mask: radial-gradient(circle, transparent 11px, #000 12px); }
+#hold.on { opacity: .75; }
 #crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: var(--amber); opacity: .6; border-radius: 50%; box-shadow: 0 0 4px var(--amber); }
 #prompt { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); font-size: 26px; white-space: nowrap; text-align: center; }
 #prompt .key { display: inline-block; border: 1px solid var(--amber); padding: 0 6px; margin-right: 6px; line-height: 22px; }
@@ -138,7 +140,7 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: va
 #bars i { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; z-index: 5; }
 #bars i:first-child { top: 0; } #bars i:last-child { bottom: calc(100% - var(--app-h, 100%)); }
 #bars.on i { height: 11vh; }
-#hud.cine #crosshair, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
+#hud.cine #crosshair, #hud.cine #hold, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
 #voiceind { position: absolute; left: 30px; bottom: 110px; font-size: 18px; color: #b6ffb0; }
 /* driving the rover: you're looking down its camera (scanlines, the corners of the frame, its readout) */
 #rovercam { position: fixed; inset: 0; pointer-events: none; z-index: 4; color: #b8ffc4; text-shadow: 0 0 6px rgba(120,255,150,.55); font-size: 22px; letter-spacing: 1px;

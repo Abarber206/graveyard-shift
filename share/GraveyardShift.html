@@ -55,6 +55,8 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: va
 
 #lobbycode { position: absolute; top: 22px; right: 30px; font-size: 20px; opacity: .8; text-align: right; }
 
+#hold { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; opacity: 0; pointer-events: none; --p: 0; background: conic-gradient(var(--amber) calc(var(--p) * 1turn), rgba(242,166,90,.14) 0); -webkit-mask: radial-gradient(circle, transparent 11px, #000 12px); mask: radial-gradient(circle, transparent 11px, #000 12px); }
+#hold.on { opacity: .75; }
 #crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: var(--amber); opacity: .6; border-radius: 50%; box-shadow: 0 0 4px var(--amber); }
 #prompt { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); font-size: 26px; white-space: nowrap; text-align: center; }
 #prompt .key { display: inline-block; border: 1px solid var(--amber); padding: 0 6px; margin-right: 6px; line-height: 22px; }
@@ -156,7 +158,7 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: va
 #bars i { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; z-index: 5; }
 #bars i:first-child { top: 0; } #bars i:last-child { bottom: calc(100% - var(--app-h, 100%)); }
 #bars.on i { height: 11vh; }
-#hud.cine #crosshair, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
+#hud.cine #crosshair, #hud.cine #hold, #hud.cine #slots, #hud.cine #stamina, #hud.cine #weight, #hud.cine #prompt, #hud.cine #iteminfo, #hud.cine #visor, #hud.cine #tracker { opacity: 0; transition: opacity .4s; }
 #voiceind { position: absolute; left: 30px; bottom: 110px; font-size: 18px; color: #b6ffb0; }
 /* driving the rover: you're looking down its camera (scanlines, the corners of the frame, its readout) */
 #rovercam { position: fixed; inset: 0; pointer-events: none; z-index: 4; color: #b8ffc4; text-shadow: 0 0 6px rgba(120,255,150,.55); font-size: 22px; letter-spacing: 1px;
@@ -371,6 +373,7 @@ body.touch #voiceind { bottom: auto; top: calc(60px + env(safe-area-inset-top));
   <div id="clock"><div id="clocktime">--:--</div><div id="clocksub"></div></div>
   <div id="lobbycode"></div>
   <div id="crosshair"></div>
+  <div id="hold"></div>
   <div id="prompt"></div>
   <div id="slots"></div>
   <div id="iteminfo"></div>
@@ -1774,7 +1777,7 @@ const SFX = (() => {
         node.connect(lp); node = lp;
       }
       const p = ctx.createPanner();
-      p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
+      p.panningModel = o.pan || 'HRTF'; p.distanceModel = 'inverse';
       p.refDistance = o.ref ?? 2; p.maxDistance = 300; p.rolloffFactor = o.roll ?? 1.25;
       setPannerPos(p, pos.x, pos.y, pos.z);
       node.connect(p); p.connect(sfxBus);
@@ -2076,7 +2079,7 @@ const SFX = (() => {
         const p = new THREE.Vector3(info.complex.x + rnd(-15, 15), cam.y + 6, info.complex.z + rnd(-15, 15));
         play(Math.random() < 0.6 ? 'far_groan' : 'metal_bang', p, { vol: 1.1, ref: 30, roll: 0.8, occl, rev: 0.6 });
       });
-      if (rain > 0.2) every('drip', dt, 0.15, 0.6, () => play(indoorsShip ? 'hull_tick' : 'plink', indoorsShip ? around(cam, 0.5, 3, 1.4, 2.2) : around(cam, 1, 5, -1, 1), { vol: 0.25 * rain, ref: 2, rev: 0.1 }));
+      if (rain > 0.2) every('drip', dt, 0.15, 0.6, () => play(indoorsShip ? 'hull_tick' : 'plink', indoorsShip ? around(cam, 0.5, 3, 1.4, 2.2) : around(cam, 1, 5, -1, 1), { vol: 0.25 * rain, ref: 2, rev: 0.1, pan: 'equalpower' }));
     }
     if (e === 'interior') {
       every('tick', dt, 5, 14, () => play('pipe_tick', around(cam, 4, 14, 1, 2.5), { vol: 0.45, ref: 3, rev: 0.6 }));
@@ -2104,7 +2107,10 @@ const SFX = (() => {
     init() {
       if (ctx) { if (ctx.state !== 'running' && ctx.state !== 'closed' && !this.held) ctx.resume().catch(() => {}); return; }
       try {
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        // (a slightly roomier buffer than the browser's quickest: a slower machine, busy with a storm and a crew's voices
+        // at once, would otherwise run dry now and then and the sound would crackle and drop out)
+        const AC = window.AudioContext || window.webkitAudioContext;
+        try { ctx = new AC({ latencyHint: 'balanced' }); } catch (e) { ctx = new AC(); }
       } catch (e) { console.warn('No WebAudio', e); return; }
       // (to the speakers or headphones picked in VOICE & MIC, where the browser can choose)
       if (Settings.outId && ctx.setSinkId) ctx.setSinkId(Settings.outId).catch(() => {});
@@ -12614,17 +12620,25 @@ const Ship = (() => {
       this.cloudU.uFade.value = this.pdU.cfade.value = X.fade * X.fade * (3 - 2 * X.fade);
       this.clouds.visible = this.cloudsOn && X.fade > 0;
     }
-    // lightning in today's storms: a flash every second or two somewhere in one of them, flickering two or three times
-    // (just what the eye sees; nobody else needs the same)
+    // lightning, the way real storms throw it: a few thunderstorm cells going at once, each flickering in its own patch
+    // of sky for a while (a flash every second or two somewhere in it, two or three strokes at a time) before it dies
+    // out and another starts up somewhere else; in today's big storms most of all, else anywhere along the tropics and
+    // the storm tracks (it only shows where there's cloud to light). Just what the eye sees; nobody else needs the same
     stepLightning(dt) {
-      const F = this.cloudU.uFlash.value, st = this.wxStorms, fl = this.flashes || (this.flashes = []);
-      if (st && st.length && this.clouds.visible) {
-        this.flashT = (this.flashT || 0) - dt;
-        if (this.flashT <= 0) {
-          this.flashT = 0.25 + Math.random() * 1.8; const s = st[Math.floor(Math.random() * st.length)];
-          const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(s.c, -v.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.8);
-          fl[this.flashK = ((this.flashK || 0) + 1) % 3] = { d: s.c.clone().add(v).normalize(), t: 0, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
-        }
+      const F = this.cloudU.uFlash.value, st = this.wxStorms || [], fl = this.flashes || (this.flashes = []), cells = this.lCells || (this.lCells = []);
+      const on = this.clouds.visible && !this.airless;
+      for (let i = cells.length - 1; i >= 0; i--) if ((cells[i].life -= dt) <= 0) cells.splice(i, 1);
+      while (on && cells.length < 4) {
+        let c;
+        if (st.length && Math.random() < 0.55) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 1.1).add(s.c); }
+        else { const lat = (Math.random() < 0.5 ? Math.random() * 0.35 : 0.6 + Math.random() * 0.45) * (Math.random() < 0.5 ? 1 : -1), lon = Math.random() * TAU; c = _gV.set(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat)); }
+        cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.01 + Math.random() * 0.025, next: Math.random() * 1.5 });
+      }
+      for (const c of on ? cells : []) {
+        if ((c.next -= dt) > 0) continue;
+        c.next = 0.6 + Math.random() * 2.6;
+        const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(c.c, -v.dot(c.c)).normalize().multiplyScalar(c.r * Math.random());
+        fl[this.flashK = ((this.flashK || 0) + 1) % 3] = { d: c.c.clone().add(v).normalize(), t: 0, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
       }
       for (let i = 0; i < 3; i++) {
         const f = fl[i]; if (!f) { F[i].w = 0; continue; }
@@ -17173,7 +17187,7 @@ const Net = (() => {
 // you talk (open mic: while you're louder than the threshold; push-to-talk: while V is held). The calls carry what comes
 // out of the gate, so changing microphone, or turning the mic on halfway through a game, needs no new calls.
 const Voice = (() => {
-  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0, held = 0;
+  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0, held = 0, floorDb = -70;
   const peers = new Map(); // peerId -> entry
   // (when each crewmate was first seen without a call, and how many tries in a row haven't come to anything)
   const seen = new Map(), fails = new Map();
@@ -17325,8 +17339,14 @@ const Voice = (() => {
       let s = 0; for (let i = 0; i < chain.buf.length; i++) s += chain.buf[i] * chain.buf[i];
       level = damp(level, Math.sqrt(s / chain.buf.length), 12, dt);
       // (and keying a walkie-talkie opens it whatever the mode: a keyed radio sends all the while it's held)
+      // (open mic: the gate goes by the threshold, or a little over the room's own steady noise if that's louder, so the
+      // hiss of rain or a fan, or the game's own sound from the speakers, never holds it open by itself and goes out to
+      // everyone as static; and it shuts a few dB under where it opened, so quiet words don't chop in and out)
+      const ldb = dbOf(level);
+      floorDb = ldb < floorDb ? damp(floorDb, ldb, 3, dt) : damp(floorDb, ldb, open ? 0.05 : 0.12, dt);
+      const thr = Math.max(Settings.micGate, floorDb + 9);
       if (Settings.ptt) open = pttDown;
-      else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
+      else if (ldb > (open ? thr - 5 : thr) || pttDown) { open = true; hold = 0.6; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
       // How loud that is, out in the building. The level is taken as it is (after the mic volume, not above the gate, or
       // raising the gate would make a shout count as a whisper), and the voice's colour helps where the browser's own
@@ -18372,7 +18392,7 @@ const FX = (() => {
 const HUD = (() => {
   const icons = {};
   let chatOpen = false, termOpen = false, paused = false, overlay = false;
-  let noticeT = 0, toastT = 0, lastSlots = '', labels = [], bubbles = [], promptKey = '', trackerSweep = 0, trackerBeepT = 0, pings = 0;
+  let noticeT = 0, toastT = 0, lastSlots = '', labels = [], bubbles = [], promptKey = '', holdOn = false, trackerSweep = 0, trackerBeepT = 0, pings = 0;
   let termHistory = [], termHistIdx = -1, lastCmd = '', tearTimer = null, staminaActive = 0, lastW = '';
   const proj = new THREE.Vector3();
   const QUICK = ['store', 'sites', 'sell', 'quota', 'scan', 'bestiary', 'crew', 'help'];
@@ -18510,6 +18530,8 @@ const HUD = (() => {
       const n = $('notice'); n.classList.add('show'); n.classList.toggle('danger', danger);
       noticeT = dur;
     },
+    // the ring round the crosshair filling while use is held on something that takes a moment (0: hidden)
+    hold(k) { const e = $('hold'); if (!e) return; const on = k > 0; if (on !== holdOn) { holdOn = on; e.classList.toggle('on', on); } if (on) e.style.setProperty('--p', Math.min(1, k).toFixed(3)); },
     toast(t, dur = 2) { const e = $('toast'); e.textContent = t; e.classList.add('show'); toastT = dur; },
     chat(name, text, cls = '') {
       const log = $('chatlog');
@@ -18721,6 +18743,8 @@ const Input = {
 
 const Player = (() => {
   const vel = new THREE.Vector3(), kick = new THREE.Vector3();
+  // how long use is held on a door before it opens or shuts
+  const DOOR_HOLD = 0.5; let holdT = 0, holdOn = null;
   let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0, prevWade = 0;
   let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
   let target = null;
@@ -19186,8 +19210,18 @@ const Player = (() => {
       // ---------- interaction ----------
       // (use with a lamp in hand and nothing in front of you lights it; facing a door or anything else, it's used)
       target = ui ? null : findTarget(me);
-      if (!ui && !leeched && Input.hit('KeyE') && target) G.interact(target);
-      else if (!ui && !leeched && Input.hit('KeyE') && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
+      // (a door takes a moment: a hand on the handle, the latch, the weight of it swinging; hold use on it until it goes,
+      // and let go or look away and it doesn't)
+      if (!ui && !leeched && target && target.kind === 'door') {
+        if (Input.hit('KeyE')) { holdOn = target.ref; holdT = 0; }
+        if (holdOn === target.ref && Input.down('KeyE')) { holdT += dt; if (holdT >= DOOR_HOLD) { G.interact(target); holdOn = null; } }
+        else holdOn = null;
+      } else {
+        holdOn = null;
+        if (!ui && !leeched && Input.hit('KeyE') && target) G.interact(target);
+        else if (!ui && !leeched && Input.hit('KeyE') && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
+      }
+      HUD.hold(holdOn ? holdT / DOOR_HOLD : 0);
       HUD.prompt(target, me);
       // flashlight light
       const lights = me.slots.map((id) => id != null && G.items.get(id)).filter((it) => it && ITEMS[it.type].light && it.on);
@@ -21747,8 +21781,18 @@ const G = {
       }
       case 'charge': {
         const it = G.items.get(r.item); if (!it || it.holder !== pid || !ITEMS[it.type].battery) return;
-        G.emit({ e: 'itemState', id: it.id, battery: 1 });
+        // it takes a while: the charger's lamps fill one by one as the cell takes the charge, a sixth at a time, and
+        // it's only full once the last is lit (put it away or walk off and it keeps what it got); one thing at a time
+        const now = performance.now() / 1000; if (G.charging && now - G.charging.at < 3) return;
+        const b0 = it.battery, c = (G.charging = { id: it.id, at: now });
         G.emitSound('charge', new THREE.Vector3(-3.6, 1.3, -3.7), {});
+        for (let k = 1; k <= 6; k++) G.timers.push({ t: k * 0.4, fn: () => {
+          if (G.charging !== c) return;
+          const q = G.items.get(c.id), p = G.players.get(pid);
+          if (!q || q.holder !== pid || !p || p.zone === 'in' || Math.hypot(p.pos.x + 3.6, p.pos.z + 3.75) > 2.4) { G.charging = null; return; }
+          G.emit({ e: 'itemState', id: q.id, battery: Math.max(q.battery, b0 + (1 - b0) * k / 6) });
+          if (k === 6) G.charging = null;
+        } });
         break;
       }
       // the rover: one driver at a time, from the console in the bay; nobody drives it while the ship's flying
@@ -23255,7 +23299,7 @@ const G = {
         if (o.kind === 'jump') { if (G.flight || G.robot || G.seq || G.jumping) continue; label = G.mode !== 'orbit' ? 'Jump drive (only in orbit)' : G.run.course ? 'Jump to ' + SITES[G.run.course].name : 'Jump drive: no course plotted'; }
         if (o.kind === 'hatch') label = G.ship.door.open ? 'Close hatch' : 'Open hatch';
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
-        if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id); label = it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
+        if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id), busy = G.ship.chg && G.ship.chg.t != null && G.ship.chg.t < 2.4; label = busy ? 'Charging…' : it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
         if (o.kind === 'ladder') { if (me.roof) continue; label = G.roofOpen() ? 'Climb to the roof' : 'Roof hatch (sealed)'; }
         if (o.kind === 'roofHatch') { if (!me.roof) continue; label = 'Climb down'; }

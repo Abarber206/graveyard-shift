@@ -3,7 +3,7 @@
 const HUD = (() => {
   const icons = {};
   let chatOpen = false, termOpen = false, paused = false, overlay = false;
-  let noticeT = 0, toastT = 0, lastSlots = '', labels = [], bubbles = [], promptKey = '', trackerSweep = 0, trackerBeepT = 0, pings = 0;
+  let noticeT = 0, toastT = 0, lastSlots = '', labels = [], bubbles = [], promptKey = '', holdOn = false, trackerSweep = 0, trackerBeepT = 0, pings = 0;
   let termHistory = [], termHistIdx = -1, lastCmd = '', tearTimer = null, staminaActive = 0, lastW = '';
   const proj = new THREE.Vector3();
   const QUICK = ['store', 'sites', 'sell', 'quota', 'scan', 'bestiary', 'crew', 'help'];
@@ -141,6 +141,8 @@ const HUD = (() => {
       const n = $('notice'); n.classList.add('show'); n.classList.toggle('danger', danger);
       noticeT = dur;
     },
+    // the ring round the crosshair filling while use is held on something that takes a moment (0: hidden)
+    hold(k) { const e = $('hold'); if (!e) return; const on = k > 0; if (on !== holdOn) { holdOn = on; e.classList.toggle('on', on); } if (on) e.style.setProperty('--p', Math.min(1, k).toFixed(3)); },
     toast(t, dur = 2) { const e = $('toast'); e.textContent = t; e.classList.add('show'); toastT = dur; },
     chat(name, text, cls = '') {
       const log = $('chatlog');

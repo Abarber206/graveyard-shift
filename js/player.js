@@ -41,6 +41,8 @@ const Input = {
 
 const Player = (() => {
   const vel = new THREE.Vector3(), kick = new THREE.Vector3();
+  // how long use is held on a door before it opens or shuts
+  const DOOR_HOLD = 0.5; let holdT = 0, holdOn = null;
   let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0, prevWade = 0;
   let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
   let target = null;
@@ -506,8 +508,18 @@ const Player = (() => {
       // ---------- interaction ----------
       // (use with a lamp in hand and nothing in front of you lights it; facing a door or anything else, it's used)
       target = ui ? null : findTarget(me);
-      if (!ui && !leeched && Input.hit('KeyE') && target) G.interact(target);
-      else if (!ui && !leeched && Input.hit('KeyE') && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
+      // (a door takes a moment: a hand on the handle, the latch, the weight of it swinging; hold use on it until it goes,
+      // and let go or look away and it doesn't)
+      if (!ui && !leeched && target && target.kind === 'door') {
+        if (Input.hit('KeyE')) { holdOn = target.ref; holdT = 0; }
+        if (holdOn === target.ref && Input.down('KeyE')) { holdT += dt; if (holdT >= DOOR_HOLD) { G.interact(target); holdOn = null; } }
+        else holdOn = null;
+      } else {
+        holdOn = null;
+        if (!ui && !leeched && Input.hit('KeyE') && target) G.interact(target);
+        else if (!ui && !leeched && Input.hit('KeyE') && cur && ITEMS[cur.type].lamp) toggleLamp(cur);
+      }
+      HUD.hold(holdOn ? holdT / DOOR_HOLD : 0);
       HUD.prompt(target, me);
       // flashlight light
       const lights = me.slots.map((id) => id != null && G.items.get(id)).filter((it) => it && ITEMS[it.type].light && it.on);

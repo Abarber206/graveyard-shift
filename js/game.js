@@ -1413,8 +1413,18 @@ const G = {
       }
       case 'charge': {
         const it = G.items.get(r.item); if (!it || it.holder !== pid || !ITEMS[it.type].battery) return;
-        G.emit({ e: 'itemState', id: it.id, battery: 1 });
+        // it takes a while: the charger's lamps fill one by one as the cell takes the charge, a sixth at a time, and
+        // it's only full once the last is lit (put it away or walk off and it keeps what it got); one thing at a time
+        const now = performance.now() / 1000; if (G.charging && now - G.charging.at < 3) return;
+        const b0 = it.battery, c = (G.charging = { id: it.id, at: now });
         G.emitSound('charge', new THREE.Vector3(-3.6, 1.3, -3.7), {});
+        for (let k = 1; k <= 6; k++) G.timers.push({ t: k * 0.4, fn: () => {
+          if (G.charging !== c) return;
+          const q = G.items.get(c.id), p = G.players.get(pid);
+          if (!q || q.holder !== pid || !p || p.zone === 'in' || Math.hypot(p.pos.x + 3.6, p.pos.z + 3.75) > 2.4) { G.charging = null; return; }
+          G.emit({ e: 'itemState', id: q.id, battery: Math.max(q.battery, b0 + (1 - b0) * k / 6) });
+          if (k === 6) G.charging = null;
+        } });
         break;
       }
       // the rover: one driver at a time, from the console in the bay; nobody drives it while the ship's flying
@@ -2921,7 +2931,7 @@ const G = {
         if (o.kind === 'jump') { if (G.flight || G.robot || G.seq || G.jumping) continue; label = G.mode !== 'orbit' ? 'Jump drive (only in orbit)' : G.run.course ? 'Jump to ' + SITES[G.run.course].name : 'Jump drive: no course plotted'; }
         if (o.kind === 'hatch') label = G.ship.door.open ? 'Close hatch' : 'Open hatch';
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
-        if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id); label = it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
+        if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id), busy = G.ship.chg && G.ship.chg.t != null && G.ship.chg.t < 2.4; label = busy ? 'Charging…' : it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
         if (o.kind === 'ladder') { if (me.roof) continue; label = G.roofOpen() ? 'Climb to the roof' : 'Roof hatch (sealed)'; }
         if (o.kind === 'roofHatch') { if (!me.roof) continue; label = 'Climb down'; }

@@ -1113,7 +1113,7 @@ const SFX = (() => {
         node.connect(lp); node = lp;
       }
       const p = ctx.createPanner();
-      p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
+      p.panningModel = o.pan || 'HRTF'; p.distanceModel = 'inverse';
       p.refDistance = o.ref ?? 2; p.maxDistance = 300; p.rolloffFactor = o.roll ?? 1.25;
       setPannerPos(p, pos.x, pos.y, pos.z);
       node.connect(p); p.connect(sfxBus);
@@ -1415,7 +1415,7 @@ const SFX = (() => {
         const p = new THREE.Vector3(info.complex.x + rnd(-15, 15), cam.y + 6, info.complex.z + rnd(-15, 15));
         play(Math.random() < 0.6 ? 'far_groan' : 'metal_bang', p, { vol: 1.1, ref: 30, roll: 0.8, occl, rev: 0.6 });
       });
-      if (rain > 0.2) every('drip', dt, 0.15, 0.6, () => play(indoorsShip ? 'hull_tick' : 'plink', indoorsShip ? around(cam, 0.5, 3, 1.4, 2.2) : around(cam, 1, 5, -1, 1), { vol: 0.25 * rain, ref: 2, rev: 0.1 }));
+      if (rain > 0.2) every('drip', dt, 0.15, 0.6, () => play(indoorsShip ? 'hull_tick' : 'plink', indoorsShip ? around(cam, 0.5, 3, 1.4, 2.2) : around(cam, 1, 5, -1, 1), { vol: 0.25 * rain, ref: 2, rev: 0.1, pan: 'equalpower' }));
     }
     if (e === 'interior') {
       every('tick', dt, 5, 14, () => play('pipe_tick', around(cam, 4, 14, 1, 2.5), { vol: 0.45, ref: 3, rev: 0.6 }));
@@ -1443,7 +1443,10 @@ const SFX = (() => {
     init() {
       if (ctx) { if (ctx.state !== 'running' && ctx.state !== 'closed' && !this.held) ctx.resume().catch(() => {}); return; }
       try {
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        // (a slightly roomier buffer than the browser's quickest: a slower machine, busy with a storm and a crew's voices
+        // at once, would otherwise run dry now and then and the sound would crackle and drop out)
+        const AC = window.AudioContext || window.webkitAudioContext;
+        try { ctx = new AC({ latencyHint: 'balanced' }); } catch (e) { ctx = new AC(); }
       } catch (e) { console.warn('No WebAudio', e); return; }
       // (to the speakers or headphones picked in VOICE & MIC, where the browser can choose)
       if (Settings.outId && ctx.setSinkId) ctx.setSinkId(Settings.outId).catch(() => {});

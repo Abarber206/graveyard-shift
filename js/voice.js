@@ -5,7 +5,7 @@
 // you talk (open mic: while you're louder than the threshold; push-to-talk: while V is held). The calls carry what comes
 // out of the gate, so changing microphone, or turning the mic on halfway through a game, needs no new calls.
 const Voice = (() => {
-  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0, held = 0;
+  let raw = null, src = null, chain = null, level = 0, enabled = false, pttDown = false, open = false, hold = 0, held = 0, floorDb = -70;
   const peers = new Map(); // peerId -> entry
   // (when each crewmate was first seen without a call, and how many tries in a row haven't come to anything)
   const seen = new Map(), fails = new Map();
@@ -157,8 +157,14 @@ const Voice = (() => {
       let s = 0; for (let i = 0; i < chain.buf.length; i++) s += chain.buf[i] * chain.buf[i];
       level = damp(level, Math.sqrt(s / chain.buf.length), 12, dt);
       // (and keying a walkie-talkie opens it whatever the mode: a keyed radio sends all the while it's held)
+      // (open mic: the gate goes by the threshold, or a little over the room's own steady noise if that's louder, so the
+      // hiss of rain or a fan, or the game's own sound from the speakers, never holds it open by itself and goes out to
+      // everyone as static; and it shuts a few dB under where it opened, so quiet words don't chop in and out)
+      const ldb = dbOf(level);
+      floorDb = ldb < floorDb ? damp(floorDb, ldb, 3, dt) : damp(floorDb, ldb, open ? 0.05 : 0.12, dt);
+      const thr = Math.max(Settings.micGate, floorDb + 9);
       if (Settings.ptt) open = pttDown;
-      else if (dbOf(level) > Settings.micGate || pttDown) { open = true; hold = 0.45; } else if ((hold -= dt) <= 0) open = false;
+      else if (ldb > (open ? thr - 5 : thr) || pttDown) { open = true; hold = 0.6; } else if ((hold -= dt) <= 0) open = false;
       chain.gate.gain.setTargetAtTime(open ? 1 : 0, SFX.ctx.currentTime, open ? 0.008 : 0.06);
       // How loud that is, out in the building. The level is taken as it is (after the mic volume, not above the gate, or
       // raising the gate would make a shout count as a whisper), and the voice's colour helps where the browser's own

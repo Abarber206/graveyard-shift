@@ -9783,9 +9783,9 @@ const Ship = (() => {
   // reads as the world turning beneath rather than the ground rushing by)
   const glideWx = (t) => sstep(ENTRY.burn, ENTRY.burn + 4, t) * (1 - sstep(ENTRY.drop + 6, ENTRY.air - 4, t));
   // how much of the parked orbit's own clock has been held back, t seconds after the lever: it drifts on through the
-  // swing, slowing, and is still by the burn (the integral of sstep(turn0, burn)); all told it runs on DRIFT seconds
+  // swing, slowing, and is still by the burn (the integral of sstep(turn0, burn)); all told it runs on glideDrift() s
   const glideHold = (t) => { const a = ENTRY.turn0, b = ENTRY.burn, u = clamp((t - a) / (b - a), 0, 1); return t < a ? 0 : (b - a) * (u * u * u - u * u * u * u / 2) + Math.max(0, t - b); };
-  const DRIFT = ENTRY.turn0 + (ENTRY.burn - ENTRY.turn0) / 2;
+  const glideDrift = () => ENTRY.turn0 + (ENTRY.burn - ENTRY.turn0) / 2;
   // ---- the outer hull's shape ----
   // One smooth skin wraps the whole cabin; the bay and flight deck keep their own walls inside it, and the space
   // between is the ship's hidden works. Every cross-section is two superellipse quarters meeting at the widest line
@@ -12859,7 +12859,7 @@ const Ship = (() => {
         const dl = Math.asin(Math.min(0.999, R / dist)) - 0.16;
         _g1.set(Math.cos(dl), -Math.sin(dl), 0);
         // (planned for where the orbit will have drifted to by the time it's still)
-        if (!g.A) this.planGlide(g, nu + (TAU / o.period) * Math.max(0, DRIFT - (g.t - glideHold(g.t))), _g1);
+        if (!g.A) this.planGlide(g, nu + (TAU / o.period) * Math.max(0, glideDrift() - (g.t - glideHold(g.t))), _g1);
         q = _tq.copy(_tqI).slerp(this.glideFrame(g.A, _g1), g.turn);
         // all the way down the world turns under the ship, and the sun and stars wheel round with it
         { const tab = g.phiT, f = g.t / 0.05, i = Math.min(tab.length - 2, Math.floor(f)); g.phi = tab[i] + (tab[i + 1] - tab[i]) * (f - i); }

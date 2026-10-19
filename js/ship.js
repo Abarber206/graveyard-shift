@@ -27,15 +27,15 @@ const Ship = (() => {
   const _drop = new THREE.Vector3(), _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
   // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round gathers
   // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
-  // as it shrinks; any extra way round, to come down into daylight, goes only while it's high, where it reads as the
-  // world turning beneath)
+  // as it shrinks; any extra way round, to come down into daylight, goes only once it's low, where it reads as the
+  // ground rushing by. High up, with the whole world in the glass, it hardly turns: it's far too big to)
   // how fast the world turns under the ship coming down, t seconds after the lever, from an orbit h0 up (a share,
   // scaled to the trip): the lower an orbit, the quicker it goes round (as its radius to the -3/2), and the ship's own
   // way round only takes over from its parked orbit's slow drift little by little, through the burn and the long fall
-  const glideW = (t, h0) => Math.pow((1 + ENTRY.hAir) / (1 + G.glideAlt(h0, t)), 1.5) * (0.02 + 0.98 * sstep(ENTRY.burn - 1, ENTRY.air - 4, t));
-  // (and the extra way round some days need, to bring the sun up: gone round while the ship's still high, where it
-  // reads as the world turning beneath rather than the ground rushing by)
-  const glideWx = (t) => sstep(ENTRY.burn, ENTRY.burn + 4, t) * (1 - sstep(ENTRY.drop + 6, ENTRY.air - 4, t));
+  const glideW = (t, h0) => Math.pow((1 + ENTRY.hAir) / (1 + G.glideAlt(h0, t)), 2) * (0.02 + 0.98 * sstep(ENTRY.burn - 1, ENTRY.air - 4, t));
+  // (and the extra way round some days need, to bring the sun up: gone round once the ship's low, a third of the
+  // world's radius up and under, where it reads as the ground rushing by rather than the world spinning)
+  const glideWx = (t, h0) => sstep(0.35, 0.15, G.glideAlt(h0, t)) * (1 - sstep(ENTRY.air - 2, ENTRY.air + 2, t));
   // how much of the parked orbit's own clock has been held back, t seconds after the lever: it drifts on through the
   // swing, slowing, and is still by the burn (the integral of sstep(turn0, burn)); all told it runs on glideDrift() s
   const glideHold = (t) => { const a = ENTRY.turn0, b = ENTRY.burn, u = clamp((t - a) / (b - a), 0, 1); return t < a ? 0 : (b - a) * (u * u * u - u * u * u * u / 2) + Math.max(0, t - b); };
@@ -260,11 +260,13 @@ const Ship = (() => {
   // to show (falling through it). As before, the moons and the rings throw their shadows on it, and diving in, it
   // opens over the site.
   const CLOUD_VS = 'varying vec3 vPos; varying vec3 vWP; void main(){ vPos = position; vec4 w = modelMatrix * vec4(position, 1.0); vWP = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
+  // the renderer's pixels to the page's (for anything drawn a set number of pixels across)
+  const pxRatio = () => (R.renderer ? Math.min(2, R.renderer.getPixelRatio()) : 1);
   const CLOUD_FS = () => `precision highp sampler3D;
     ${Rings.GLSL}${CLOUD_SPIN}
     uniform sampler2D uMap; uniform sampler3D uNoise;
     uniform vec3 uCamL, uSunL, uAmb, uCol; uniform vec4 uShell; uniform float uFade, uCirRot, uSunI, uTexel;
-    uniform vec4 uPdCast[3]; uniform vec3 uPdSunW;
+    uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; uniform vec4 uFlash[3];
     varying vec3 vPos; varying vec3 vWP;
     vec3 sunCol(float m){ return mix(vec3(1.0, 0.34, 0.1), vec3(1.0, 0.96, 0.9), smoothstep(0.0, 0.3, m)) * smoothstep(-0.02, 0.05, m); }
     vec3 dW;
@@ -340,6 +342,9 @@ const Ship = (() => {
         float g = max(dot(rd, uSunL), 0.0), fwd = 1.0 + 2.0 * pow(g, 6.0) * (1.0 - alpha * 0.7);
         vec3 amb = uAmb * 0.3 * smoothstep(-0.12, 0.4, mu) + vec3(0.0008, 0.001, 0.0016);
         col = (accS * lam * shadow * shd * fwd * uSunI + amb * accA) * uCol;
+        // (lightning flickering deep in a storm, lighting the cloud round it from inside: on the night side, a tiny wink
+        // of light far below, a storm the size of a country)
+        for (int i = 0; i < 3; i++) { vec4 L = uFlash[i]; if (L.w > 0.0) col += vec3(0.6, 0.68, 1.0) * L.w * 14.0 * accA * exp(-(1.0 - dot(nw, L.xyz)) / 0.00016); }
       }
       // the high wisps: a thin sheet over it all (or, from under it, behind it)
       float dc = b * b - c0 + Rc * Rc;
@@ -2523,6 +2528,26 @@ const Ship = (() => {
       // which checks that the core is really visible (not behind the planet, a wall or a window frame).
       this.sunCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('sunDisc'), color: new THREE.Color(34, 31, 27), fog: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending }));
       this.sunCore.scale.set(340, 340, 1); sp.add(this.sunCore);
+      // another of the company's ships, parked in a lower orbit: a speck of sunlit hull crawling across the face of the
+      // world, a glint off its panels now and then, its strobe winking; so you can see the size of what you're about
+      // to fall into (it goes round in the world's own frame, pgroup's: see orbit)
+      {
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+        this.speckU = { uT: { value: 0 }, uLit: { value: 1 }, uPx: { value: 9 } };
+        this.speck = new THREE.Points(g, new THREE.ShaderMaterial({
+          uniforms: this.speckU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+          vertexShader: 'uniform float uPx; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_PointSize = uPx; }',
+          fragmentShader: `uniform float uT, uLit;
+            void main(){
+              vec2 d = gl_PointCoord - 0.5; float r2 = dot(d, d) * 4.0, s = fract(uT / 1.7);
+              float hull = (0.55 + 4.0 * pow(max(0.0, sin(uT * 0.23)), 80.0)) * uLit;
+              float strobe = (s < 0.04 || abs(s - 0.13) < 0.02) ? 7.0 : 0.0, nav = step(0.5, fract(uT * 0.45 + 0.2));
+              vec3 c = vec3(1.0, 0.95, 0.86) * hull * exp(-r2 * 10.0) + vec3(1.0) * strobe * exp(-r2 * 4.0) + vec3(1.0, 0.12, 0.08) * 0.7 * nav * exp(-r2 * 14.0);
+              gl_FragColor = vec4(c, 1.0);
+            }`,
+        }));
+        this.speck.frustumCulled = false; this.speck.renderOrder = 3; this.pgroup.add(this.speck);
+      }
       // atmospheric entry: a sheath of burning air around the hull, brightest where it rams into the belly and nose,
       // torn into ragged streaks that stream back past the windows (it's part of the backdrop pass, so only the
       // windows ever show it; it lies past that pass's near plane and over the planet)
@@ -2581,8 +2606,24 @@ const Ship = (() => {
       this.wxRT.texture.anisotropy = 4;
       this.vortU = { value: Array.from({ length: CLOUD.NV }, () => new THREE.Vector4()) }; this.vturnU = { value: new Array(CLOUD.NV).fill(0) };
       const U = this.pdU = { haze: { value: 0 }, tint: { value: new THREE.Color(0x88aaff) }, bump: { value: this.R * 0.3 }, cmap: { value: this.wxRT.texture }, crot: { value: 0 }, cfade: { value: 0 }, cres: { value: tier.w / TAU }, sunObj: { value: V(1, 0, 0) }, air: { value: 1 }, cast: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, sunW: { value: V(1, 0, 0) }, gas: { value: 0 }, scar: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) } };
-      const NOISE = `varying vec3 vPDir; float pdHeight = 0.0;
+      const NOISE = `varying vec3 vPDir; float pdHeight = 0.0, pdSea = 0.0;
         float pdh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+        // craters, one or none to each cell of a grid over the sphere at this scale, most of them small: a bowl sunk
+        // below a raised rim, its ejecta thrown out round it; alb, how the rim and the floor catch the light
+        float pdCraters(vec3 p, out float alb){
+          vec3 b = floor(p - 0.5); float h = 0.0; alb = 0.0;
+          for (int k = 0; k < 8; k++){
+            vec3 c = b + vec3(float(k & 1), float((k >> 1) & 1), float((k >> 2) & 1));
+            if (pdh(c + 3.7) > 0.62) continue;
+            vec3 o = c + 0.25 + 0.5 * vec3(pdh(c + 11.1), pdh(c + 23.3), pdh(c + 37.7));
+            float r = 0.09 + 0.36 * pow(pdh(c + 51.9), 2.4), d = length(p - o) / r;
+            if (d > 1.6) continue;
+            float di = min(d, 1.0), rim = exp(-pow((d - 1.0) / 0.16, 2.0));
+            h += r * (0.42 * (di * di - 1.0) + 0.14 * rim + 0.03 * smoothstep(0.85, 1.15, d) * (1.6 - d) / 0.6);
+            alb += 0.16 * rim - 0.1 * (1.0 - smoothstep(0.55, 0.95, d));
+          }
+          return h;
+        }
         float pdn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
           return mix(mix(mix(pdh(i), pdh(i + vec3(1,0,0)), f.x), mix(pdh(i + vec3(0,1,0)), pdh(i + vec3(1,1,0)), f.x), f.y),
                      mix(mix(pdh(i + vec3(0,0,1)), pdh(i + vec3(1,0,1)), f.x), mix(pdh(i + vec3(0,1,1)), pdh(i + vec3(1,1,1)), f.x), f.y), f.z); }
@@ -2637,6 +2678,19 @@ const Ship = (() => {
                 diffuseColor.rgb *= 1.0 + s * 0.22;
               }
               pdHeight = lh * land;
+              pdSea = (1.0 - land) * uPdAir * (1.0 - uPdGas);
+              // (an airless world: craters inside craters, at every size, the smaller the more of them; closer in, ever
+              // smaller ones turn up in the floors of the big ones in its map and between them, the way they do on a
+              // real moon, so it never runs out of detail however near you come)
+              if (uPdAir < 0.5 && uPdGas < 0.5) {
+                float fw0 = length(fwidth(pp)), f = 22.0, ch = 0.0, ca = 0.0;
+                for (int o = 0; o < 5; o++) {
+                  float fw = fw0 * f, w = 1.0 - smoothstep(0.06, 0.25, fw); if (w <= 0.0) break;
+                  float al, hh = pdCraters(pp * f + float(o) * 31.7, al);
+                  ch += hh / f * (1.0 - smoothstep(0.04, 0.15, fw)); ca += al * w; f *= 2.7;
+                }
+                pdHeight += ch * 0.8; diffuseColor.rgb *= clamp(1.0 + ca, 0.6, 1.5);
+              }
               // (on an airless moon or rock, the fresh craters today's meteors left, big enough to see from up here: a
               // darker floor, a bright raised rim, a splash of bright rays thrown out round it)
               if (uPdAir < 0.5) for (int i = 0; i < 4; i++) {
@@ -2658,6 +2712,8 @@ const Ship = (() => {
               float cov = textureLod(uPdCMap, cloudUV(cloudTurn(cs, cloudSpinAt(cs))), log2(max(1.0, length(fwidth(pp)) * uPdCRes))).a;
               diffuseColor.rgb *= 1.0 - 0.62 * smoothstep(0.05, 0.75, cov) * uPdAir * (1.0 - uPdGas) * uPdCFade;
             }`)
+          // (the sea is smooth: the sun glints off it, a small bright patch on the vast curve of the world)
+          .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(roughnessFactor, 0.32, pdSea);')
           .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
             {
               vec3 sp = -vViewPosition, dx = dFdx(sp), dy = dFdy(sp);
@@ -2693,7 +2749,7 @@ const Ship = (() => {
         uMap: { value: this.wxRT.texture }, uNoise: { value: R.vol.noise || null }, uCamL: { value: V() }, uSunL: { value: V(1, 0, 0) },
         uAmb: { value: new THREE.Color() }, uCol: { value: new THREE.Color(1, 1, 1) }, uShell: { value: new THREE.Vector4(Rw * CLOUD.base, Rw * CLOUD.top, Rw * CLOUD.cirrus, Rw) },
         uFade: { value: 0 }, uCirRot: { value: 0 }, uSunI: { value: 1.55 }, uTexel: { value: TAU * Rw * CLOUD.top / tier.w },
-        uPdCast: U.cast, uPdSunW: U.sunW, uVort: this.vortU, uVturn: this.vturnU,
+        uPdCast: U.cast, uPdSunW: U.sunW, uVort: this.vortU, uVturn: this.vturnU, uFlash: { value: [0, 1, 2].map(() => new THREE.Vector4()) },
       }, this.ringU);
       const cm = new THREE.ShaderMaterial({ uniforms: cu, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS(), defines: {}, transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false });
       this.clouds = new THREE.Mesh(new THREE.SphereGeometry(Rw * CLOUD.hull, 96, 48), cm); this.clouds.visible = false; this.tilt.add(this.clouds);
@@ -2782,8 +2838,28 @@ const Ship = (() => {
       if (X.ready && !X.want) X.fade = Math.min(1, X.fade + dt / 1.5);
       X.t += dt;
       if (this.wxStorms) this.wxStorms.forEach((s, i) => { this.vturnU.value[i] = s.w * X.t; });
+      this.stepLightning(dt);
       this.cloudU.uFade.value = this.pdU.cfade.value = X.fade * X.fade * (3 - 2 * X.fade);
       this.clouds.visible = this.cloudsOn && X.fade > 0;
+    }
+    // lightning in today's storms: a flash every second or two somewhere in one of them, flickering two or three times
+    // (just what the eye sees; nobody else needs the same)
+    stepLightning(dt) {
+      const F = this.cloudU.uFlash.value, st = this.wxStorms, fl = this.flashes || (this.flashes = []);
+      if (st && st.length && this.clouds.visible) {
+        this.flashT = (this.flashT || 0) - dt;
+        if (this.flashT <= 0) {
+          this.flashT = 0.25 + Math.random() * 1.8; const s = st[Math.floor(Math.random() * st.length)];
+          const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(s.c, -v.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.8);
+          fl[this.flashK = ((this.flashK || 0) + 1) % 3] = { d: s.c.clone().add(v).normalize(), t: 0, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
+        }
+      }
+      for (let i = 0; i < 3; i++) {
+        const f = fl[i]; if (!f) { F[i].w = 0; continue; }
+        f.t += dt; const u = f.t / 0.11, ph = u - Math.floor(u);
+        F[i].set(f.d.x, f.d.y, f.d.z, u < f.n ? f.k * Math.pow(Math.sin(Math.min(1, ph / 0.55) * Math.PI), 2) * (1 - 0.3 * Math.floor(u)) : 0);
+        if (u >= f.n) fl[i] = null;
+      }
     }
     setPlanet(tint, atmo, airless, giant) {
       this.planetMat.color.set(tint); this.atmo.material.uniforms.tint.value.set(atmo); this.pdU.tint.value.set(atmo); this.plasma.material.uniforms.uAir.value.set(atmo); this.cloudU.uAmb.value.set(atmo);
@@ -2893,11 +2969,27 @@ const Ship = (() => {
       // (A moon is drawn far nearer the world than it really is, just off its limb, so the shadows are reckoned where it
       // really is, uLift.xyz further out: else it would sit half in the world's shadow, or the rings', much of the time.
       // uLift.w: 0 for one that never comes near enough the moon we're circling to fall in its shadow.)
-      const shade = (mat, harsh, lift) => {
+      const shade = (mat, harsh, lift, giant) => {
         mat.onBeforeCompile = (sh) => {
           sh.uniforms.uOcc = this.occU; sh.uniforms.uSunW = this.sunWU; sh.uniforms.uLift = lift; Object.assign(sh.uniforms, this.ringU);
-          sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-          sh.fragmentShader = Rings.GLSL + 'uniform vec4 uOcc, uLift; uniform vec3 uSunW; varying vec3 vWP;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `{
+          sh.vertexShader = 'varying vec3 vWP, vOP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vOP = position;');
+          sh.fragmentShader = Rings.GLSL + 'uniform vec4 uOcc, uLift; uniform vec3 uSunW; varying vec3 vWP, vOP;\n' + sh.fragmentShader
+            // (a giant seen from one of its moons, filling half the sky: its cloud close up, fine streaks drawn out along
+            // its bands, finer and finer, each fading out before it's too fine to show; so it never goes soft)
+            .replace('#include <map_fragment>', giant ? `#include <map_fragment>
+            {
+              vec3 pp = normalize(vOP), q = vec3(pp.x * 30.0, pp.y * 260.0, pp.z * 30.0); float s = 0.0, a = 1.0;
+              for (int i = 0; i < 4; i++) {
+                vec3 i0 = floor(q + float(i) * 7.1), f = fract(q + float(i) * 7.1); f = f * f * (3.0 - 2.0 * f);
+                #define GH(c) fract(sin(dot(c, vec3(127.1, 311.7, 74.7))) * 43758.5453)
+                float n = mix(mix(mix(GH(i0), GH(i0 + vec3(1,0,0)), f.x), mix(GH(i0 + vec3(0,1,0)), GH(i0 + vec3(1,1,0)), f.x), f.y),
+                              mix(mix(GH(i0 + vec3(0,0,1)), GH(i0 + vec3(1,0,1)), f.x), mix(GH(i0 + vec3(0,1,1)), GH(i0 + vec3(1,1,1)), f.x), f.y), f.z);
+                #undef GH
+                s += (n - 0.5) * a * (1.0 - smoothstep(0.3, 0.9, length(fwidth(q)))); q *= 2.7; a *= 0.62;
+              }
+              diffuseColor.rgb *= 1.0 + s * 0.24;
+            }` : '#include <map_fragment>')
+            .replace('#include <opaque_fragment>', `{
               vec3 P = vWP + uLift.xyz, rel = uOcc.xyz - P; float tt = dot(rel, uSunW);
               // (in the world's shadow it isn't quite black where the world has rings: their sunlit ice still lights it, dimly)
               if (tt > 0.0 && uLift.w > 0.0) { float d = length(rel - uSunW * tt), pen = uOcc.w * 0.03 + tt * 0.0093, e = smoothstep(uOcc.w - pen, uOcc.w + pen, d);
@@ -2907,7 +2999,7 @@ const Ship = (() => {
             }
             #include <opaque_fragment>`);
         };
-        mat.customProgramCacheKey = () => (harsh ? 'bodyHarsh' : 'bodySoft');
+        mat.customProgramCacheKey = () => (harsh ? 'bodyHarsh' : giant ? 'bodyGiant' : 'bodySoft');
       };
       const a = (o.ra + o.rp) / 2, cam = new THREE.Vector3().copy(o.D).multiplyScalar(-a), lim = Math.asin(Math.min(0.99, R / a));
       // A stream of big rocks going round the world near our own orbit (fewer round a moon or rock): each a little faster
@@ -2972,16 +3064,16 @@ const Ship = (() => {
         const sib = b.kind !== 'planet' && list.some((x) => x.kind === 'planet');
         m.userData.lift = { value: new THREE.Vector4(0, 0, 0, sib ? 0 : 1) };
         m.userData.real = b.kind === 'planet' || sib ? 0 : b.orbit * R * near; m.userData.ringRock = ringRock; m.userData.key = b.key;
-        shade(m.material, b.kind !== 'planet', m.userData.lift);
+        shade(m.material, b.kind !== 'planet', m.userData.lift, b.kind === 'planet' && !!b.giant);
         m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
         this.bodiesG.add(m); this.casters.push(m);
         // (a moon or rock goes slowly round, a moon in about forty minutes, a rock in under twenty: its own way round,
         // tipped a little, mostly across the sky so it circles the world rather than hiding behind it)
         // (one in the rings goes round in them, the way they go round, slowly)
-        if (ringRock) this.bodyOrbits.push({ m, base: pos.clone(), axis: V(0, 1, 0).applyQuaternion(this.tilt.quaternion), speed: TAU / 3000 });
+        if (ringRock) this.bodyOrbits.push({ m, base: pos.clone(), axis: V(0, 1, 0).applyQuaternion(this.tilt.quaternion), speed: TAU / 6000 });
         else if (b.kind !== 'planet') {
           const bn = pos.clone().normalize(), want = o.D.clone().negate().addScaledVector(v, 0.35);
-          this.bodyOrbits.push({ m, base: pos.clone(), axis: want.addScaledVector(bn, -want.dot(bn)).normalize(), speed: (b.kind === 'moon' ? TAU / 2400 : TAU / 1100) * (rr.next() < 0.5 ? 1 : -1) });
+          this.bodyOrbits.push({ m, base: pos.clone(), axis: want.addScaledVector(bn, -want.dot(bn)).normalize(), speed: (b.kind === 'moon' ? TAU / 4800 : TAU / 2200) * (rr.next() < 0.5 ? 1 : -1) });
         }
         // a world with air (seen from one of its moons) wears a thin glowing limb on its sunlit side, and its rings
         if (b.atmo != null) {
@@ -3009,22 +3101,29 @@ const Ship = (() => {
     }
     // A new elliptical orbit: sometimes we swing in close, sometimes the whole world hangs far off like Saturn from a moon.
     // The ship holds its attitude so the planet stays framed in the windshield; our motion around it moves the sun.
-    setOrbit(seed, look) {
+    // (byGiant: round one of a giant's moons, which parks higher, so the moon sits small in the glass against the giant)
+    setOrbit(seed, look, byGiant) {
       const r = new RNG(seed), R = this.R;
       const D = V(1, r.range(0.04, 0.16), r.range(-0.42, -0.1)).normalize();
       const N0 = V(0, 1, 0).sub(D.clone().multiplyScalar(D.y)).normalize();
       const N = N0.clone().applyAxisAngle(D, r.range(-0.6, 0.6)).normalize();
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
-      // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard
-      // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it)
-      const a = R * (look.giant ? r.range(1.25, 1.7) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
+      // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard; it takes
+      // an hour and more to go round, and the world turns slower still, so up here it hangs almost still, far too big
+      // to see move (only the ground under it creeps by, the way it does from a real orbit)
+      // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it; round one of
+      // its moons it stands well off, the moon a small ball against the wall of the giant, several times its size)
+      const a = R * (look.giant ? r.range(1.25, 1.7) : byGiant ? r.range(5.5, 8) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
       this.turn = 0; this.glide = null;
-      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840), phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) };
+      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 6, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 0.15 };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       // (and its own weather today: the same seed, the world's own character)
       if (!look.airless && !look.giant) this.setWeather(seed, typeof SITE_LOOK === 'undefined' ? null : Object.keys(SITE_LOOK).find((k) => SITE_LOOK[k] === look));
       // (rings: only round the worlds that have them; never round an airless moon or rock)
       this.ringOwn = !!look.rings && !look.airless; this.ringPlanet = null; this.hold = 0;
+      // (the other ship today: lower down, so it goes round faster, coming across the face of the world toward us)
+      const r2 = R * r.range(1.15, 1.4), w0 = TAU / this.orb.period;
+      this.speckO = { r: r2, N: N.clone().applyAxisAngle(D, r.range(0.08, 0.3) * (r.chance(0.5) ? 1 : -1)), a0: r.range(-0.7, -0.4), w: w0 * Math.pow(a / r2, 1.5) - w0, t0: null };
     }
     // how near the closest of the world's surfaces is: the ground, or the shell of its cloud or its air, as the ship
     // sinks past them (so the backdrop's near plane never cuts into one)
@@ -3087,12 +3186,12 @@ const Ship = (() => {
       const trip = r.trip;
       g.A = r.axis(r.b, new THREE.Vector3());
       g.dur = 3.8 + 4 * r.tb / Math.PI;
-      let ib = 0, ix = 0; for (let t = 0; t < E.white; t += 0.05) { ib += glideW(t, g.h0) * 0.05; ix += glideWx(t) * 0.05; }
+      let ib = 0, ix = 0; for (let t = 0; t < E.white; t += 0.05) { ib += glideW(t, g.h0) * 0.05; ix += glideWx(t, g.h0) * 0.05; }
       g.kb = Math.min(trip, E.trip) / ib; g.kx = Math.max(0, trip - E.trip) / ix;
       // (how far round it has gone at any moment, worked out once: the same however the frames fall, and for anyone
       // who joins partway down)
       const n = Math.ceil((E.white + 30) / 0.05) + 1, tab = (g.phiT = new Float32Array(n));
-      for (let i = 1; i < n; i++) { const t = (i - 0.5) * 0.05; tab[i] = tab[i - 1] + (g.kb * glideW(t, g.h0) + g.kx * glideWx(t)) * 0.05; }
+      for (let i = 1; i < n; i++) { const t = (i - 0.5) * 0.05; tab[i] = tab[i - 1] + (g.kb * glideW(t, g.h0) + g.kx * glideWx(t, g.h0)) * 0.05; }
     }
     // how much of the sun s is hidden, seen from P (in the orbit's own framing, from the middle of the world we
     // circle), by whatever else is out there: k, and the one hiding most of it (its direction, its angular radius, how
@@ -3173,6 +3272,14 @@ const Ship = (() => {
       if (this.bodyOrbits) {
         for (const bo of this.bodyOrbits) bo.m.position.copy(bo.base).applyAxisAngle(bo.axis, t * bo.speed);
         // (the stream of rocks: each at its own height on our orbit, round from us by how far it's drifted)
+        if (this.speckO && this.speck) {
+          const k = this.speckO; if (k.t0 == null) k.t0 = t;
+          const P = this.speck.position.copy(o.D).multiplyScalar(-k.r).applyAxisAngle(k.N, k.a0 + (t - k.t0) * k.w);
+          // (in the world's shadow it's only its lights)
+          const W = _gC.copy(P).applyQuaternion(this.pgroup.quaternion), sd = W.dot(this.sunDir);
+          this.speckU.uLit.value = sd > 0 ? 1 : sstep(R * 0.98, R * 1.04, W.addScaledVector(this.sunDir, -sd).length());
+          this.speckU.uT.value = tNow; this.speckU.uPx.value = 9 * pxRatio();
+        }
         if (this.drift) for (const d of this.drift) { d.m.position.copy(o.D).multiplyScalar(-(dOrb + d.dr)).addScaledVector(o.N, d.h).applyAxisAngle(o.N, d.th0 + t * d.w); d.m.rotateOnAxis(d.ax, d.sp * dt); }
         this.pgroup.updateMatrixWorld(true);
         this.planet.getWorldPosition(_occ); this.occU.value.set(_occ.x, _occ.y, _occ.z, R);

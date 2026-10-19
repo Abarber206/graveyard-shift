@@ -117,6 +117,15 @@ Keep that file current when gameplay changes.
   height follows `G.glideAlt` (on a log scale), and the world turns under it about `g.A`. `planGlide` picks that heading,
   and how far round to go, so it comes down into the morning, with the sun about `ENTRY.sunUp` up and not behind
   anything (`sunHidden`). When a moon is in its world's shadow, the sun slides out from behind it on the way down (`g.shQ`).
+  How far round it has gone is tabled once (`g.phiT`) from `glideW` (the ordinary way round, quickening as it sinks)
+  and `glideWx` (any extra, only below about a third of the world's radius), so the world never visibly spins while
+  it's whole in the glass. The parked orbit's own drift (`glideHold`) dies away through the swing.
+- **Feeling the size of a world.** The parked orbit is slow (an hour and more round; the world turns slower still), so
+  from up there it hangs nearly still. Round a giant's moon the ship parks well out (`setOrbit`'s `byGiant`), so the
+  moon is a small ball against the giant. Other cues: another company ship parked lower (`speck`, a point sprite
+  crossing the world's face), lightning in the storms (`stepLightning` → the cloud shell's `uFlash`), the sea's glint
+  (`pdSea` lowers roughness), craters at every scale on airless bodies (`pdCraters`, octaves faded by `fwidth`) and fine
+  streaks along a giant's bands (in `planetMat` and, seen from its moons, in `shade`'s `giant`).
 - **Leech nests** (`leechNest` / `buildNest` in `facility.js`): some days, on sites with leeches (`fac.nestK` from
   `SITES[k].mon.leech`), from the facility's own numbers off the seed. `fac.nest` holds the corner, the hit points up it
   (`spine`), the ceiling perches the brood keep to (`spots`), the crown burrows they pour out of (`holes`), hp, and
@@ -150,7 +159,7 @@ The browser won't grant pointer lock to automated clicks, so drive the game from
   `G.hostEngage()` to pull the jump lever (a 3.6 s hop). Routing to another world works the same way.
 - **Move the player:** `Player.spawn(x, y, z, yaw)` (yaw: facing is `(-sin yaw, -cos yaw)`), then set `G.me().pitch`.
   Inside the facility, set `G.me().zone = 'in'` first.
-- **Flights:** `G.hostLand()` lands at `G.run.route` (about 13 s until you're on site); `G.hostDepart('lever')` takes off.
+- **Flights:** `G.hostLand()` lands at `G.run.route` (about 35 s to the shutters, 50 s until you're on site); `G.hostDepart('lever')` takes off.
 - **Phone:** `resize_window` 740×360 emulates a touch device. If the pane is hidden, no frames run, so step by hand:
   `G.update(1/60); Touch.update(); Input.endFrame();`.
 - **Errors:** add `window.addEventListener('error', ...)` and check the console. To measure hitches, wrap `G.update` / `R.render`.

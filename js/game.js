@@ -94,23 +94,23 @@ const BODIES = {
     { key: 'dross', kind: 'rock', size: 0.07, orbit: 3.2, ang: 2.0, off: 0.08, tint: 0x3a3230 },
   ],
   // (a giant's moons are specks beside it, and they go round it close: from the nearest it fills most of the sky,
-  // and even from the farthest it's a wall of cloud a quarter of the way across. One goes round in its rings)
+  // and even from the farthest it's a wall of cloud a third of the way across the glass. One goes round in its rings)
   halcyon: [
     { key: 'sump', kind: 'rock', size: 0.012, orbit: 1.7, ang: 0.8, off: 0.06, tint: 0x7a7064, ring: true },
     { key: 'lantern', kind: 'moon', size: 0.03, orbit: 2.4, ang: -0.5, off: 0.12, tint: 0xdfe6ee, incl: 0.06 },
-    { key: 'chandler', kind: 'moon', size: 0.05, orbit: 3.0, ang: 2.2, off: 0.15, tint: 0xd8c070, incl: 0.1 },
-    { key: 'gloam', kind: 'moon', size: 0.045, orbit: 3.8, ang: -2.0, off: 0.14, tint: 0x5a5a60, incl: 0.14 },
-    { key: 'ferrule', kind: 'moon', size: 0.035, orbit: 4.8, ang: 1.3, off: 0.13, tint: 0xa87a62, incl: 0.18 },
+    { key: 'chandler', kind: 'moon', size: 0.05, orbit: 2.6, ang: 2.2, off: 0.15, tint: 0xd8c070, incl: 0.1 },
+    { key: 'gloam', kind: 'moon', size: 0.045, orbit: 3.1, ang: -2.0, off: 0.14, tint: 0x5a5a60, incl: 0.14 },
+    { key: 'ferrule', kind: 'moon', size: 0.035, orbit: 3.8, ang: 1.3, off: 0.13, tint: 0xa87a62, incl: 0.18 },
   ],
   tarrow: [
     { key: 'kiln', kind: 'moon', size: 0.03, orbit: 1.6, ang: 0.5, off: 0.1, tint: 0xc89060, ring: true },
-    { key: 'tithe', kind: 'moon', size: 0.04, orbit: 2.6, ang: -1.2, off: 0.13, tint: 0xb8b8b0, incl: 0.08 },
-    { key: 'warden', kind: 'moon', size: 0.035, orbit: 3.8, ang: 2.4, off: 0.12, tint: 0x8a7060, incl: 0.15 },
+    { key: 'tithe', kind: 'moon', size: 0.04, orbit: 2.2, ang: -1.2, off: 0.13, tint: 0xb8b8b0, incl: 0.08 },
+    { key: 'warden', kind: 'moon', size: 0.035, orbit: 3.0, ang: 2.4, off: 0.12, tint: 0x8a7060, incl: 0.15 },
   ],
   hush: [
     { key: 'murmur', kind: 'moon', size: 0.028, orbit: 1.4, ang: -0.4, off: 0.1, tint: 0xd8eef8, incl: 0.04 },
-    { key: 'lull', kind: 'rock', size: 0.012, orbit: 2.4, ang: 1.9, off: 0.07, tint: 0x9aa8b0, incl: 0.1 },
-    { key: 'pall', kind: 'moon', size: 0.04, orbit: 3.5, ang: -2.3, off: 0.13, tint: 0x5a6070, incl: 0.18 },
+    { key: 'lull', kind: 'rock', size: 0.012, orbit: 2.2, ang: 1.9, off: 0.07, tint: 0x9aa8b0, incl: 0.1 },
+    { key: 'pall', kind: 'moon', size: 0.04, orbit: 2.8, ang: -2.3, off: 0.13, tint: 0x5a6070, incl: 0.18 },
   ],
 };
 // the bonus sites on them: airless (bonus: the world they circle; biome: moon or rock), light gravity out on the
@@ -243,8 +243,8 @@ const FLY = {
 // from drop, reaching the top of the air (hAir high, a share of the world's radius) at air and skimming on through it
 // to hEnd at white, the shutters coming down just before; the site is built and the descent over it begins at `site`.
 // On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
-// sunUp over the ground under it)
-const ENTRY = { turn0: 0.4, burn: 6.5, drop: 7, air: 27, white: 35, site: 35.2, hAir: 0.07, hEnd: 0.02, trip: 1.3, tripMax: 2.4, sunUp: 0.65 };
+// sunUp over the ground under it; starting deep on the night side, only just up)
+const ENTRY = { turn0: 0.4, burn: 6.5, drop: 7, air: 27, white: 35, site: 35.2, hAir: 0.07, hEnd: 0.02, trip: 1.3, tripMax: 1.75, sunUp: 0.65 };
 const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
@@ -576,7 +576,7 @@ const G = {
     G.ship.setScars((r.scars || []).filter((s) => s.site === r.route));
     // each day / destination gets its own orbit (deterministic, so every crewmate sees the same sky)
     const oseed = (r.day * 7919 + r.cycle * 104729 + [...r.route].reduce((s, c) => s + c.charCodeAt(0) * 31, 0)) >>> 0;
-    if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look); G.ship.setBodies(G.bodiesAround(r.route), ringsToday(SITES[r.route].bonus || r.route, r)); }
+    if (G.orbitSeed !== oseed) { G.orbitSeed = oseed; G.ship.setOrbit(oseed, look, !!(SITES[r.route].bonus && SITE_LOOK[SITES[r.route].bonus].giant)); G.ship.setBodies(G.bodiesAround(r.route), ringsToday(SITES[r.route].bonus || r.route, r)); }
   },
   // the sun just peeking out past the edge of what's eclipsing it: a flare where it is on screen (k 0..1)
   sunPeek(k, dir) {

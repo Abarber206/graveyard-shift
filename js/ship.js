@@ -1067,7 +1067,7 @@ const Ship = (() => {
         const D = 'darkmetal', P = 'painted', x0 = 1.9, x1 = 3.4, z0 = -3.95, z1 = -2.95, top = 0.9, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
         this.pb(P, x1 - x0, 0.045, z1 - z0, cx, top - 0.0225, cz); this.top(x0 + 0.02, x1 - 0.02, z0 + 0.02, z1 - 0.02, top);
         // (what's on it: the monitor on its stand, the coffee machine, a mug, the desk lamp, the trackball, the keyboard)
-        for (const [a, b, c, d] of [[2.12, 3.18, -4, -3.55], [1.92, 2.12, -3.87, -3.62], [2.0, 2.14, -3.2, -3.1], [3.0, 3.38, -3.88, -3.47], [3.03, 3.17, -3.21, -3.07], [2.29, 2.95, -3.27, -3.05]]) this.top(a, b, c, d, top, 'on');
+        for (const [a, b, c, d] of [[2.12, 3.18, -4, -3.55], [1.92, 2.12, -3.87, -3.62], [2.0, 2.14, -3.2, -3.1], [3.0, 3.38, -3.88, -3.47], [3.03, 3.17, -3.09, -2.95], [2.29, 2.95, -3.27, -3.05]]) this.top(a, b, c, d, top, 'on');
         this.pc(P, 0.024, 0.024, x1 - x0, cx, top - 0.024, z1, 0, 0, Math.PI / 2, 10);
         this.pb('pad', 0.9, 0.005, 0.42, 2.75, top + 0.0025, -3.18);
         // the pedestal: three drawers with pulls (the bottom one won't quite shut)
@@ -1106,7 +1106,7 @@ const Ship = (() => {
           add('darkmetal', 0.66, 0.03, 0.22, 0, 0, 0);
           for (let r = 0; r < 4; r++) for (let c = 0; c < 14; c++) add(r === 0 || c === 0 || c === 13 ? 'black' : 'white', 0.034, 0.016, 0.034, -0.273 + c * 0.042, 0.022, -0.07 + r * 0.042);
           add('white', 0.24, 0.016, 0.034, 0, 0.022, 0.098); }
-        this.pb('black', 0.13, 0.03, 0.13, 3.1, top + 0.015, -3.14); this.ps('red', 0.032, 3.1, top + 0.035, -3.14, 1, 1, 1, 12);
+        this.pb('black', 0.13, 0.03, 0.13, 3.1, top + 0.015, -3.02); this.ps('red', 0.032, 3.1, top + 0.035, -3.02, 1, 1, 1, 12);
       }
       this.drawTerminal();
       this.col(1.88, 3.42, -4.0, -2.93);
@@ -1368,7 +1368,8 @@ const Ship = (() => {
       for (let i = 0; i < 5; i++) { const a = (i / 5) * TAU; this.beam(D, V(3.05, 0.08, -2.55), V(3.05 + Math.cos(a) * 0.26, 0.03, -2.55 + Math.sin(a) * 0.26), 0.03); }
       this.pt(D, 0.15, 0.012, 3.05, 0.3, -2.55, Math.PI / 2, 0, 0, 16);
       this.pc('white', 0.042, 0.038, 0.1, 2.05, 0.95, -3.15, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, 2.095, 0.955, -3.15, 0, 0, 0, 8); this.pc('black', 0.037, 0.037, 0.005, 2.05, 0.996, -3.15, 0, 0, 0, 12);
-      this.pq('paper', 0.21, 0.29, 3.15, 0.903, -3.2, -Math.PI / 2, 0.3, 0); this.pq('paper', 0.21, 0.29, 3.05, 0.905, -3.35, -Math.PI / 2, -0.2, 0);
+      // (the papers lie on the desk mat, between the keyboard and the trackball, clear of both)
+      this.pq('paper', 0.21, 0.29, 3.075, 0.9058, -3.245, -Math.PI / 2, 0.05, 0); this.pq('paper', 0.21, 0.29, 3.08, 0.9064, -3.25, -Math.PI / 2, -0.07, 0);
       this.pc(D, 0.07, 0.08, 0.03, 3.3, 0.915, -3.8, 0, 0, 0, 12);
       this.beam(D, V(3.3, 0.93, -3.8), V(3.25, 1.25, -3.7), 0.015); this.beam(D, V(3.25, 1.25, -3.7), V(3.12, 1.2, -3.55), 0.015);
       this.pc(D, 0.04, 0.09, 0.1, 3.1, 1.15, -3.52, 0.5, 0, 0, 12); this.ps('glowWarm', 0.03, 3.1, 1.11, -3.5, 1, 1, 1, 8);

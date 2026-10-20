@@ -23085,15 +23085,13 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
-    // The marsh water isn't for wading: it eats at a suit the deeper you stand in it, and over your head it drowns you
+    // The marsh water only slows you while you wade; over your head it drowns you
     if (G.mode === 'site' && !G.flight && G.ext && G.ext.water != null && (G.waterT = (G.waterT || 0) - dt) <= 0) {
       G.waterT = 0.5;
       for (const p of G.alivePlayers()) {
         if (p.zone !== 'out' || G.inShip(p)) continue;
         // (by where their feet are: on a jetty or a roof over it they're dry)
-        const depth = G.ext.water - p.pos.y;
-        if (depth > 1.45) G.hurtPlayer(p.id, 20, 'water');
-        else if (depth > 0.3) G.hurtPlayer(p.id, Math.round(1 + depth * 3), 'water');
+        if (G.ext.water - p.pos.y > 1.45) G.hurtPlayer(p.id, 20, 'water');
       }
     }
     // On an airless moon or rock the sky isn't empty. Some landings a meteoroid shower comes through (a light one, or a

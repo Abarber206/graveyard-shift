@@ -123,7 +123,7 @@ Dead players can still listen in, but the living can't hear them. Sound you make
   - Until one is let loose on you, getting caught hurts, but it lets you go. Once it's let loose, it knows where you are.
   - Unwatched, they cover the ground fast. While you watch, they walk. If you're heading out, the one that's after you gets ahead of you on your way out and waits there.
   - They remember where you hid last time, and look there first.
-- **The marsh water** (Kessler, Brinewell) is black and thick and not for wading: it slows you down, eats at your suit the deeper you stand in it, and if it's over your head it drowns you in seconds. Under it you can't see a thing: thick black-green murk an arm's length all round, silt hanging in it, the daylight gone and every sound dull and close.
+- **The marsh water** (Kessler, Brinewell) is black and thick: wading through it slows you down, and if it's over your head it drowns you in seconds. Under it you can't see a thing: thick black-green murk an arm's length all round, silt hanging in it, the daylight gone and every sound dull and close.
 - **The Clown** walks the lower floors of the harder worlds, later in the day. It's too big for the building: bent double under the ceiling, a shoulder on each wall.
   - There's no getting past it in a corridor. In a room you can go round it.
   - It folds itself slowly through every doorway.

@@ -311,7 +311,7 @@ const G = {
     G.addPlayer({ id: 0, name: name || 'Crew', color: color || 0, peerId: Net.myPeerId, alive: true, zone: 'out' });
     // older saves may hold positions from the previous ship layout; keep anything that is not inside the cabin near the cargo racks
     if (save && save.items) for (const s of save.items) { const ok = G.ship.inside(s.x, s.y + 0.3, s.z); G.createItem({ id: G.nextItemId++, type: s.type, value: s.value, x: ok ? s.x : -5 + Math.random(), y: ok ? s.y : 0, z: ok ? s.z : 1.5 + Math.random(), ry: s.ry, battery: s.battery ?? 1, inShip: s.bk == null || !G.run.upgrades.rover, bk: G.run.upgrades.rover ? s.bk : null }); }
-    else G.createItem({ id: G.nextItemId++, type: 'flashlight', value: 0, x: 2.3, y: 0.92, z: -3.3, ry: 0.4, battery: 1, inShip: true });
+    else G.createItem({ id: G.nextItemId++, type: 'flashlight', value: 0, x: 2.17, y: 0.92, z: -3.42, ry: 0.4, battery: 1, inShip: true });
     G.applyRunVisuals();
     G.enterOrbitState();
     G.mode = 'orbit';

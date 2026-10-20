@@ -1373,7 +1373,9 @@ const Ship = (() => {
       this.pc(D, 0.07, 0.08, 0.03, 3.3, 0.915, -3.8, 0, 0, 0, 12);
       this.beam(D, V(3.3, 0.93, -3.8), V(3.25, 1.25, -3.7), 0.015); this.beam(D, V(3.25, 1.25, -3.7), V(3.12, 1.2, -3.55), 0.015);
       this.pc(D, 0.04, 0.09, 0.1, 3.1, 1.15, -3.52, 0.5, 0, 0, 12); this.ps('glowWarm', 0.03, 3.1, 1.11, -3.5, 1, 1, 1, 8);
-      this.pq('noteY', 0.07, 0.07, 2.17, 1.62, -3.646, -0.15, 0, 0.1); this.pq('noteP', 0.07, 0.07, 3.135, 1.1, -3.616, -0.15, 0, -0.08); this.pq('noteB', 0.07, 0.07, 3.14, 1.22, -3.633, -0.15, 0, 0.05);
+      // (the sticky notes on the monitor's bezel, laid in its own tilted frame just proud of its face)
+      const onBezel = (m, x, y, rz) => this.pq(m, 0.07, 0.07, 2.65 + x, 1.37 + y * Math.cos(0.15) + 0.039 * Math.sin(0.15), -3.69 - y * Math.sin(0.15) + 0.039 * Math.cos(0.15), -0.15, 0, rz);
+      onBezel('noteY', -0.48, 0.24, 0.1); onBezel('noteP', 0.485, -0.27, -0.08); onBezel('noteB', 0.49, -0.157, 0.05);
       // bulkhead (bay side): flight deck sign, first-aid kit, extinguisher, notice board
       this.sign('FLIGHT DECK', 1.0, 0.2, 3.49, 2.95, 0, -Math.PI / 2, sx);
       this.pb('white', 0.1, 0.4, 0.5, 3.45, 1.45, -2.0); this.pb('red', 0.006, 0.26, 0.07, 3.397, 1.45, -2.0); this.pb('red', 0.006, 0.07, 0.26, 3.397, 1.45, -2.0); this.pb('hardware', 0.02, 0.03, 0.12, 3.395, 1.29, -2.0);

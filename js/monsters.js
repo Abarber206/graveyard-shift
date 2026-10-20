@@ -95,6 +95,7 @@ const MonModels = (() => {
     clownRed: () => M('clownRed', () => new THREE.MeshStandardMaterial({ color: 0x6a120e, roughness: 0.3, metalness: 0.05 })),
     glove: () => M('glove', () => S({ map: TEX.get('tape'), color: 0xa8a090, roughness: 0.8 }, 3, 0.6)),
     ruff: () => M('ruff', () => S({ map: TEX.get('tape'), color: 0xc0b48a, roughness: 0.9, side: THREE.DoubleSide }, 3, 0.5)),
+    hornBrass: () => M('hornBrass', () => S({ map: TEX.get('rust'), color: 0xb08d42, roughness: 0.4, metalness: 0.8, side: THREE.DoubleSide }, 4, 0.6)),
     hair: () => M('hair', () => new THREE.MeshStandardMaterial({ color: 0x9a4a1a, roughness: 0.9 })),
     glint: () => M('glint', () => new THREE.MeshBasicMaterial({ color: 0xffe0a0 })),
     boxWood: () => M('boxWood', () => S({ map: TEX.get('wood'), color: 0x8a6a4a, roughness: 0.7 }, 3, 1)),
@@ -521,8 +522,9 @@ const MonModels = (() => {
         mk(sph(0.11, 10), glove, L.hand, 0, -0.06, 0).scale.set(1.1, 0.8, 1.3);
         for (let k = 0; k < 4; k++) mk(cap(0.03, 0.12, 6), glove, L.hand, -0.06 + k * 0.04, -0.17, 0.06);
       }
+      // (a bulb horn: the red rubber bulb, and a brass trumpet flaring out of it, open at its mouth)
       P.horn = grp(P.hips, 0.44, 0.05, 0.26);
-      mk(sph(0.07, 8), red, P.horn); mk(new THREE.ConeGeometry(0.06, 0.16, 8, 1, true), mats.iron(), P.horn, 0.1, 0, 0, 0, 0, -Math.PI / 2);
+      mk(sph(0.07, 8), red, P.horn); mk(new THREE.ConeGeometry(0.06, 0.16, 12, 1, true), mats.hornBrass(), P.horn, 0.1, 0, 0, 0, 0, Math.PI / 2);
       root.userData.parts = P; return root;
     },
     slime() {

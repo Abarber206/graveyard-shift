@@ -1244,12 +1244,12 @@ const Ship = (() => {
       for (const x of [-6.6, -4.7, 0.1, 1.5]) rib(x, 1);
       // ceiling cross-beams
       for (const x of [-6.0, -3.0, -0.05, 2.3]) { this.pb(D, 0.14, 0.12, 8.0, x, H - 0.06, 0); this.pb(D, 0.18, 0.022, 8.0, x, H - 0.13, 0); }
-      // air duct down the ceiling: collars, hangers, grilles
-      this.pc('painted', 0.2, 0.2, 10.1, -1.75, 3.02, -1.1, 0, 0, Math.PI / 2, 18);
+      // air duct down the ceiling, wall to wall (it runs into the back wall and the bulkhead): collars, hangers, grilles
+      this.pc('painted', 0.2, 0.2, 10.65, -1.775, 3.02, -1.1, 0, 0, Math.PI / 2, 18);
       for (let x = -6.6; x <= 3.2; x += 1.4) { this.pt(D, 0.205, 0.018, x, 3.02, -1.1, 0, Math.PI / 2, 0, 18); this.pb(D, 0.03, 0.16, 0.03, x, 3.3, -1.1); }
       for (const x of [-5.3, -2.3, 0.9]) { this.pb(D, 0.5, 0.06, 0.28, x, 2.8, -1.1); this.pb('vent', 0.44, 0.012, 0.22, x, 2.768, -1.1); }
       // conduits with clamps, and sprinkler heads
-      for (const z of [1.25, 1.36]) this.pc(D, 0.022, 0.022, 10.2, -1.75, 3.2, z, 0, 0, Math.PI / 2, 8);
+      for (const z of [1.25, 1.36]) this.pc(D, 0.022, 0.022, 10.65, -1.775, 3.2, z, 0, 0, Math.PI / 2, 8);
       for (let x = -6.5; x < 3.3; x += 1.2) this.pb(D, 0.05, 0.2, 0.2, x, 3.29, 1.305);
       for (const x of [-5, -1.5, 2]) for (const z of [-1.7, 1.7]) { this.pc(SB, 0.018, 0.028, 0.05, x, 3.375, z, 0, 0, 0, 8); this.pc('red', 0.03, 0.03, 0.006, x, 3.348, z, 0, 0, 0, 8); }
       // cable bundles sagging between the ribs

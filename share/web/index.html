@@ -21640,9 +21640,10 @@ const G = {
         }
         return;
       }
-      // said out loud, it only carries so far: in the log within earshot, and hanging over the speaker's head
+      // said out loud, it only carries so far: in the log within earshot, and hanging over the speaker's head (the
+      // dead hear everyone, but only each other: the living never hear them)
       const near = p.zone === me.zone && p.pos.distanceTo(me.pos) < 22;
-      if (!me.alive || !p.alive || e.pid === G.localId || near) HUD.chat(p.name, e.text, p.alive ? '' : 'sys');
+      if (p.alive ? !me.alive || e.pid === G.localId || near : !me.alive) HUD.chat(p.name, e.text, p.alive ? '' : 'sys');
       if (e.pid !== G.localId && p.alive) HUD.bubble(() => (p.alive ? p.rpos.clone().setY(p.rpos.y + (p.crouch ? 1.8 : 2.32)) : null), e.text, 'say', p.zone);
     },
     // the de-orbit burn: the screen goes dark through re-entry while the site is made ready
@@ -22128,7 +22129,7 @@ const G = {
       }
       case 'term': G.hostTerminal(pid, String(r.cmd || '').slice(0, 60)); break;
       // (a line starting with / is a command, not something said out loud)
-      case 'chat': if (String(r.text || '').startsWith('/')) Bots.command(pid, String(r.text).slice(0, 60)); else G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && G.hasItem(pid, 'walkie') }); break;
+      case 'chat': if (String(r.text || '').startsWith('/')) Bots.command(pid, String(r.text).slice(0, 60)); else G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && p.alive && G.hasItem(pid, 'walkie') }); break;
       case 'struggle': {
         for (const m of G.monsters.values()) if (m.type === 'leech' && m.state === 'attached' && m.victim === pid) { m.grip -= 8 + Math.random() * 4; if (m.grip <= 0) m.detach(); }
         break;

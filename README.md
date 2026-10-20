@@ -76,7 +76,7 @@ If you change the code (`index.html`, `css/`, `js/`), double-click **`Build.bat`
 
 A typed message sent with a walkie-talkie in your hand (T, then Enter) comes out of every other set. Over a crewmate's set it bobs up above them; on the one in your own hand it rises out of the antenna, with newer calls stacking under older ones.
 
-Dead players can still listen in, but the living can't hear them. Sound you make, including your voice, attracts things, outside and in.
+Dead players can still listen in, but the living can't hear them, by voice or in the text chat: the dead only talk among themselves. Sound you make, including your voice, attracts things, outside and in.
 
 **Text chat (T or Enter)** works the same way. What you type is said out loud: it bobs over your head and only reaches crewmates within earshot (about 20 m). Holding a walkie-talkie, you send it over the radio instead: the words bounce up in green over every other walkie-talkie, whether it's in someone's hand or lying in the grass, so anyone near one sees it.
 

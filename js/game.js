@@ -2693,132 +2693,43 @@ const G = {
   startSendoff() {
     const me = G.me(), fac = G.fac, ext = G.ext;
     if (!me || !ext || G.sendoff) return;
+    const cam = R.camera;
     if (me.zone !== 'in' || !fac) {
-      const cam = R.camera, pos = me.alive ? cam.position.clone() : new THREE.Vector3(me.pos.x, me.pos.y + 1.1, me.pos.z);
-      G.sendoff = { t: 0, watch: true, pos, q: cam.quaternion.clone(), yaw: me.yaw, zone: 'out' };
+      const pos = me.alive ? cam.position.clone() : new THREE.Vector3(me.pos.x, me.pos.y + 1.1, me.pos.z);
+      G.sendoff = { t: 0, pos, q: cam.quaternion.clone(), yaw: me.yaw, zone: 'out' };
       HUD.hideSpectate(); HUD.letterbox(true); R.fx.static = 0;
       return;
     }
-    const V3 = (x, y, z) => new THREE.Vector3(x, y, z), EYE = 1.55;
-    // a smooth course through some points, evenly spaced (step metres apart), with its running length
-    const course = (zone, pts, step) => {
-      const q = pts.filter((p, i) => !i || p.distanceTo(pts[i - 1]) > 0.05);
-      let n = 0; for (let i = 1; i < q.length; i++) n += q[i].distanceTo(q[i - 1]);
-      const P = q.length < 2 ? [q[0], q[0].clone()] : new THREE.CatmullRomCurve3(q, false, 'centripetal').getSpacedPoints(Math.max(2, Math.ceil(n / step)));
-      const len = [0]; for (let i = 1; i < P.length; i++) len.push(len[i - 1] + P[i].distanceTo(P[i - 1]));
-      return { zone, P, len, L: len[len.length - 1] };
-    };
-    const legs = [];
-    let from, face = null;
-    if (me.zone === 'in' && fac) {
-      // the shortest way to any exit, along the corridors and the stairs
-      let best = null;
-      for (const ex of fac.exits) {
-        const path = fac.findPath(me.pos.x, me.pos.z, ex.spawn.x, ex.spawn.z, true, me.pos.y, FAC_Y0);
-        if (!path) continue;
-        let L = 0, px = me.pos.x, pz = me.pos.z; for (const q of path) { L += Math.hypot(q.x - px, q.z - pz); px = q.x; pz = q.z; }
-        if (!best || L < best.L) best = { L, ex, path };
-      }
-      const pts = [V3(me.pos.x, me.pos.y + EYE, me.pos.z)];
-      let kind = 'main';
-      if (best) {
-        let y = me.pos.y;
-        for (const q of best.path) { y = q.y != null ? q.y : G.fac.floorY(q.x, q.z, y); pts.push(V3(q.x, y + EYE, q.z)); }
-        pts.push(V3(best.ex.x, y + EYE, best.ex.z));
-        kind = best.ex.kind;
-      }
-      legs.push(course('in', pts, 0.3));
-      // ...and out of the door it came to
-      const sp = kind === 'fire' && ext.fire.spawn ? ext.fire.spawn : ext.entrance.spawn;
-      face = V3(-Math.sin(sp.yaw), 0, -Math.cos(sp.yaw));
-      from = V3(sp.x, sp.y + EYE, sp.z).addScaledVector(face, kind === 'fire' ? -1.2 : -2.0);
-    } else from = V3(me.pos.x, me.pos.y + EYE, me.pos.z);
-    // where to watch from: on the ground on this side of the pad, the ship in full view
-    const dir = V3(from.x, 0, from.z); if (dir.lengthSq() < 1) dir.set(0, 0, 1); dir.normalize();
-    const spot = dir.clone().multiplyScalar(30); spot.y = ext.height(spot.x, spot.z) + 1.7;
-    const far = Math.hypot(from.x, from.z), ctrl = [from];
-    if (face) ctrl.push(from.clone().addScaledVector(face, 5).setY(from.y + 1.5));
-    if (far > 50) { const m = from.clone().lerp(spot, 0.5); m.y = Math.max(from.y, spot.y) + 8; ctrl.push(m); }
-    if (far > 40) ctrl.push(spot.clone().addScaledVector(dir, 7).setY(spot.y + 2.5));
-    ctrl.push(spot);
-    const out = course('out', ctrl, 0.5);
-    for (const p of out.P) p.y = Math.max(p.y, ext.height(p.x, p.z) + 1.2);   // (never through the ground)
-    legs.push(out);
-    const Ltot = legs.reduce((s, l) => s + l.L, 0);
-    // the opening look, from just back from you: over your shoulder, or down at your body
-    const head = V3(me.pos.x, me.pos.y + (me.alive ? 1.45 : 0.35), me.pos.z), back = V3(Math.sin(me.yaw), 0, Math.cos(me.yaw));
-    let d = 2.6;
-    if (me.zone === 'in' && fac) for (let k = 0.6; k <= 2.6; k += 0.2) { const c = head.clone().addScaledVector(back, k); if (!fac.floorAt(fac.ti(c.x), fac.tj(c.z))) { d = Math.max(0.5, k - 0.4); break; } }
-    const shot = head.clone().addScaledVector(back, d); shot.y += me.alive ? 0.4 : 1.7;
-    shot.lerp(head, -0.12);
-    G.sendoff = { t: 0, legs, Ltot, run: clamp(1.6 + Ltot / 40, 2.2, 6.5), head, shot, zone: legs[0].zone, body: null, q: null };
-    if (me.alive) { const b = new Avatar(me.name, me.color); b.root.position.copy(me.pos); b.root.rotation.y = me.yaw; R.scene.add(b.root); G.sendoff.body = b; }
-    HUD.hideSpectate(); HUD.letterbox(true); R.fx.static = 0;
+    // down in the facility the view breaks up into static and cuts to the ground outside, on the side of the pad the
+    // way in is on, the ship already in view
+    const sp = ext.entrance.spawn, dir = new THREE.Vector3(sp.x, 0, sp.z); if (dir.lengthSq() < 1) dir.set(0, 0, 1);
+    const pos = dir.normalize().multiplyScalar(30); pos.y = ext.height(pos.x, pos.z) + 1.7;
+    const shipAt = G.ship.group.position.clone(); shipAt.y += 1.5;
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(pos, shipAt, new THREE.Vector3(0, 1, 0)));
+    G.sendoff = { t: 0, pos, q, yaw: Math.atan2(pos.x, pos.z), zone: 'out', cut: 1.2 };
+    HUD.hideSpectate(); HUD.letterbox(true); R.fx.static = 1; SFX.play('static', null, { dur: 1.2, vol: 1.2 });
   },
   updateSendoff(dt) {
-    const so = G.sendoff, me = G.me(), cam = R.camera, OPEN = 1.4;
+    const so = G.sendoff, me = G.me(), cam = R.camera;
     so.t += dt;
-    const t = so.t;
-    if (so.body) {
-      // (something got you before the ship was out of sight: there's your body instead)
-      if (!me.alive) { so.body.dispose(); so.body = null; } else so.body.update(dt, { at: me.pos, yaw: me.yaw, speed: 0, pitch: -0.35 });
-    }
-    // a point this far along the whole course, and which world it's in
-    const at = (s) => {
-      for (let n = 0; n < so.legs.length; n++) {
-        const l = so.legs[n];
-        if (s > l.L && n < so.legs.length - 1) { s -= l.L; continue; }
-        s = clamp(s, 0, l.L);
-        let i = 1; while (i < l.len.length - 1 && l.len[i] < s) i++;
-        const k = (s - l.len[i - 1]) / Math.max(1e-6, l.len[i] - l.len[i - 1]);
-        return { p: l.P[i - 1].clone().lerp(l.P[i], clamp(k, 0, 1)), zone: l.zone };
-      }
-    };
-    const shipAt = G.ship.group.position.clone(); shipAt.y += 1.5;
-    if (so.watch) {
-      // turning to follow it, slowly at first, then held on it the way your eyes would be (never quite rolling over
-      // as it goes straight up overhead)
-      const d = _fxD.copy(shipAt).sub(so.pos), h = Math.hypot(d.x, d.z);
-      if (h > 0.4) so.yaw = Math.atan2(-d.x, -d.z);
-      const want = _shQ.setFromEuler((so.e || (so.e = new THREE.Euler(0, 0, 0, 'YXZ'))).set(clamp(Math.atan2(d.y, h), -1.2, 1.4), so.yaw, 0));
-      so.q.slerp(want, 1 - Math.exp(-dt * lerp(0.7, 6.5, sstep(0, 1.6, t))));
-      me.zoneView = 'out'; R.flash.intensity = 0;
-      cam.position.copy(so.pos); cam.position.y += Math.sin(t * 0.8) * 0.012; cam.quaternion.copy(so.q); cam.updateMatrixWorld();
-      // watching it climb away, the view closes in on it
-      const fov = Settings.fov - 26 * sstep(40, 700, so.pos.distanceTo(shipAt));
-      if (Math.abs(cam.fov - fov) > 0.05) { cam.fov = damp(cam.fov, fov, 3, dt); cam.updateProjectionMatrix(); }
-      return;
-    }
-    let pos, look, zone = so.legs[0].zone;
-    if (t < OPEN) { pos = so.shot.clone(); look = so.head; }
-    else if (t < OPEN + so.run) {
-      // the run: away from you, picking up speed, the whole course in the same few seconds however long it is
-      const u = (t - OPEN) / so.run, s = so.Ltot * u * u * (3 - 2 * u), a = at(s), ahead = at(s + 5);
-      zone = a.zone; pos = a.p;
-      look = ahead.zone === zone ? ahead.p : a.p.clone().add(a.p.clone().sub(at(s - 1).p).multiplyScalar(5));
-      if (zone === so.legs[0].zone) { const w = sstep(0, 0.2, u); pos = so.shot.clone().lerp(pos, w); look = so.head.clone().lerp(look, w); }
-      look.lerp(shipAt, sstep(0.75, 1, u));
-    } else {
-      // and there it goes
-      const end = so.legs[so.legs.length - 1]; pos = end.P[end.P.length - 1].clone(); pos.y += Math.sin(t * 0.7) * 0.03;
-      zone = 'out'; look = shipAt;
-    }
-    // out through the door: a burst of daylight (or night air) and the door banging behind
-    if (zone !== so.zone) { so.zone = zone; R.fx.flash = Math.max(R.fx.flash, 0.8); SFX.play('door_open', null, { vol: 0.7 }); }
-    me.zoneView = so.zone;
-    // down there a light rides with the view, a glow leading the way out through the dark
-    R.flash.intensity = so.zone === 'in' ? 30 : 0; R.flash.distance = 26; R.flash.angle = 0.8; R.flash.position.set(0, 0.1, 0.3);
-    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(pos, look, new THREE.Vector3(0, 1, 0)));
-    if (!so.q || zone !== so.lastZone) so.q = q; else so.q.slerp(q, 1 - Math.exp(-dt * (t < OPEN + so.run ? 7 : 4)));
-    so.lastZone = zone;
-    cam.position.copy(pos); cam.quaternion.copy(so.q); cam.updateMatrixWorld();
+    const t = so.t, shipAt = G.ship.group.position.clone(); shipAt.y += 1.5;
+    // (cut in from the facility: the static clearing off the picture)
+    if (so.cut) R.fx.static = 1 - sstep(0.3, so.cut, t);
+    // turning to follow it, slowly at first, then held on it the way your eyes would be (never quite rolling over
+    // as it goes straight up overhead)
+    const d = _fxD.copy(shipAt).sub(so.pos), h = Math.hypot(d.x, d.z);
+    if (h > 0.4) so.yaw = Math.atan2(-d.x, -d.z);
+    const want = _shQ.setFromEuler((so.e || (so.e = new THREE.Euler(0, 0, 0, 'YXZ'))).set(clamp(Math.atan2(d.y, h), -1.2, 1.4), so.yaw, 0));
+    so.q.slerp(want, 1 - Math.exp(-dt * lerp(0.7, 6.5, sstep(0, 1.6, t))));
+    me.zoneView = 'out'; R.flash.intensity = 0;
+    cam.position.copy(so.pos); cam.position.y += Math.sin(t * 0.8) * 0.012; cam.quaternion.copy(so.q); cam.updateMatrixWorld();
     // watching it climb away, the view closes in on it
-    const fov = Settings.fov - (t > OPEN + so.run ? 26 * sstep(40, 700, pos.distanceTo(shipAt)) : 0);
+    const fov = Settings.fov - 26 * sstep(40, 700, so.pos.distanceTo(shipAt));
     if (Math.abs(cam.fov - fov) > 0.05) { cam.fov = damp(cam.fov, fov, 3, dt); cam.updateProjectionMatrix(); }
   },
   endSendoff() {
-    const so = G.sendoff; if (!so) return;
-    if (so.body) so.body.dispose();
+    if (!G.sendoff) return;
+    if (G.sendoff.cut) R.fx.static = 0;
     G.sendoff = null; HUD.letterbox(false);
     R.camera.fov = Settings.fov; R.camera.updateProjectionMatrix();
   },

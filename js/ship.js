@@ -25,7 +25,7 @@ const Ship = (() => {
   const _gA = new THREE.Matrix4(), _gB = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _gF = new THREE.Vector3(), _gTr = new THREE.Quaternion();
   const _gS = new THREE.Vector3(), _gN = new THREE.Vector3(), _gM = new THREE.Vector3(), _gX = new THREE.Vector3(), _gV = new THREE.Vector3();
   const _rw = new THREE.Vector3(), _rv = new THREE.Vector3(), _rq = new THREE.Quaternion();
-  const _drop = new THREE.Vector3(), _gP = new THREE.Vector3(), _gC = new THREE.Vector3(), _gD = new THREE.Vector3(), _gSh = new THREE.Quaternion();
+  const _drop = new THREE.Vector3(), _gP = new THREE.Vector3(), _gC = new THREE.Vector3();
   // (how the way round the world is spread over the descent, t seconds after the lever: the ordinary way round gathers
   // pace as the ship gets low, the ground racing by beneath faster and faster into the air, the way an orbit quickens
   // as it shrinks; any extra way round, to come down into daylight, goes only once it's low, where it reads as the
@@ -3044,6 +3044,8 @@ const Ship = (() => {
       for (const m of [...this.bodiesG.children]) { this.bodiesG.remove(m); if (!m.userData.shared) m.geometry.dispose(); }
       // (the ones that orbit, slowly; everything that can throw a shadow on the world we're circling, or be in its shadow)
       this.bodyRims = []; this.bodyOrbits = []; this.casters = [];
+      // (circling a moon or rock, with the world it belongs to out there: see planGlide)
+      this.byWorld = list.some((b) => b.kind === 'planet');
       if (!this.occU) { this.occU = { value: new THREE.Vector4() }; this.sunWU = { value: this.sunDir }; }
       // a moon, rock or world out there: lit by the sun, dark in the shadow of the world we're circling when it passes
       // behind it, and (a moon or rock) black past its terminator, the backdrop's soft fill light not wrapping round it.
@@ -3144,7 +3146,7 @@ const Ship = (() => {
         // that world's moons, the other is far off, never in our moon's shadow)
         const sib = b.kind !== 'planet' && list.some((x) => x.kind === 'planet');
         m.userData.lift = { value: new THREE.Vector4(0, 0, 0, sib ? 0 : 1) };
-        m.userData.real = b.kind === 'planet' || sib ? 0 : b.orbit * R * near; m.userData.ringRock = ringRock; m.userData.key = b.key;
+        m.userData.real = b.kind === 'planet' || sib ? 0 : b.orbit * R * near; m.userData.ringRock = ringRock; m.userData.key = b.key; m.userData.world = b.kind === 'planet';
         shade(m.material, b.kind !== 'planet', m.userData.lift, b.kind === 'planet' && !!b.giant);
         m.position.copy(pos); m.scale.setScalar(rad); m.rotation.set(rr.range(-0.5, 0.5), rr.range(0, TAU), rr.range(-0.3, 0.3)); m.frustumCulled = false;
         this.bodiesG.add(m); this.casters.push(m);
@@ -3225,49 +3227,51 @@ const Ship = (() => {
     // leaves the sun off to the side or behind, lighting the ground ahead rather than showing only its shadowed side,
     // and never behind anything out there. g.dur is how long the turn takes (the further, the longer: a ship this size
     // swings round slowly).
+    // Over a moon or rock (byWorld) the sun stays where it really is: no further round to bring it up, and of the ways
+    // down, the one that leaves it about as high as it was when the lever went, and never brings it up over the
+    // ground's edge or out from behind the world on the way. So the ship comes down in daylight only if the sun really
+    // is on that side, and in the dark over the night side or in the world's shadow (g.ecl: the world hiding the sun at
+    // the bottom, so the site opens in its eclipse).
     planGlide(g, nu, b1) {
-      const o = this.orb, E = ENTRY, R = this.R, lo = Math.sin(E.sunUp - 0.14), hi = Math.sin(E.sunUp + 0.14);
-      const plan = (s0) => {
-        const n0 = _gN.crossVectors(o.D, s0); if (n0.lengthSq() < 1e-6) n0.copy(o.N); n0.normalize();
-        const m0 = _gM.crossVectors(o.D, n0);
-        const axis = (b, out) => out.copy(n0).multiplyScalar(Math.cos(b)).addScaledVector(m0, Math.sin(b));
-        const sunAfter = (b, f) => _gV.copy(s0).applyAxisAngle(axis(b, _gX), f), up = (b, f) => -sunAfter(b, f).dot(o.D);
-        const turn = (b) => 2 * Math.acos(Math.min(1, Math.abs(this.glideFrame(axis(b, _gX), b1).w)));
-        // (where the ship ends up over the ground: in this framing everything out there holds still and the ship goes round)
-        const endAt = (b, f, out) => out.copy(o.D).multiplyScalar(-R * (1 + E.hEnd)).applyAxisAngle(axis(b, _gX), -f);
-        const r = { b: 0, trip: E.trip, tb: 0, cost: Infinity, hid: 0, axis, endAt };
-        for (let i = 0; i < 96; i++) {
-          const b = (i / 96) * TAU - Math.PI;
+      const o = this.orb, E = ENTRY, R = this.R, lo = Math.sin(E.sunUp - 0.14), hi = Math.sin(E.sunUp + 0.14), s0 = this.sunAt(nu).clone();
+      const n0 = _gN.crossVectors(o.D, s0); if (n0.lengthSq() < 1e-6) n0.copy(o.N); n0.normalize();
+      const m0 = _gM.crossVectors(o.D, n0);
+      const axis = (b, out) => out.copy(n0).multiplyScalar(Math.cos(b)).addScaledVector(m0, Math.sin(b));
+      const sunAfter = (b, f) => _gV.copy(s0).applyAxisAngle(axis(b, _gX), f), up = (b, f) => -sunAfter(b, f).dot(o.D);
+      const turn = (b) => 2 * Math.acos(Math.min(1, Math.abs(this.glideFrame(axis(b, _gX), b1).w)));
+      // (where the ship is over the ground, h of the world's radius up and f round: in this framing everything out
+      // there holds still and the ship goes round)
+      const at = (b, f, h, out) => out.copy(o.D).multiplyScalar(-R * (1 + h)).applyAxisAngle(axis(b, _gX), -f);
+      // (and how much of the sun shows from there, past the ground's edge and everything out there, as orbit() has it)
+      const shows = (P) => { const d = P.length(), am = Math.asin(Math.min(0.999, R * 1.02 / d)); return sstep(am - 0.015, am + 0.05, Math.acos(clamp(-P.dot(s0) / d, -1, 1))) * (1 - this.sunHidden(P, s0, 0.015).k); };
+      // (the ordinary way round, and how high the ship is, every half second on the way down)
+      let ib = 0, ix = 0; const way = [];
+      for (let t = 0; t < E.white; t += 0.05) { if (way.length * 0.5 <= t) way.push({ f: ib, h: G.glideAlt(g.h0, t) }); ib += glideW(t, g.h0) * 0.05; ix += glideWx(t, g.h0) * 0.05; }
+      way.push({ f: ib, h: G.glideAlt(g.h0, E.white) }); for (const w of way) w.f *= E.trip / ib;
+      const u0 = -s0.dot(o.D);
+      let best = 0, trip = E.trip, tb = 0, cost = Infinity;
+      for (let i = 0; i < 96; i++) {
+        const b = (i / 96) * TAU - Math.PI, t = turn(b);
+        let f = E.trip, rise = 0;
+        if (this.byWorld) {
+          // (how far it comes up out of the lowest it's been, on the way down)
+          let low = 1; for (const w of way) { const v = shows(at(b, w.f, w.h, _gP)); rise = Math.max(rise, v - low); low = Math.min(low, v); }
+        } else if (up(b, f) < lo) {
           // (as far round as this heading needs to bring the sun up, if it's still down)
-          let trip = E.trip;
-          if (up(b, trip) < lo) {
-            let a = trip, z = E.tripMax;
-            if (up(b, z) < lo) trip = z;
-            else { for (let k = 0; k < 20; k++) { const m = (a + z) / 2; if (up(b, m) < lo) a = m; else z = m; } trip = z; }
-          }
-          const u = up(b, trip), sv = sunAfter(b, trip), fw = _gF.crossVectors(axis(b, _gX), o.D);
-          const ahead = sv.addScaledVector(o.D, -sv.dot(o.D)).normalize().dot(fw), hid = this.sunHidden(endAt(b, trip, _gP), s0).k, t = turn(b);
-          const c = t + 6 * (Math.max(0, lo - u) + Math.max(0, u - hi)) + 1.2 * (trip - E.trip) + 0.8 * Math.max(0, ahead - 0.2) + 8 * hid;
-          if (c < r.cost) Object.assign(r, { b, trip, tb: t, cost: c, hid });
+          let a = f, z = E.tripMax;
+          if (up(b, z) < lo) f = z;
+          else { for (let k = 0; k < 20; k++) { const m = (a + z) / 2; if (up(b, m) < lo) a = m; else z = m; } f = z; }
         }
-        return r;
-      };
-      // From a moon the world it goes round can stand between it and the sun, and then the whole moon is in its shadow,
-      // wherever the ship goes. Then, on the way down, the sun slides out from behind the world's edge as the ship
-      // comes round (g.shQ: how far it moves, all told).
-      let s = this.sunAt(nu).clone(), r = plan(s);
-      g.shQ = null;
-      for (let k = 0; k < 3 && r.hid > 0.02; k++) {
-        const h = this.sunHidden(r.endAt(r.b, r.trip, _gP), s), ax = _gC.crossVectors(h.dir, s);
-        if (ax.lengthSq() < 1e-8) ax.copy(o.N);
-        const q = new THREE.Quaternion().setFromAxisAngle(ax.normalize(), h.am + 0.1 - h.ang);
-        s.applyQuaternion(q); g.shQ = g.shQ ? q.multiply(g.shQ) : q;
-        r = plan(s);
+        const u = up(b, f), sv = sunAfter(b, f), fw = _gF.crossVectors(axis(b, _gX), o.D);
+        const ahead = sv.addScaledVector(o.D, -sv.dot(o.D)).normalize().dot(fw), mv = Math.sqrt(Math.max(0, 1 - s0.dot(axis(b, _gX)) ** 2));
+        const c = t + 0.8 * Math.max(0, ahead - 0.2) + (this.byWorld
+          ? 5 * Math.abs(u - u0) + mv + 12 * rise
+          : 6 * (Math.max(0, lo - u) + Math.max(0, u - hi)) + 1.2 * (f - E.trip) + 8 * this.sunHidden(at(b, f, E.hEnd, _gP), s0).k);
+        if (c < cost) { cost = c; best = b; trip = f; tb = t; }
       }
-      const trip = r.trip;
-      g.A = r.axis(r.b, new THREE.Vector3());
-      g.dur = 3.8 + 4 * r.tb / Math.PI;
-      let ib = 0, ix = 0; for (let t = 0; t < E.white; t += 0.05) { ib += glideW(t, g.h0) * 0.05; ix += glideWx(t, g.h0) * 0.05; }
+      g.A = axis(best, new THREE.Vector3());
+      g.dur = 3.8 + 4 * tb / Math.PI;
+      if (this.byWorld) { const h = this.sunHidden(at(best, trip, E.hEnd, _gP), s0); g.ecl = h.k > 0.5 && h.m.userData.world; }
       g.kb = Math.min(trip, E.trip) / ib; g.kx = Math.max(0, trip - E.trip) / ix;
       // (how far round it has gone at any moment, worked out once: the same however the frames fall, and for anyone
       // who joins partway down)
@@ -3275,14 +3279,13 @@ const Ship = (() => {
       for (let i = 1; i < n; i++) { const t = (i - 0.5) * 0.05; tab[i] = tab[i - 1] + (g.kb * glideW(t, g.h0) + g.kx * glideWx(t, g.h0)) * 0.05; }
     }
     // how much of the sun s is hidden, seen from P (in the orbit's own framing, from the middle of the world we
-    // circle), by whatever else is out there: k, and the one hiding most of it (its direction, its angular radius, how
-    // far off the sun it is)
-    sunHidden(P, s) {
-      const h = { k: 0, dir: _gD, am: 0, ang: 0 };
+    // circle), by whatever else is out there: k, and m, the one hiding most of it (edge: how soft their edges are)
+    sunHidden(P, s, edge = 0.06) {
+      const h = { k: 0, m: null };
       for (const m of this.casters || []) {
         const v = _gC.copy(m.position).sub(P), d = v.length(), am = Math.asin(Math.min(0.999, m.scale.x / d)), ang = Math.acos(clamp(v.dot(s) / d, -1, 1));
-        const k = 1 - sstep(am - 0.004, am + 0.06, ang);
-        if (k > h.k) { h.k = k; h.dir.copy(v).divideScalar(d); h.am = am; h.ang = ang; }
+        const k = 1 - sstep(am - 0.004, am + edge, ang);
+        if (k > h.k) { h.k = k; h.m = m; }
       }
       return h;
     }
@@ -3343,7 +3346,7 @@ const Ship = (() => {
       this.pdU.crot.value = this.planet.rotation.y - this.clouds.rotation.y;
       this.stepWeather(dt);
       this.sunDir.copy(this.sunAt(nu));
-      if (g) { if (g.shQ) this.sunDir.applyQuaternion(_gSh.copy(_tqI).slerp(g.shQ, sstep(ENTRY.turn0 + 0.5, ENTRY.drop + 3, g.t))); this.sunDir.applyQuaternion(_gTr); }
+      if (g) this.sunDir.applyQuaternion(_gTr);
       this.sunDir.applyQuaternion(q);
       this.sunCore.position.copy(this.sunDir).multiplyScalar(15000);
       this.stars.rotation.set(0, 0, 0); this.stars.rotateOnAxis(o.N, -nu); if (g) this.stars.quaternion.premultiply(_gTr); this.stars.quaternion.premultiply(q);

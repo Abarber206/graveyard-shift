@@ -227,7 +227,7 @@ const SITE_LOOT = {
 // how many real seconds a minute of the site's day takes (8 AM to midnight: a little over half an hour)
 const SEC_PER_MIN = 2;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 19;
+const PROTO = 20;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -504,10 +504,11 @@ const G = {
   // A site is put together in steps a frame apart (the facility, its meshes, the surface), so no single frame stalls
   // for long; landing, that happens behind shut blast shutters with the cabin lights dipped. Its shaders then compile
   // in the background, and it only goes into the scene once they're ready.
-  stageSite(seed, siteKey, weather, done) {
+  // (ecl: on a moon, the ship came down in its world's shadow, and the site opens in that eclipse)
+  stageSite(seed, siteKey, weather, ecl, done) {
     if (G.fac && G.round && G.round.seed === seed) { if (done) done(); return; }
     if (G.siteBuild && G.siteBuild.seed === seed) { if (done) G.siteBuild.done.push(done); return; }
-    const site = SITES[siteKey], b = { seed, siteKey, weather, i: 0, done: done ? [done] : [] };
+    const site = SITES[siteKey], b = { seed, siteKey, weather, ecl: !!ecl, i: 0, done: done ? [done] : [] };
     // (a step that's built in pieces takes a piece a frame, and says false until it's done)
     const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
@@ -516,7 +517,7 @@ const G = {
       // (and the host works out the plan of it the creatures go by: see Facility.nav)
       pieces(() => (G.isHost ? b.fac.navGen() : [].values()), () => {}),
       pieces(() => b.fac.buildGen(), (v) => { b.facG = v; }),
-      () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey) }), weather, siteKey); },
+      () => { b.ext = new Exterior(seed, Object.assign({}, site, { sky: G.skyToday(siteKey), ecl: b.ecl }), weather, siteKey); },
       pieces(() => b.ext.landGen(), () => {}),
       pieces(() => b.ext.restGen(), (v) => { b.extG = v; }),
     ];
@@ -530,9 +531,9 @@ const G = {
     G.installSite(b);
     for (const f of b.done) f();
   },
-  prepareSite(seed, siteKey, weather) {
+  prepareSite(seed, siteKey, weather, ecl) {
     if (G.fac && G.round && G.round.seed === seed) return;
-    G.stageSite(seed, siteKey, weather);
+    G.stageSite(seed, siteKey, weather, ecl);
     G.stepSite(true);
   },
   installSite(b) {
@@ -550,7 +551,7 @@ const G = {
     // (of the facility, only what can be seen from wherever each view is drawn from is drawn: see Facility.showFor)
     R.scene.onBeforeRender = (r, s, cam) => { if (G.fac) G.fac.showFor(_eyeAt.setFromMatrixPosition(cam.matrixWorld)); };
     G.lightSources = [...G.ship.lights, ...G.ext.lights, ...G.fac.lamps];
-    G.round = { site: siteKey, seed, weather, time: 8 * 60, power: true, coreTaken: false, startShip: new Set(), warn1: false, warn2: false, spawnT: 45, houndT: 30, blackoutT: 150 + Math.random() * 240, blackout: false, allDeadT: 0, total: 0 };
+    G.round = { site: siteKey, seed, weather, ecl: b.ecl, time: 8 * 60, power: true, coreTaken: false, startShip: new Set(), warn1: false, warn2: false, spawnT: 45, houndT: 30, blackoutT: 150 + Math.random() * 240, blackout: false, allDeadT: 0, total: 0 };
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
   },
   teardownSite(full) {
@@ -677,7 +678,7 @@ const G = {
   fullState() {
     return {
       v: PROTO, mode: G.mode, run: G.run, orbitT: G.orbitT || 60,
-      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken, strikes: G.round.strikes || [], doom: G.round.doom || null } : null,
+      round: G.round ? { site: G.round.site, seed: G.round.seed, weather: G.round.weather, ecl: G.round.ecl, time: G.round.time, power: G.round.power, coreTaken: G.round.coreTaken, strikes: G.round.strikes || [], doom: G.round.doom || null } : null,
       players: [...G.players.values()].map(G.pinfo),
       items: [...G.items.values()].map(G.iinfo),
       monsters: [...G.monsters.values()].map((m) => m.serialize()),
@@ -700,7 +701,7 @@ const G = {
     G.run = s.run;
     if (typeof s.orbitT === 'number') G.orbitT = s.orbitT;
     if (s.round) {
-      G.prepareSite(s.round.seed, s.round.site, s.round.weather);
+      G.prepareSite(s.round.seed, s.round.site, s.round.weather, s.round.ecl);
       Object.assign(G.round, { time: s.round.time, power: s.round.power, coreTaken: s.round.coreTaken, doom: s.round.doom || undefined });
       // (the craters today's meteors left)
       for (const m of s.round.strikes || []) G.ext.addCrater(m.x, m.z, m.r, m.d, true);
@@ -879,7 +880,7 @@ const G = {
       HUD.closeTerminal(true);
     },
     // (anyone whose way down has fallen behind the host's catches up to it here, as the shutters close)
-    sitePrep(e) { if (e.t != null && G.seq && G.seq.kind === 'land' && G.seq.t < e.t) G.seq.t = e.t; G.stageSite(e.seed, e.site, e.weather); },
+    sitePrep(e) { if (e.t != null && G.seq && G.seq.kind === 'land' && G.seq.t < e.t) G.seq.t = e.t; G.stageSite(e.seed, e.site, e.weather, e.ecl); },
     monitor(e) {
       if (G.run) G.run.mon = e.view;
       CrewCam.setView(e.view);
@@ -887,7 +888,7 @@ const G = {
     },
     // out of the cloud, high over the site: the powered descent begins
     land(e) {
-      G.prepareSite(e.seed, e.site, e.weather);
+      G.prepareSite(e.seed, e.site, e.weather, e.ecl);
       G.ship.space.visible = false;
       for (const d of e.items) G.createItem(d);
       G.round.total = e.items.reduce((s, d) => s + (ITEMS[d.type].kind === 'scrap' ? d.value : 0), 0);
@@ -1928,14 +1929,14 @@ const G = {
     // with the shutters down, everyone starts building the site (a few frames' work); the descent begins once it's up
     G.timers.push({ t: ENTRY.site, fn: () => {
       const site = SITES[key], seed = randSeed(), rng = new RNG(seed ^ 0x51ed);
-      const weather = rng.weighted(site.weather);
-      G.emit({ e: 'sitePrep', site: key, seed, weather, t: G.seq && G.seq.kind === 'land' ? +G.seq.t.toFixed(2) : null });
-      G.stageSite(seed, key, weather, () => {
+      const weather = rng.weighted(site.weather), ecl = !!(G.ship.glide && G.ship.glide.ecl);
+      G.emit({ e: 'sitePrep', site: key, seed, weather, ecl, t: G.seq && G.seq.kind === 'land' ? +G.seq.t.toFixed(2) : null });
+      G.stageSite(seed, key, weather, ecl, () => {
         // (the descent waits, shutters down, until the site's shaders are ready, so it doesn't stutter its way down)
         const go = () => {
           if (G.mode !== 'landing' || !G.round || G.round.seed !== seed) return;
           const items = G.spawnScrap(seed, site, key);
-          G.emit({ e: 'land', site: key, seed, weather, items });
+          G.emit({ e: 'land', site: key, seed, weather, ecl, items });
           const first = (key === 'hollow' ? 2 : 1) + (G.fac.levels >= 6 ? 1 : 0);
           for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
           // (a nest has its brood about it already: two, three on the worse sites)

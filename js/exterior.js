@@ -242,7 +242,9 @@ const BIOMES = {
 };
 
 const Exterior = (() => {
-  const _ecl = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
+  const _ecl = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0), _wd = new THREE.Vector3();
+  // where the sun is at h o'clock: up out of the east, round over the sky, down in the west
+  const sunRoad = (h, out) => out.set(Math.cos((h - 6) / 14 * Math.PI) * 0.8, Math.max(0.12, Math.sin((h - 6) / 14 * Math.PI)), 0.4).normalize();
   class Ext {
     constructor(seed, site, weather, key) {
       this.seed = seed; this.site = site; this.weather = weather;
@@ -2077,8 +2079,15 @@ const Exterior = (() => {
       // crewmate sees the same sky, and the same eclipse at the same moment)
       this.skyRot0 = new RNG(this.seed + 77).range(0, TAU);
       // (seen from a moon, the world it circles holds its place for the landing: mostly off in the north, where the sun
-      // never goes; now and then right across the sun's road, and then it swallows the sun for a while)
-      { const rw = new RNG(this.seed + 91); this.worldRot = rw.next() < 0.3 ? rw.range(0, TAU) : rw.range(-0.8, 0.8); this.worldG.rotation.y = this.worldRot; }
+      // never goes; now and then right across the sun's road, and then it swallows the sun for a while, though never
+      // just as the ship comes down out of the sun. Coming down in its shadow (site.ecl), it's over the sun as the ship
+      // lands, and the sun comes out from behind it later in the morning)
+      {
+        const rw = new RNG(this.seed + 91), W = list.find((b) => b.kind === 'planet');
+        this.worldRot = rw.next() < 0.3 ? rw.range(0, TAU) : rw.range(-0.8, 0.8);
+        if (W) this.worldRot = this.worldTurn(W, this.worldRot, !!this.site.ecl);
+        this.worldG.rotation.y = this.worldRot;
+      }
       if (list.length) this.moon.visible = false;
       const rr = new RNG(this.seed + 31);
       // (drawn at the very back of the depth range, so they're behind everything on the ground however big they are;
@@ -2169,6 +2178,25 @@ const Exterior = (() => {
           dome.renderOrder = -6; dome.frustumCulled = false; G0.add(dome); this.bodies.push(dome);
         }
       }
+    }
+    // How far round the sky the world W stands (a turn about the vertical), from rot: the nearest turn that keeps it
+    // off the sun while the ship comes down to land (8:00, with time to see the place) or, in its eclipse (ecl), the
+    // one that has the sun behind it then and coming out past its edge nearest 9:00
+    worldTurn(W, rot, ecl) {
+      const am = Math.min(W.giant ? 0.97 : 0.78, W.r), w0 = new THREE.Vector3(Math.cos(W.az) * Math.cos(W.el), Math.sin(W.el), Math.sin(W.az) * Math.cos(W.el));
+      // (how far the sun's middle is off the world's, h o'clock, the world turned r)
+      const off = (r, h) => Math.acos(clamp(_wd.copy(w0).applyAxisAngle(_Y, r).dot(sunRoad(h, _ecl)), -1, 1));
+      const clear = (r) => off(r, 8) > am + 0.04 && off(r, 8.25) > am + 0.04;
+      if (!ecl) { for (let i = 0; i < 360; i++) { const r = rot + (i >> 1) * (i & 1 ? -1 : 1) * (TAU / 360); if (clear(r)) return r; } return rot; }
+      let best = rot, cost = Infinity;
+      for (let i = 0; i < 720; i++) {
+        const r = (i / 720) * TAU;
+        if (off(r, 8) > am - 0.04 || off(r, 8.25) > am - 0.04) continue;
+        let h = 8.25; while (h < 16 && off(r, h) < am + 0.03) h += 1 / 60;
+        const c = Math.abs(h - 9);
+        if (c < cost) { cost = c; best = r; }
+      }
+      return best;
     }
     // The rings round the world in this sky (b: today's planet entry, from G.skyToday). The sky is the real layout
     // shrunk to fit, the world's centre D out, so s (= D / how many of its radii off it is) is one of its radii. Where
@@ -2347,7 +2375,7 @@ const Exterior = (() => {
         hemiSky: tint(C(0xb8c4d0).lerp(C(0xd08a60), dusk).lerp(C(0x3a4a66), night), SK.hemi),
         sun: (lerp(2.1 * (1 - overcast * 0.6), 0, 1 - day) + dusk * 0.6) * SK.dim,
         sunColor,
-        sunDir: new THREE.Vector3(Math.cos((h - 6) / 14 * Math.PI) * 0.8, Math.max(0.12, Math.sin((h - 6) / 14 * Math.PI)), 0.4).normalize(),
+        sunDir: sunRoad(h, new THREE.Vector3()),
         stars: night * (wx === 'clear' ? 1 : 0.25),
         night,
         // atmosphere: fog glow toward the sun, cloud colours, how much of the sky is cloud and how hazy the horizon is

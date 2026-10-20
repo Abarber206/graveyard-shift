@@ -116,7 +116,11 @@ Keep that file current when gameplay changes.
   itself up to fly along its way down (`glideFrame`: the world below the nose, the horizon held a little above it). Its
   height follows `G.glideAlt` (on a log scale), and the world turns under it about `g.A`. `planGlide` picks that heading,
   and how far round to go, so it comes down into the morning, with the sun about `ENTRY.sunUp` up and not behind
-  anything (`sunHidden`). When a moon is in its world's shadow, the sun slides out from behind it on the way down (`g.shQ`).
+  anything (`sunHidden`). Over a moon or rock (`Ship.byWorld`) the sun stays real: no extra way round, and the heading
+  keeps it about as high as it was at the lever without ever bringing it out over the ground's edge or from behind the
+  world. Ending in the world's shadow sets `g.ecl`; the host sends it with `sitePrep` / `land` (`G.round.ecl`, in
+  `fullState`), and `Exterior.worldTurn` then stands the world over the sun at 8:00 so it comes out about 9:00 (without
+  it, the world is kept off the sun while the ship comes down).
   How far round it has gone is tabled once (`g.phiT`) from `glideW` (the ordinary way round, quickening as it sinks)
   and `glideWx` (any extra, only below about a third of the world's radius), so the world never visibly spins while
   it's whole in the glass. The parked orbit's own drift (`glideHold`) dies away through the swing.

@@ -417,6 +417,14 @@ const Ship = (() => {
     pb(m, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.BoxGeometry(w, h, d), mat(x, y, z, rx, ry, rz)); }
     // (an open one, a bell or a sleeve, is solid from inside too: see twoSided)
     pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { const g = new THREE.CylinderGeometry(r1, r2, h, seg, 1, open); this.put(m, open ? twoSided(g) : g, mat(x, y, z, rx, ry, rz)); }
+    // a mug standing at (x, y, z) (the middle of its foot): a tapered body, hollow, with a rolled rim and the coffee
+    // standing a little below it, and a handle out on the side toward a (round from +x)
+    mug(x, y, z, a = 0) {
+      const prof = [[0, 0], [0.036, 0], [0.038, 0.004], [0.041, 0.094], [0.042, 0.1], [0.0385, 0.1], [0.037, 0.094], [0.0362, 0.076], [0, 0.076]].map(([r, h]) => new THREE.Vector2(r, h));
+      this.put('white', new THREE.LatheGeometry(prof, 24), mat(x, y, z));
+      this.put('black', new THREE.CircleGeometry(0.0362, 24), mat(x, y + 0.0764, z, -Math.PI / 2, 0, 0));
+      this.put('white', new THREE.TorusGeometry(0.027, 0.0065, 8, 14, Math.PI), mat(x + Math.cos(a) * 0.0395, y + 0.052, z + Math.sin(a) * 0.0395, 0, -a, -Math.PI / 2));
+    }
     ps(m, r, x, y, z, sx = 1, sy = 1, sz = 1, seg = 10) { this.put(m, new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.7))), mat(x, y, z, 0, 0, 0, sx, sy, sz)); }
     pt(m, R, r, x, y, z, rx = 0, ry = 0, rz = 0, seg = 16, arc = TAU) { this.put(m, new THREE.TorusGeometry(R, r, 6, seg, arc), mat(x, y, z, rx, ry, rz)); }
     pq(m, w, h, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.PlaneGeometry(w, h), mat(x, y, z, rx, ry, rz)); }
@@ -1196,7 +1204,7 @@ const Ship = (() => {
         for (let i = 0; i < 5; i++) this.pq('paper', 0.058, 0.084, tx - 0.36 + i * 0.03, ty + 0.002 + i * 0.0004, tz + 0.1, -Math.PI / 2, 0, 0.45 - i * 0.22);
         this.pq('red', 0.058, 0.084, tx + 0.02, ty + 0.002, tz - 0.12, -Math.PI / 2, 0, 0.3);
         this.pb('white', 0.064, 0.022, 0.09, tx + 0.18, ty + 0.011, tz - 0.06, 0, 0.2, 0); this.pb('red', 0.065, 0.003, 0.091, tx + 0.18, ty + 0.0235, tz - 0.06, 0, 0.2, 0);
-        for (const [mx, mz, r] of [[tx - 0.05, tz + 0.2, 0], [tx + 0.36, tz + 0.16, 2]]) { this.pc('white', 0.042, 0.038, 0.1, mx, ty + 0.05, mz, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, mx + Math.cos(r) * 0.045, ty + 0.055, mz + Math.sin(r) * 0.045, 0, -r, 0, 8); this.pc('black', 0.037, 0.037, 0.005, mx, ty + 0.096, mz, 0, 0, 0, 12); }
+        for (const [mx, mz, r] of [[tx - 0.05, tz + 0.2, 0], [tx + 0.36, tz + 0.16, 2]]) this.mug(mx, ty, mz, r);
         this.pb('red', 0.26, 0.12, 0.15, tx + 0.42, ty + 0.06, tz - 0.12, 0, -0.15, 0); this.pb('black', 0.27, 0.008, 0.155, tx + 0.42, ty + 0.1, tz - 0.12, 0, -0.15, 0);
         this.pt('black', 0.055, 0.008, tx + 0.42, ty + 0.12, tz - 0.12, 0, -0.15, 0, 10, Math.PI);
         this.pc('green', 0.045, 0.045, 0.26, tx - 0.5, ty + 0.13, tz - 0.14, 0, 0, 0, 14); this.pc('black', 0.048, 0.048, 0.055, tx - 0.5, ty + 0.285, tz - 0.14, 0, 0, 0, 14);
@@ -1295,7 +1303,7 @@ const Ship = (() => {
       this.pb('yellow', 0.5, 0.2, 0.22, -0.55, 1.1, -3.8); this.pt('black', 0.1, 0.012, -0.55, 1.2, -3.8, 0, 0, 0, 10, Math.PI);
       this.pb('black', 0.3, 0.18, 0.12, 0.35, 1.09, -3.85); this.pc('black', 0.008, 0.008, 0.3, 0.46, 1.33, -3.85, 0, 0, 0, 6); this.pb('glowGreen', 0.07, 0.03, 0.005, 0.3, 1.13, -3.788);
       this.pb(SB, 0.28, 0.012, 0.035, 0.78, 1.008, -3.64, 0, 0.4, 0); this.pb(SB, 0.05, 0.012, 0.07, 0.9, 1.008, -3.7, 0, 0.4, 0);
-      this.pc('white', 0.042, 0.038, 0.1, -0.05, 1.05, -3.6, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, -0.005, 1.05, -3.6, 0, 0, 0, 8); this.pc('black', 0.037, 0.037, 0.005, -0.05, 1.096, -3.6, 0, 0, 0, 12);
+      this.mug(-0.05, 1.0, -3.6);
       this.col(-1.08, 1.08, -4.0, -3.5); this.top(-1.05, 1.05, -3.98, -3.52, 1.0);
       for (const [a, b, c, d] of [[-0.8, -0.3, -3.91, -3.69], [0.2, 0.5, -3.91, -3.79], [-0.09, 0.04, -3.64, -3.56], [-0.43, 0.43, -3.98, -3.85]]) this.top(a, b, c, d, 1.0, 'on');
       // the charger's battery pack and its cable
@@ -1367,7 +1375,7 @@ const Ship = (() => {
       this.pc('pad', 0.19, 0.19, 0.07, 3.05, 0.62, -2.55, 0, 0, 0, 16); this.pc(D, 0.025, 0.025, 0.55, 3.05, 0.32, -2.55, 0, 0, 0, 8);
       for (let i = 0; i < 5; i++) { const a = (i / 5) * TAU; this.beam(D, V(3.05, 0.08, -2.55), V(3.05 + Math.cos(a) * 0.26, 0.03, -2.55 + Math.sin(a) * 0.26), 0.03); }
       this.pt(D, 0.15, 0.012, 3.05, 0.3, -2.55, Math.PI / 2, 0, 0, 16);
-      this.pc('white', 0.042, 0.038, 0.1, 2.05, 0.95, -3.15, 0, 0, 0, 12); this.pt('white', 0.03, 0.008, 2.095, 0.955, -3.15, 0, 0, 0, 8); this.pc('black', 0.037, 0.037, 0.005, 2.05, 0.996, -3.15, 0, 0, 0, 12);
+      this.mug(2.05, 0.9, -3.15);
       // (the papers lie on the desk mat, between the keyboard and the trackball, clear of both)
       this.pq('paper', 0.21, 0.29, 3.075, 0.9058, -3.245, -Math.PI / 2, 0.05, 0); this.pq('paper', 0.21, 0.29, 3.08, 0.9064, -3.25, -Math.PI / 2, -0.07, 0);
       this.pc(D, 0.07, 0.08, 0.03, 3.3, 0.915, -3.8, 0, 0, 0, 12);

@@ -4717,6 +4717,11 @@ const Facility = (() => {
     edgeKey(a, b) { return a < b ? a * 65536 + b : b * 65536 + a; }
     // can you pass straight from tile k into its neighbour nk? Only on the same level, and into a stairwell only
     // through one of its doorways
+    // a straight run of corridor through tile k, walled both sides and open both ends: 'ew' or 'ns' (else null)
+    straight(k) {
+      const i = k % this.W, j = Math.floor(k / this.W), f = (a, b) => this.floorAt(a, b);
+      return f(i - 1, j) && f(i + 1, j) && !f(i, j - 1) && !f(i, j + 1) ? 'ew' : f(i, j - 1) && f(i, j + 1) && !f(i - 1, j) && !f(i + 1, j) ? 'ns' : null;
+    }
     connected(k, nk) {
       if (k < 0 || nk < 0 || !this.grid[k] || !this.grid[nk]) return false;
       const a = this.shaftOf[k], b = this.shaftOf[nk];
@@ -5550,8 +5555,21 @@ const Facility = (() => {
         this.lv = Math.max(0, this.lvl[k]); if (this.lv > 0) deep[this.lv].push([i, j]);
         const ew = this.floorAt(i - 1, j) && this.floorAt(i + 1, j) && !this.floorAt(i, j - 1) && !this.floorAt(i, j + 1);
         const ns = this.floorAt(i, j - 1) && this.floorAt(i, j + 1) && !this.floorAt(i - 1, j) && !this.floorAt(i + 1, j);
-        if (ew) { this.pcyl('rust', 0.1, 0.1, TS, x, Y0 + h - 0.22, z - 1.15, 0, 0, Math.PI / 2, 8); this.pcyl('darkmetal', 0.06, 0.06, TS, x, Y0 + h - 0.42, z - 1.25, 0, 0, Math.PI / 2, 6); }
-        if (ns) { this.pcyl('rust', 0.1, 0.1, TS, x + 1.15, Y0 + h - 0.22, z, Math.PI / 2, 0, 0, 8); this.pcyl('darkmetal', 0.06, 0.06, TS, x + 1.25, Y0 + h - 0.42, z, Math.PI / 2, 0, 0, 6); }
+        // two pipes along one wall under the ceiling, the length of a straight run of corridor. Where the run ends at a
+        // wall (a dead end, the wall beside a doorway) they stop a hair short of it, so their ends don't flicker in it or
+        // show through on the far side; where it opens out (a junction, a corner) they turn up into the ceiling
+        if (ew || ns) for (const [mat, pr, off, dy] of [['rust', 0.1, 1.15, 0.22], ['darkmetal', 0.06, 1.25, 0.42]]) {
+          // (how far along each way it runs: on into the next straight piece, short of a wall, or (negative) turning up)
+          const end = (s) => {
+            const nk = this.idx(ew ? i + s : i, ew ? j : j + s), open = nk >= 0 && this.connected(k, nk) && !this.doorEdge.get(this.edgeKey(k, nk)) && this.grid[nk] !== 4;
+            if (open && this.grid[nk] === 1 && this.ceil[nk] === h && this.straight(nk) === (ew ? 'ew' : 'ns')) return TS / 2;
+            return open && this.ceil[nk] > h - dy + pr ? -(TS / 2 - pr) : TS / 2 - 0.03;
+          };
+          const e0 = end(-1), e1 = end(1), a0 = -Math.abs(e0), a1 = Math.abs(e1), py = Y0 + h - dy;
+          if (ew) this.pcyl(mat, pr, pr, a1 - a0, x + (a0 + a1) / 2, py, z - off, 0, 0, Math.PI / 2, 8);
+          else this.pcyl(mat, pr, pr, a1 - a0, x + off, py, z + (a0 + a1) / 2, Math.PI / 2, 0, 0, 8);
+          for (const [e, a] of [[e0, a0], [e1, a1]]) if (e < 0) this.pcyl(mat, pr, pr, dy + 0.05, ew ? x + a : x + off, py + (dy + 0.05) / 2, ew ? z - off : z + a, 0, 0, 0, 8);
+        }
         // corridors were walked a thousand times; only dead ends still hold anything
         const exits = DIRS.filter(([dx, dy]) => this.floorAt(i + dx, j + dy)).length;
         if (exits === 1 && r.chance(0.5)) this.spot(null, x + r.range(-0.6, 0.6), Y0, z + r.range(-0.6, 0.6), 0.5, false);

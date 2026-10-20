@@ -11,7 +11,9 @@
 // doors (with their codes) of the level they're on, seen from above, every crewmate on it, and whatever a RADAR sweep
 // has picked up.
 const CrewCam = (() => {
-  const W = 768, H = 336, BAR = 26, FPS = 8, NEAR = 15;
+  // (W, H, BAR: the main screen's; a Survey Pad's map swaps its own in while it's drawn, see pad)
+  let W = 768, H = 336, BAR = 26;
+  const FPS = 8, NEAR = 15;
   const _cl = new THREE.Vector3(), _cs = new THREE.Vector3();
   let rt = null, canvas = null, g = null, otex = null, mat = null, cam = null, self = null, timer = 0, last = '';
   let mcv = null, mg = null, mtex = null, view = 0, sweep = null, blips = [];
@@ -101,7 +103,7 @@ const CrewCam = (() => {
     mg.fillStyle = col; mg.fillText(text, x, y + 1); mg.textAlign = 'left';
   };
   // the level someone's on, seen from above, centred on them
-  function drawFacMap(p, crew, t) {
+  function drawFacMap(p, crew, t, more) {
     const fac = G.fac, S = 7, P = posOf(p), L = fac.levelAt(P.x, P.z, P.y), cx = P.x, cz = P.z, my = BAR + (H - BAR) / 2;
     const X = (x) => W / 2 + (x - cx) * S, Y = (z) => my + (z - cz) * S;
     const i0 = fac.ti(cx - W / 2 / S) - 1, i1 = fac.ti(cx + W / 2 / S) + 1, j0 = fac.tj(cz - (H - BAR) / 2 / S) - 1, j1 = fac.tj(cz + (H - BAR) / 2 / S) + 1;
@@ -151,6 +153,7 @@ const CrewCam = (() => {
     }
     // what the radar found
     drawBlips(X, Y, t, (b) => b.zone === 'in' && b.lv === L);
+    if (more) more(X, Y, (o) => fac.levelAt(o.x, o.z, o.y) === L);
     // the crew on this level
     for (const q of crew) {
       if (!q.alive || q.zone !== 'in') continue;
@@ -162,7 +165,7 @@ const CrewCam = (() => {
     return L;
   }
   // outside: the ship, the way into the facility, any supply pods, the crew out in the open
-  function drawExtMap(p, crew, t) {
+  function drawExtMap(p, crew, t, more) {
     const S = 2.4, P = posOf(p), cx = G.inShip(p) ? 0 : P.x, cz = G.inShip(p) ? 0 : P.z, my = BAR + (H - BAR) / 2;
     const X = (x) => W / 2 + (x - cx) * S, Y = (z) => my + (z - cz) * S;
     mg.strokeStyle = 'rgba(80,200,110,.12)'; mg.lineWidth = 1;
@@ -175,6 +178,7 @@ const CrewCam = (() => {
     if (G.ext) for (const o of G.ext.interact) tag(o.which === 'fire' ? 'FIRE EXIT' : 'ENTRANCE', X(o.x), Y(o.z), '#ff6a50');
     for (const pod of Pods.list) if (pod.hit) tag(pod.opened ? 'POD (EMPTY)' : 'SUPPLY POD', X(pod.x), Y(pod.z), '#ffd040');
     drawBlips(X, Y, t, (b) => b.zone === 'out');
+    if (more) more(X, Y, () => true);
     for (const q of crew) {
       if (!q.alive || q.zone !== 'out') continue;
       const Q = posOf(q), col = suitCss(q.color), isP = q === p, x = X(Q.x), y = Y(Q.z);
@@ -187,9 +191,44 @@ const CrewCam = (() => {
     for (const b of blips) {
       if (!which(b)) continue;
       const a = 1 - (t - b.at) / 10, x = X(b.x), y = Y(b.z);
+      if (b.item) { pin(x, y, a); continue; }
       mg.fillStyle = `rgba(255,60,40,${a})`; mg.beginPath(); mg.arc(x, y, 5, 0, TAU); mg.fill();
       mg.strokeStyle = `rgba(255,60,40,${a * 0.5})`; mg.lineWidth = 1.5; mg.beginPath(); mg.arc(x, y, 5 + (t - b.at) * 6 % 14, 0, TAU); mg.stroke();
     }
+  }
+  // metal scrap lying about (not carried, not aboard): what the Salvage Locator can find. Glass, china, wood, cloth and
+  // bone it can't
+  const metalScrap = (it) => it.holder == null && !it.inShip && it.basket == null && ITEMS[it.type].kind === 'scrap' && (ITEM_MAT[it.type] === 'metal' || ITEM_MAT[it.type] === 'tin');
+  // an amber pin (a find of the Salvage Locator's)
+  const pin = (x, y, a) => { mg.fillStyle = `rgba(255,190,60,${a})`; mg.beginPath(); mg.moveTo(x, y - 6); mg.lineTo(x + 5, y); mg.lineTo(x, y + 6); mg.lineTo(x - 5, y); mg.closePath(); mg.fill(); };
+  // A Survey Pad's screen: the same map as the main screen's, on the pad in your hands, following you: the floor you're on
+  // (or the ground round the ship), north up, and with the Salvage Locator fitted, the metal scrap within 30 m pinned on
+  // it. A few frames a second, on its own canvas, with the pad's size swapped in for the main screen's while it draws
+  let pcv = null, pg = null, ptex = null, pmat = null, ptimer = 0;
+  function padMat() {
+    if (!pmat) { [pcv, pg] = TEX.canvas(384, 288); ptex = new THREE.CanvasTexture(pcv); ptex.colorSpace = THREE.SRGBColorSpace; pmat = new THREE.MeshBasicMaterial({ map: ptex, toneMapped: false }); }
+    return pmat;
+  }
+  function pad(p, dt) {
+    padMat(); if ((ptimer -= dt) > 0) return; ptimer = 1 / 6;
+    const keep = [mg, W, H, BAR], t = performance.now() / 1000, crew = [...G.players.values()];
+    mg = pg; W = 384; H = 288; BAR = 0;
+    try {
+      mg.fillStyle = '#020a05'; mg.fillRect(0, 0, W, H);
+      const P = posOf(p), loc = G.run && G.run.upgrades.locator;
+      const pins = loc ? (X, Y, ok) => { for (const it of G.items.values()) if (metalScrap(it) && (it.pos.y < FAC_Y0 + 60) === (p.zone === 'in') && Math.hypot(it.pos.x - P.x, it.pos.z - P.z) < 30 && ok(it.pos)) pin(X(it.pos.x), Y(it.pos.z), 0.7 + 0.3 * Math.sin(t * 4 + it.id)); } : null;
+      let where = '';
+      if (G.mode === 'orbit' || !G.round) {
+        mg.fillStyle = '#59e07a'; mg.font = '26px "VT323", monospace'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('NO SURVEY DATA IN ORBIT', W / 2, H / 2); mg.textAlign = 'left';
+      } else if (p.zone === 'in' && G.fac) where = G.fac.levelLabel(drawFacMap(p, crew, t, pins));
+      else { drawExtMap(p, crew, t, pins); where = G.inShip(p) ? 'SHIP' : 'OUTSIDE'; }
+      mg.fillStyle = 'rgba(2,10,5,.75)'; mg.fillRect(0, 0, W, 26);
+      mg.fillStyle = '#59e07a'; mg.font = '22px "VT323", monospace'; mg.textBaseline = 'middle'; mg.fillText('N ▲  ' + where, 6, 13);
+      if (loc) { mg.fillStyle = '#ffbe3c'; mg.textAlign = 'right'; mg.fillText('◆ LOCATOR', W - 6, 13); mg.textAlign = 'left'; }
+      // (scanlines, and the glass a touch brighter toward the top)
+      mg.fillStyle = 'rgba(0,0,0,.18)'; for (let y = 0; y < H; y += 3) mg.fillRect(0, y, W, 1);
+    } finally { [mg, W, H, BAR] = keep; }
+    ptex.needsUpdate = true;
   }
   // a radar sweep from whoever the map follows: a line rolls round and anything alive it crosses lights up
   function runSweep(p, t) {
@@ -203,6 +242,14 @@ const CrewCam = (() => {
       if (d > range || (inside && G.fac.levelAt(mx, mz, m.rpos.y) !== lv)) continue;
       let b = Math.atan2(mx - P.x, -(mz - P.z)); if (b < 0) b += TAU;
       if (b <= ang) { sweep.seen.add(m.id); blips.push({ x: mx, z: mz, at: t, zone: inside ? 'in' : 'out', lv }); SFX.play('ping', null, { f: 105, vol: 0.35 }); }
+    }
+    // (with the Salvage Locator fitted, the metal scrap it crosses too: a higher ping)
+    if (G.run && G.run.upgrades.locator) for (const it of G.items.values()) {
+      if (sweep.seen.has('i' + it.id) || !metalScrap(it) || (it.pos.y < FAC_Y0 + 60) !== !!inside) continue;
+      const d = Math.hypot(it.pos.x - P.x, it.pos.z - P.z);
+      if (d > range || (inside && G.fac.levelAt(it.pos.x, it.pos.z, it.pos.y) !== lv)) continue;
+      let b = Math.atan2(it.pos.x - P.x, -(it.pos.z - P.z)); if (b < 0) b += TAU;
+      if (b <= ang) { sweep.seen.add('i' + it.id); blips.push({ x: it.pos.x, z: it.pos.z, at: t, zone: inside ? 'in' : 'out', lv, item: true }); SFX.play('ping', null, { f: 190, vol: 0.2 }); }
     }
     // the sweep line itself
     const my = BAR + (H - BAR) / 2;
@@ -356,5 +403,5 @@ const CrewCam = (() => {
   }
   function reset() { view = 0; sweep = null; blips = []; }
   function setView(v) { if (v === view) return; view = v | 0; timer = 0; last = ''; }
-  return { init, update, layout, cycle, radar, reset, setView, get view() { return view; } };
+  return { init, update, layout, cycle, radar, reset, setView, pad, padMat, get view() { return view; } };
 })();

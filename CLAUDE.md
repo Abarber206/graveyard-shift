@@ -126,14 +126,21 @@ Keep that file current when gameplay changes.
   crossing the world's face), lightning in the storms (`stepLightning` → the cloud shell's `uFlash`), the sea's glint
   (`pdSea` lowers roughness), craters at every scale on airless bodies (`pdCraters`, octaves faded by `fwidth`) and fine
   streaks along a giant's bands (in `planetMat` and, seen from its moons, in `shade`'s `giant`).
-- **Leech nests** (`leechNest` / `buildNest` in `facility.js`): some days, on sites with leeches (`fac.nestK` from
-  `SITES[k].mon.leech`), from the facility's own numbers off the seed. `fac.nest` holds the corner, the hit points up it
+- **Leech nests** (`leechNest` / `buildNest` in `facility.js`): some days, on any site (`fac.nestK`, from
+  `SITES[k].mon.leech`, 0.6 where they don't belong; likelier the deeper the plant), from the facility's own numbers off the seed. `fac.nest` holds the corner, the hit points up it
   (`spine`), the ceiling perches the brood keep to (`spots`), the crown burrows they pour out of (`holes`), hp, and
   `over` (it has taken the room: more hills in `cols`, the walls and ceiling skinned by `skin`). Each hill is one
   lathed, displaced mesh on its own breathing pivot; the burrows' glow is an unlit vertex-coloured material. The host
   seeds the watch (`hostNestBreed`), keeps the rest in `G.round.nestPool` and floods them out (`hostNestFlood`) when
   someone comes in or hits it (`m.home`: not counted against the site's cap); a shovel blow is a `'nest'` event, and
   `fullState` carries its hp.
+- **Roaches** (`roach` in `MON_DEFS`, `ai_roach`): a swarm of two or three, out of one vent; with leeches, a default in every
+  site's mix (`hostSpawnInterior`), `swarm` so each counts a third against the site's cap. A beam on one (`canSee`) scatters
+  the ones near it.
+- **Survey Pad** (`mappad`, `screen: true`): its screen mesh is named `screen`; in your own hands (`setVM` / `updateVM`)
+  it wears `CrewCam.padMat()`, drawn by `CrewCam.pad` with the main screen's map code (W/H/BAR swapped for the pad's).
+  The **Salvage Locator** upgrade (`run.upgrades.locator`) adds metal scrap (`metalScrap`: `ITEM_MAT` metal / tin) to the
+  RADAR sweep and pins it on pads.
 - **Resting heights:** `fac.top(x, z, ry, w, d, y, k)` / `ship.top(x0, x1, z0, z1, y, k)` register the flat top of a prop
   (desk, table, bench, crate, drum, shelf, gurney); `k` is `'open'` for a shelf with room under it and `'on'` for clutter
   standing on a top (a mug, a monitor, the stock), which things are set down clear of. `restOn` (`util.js`) picks the level: the highest within reach, or

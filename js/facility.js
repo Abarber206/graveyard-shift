@@ -1323,7 +1323,8 @@ const Facility = (() => {
     // seed: the rest of the plant is laid out as it would be.)
     *leechNest() {
       const r = new RNG((this.seed ^ 0x6e3571) >>> 0);
-      if (!this.nestK || !r.chance(clamp(0.2 + 0.15 * this.nestK, 0, 0.55))) return;
+      // (the deeper the plant, the likelier something's bred down in it)
+      if (!this.nestK || !r.chance(clamp(0.2 + 0.15 * this.nestK + 0.08 * Math.max(0, this.levels - 4), 0, 0.65))) return;
       const solid = (k, nk) => !this.connected(k, nk);
       // the corners of a room with rock behind them and nothing standing in them, no lamp or vent its crown would swallow
       const cornersOf = (room, Y, h, sc = 1) => {

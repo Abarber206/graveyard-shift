@@ -528,6 +528,18 @@ const SFX = (() => {
       smp(d, t, take('gulp_big', 3, () => { const y = add(arr(1.2), struck({ modes: [1, 1.5, 2.2], f0: rnd(60, 80), T: 0.35, hf: 3, tc: 0.03 })); for (let i = 0, a = 0.25; i < 5; i++, a += rnd(0.08, 0.16)) bubble(y, nS(a), rnd(20, 45), 0.7); return y; }, 16000), 1);
     },
     chitter(d, t) { smp(d, t, take('chitter', 4, () => { const y = arr(0.45); for (let i = 0; i < 12; i++) add(y, struck({ modes: plate(6, 1.1), f0: rnd(2000, 3400), T: 0.012, hf: 0.2, tc: 0.00005, grit: 0.5 }), i * 0.032 + rnd(0, 0.006), rnd(0.5, 1)); return y; }), 1); },
+    // a roach: the patter of its claws on a hard floor (a quick, uneven run of dry ticks, the rustle of its shell under
+    // them), the hiss it gives as it comes (air forced out through the holes down its sides, in two or three pulses),
+    // and its bite (a snip of mouthparts, and a wet catch)
+    skitter(d, t) {
+      smp(d, t, take('skitter', 5, () => { const y = arr(0.34); for (let i = 0, a = 0; i < 9; i++, a += rnd(0.016, 0.038)) add(y, struck({ modes: plate(5, 1.3), f0: rnd(3200, 5400), T: 0.006, hf: 0.15, tc: 0.00003, grit: 0.7 }), a, rnd(0.35, 1)); return y; }), 1);
+      nz(d, t, 0.28, 0.1, 'bandpass', 4800, 3000, 1.5, 0.03);
+    },
+    roach_hiss(d, t) { for (let i = 0, a = 0; i < 3; i++, a += rnd(0.16, 0.26)) nz(d, t + a, rnd(0.12, 0.22), 0.5 - i * 0.1, 'bandpass', rnd(4200, 5200), 6500, 1.2, 0.015); },
+    roach_bite(d, t) {
+      smp(d, t, take('rbite', 3, () => add(add(arr(0.14), struck({ modes: plate(4, 1.2), f0: rnd(1800, 2600), T: 0.02, hf: 0.3, tc: 0.0001, grit: 0.4 })), struck({ modes: plate(4, 1.2), f0: rnd(2000, 2900), T: 0.015, hf: 0.3, tc: 0.0001, grit: 0.4 }), 0.05)), 1);
+      nz(d, t + 0.02, 0.1, 0.35, 'bandpass', 900, 500, 4);
+    },
     hound_growl(d, t) { smp(d, t, take('hgrowl', 3, () => growl(1.7, rnd(48, 56), 22, [[300, 2, 1], [700, 3, 0.35], [1400, 4, 0.1]]), 16000), 1); },
     hound_roar(d, t) {
       smp(d, t, take('roar', 3, () => { const f0 = rnd(190, 215); return voice(0.85, (u) => f0 * (1 - 0.6 * u), { jit: 0.08, shim: 0.4, sub: 0.35, breath: 0.8, air: 0.15, clip: 2.5, amp: (u) => Math.min(1, u * 12) * (1 - u) ** 0.7, mouth: [[(u) => 900 - 500 * u, 2.5, 1], [(u) => 1500 - 400 * u, 3, 0.6], [2600, 4, 0.35]] }); }), 1);
@@ -1087,7 +1099,7 @@ const SFX = (() => {
     spool: 0.7, ignite: 1.2, splash: 0.9, clown_step: 1.1, clown_giggle: 0.7, clown_box: 0.45, clown_honk: 0.4,
     step: 0.31, run_far: 0.31, click: 0.53, pickup: 0.65, door_open: 0.35, crunch: 1.5, stinger: 1.7,
     stinger_hi: 1.1, heartbeat: 0.54, crawler_screech: 0.41, crawler_growl: 1.5, ceramic: 0.23, slime_slosh: 0.27,
-    slime_gurgle: 0.22, nest_breath: 0.3, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
+    slime_gurgle: 0.22, nest_breath: 0.3, slime_drip: 0.12, chitter: 0.11, skitter: 0.1, roach_hiss: 0.5, roach_bite: 0.5, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
     can_open: 0.71, wrapper: 0.51, death_rattle: 1.4, warp_charge: 1.5, servo: 0.45, glint: 0.12, beep: 0.75,
     err: 1.5, scan: 2, locker_open: 0.6, alarm: 0.62, power_down: 1.6, metal_bang: 1.4, drip: 0.17, knock: 1.3,
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,

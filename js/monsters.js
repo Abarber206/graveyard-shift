@@ -6,6 +6,8 @@ const MON_DEFS = {
   pale: { name: 'The Pale', hp: 3, zone: 'in', power: 3, radius: 0.4, height: 2.3 },
   mannequin: { name: 'Mannequin', hp: 9999, zone: 'in', power: 2, radius: 0.35, height: 1.7 },
   leech: { name: 'Ceiling Leech', hp: 2, zone: 'in', power: 1, radius: 0.3, height: 0.3, doors: false },
+  // (they come a few at a time: swarm, so a handful of them counts as one thing against the site's cap; see hostSpawnInterior)
+  roach: { name: 'Roaches', hp: 1, zone: 'in', power: 0.5, radius: 0.18, height: 0.15, doors: false, swarm: true },
   hound: { name: 'Hollow Hound', hp: 5, zone: 'out', power: 2, radius: 0.7, height: 1.2 },
   // (its body fills a corridor; what it steers by is a small core, so it can squeeze through any doorway)
   slime: { name: 'The Seep', hp: 9999, zone: 'in', power: 3, radius: 0.55, height: 2.8 },
@@ -22,6 +24,7 @@ const BESTIARY = {
   pale: 'Tall. Patient. It follows from behind and hates being watched, if it can see you looking: in the dark, more than a few steps off, it cannot. Glance at it and it slinks away. Stare at it, or keep looking round at it, and it stops being patient; leave it be a while and it settles again. If your light flickers and you feel watched, turn around.',
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and doorways, where people pass, and drops onto the head of whoever passes beneath. It moves to where it hears footsteps. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel. It cannot open a door: it goes round, or waits by one for somebody to open it.',
+  roach: 'Roaches the size of a boot, two or three together. They scuttle about in fits and starts, a dash and a dead stop, feelers going. They hear footsteps and feel anyone moving near them, and come at you in a rush along the floor, quicker than you walk but not as quick as you run; one bites at your ankles and is off again, round and back for another. They cannot stand light: put a beam on them and they scatter for the dark. They cannot work a door. One blow kills one.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound, and close to, by smell: do not stand still next to one, move away quietly. Walk, crouch, keep quiet. One that howls is calling the others. They will follow you into the ship if the hatch is open.',
   sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
   bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway, round a corner, where people pass; it hears you coming and lies down in your way. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
@@ -69,6 +72,10 @@ const MonModels = (() => {
     porc: () => M('porcm', () => S({ map: TEX.get('porcelain'), color: 0xa89f92, roughness: 0.32, metalness: 0.05 }, 2, 0.6)),
     joint: () => M('joint', () => new THREE.MeshStandardMaterial({ color: 0x3a3530, roughness: 0.5 })),
     leech: () => M('leech', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0xb09090, roughness: 0.18, metalness: 0.1 })),
+    // a roach's: a glossy chestnut shell, wing cases a shade paler, the legs and belly near black
+    roach: () => M('roach', () => S({ map: TEX.get('darkflesh'), color: 0x7a4422, roughness: 0.2, metalness: 0.25 }, 7, 0.5)),
+    roachWing: () => M('roachWing', () => S({ map: TEX.get('darkflesh'), color: 0x9a5a2a, roughness: 0.16, metalness: 0.25 }, 5, 0.4)),
+    roachLeg: () => M('roachLeg', () => new THREE.MeshStandardMaterial({ color: 0x24140a, roughness: 0.35, metalness: 0.15 })),
     hound: () => M('hound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x6a5450, roughness: 0.6 })),
     leg: () => M('leg', () => new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.6 })),
     sinew: () => M('sinew', () => S({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 }, 4, 1)),
@@ -223,6 +230,48 @@ const MonModels = (() => {
       P.al = limb(P.torso, -0.25, 0.56, 0, 0.048, 0.3, 0.042, 0.32, m);
       P.ar = limb(P.torso, 0.25, 0.56, 0, 0.048, 0.3, 0.042, 0.32, m);
       for (const L of [P.al, P.ar]) { mk(sph(0.05), j, L.a); mk(sph(0.045), j, L.b); mk(sph(0.055), m, L.end, 0, -0.03, 0).scale.set(0.8, 1.3, 0.6); }
+      root.userData.parts = P; return root;
+    },
+    // A roach as long as a boot: the shield over its head, the two wing cases down its back (parted a little at the
+    // tail), the ribbed belly showing under them, six spined legs splayed wide (the hind pair longest), feelers longer
+    // than it is and the two little prongs at its tail. Facing +z, its belly a few fingers off the floor
+    roach() {
+      const root = new THREE.Group(), P = {}, sh = mats.roach(), wing = mats.roachWing(), dk = mats.roachLeg();
+      P.body = grp(root, 0, 0.075, 0);
+      mk(sphZ(0.1, 14), dk, P.body, 0, -0.012, -0.05).scale.set(0.92, 0.34, 1.75);
+      // (the ridges where its belly plates meet, round the underside and up its flanks)
+      for (const [z, r] of [[-0.08, 0.086], [-0.12, 0.08], [-0.16, 0.068], [-0.2, 0.045]]) mk(new THREE.TorusGeometry(r, 0.005, 4, 14, Math.PI), dk, P.body, 0, -0.012, z, 0, 0, Math.PI).scale.set(1, 0.37, 1);
+      for (const s of [-1, 1]) mk(sphZ(0.1, 14), wing, P.body, s * 0.043, 0.012, -0.075, 0, s * 0.05, s * 0.06).scale.set(0.6, 0.24, 2.0);
+      mk(sphZ(0.1, 14), sh, P.body, 0, 0.018, 0.14).scale.set(1.08, 0.3, 0.72);
+      P.head = grp(P.body, 0, -0.01, 0.21);
+      mk(sph(0.042, 10), sh, P.head).scale.set(1.1, 0.8, 0.9);
+      for (const s of [-1, 1]) {
+        mk(sph(0.016, 8), mats.void(), P.head, s * 0.036, 0.006, 0.012).scale.set(0.7, 1.2, 0.8);
+        mk(cap(0.005, 0.035, 5), dk, P.head, s * 0.014, -0.03, 0.03, 0.6, 0, s * 0.2);
+      }
+      // (the feelers: two lengths each, so they can sweep and whip)
+      P.ant = [-1, 1].map((s) => {
+        const a = grp(P.head, s * 0.02, 0.012, 0.03);
+        mk(new THREE.CylinderGeometry(0.0035, 0.005, 0.16, 5).rotateX(Math.PI / 2).translate(0, 0, 0.08), dk, a);
+        const b = grp(a, 0, 0, 0.16);
+        mk(new THREE.CylinderGeometry(0.0015, 0.0035, 0.22, 4).rotateX(Math.PI / 2).translate(0, 0, 0.11), dk, b);
+        return { a, b, s };
+      });
+      for (const s of [-1, 1]) mk(new THREE.ConeGeometry(0.008, 0.06, 5), dk, P.body, s * 0.03, 0, -0.25, -Math.PI / 2 + 0.2, 0, -s * 0.25);
+      // the legs: hip out and up to the knee, then the shin down and out to the floor; each pair's knee bent so its foot
+      // just meets the floor, the front pair reaching forward and the hind pair back
+      const hy = P.body.position.y - 0.012, TH = 1.85;
+      P.legs = [];
+      [[0.1, 0.7, 0.07, 0.09], [0.03, -0.05, 0.08, 0.11], [-0.05, -0.75, 0.1, 0.15]].forEach(([z, fw, l1, l2], row) => {
+        for (const s of [-1, 1]) {
+          const L = limb(P.body, s * 0.05, -0.012, z, 0.011, l1, 0.007, l2, dk);
+          for (let k = 0; k < 3; k++) mk(new THREE.ConeGeometry(0.003, 0.026, 3), dk, L.b, 0, -l2 * (0.3 + k * 0.22), 0, 0, 0, -s * 2.05);
+          L.s = s; L.fw = fw; L.th = TH; L.kn = TH - Math.acos(clamp((hy - l1 * Math.cos(TH)) / l2, 0, 1));
+          // (tripod gait: front and hind on one side with the middle on the other)
+          L.ph = (row === 1 ? s > 0 : s < 0) ? 0 : Math.PI;
+          P.legs.push(L);
+        }
+      });
       root.userData.parts = P; return root;
     },
     // A fat, glistening grub as long as an arm, built as a chain: each of its segments hangs off the one before (P.joints,
@@ -523,6 +572,7 @@ const MON_CFG = {
   pale: { tau: 40, ear: 1, eye: { range: 26, cone: -0.35, dark: 8, touch: 1.2 }, find: { range: 20, cone: -0.2, dark: 8, touch: 1.2 } },
   mannequin: { tau: 20, ear: 0.8, eye: { range: 30, cone: -1, dark: 8, touch: 1.0 } },
   leech: { tau: 8, ear: 2.4, K: { voice: 0.6 } },
+  roach: { tau: 5, ear: 0.8, K: { step: 1.4 } },
   hound: { tau: 8, ear: 1 },
   slime: { tau: 15, ear: 1, K: { step: 1.5, voice: 0.3, door: 0.6 } },
   sister: { tau: 10, ear: 1 },
@@ -937,6 +987,82 @@ class Monster {
       }
       default: this.setState('roam');
     }
+  }
+  // Roaches: a few of them, scuttling about in fits and starts (a dash, a dead stop with the feelers going, a dash on).
+  // They hear footsteps and feel anyone moving about close by, and come for them in a rush along the floor, quicker
+  // than a walk and slower than a run; a bite at the ankles and it's off a few steps, then round and back for another.
+  // A beam on one and it scatters for the dark, and the others close by with it.
+  ai_roach(dt) {
+    this.scanT -= dt; this.cool -= dt;
+    if (this.scanT <= 0) {
+      this.scanT = 0.2;
+      const at = { x: this.pos.x, y: this.pos.y + 0.1, z: this.pos.z };
+      let lit = null;
+      for (const p of this.playersIn()) if (p.flash && this.g.canSee(p, at, p.flash === 2 ? 18 : 12, 0.94)) { lit = p; break; }
+      if (lit) {
+        if (this.state !== 'flee' || this.back != null) for (const o of this.g.monsters.values()) {
+          if (o.type === 'roach' && !o.dead && (o === this || (o.state !== 'flee' && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 5 && Math.abs(o.pos.y - this.pos.y) < 2))) o.scatter(lit);
+        }
+      } else if (this.cool <= 0 && (this.state === 'roam' || this.state === 'freeze' || this.state === 'rush')) {
+        let best = null, bd = 9;
+        for (const p of this.playersIn()) {
+          const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), e = Brain.P.get(p.id);
+          if (d < bd && Math.abs(p.pos.y - this.pos.y) < 2 && (d < 2.5 || (e ? e.spd > 1.2 : p.moving)) && this.clearTo(p)) { bd = d; best = p; }
+        }
+        const h = best ? null : Brain.hear(this, this.cfg.ear, this.cfg.K), hp = h && h.pid != null && h.loud > 0.2 ? this.g.players.get(h.pid) : null;
+        if (best && this.state !== 'rush') this.rush(best);
+        else if (hp && this.state !== 'rush') this.rush(hp, { x: h.x, z: h.z, y: h.y });
+        else if (hp && hp.id === this.target) { this.lastKnown = { x: h.x, z: h.z, y: h.y }; this.lastSeenT = Math.min(this.lastSeenT, 1); }
+      }
+    }
+    switch (this.state) {
+      case 'roam': {
+        if (this.st > (this.dash || 1.2)) { this.setState('freeze'); this.dash = 0.4 + Math.random() * 1.8; if (Math.random() < 0.5) this.goal = null; break; }
+        if (!this.goal) this.goal = this.randomGoal(3, 14, null, (k) => 1 + 2 * Brain.heat(k)) || this.randomGoal(3, 14);
+        if (this.moveTo(this.goal.x, this.goal.z, 3.6, dt) < 0.6) this.goal = null;
+        break;
+      }
+      case 'freeze': {
+        this.speedNow = 0;
+        if (this.st > (this.dash || 1)) { this.setState('roam'); this.dash = 0.5 + Math.random() * 1.6; }
+        break;
+      }
+      case 'rush': {
+        const p = this.g.players.get(this.target);
+        if (!p || !p.alive || p.zone !== 'in') { this.target = null; this.setState('freeze'); break; }
+        const sees = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 14 && Math.abs(p.pos.y - this.pos.y) < 2.5 && this.clearTo(p);
+        if (sees) { this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.lastSeenT = 0; } else this.lastSeenT += dt;
+        const g = this.lastKnown, rem = this.moveTo(g.x, g.z, 4.6, dt, { gy: g.y });
+        if (this.atk <= 0 && this.reaches(p, 0.75)) {
+          const f = this.forward();
+          this.g.hurtPlayer(p.id, 5, 'roach', f.x * 1.5, f.z * 1.5); this.g.emitSound('roach_bite', this.pos, {});
+          this.atk = 1.2; this.cool = 2.5 + Math.random() * 2; this.goal = this.randomGoal(3, 7); this.setState('flee'); this.back = p.id;
+          break;
+        }
+        if ((!sees && (this.lastSeenT > 3 || rem < 0.8)) || this.st > 14) { this.target = null; this.cool = 3; this.dash = 1 + Math.random(); this.setState('freeze'); }
+        break;
+      }
+      case 'flee': {
+        if (!this.goal) this.goal = this.randomGoal(3, 8);
+        const rem = this.moveTo(this.goal.x, this.goal.z, 5.2, dt);
+        if (rem < 0.6 || this.st > 4) {
+          const p = this.back != null ? this.g.players.get(this.back) : null;
+          this.goal = null; this.back = null;
+          if (p && p.alive && p.zone === 'in' && this.cool <= 0 && Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 10 && Math.abs(p.pos.y - this.pos.y) < 2) this.rush(p);
+          else { this.dash = 0.8 + Math.random() * 1.5; this.setState('freeze'); }
+        }
+        break;
+      }
+      default: this.setState('roam');
+    }
+  }
+  rush(p, at) { this.target = p.id; this.back = null; this.lastKnown = at || { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.lastSeenT = 0; this.setState('rush'); }
+  // (off from a beam: a few strides away, as far from whoever's holding it as it can find)
+  scatter(p) {
+    const fac = this.g.fac, W = fac.W;
+    this.target = null; this.back = null; this.cool = 2.5 + Math.random() * 2;
+    this.goal = this.randomGoal(4, 10, null, (k) => { const i = k % W, dx = fac.cx(i) - p.pos.x, dz = fac.cz((k - i) / W) - p.pos.z; return 0.05 + dx * dx + dz * dz; });
+    this.setState('flee'); this.st = 0;
   }
   // found you: the screech, and any other of its kind within earshot comes too, round by another way
   spotted(p) {
@@ -1936,6 +2062,7 @@ class Monster {
   onStateChange(from, to, lp) {
     if (this.type === 'crawler' && to === 'spot') SFX.play('crawler_screech', this.center(), { vol: 1.5, ref: 3 });
     if (this.type === 'leech' && to === 'attached') SFX.play('squelch', this.rpos, { vol: 1 });
+    if (this.type === 'roach' && to === 'rush' && Math.random() < 0.6) SFX.play('roach_hiss', this.center(), { vol: 0.8 });
     if (this.type === 'slime' && to === 'hunt') SFX.play('slime_gurgle', this.center(), { vol: 1.3, ref: 5 });
     if (this.type === 'leech' && from === 'attached') SFX.play('chitter', this.rpos, { vol: 1 });
     if (this.type === 'sister' && to === 'drawn') SFX.play('sister_twitch', this.headPos(), { vol: 1.3, ref: 3 });
@@ -1948,7 +2075,7 @@ class Monster {
   // twitches that die away, the colour draining out of it, and a dark pool spreading out underneath.
   onDeath() {
     const v = this.vis; v.deathT = 0;
-    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9, sister: 1.4, bound: 0.75 }[this.type] || 1 });
+    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9, roach: 2.4, sister: 1.4, bound: 0.75 }[this.type] || 1 });
     // its own copies of its materials, so only this one goes grey
     const seen = new Map(); this.deadMats = [];
     this.mesh.traverse((o) => {
@@ -1964,9 +2091,9 @@ class Monster {
     v.fallYaw = 0; v.lift = 0;
     if (FL && inside && this.g.fac && !(this.type === 'bound' && v.lie > 0.5)) v.fallYaw = this.roomiest(this.rpos.x, this.rpos.y, this.rpos.z, this.rry + FL[0], FL[1]);
     if (grp) {
-      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
+      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, roach: 0.3, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
       const gy = inside ? this.g.fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5) : this.g.ext.height(this.rpos.x, this.rpos.z);
-      this.pool = new THREE.Mesh(new THREE.CircleGeometry(r, 22), new THREE.MeshStandardMaterial({ map: TEX.get('puff'), color: this.type === 'leech' ? 0x26380c : 0x4a0707, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.12, metalness: 0.3 }));
+      this.pool = new THREE.Mesh(new THREE.CircleGeometry(r, 22), new THREE.MeshStandardMaterial({ map: TEX.get('puff'), color: this.type === 'leech' ? 0x26380c : this.type === 'roach' ? 0x3a3010 : 0x4a0707, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.12, metalness: 0.3 }));
       this.pool.rotation.set(-Math.PI / 2, 0, Math.random() * TAU); this.pool.position.set(this.rpos.x, gy + 0.012, this.rpos.z); this.pool.scale.setScalar(0.05);
       grp.add(this.pool);
     }
@@ -2132,6 +2259,40 @@ class Monster {
         L.b.rotation.x = lerp(L.b.rotation.x, -1.7 - tw * 0.6, f);
       }
       P.head.rotation.set(0.35 * f + tw * 0.3, 0, 0.2 * f); P.teeth.scale.setScalar(1.12);
+    }
+  }
+  // A roach: its legs a blur of tripods when it runs (front and hind on one side with the middle on the other, swinging
+  // forward lifted and pushing back down), its feelers sweeping, whipping back when it dashes and twitching when it
+  // stops; dead, it's over on its back with its legs folding up, the last of them still pedalling a while
+  anim_roach(dt, v, lp) {
+    const P = this.P, t = v.t, s = v.speed, g = Math.min(1, s / 4);
+    v.ph = (v.ph || 0) + dt * TAU * Math.min(16, s * 4.2);
+    const f = this.dead ? this.deadK() : 0, tw = this.dead ? v.tw : 0;
+    for (const L of P.legs) {
+      const u = v.ph + L.ph, sw = g > 0.05 ? Math.sin(u) * 0.35 * Math.min(1, g * 2) : Math.sin(t * 7 + L.ph * 3 + L.fw) * 0.03;
+      const lift = g > 0.05 ? Math.max(0, Math.cos(u)) * 0.35 : 0;
+      // (the swing: forward is round toward its head; on the right that's a turn one way, on the left the other)
+      const th = lerp(L.th + lift, 1.2 + Math.sin(t * 9 + L.ph + L.fw * 4) * tw * 0.6, f), kn = lerp(L.kn + lift * 0.6, 2.2, f);
+      L.a.rotation.set(0, -L.s * (L.fw + sw), L.s * th); L.b.rotation.set(0, 0, -L.s * kn);
+    }
+    P.body.position.y = 0.075 + (g > 0.05 ? Math.abs(Math.sin(v.ph)) * 0.004 : 0);
+    v.atw = Math.random() < dt * (s > 0.3 ? 1 : 3) ? (Math.random() - 0.5) * 0.6 : (v.atw || 0) * Math.exp(-dt * 6);
+    for (const A of P.ant) {
+      const sweep = Math.sin(t * (3 + A.s * 0.4) + A.s) * (0.35 - g * 0.25), back = g * 0.3;
+      A.a.rotation.set(-0.35 + back * 0.6 + Math.sin(t * 2.3 + A.s) * 0.12, A.s * (0.35 + sweep + v.atw * A.s) - A.s * back, 0);
+      A.b.rotation.set(0.15 + Math.sin(t * 5 + A.s * 2) * 0.12 + g * 0.2, A.s * (0.1 + Math.sin(t * 4.1 + A.s) * 0.15), 0);
+    }
+    P.head.rotation.x = this.state === 'rush' ? 0.15 : Math.sin(t * 1.7) * 0.05;
+    // (and the patter of its claws as it goes: a dry, quick ticking)
+    v.skT = (v.skT || 0) - dt;
+    if (!this.dead && s > 1.2 && v.skT <= 0) {
+      v.skT = 0.28 + Math.random() * 0.22;
+      if (lp && Math.hypot(lp.pos.x - this.rpos.x, lp.pos.z - this.rpos.z) < 16) SFX.play('skitter', this.rpos, { vol: 0.5 + Math.min(0.6, s * 0.12) });
+    }
+    if (this.dead) {
+      const th = Math.PI * f;
+      this.mesh.rotation.z = th; this.mesh.position.y = this.rpos.y + 0.11 * (1 - Math.cos(th)) / 2 + Math.sin(th) * 0.06;
+      for (const A of P.ant) A.a.rotation.x = lerp(A.a.rotation.x, 0.1 + tw * 0.4, f);
     }
   }
   anim_pale(dt, v, lp) {

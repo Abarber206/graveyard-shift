@@ -8,6 +8,7 @@ const ITEMS = {
   walkie: { name: 'Walkie-Talkie', kind: 'tool', price: 12, weight: 1, battery: 500, desc: 'Hold to talk to crewmates anywhere. Sometimes picks up... other things.' },
   stun: { name: 'Stun Grenade', kind: 'tool', price: 30, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
   tracker: { name: 'Motion Tracker', kind: 'tool', price: 45, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
+  mappad: { name: 'Survey Pad', kind: 'tool', price: 40, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
   cola: { name: 'Kick Cola', kind: 'food', price: 8, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
   ration: { name: 'Ration Bar', kind: 'food', price: 6, weight: 0.3, desc: 'Company issue. Tastes like the box it came in. Patches you up a little.' },
@@ -64,14 +65,14 @@ const ITEM_MAT = {
   bell: 'tin', candelabra: 'tin', watch: 'tin', horn: 'tin', kettle: 'tin', trophy: 'tin', lantern: 'tin', toy: 'tin', flashlight: 'tin', proflash: 'tin', stun: 'tin', cola: 'tin', nightshift: 'tin', mystery: 'tin', camera: 'tin', lamp: 'tin',
   flask: 'glass', jar: 'glass', bottle: 'glass', vase: 'porcelain', mask: 'porcelain', doll: 'porcelain',
   painting: 'wood', radio: 'wood', globe: 'wood', skull: 'bone',
-  phone: 'plastic', walkie: 'plastic', tracker: 'plastic', battery: 'plastic', meter: 'plastic', circuit: 'plastic',
+  phone: 'plastic', walkie: 'plastic', tracker: 'plastic', mappad: 'plastic', battery: 'plastic', meter: 'plastic', circuit: 'plastic',
   teddy: 'soft', gift: 'soft', cash: 'soft', ration: 'soft', bomb: 'soft',
 };
 // flashlight beam intensity per unit of light power (yours and your crewmates')
 const FLASH_K = 75;
 // what the Company actually pays out per listed value (store prices are unaffected)
 const SCRAP_SCALE = 0.55;
-const SHOP_TOOLS = ['flashlight', 'proflash', 'shovel', 'walkie', 'stun', 'tracker', 'cola', 'ration', 'nightshift'];
+const SHOP_TOOLS = ['flashlight', 'proflash', 'shovel', 'walkie', 'stun', 'tracker', 'mappad', 'cola', 'ration', 'nightshift'];
 // What eating or drinking does. Timed perks run on your own body (stamina, legs, eyes); healing goes through the host.
 //   drain: stamina use x, regen: stamina recovery x, speed: x, light: exposure x, sway: queasy camera sway
 const PERKS = {
@@ -100,6 +101,7 @@ const UPGRADES = {
   cells: { name: 'Extended Cells', price: 90, desc: 'All batteries last 60% longer.' },
   belt: { name: 'Utility Belt', price: 250, desc: 'A fifth inventory slot.' },
   flood: { name: 'Ship Floodlight', price: 60, desc: 'A powerful lamp on the ship roof. Find your way home.' },
+  locator: { name: 'Salvage Locator', price: 80, desc: "A metal detector wired into the ship's radar. A RADAR sweep picks up metal scrap as well as anything moving, and Survey Pads pin metal scrap close by. It cannot find glass, china, wood, cloth or bone." },
   rover: { name: 'Scout Rover', price: 240, desc: 'A remote-control rover with a camera and a cargo basket. Drive it from the console by the airlock. It can be carried, with both hands, slowly.' },
 };
 
@@ -235,6 +237,17 @@ const ItemMeshes = (() => {
       add(g, cyl(0.005, 0.009, 0.05, 8), rub, -0.058, 0.05, -0.064, -0.6, 0, 0);
       add(g, rbox(0.045, 0.034, 0.1, 0.014), rub, 0, 0.02, 0.095);
       for (let i = 0; i < 4; i++) add(g, box(0.047, 0.003, 0.006), shell, 0, 0.037, 0.06 + i * 0.022);
+    },
+    // a survey pad: a rugged grey slab with rubber bumpers on its corners, a glass screen (dark until it's switched on in
+    // your hands: see Player.setVM), a row of hard buttons under it and a hand strap across the back
+    mappad(g) {
+      const shell = M('padShell', { color: 0x4a4c48, roughness: 0.55, metalness: 0.25 }), rub = M('rubber', { color: 0x151515, roughness: 0.9 });
+      const glass = M('padGlass', { color: 0x050807, roughness: 0.08, metalness: 0.4 });
+      add(g, rbox(0.21, 0.018, 0.158, 0.006), shell, 0, 0.011, 0);
+      for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) add(g, rbox(0.03, 0.024, 0.03, 0.008), rub, x * 0.096, 0.012, z * 0.07);
+      const scr = add(g, new THREE.PlaneGeometry(0.168, 0.118), glass, 0, 0.0205, -0.008, -Math.PI / 2); scr.name = 'screen';
+      for (let i = 0; i < 3; i++) add(g, box(0.018, 0.004, 0.008), i === 1 ? m.red() : rub, -0.03 + i * 0.03, 0.021, 0.064);
+      add(g, box(0.15, 0.006, 0.03), rub, 0, -0.001, 0.0);
     },
     // a brass hand bell: flared skirt with a thick lip, a turned wooden handle, the clapper hanging inside
     bell(g) {
@@ -891,6 +904,7 @@ const HOLD = {
   walkie: { p: [0.22, -0.28, -0.42], r: [0.2, 0, 0] },
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },
+  mappad: { p: [0.0, -0.085, -0.33], r: [1.15, 0, 0] },
   painting: { p: [0, -1.2, -0.95], r: [0.15, 0, 0] },
   axle: { p: [0, -0.52, -0.78], r: [0, 0, 0] },
   lamp: { p: [0, -1.18, -0.85], r: [0, 0, 0] },

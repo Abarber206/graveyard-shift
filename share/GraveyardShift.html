@@ -1219,6 +1219,18 @@ const SFX = (() => {
       smp(d, t, take('gulp_big', 3, () => { const y = add(arr(1.2), struck({ modes: [1, 1.5, 2.2], f0: rnd(60, 80), T: 0.35, hf: 3, tc: 0.03 })); for (let i = 0, a = 0.25; i < 5; i++, a += rnd(0.08, 0.16)) bubble(y, nS(a), rnd(20, 45), 0.7); return y; }, 16000), 1);
     },
     chitter(d, t) { smp(d, t, take('chitter', 4, () => { const y = arr(0.45); for (let i = 0; i < 12; i++) add(y, struck({ modes: plate(6, 1.1), f0: rnd(2000, 3400), T: 0.012, hf: 0.2, tc: 0.00005, grit: 0.5 }), i * 0.032 + rnd(0, 0.006), rnd(0.5, 1)); return y; }), 1); },
+    // a roach: the patter of its claws on a hard floor (a quick, uneven run of dry ticks, the rustle of its shell under
+    // them), the hiss it gives as it comes (air forced out through the holes down its sides, in two or three pulses),
+    // and its bite (a snip of mouthparts, and a wet catch)
+    skitter(d, t) {
+      smp(d, t, take('skitter', 5, () => { const y = arr(0.34); for (let i = 0, a = 0; i < 9; i++, a += rnd(0.016, 0.038)) add(y, struck({ modes: plate(5, 1.3), f0: rnd(3200, 5400), T: 0.006, hf: 0.15, tc: 0.00003, grit: 0.7 }), a, rnd(0.35, 1)); return y; }), 1);
+      nz(d, t, 0.28, 0.1, 'bandpass', 4800, 3000, 1.5, 0.03);
+    },
+    roach_hiss(d, t) { for (let i = 0, a = 0; i < 3; i++, a += rnd(0.16, 0.26)) nz(d, t + a, rnd(0.12, 0.22), 0.5 - i * 0.1, 'bandpass', rnd(4200, 5200), 6500, 1.2, 0.015); },
+    roach_bite(d, t) {
+      smp(d, t, take('rbite', 3, () => add(add(arr(0.14), struck({ modes: plate(4, 1.2), f0: rnd(1800, 2600), T: 0.02, hf: 0.3, tc: 0.0001, grit: 0.4 })), struck({ modes: plate(4, 1.2), f0: rnd(2000, 2900), T: 0.015, hf: 0.3, tc: 0.0001, grit: 0.4 }), 0.05)), 1);
+      nz(d, t + 0.02, 0.1, 0.35, 'bandpass', 900, 500, 4);
+    },
     hound_growl(d, t) { smp(d, t, take('hgrowl', 3, () => growl(1.7, rnd(48, 56), 22, [[300, 2, 1], [700, 3, 0.35], [1400, 4, 0.1]]), 16000), 1); },
     hound_roar(d, t) {
       smp(d, t, take('roar', 3, () => { const f0 = rnd(190, 215); return voice(0.85, (u) => f0 * (1 - 0.6 * u), { jit: 0.08, shim: 0.4, sub: 0.35, breath: 0.8, air: 0.15, clip: 2.5, amp: (u) => Math.min(1, u * 12) * (1 - u) ** 0.7, mouth: [[(u) => 900 - 500 * u, 2.5, 1], [(u) => 1500 - 400 * u, 3, 0.6], [2600, 4, 0.35]] }); }), 1);
@@ -1778,7 +1790,7 @@ const SFX = (() => {
     spool: 0.7, ignite: 1.2, splash: 0.9, clown_step: 1.1, clown_giggle: 0.7, clown_box: 0.45, clown_honk: 0.4,
     step: 0.31, run_far: 0.31, click: 0.53, pickup: 0.65, door_open: 0.35, crunch: 1.5, stinger: 1.7,
     stinger_hi: 1.1, heartbeat: 0.54, crawler_screech: 0.41, crawler_growl: 1.5, ceramic: 0.23, slime_slosh: 0.27,
-    slime_gurgle: 0.22, nest_breath: 0.3, slime_drip: 0.12, chitter: 0.11, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
+    slime_gurgle: 0.22, nest_breath: 0.3, slime_drip: 0.12, chitter: 0.11, skitter: 0.1, roach_hiss: 0.5, roach_bite: 0.5, hound_growl: 1.6, hound_roar: 0.55, howl: 0.17,
     can_open: 0.71, wrapper: 0.51, death_rattle: 1.4, warp_charge: 1.5, servo: 0.45, glint: 0.12, beep: 0.75,
     err: 1.5, scan: 2, locker_open: 0.6, alarm: 0.62, power_down: 1.6, metal_bang: 1.4, drip: 0.17, knock: 1.3,
     groan: 1.4, scream: 0.23, bell: 1.5, camflash: 1.3, growler: 0.16, toot: 0.078, horn: 0.3, tinnitus: 1.6,
@@ -3488,6 +3500,7 @@ const ITEMS = {
   walkie: { name: 'Walkie-Talkie', kind: 'tool', price: 12, weight: 1, battery: 500, desc: 'Hold to talk to crewmates anywhere. Sometimes picks up... other things.' },
   stun: { name: 'Stun Grenade', kind: 'tool', price: 30, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
   tracker: { name: 'Motion Tracker', kind: 'tool', price: 45, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
+  mappad: { name: 'Survey Pad', kind: 'tool', price: 40, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
   cola: { name: 'Kick Cola', kind: 'food', price: 8, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
   ration: { name: 'Ration Bar', kind: 'food', price: 6, weight: 0.3, desc: 'Company issue. Tastes like the box it came in. Patches you up a little.' },
@@ -3544,14 +3557,14 @@ const ITEM_MAT = {
   bell: 'tin', candelabra: 'tin', watch: 'tin', horn: 'tin', kettle: 'tin', trophy: 'tin', lantern: 'tin', toy: 'tin', flashlight: 'tin', proflash: 'tin', stun: 'tin', cola: 'tin', nightshift: 'tin', mystery: 'tin', camera: 'tin', lamp: 'tin',
   flask: 'glass', jar: 'glass', bottle: 'glass', vase: 'porcelain', mask: 'porcelain', doll: 'porcelain',
   painting: 'wood', radio: 'wood', globe: 'wood', skull: 'bone',
-  phone: 'plastic', walkie: 'plastic', tracker: 'plastic', battery: 'plastic', meter: 'plastic', circuit: 'plastic',
+  phone: 'plastic', walkie: 'plastic', tracker: 'plastic', mappad: 'plastic', battery: 'plastic', meter: 'plastic', circuit: 'plastic',
   teddy: 'soft', gift: 'soft', cash: 'soft', ration: 'soft', bomb: 'soft',
 };
 // flashlight beam intensity per unit of light power (yours and your crewmates')
 const FLASH_K = 75;
 // what the Company actually pays out per listed value (store prices are unaffected)
 const SCRAP_SCALE = 0.55;
-const SHOP_TOOLS = ['flashlight', 'proflash', 'shovel', 'walkie', 'stun', 'tracker', 'cola', 'ration', 'nightshift'];
+const SHOP_TOOLS = ['flashlight', 'proflash', 'shovel', 'walkie', 'stun', 'tracker', 'mappad', 'cola', 'ration', 'nightshift'];
 // What eating or drinking does. Timed perks run on your own body (stamina, legs, eyes); healing goes through the host.
 //   drain: stamina use x, regen: stamina recovery x, speed: x, light: exposure x, sway: queasy camera sway
 const PERKS = {
@@ -3580,6 +3593,7 @@ const UPGRADES = {
   cells: { name: 'Extended Cells', price: 90, desc: 'All batteries last 60% longer.' },
   belt: { name: 'Utility Belt', price: 250, desc: 'A fifth inventory slot.' },
   flood: { name: 'Ship Floodlight', price: 60, desc: 'A powerful lamp on the ship roof. Find your way home.' },
+  locator: { name: 'Salvage Locator', price: 80, desc: "A metal detector wired into the ship's radar. A RADAR sweep picks up metal scrap as well as anything moving, and Survey Pads pin metal scrap close by. It cannot find glass, china, wood, cloth or bone." },
   rover: { name: 'Scout Rover', price: 240, desc: 'A remote-control rover with a camera and a cargo basket. Drive it from the console by the airlock. It can be carried, with both hands, slowly.' },
 };
 
@@ -3715,6 +3729,17 @@ const ItemMeshes = (() => {
       add(g, cyl(0.005, 0.009, 0.05, 8), rub, -0.058, 0.05, -0.064, -0.6, 0, 0);
       add(g, rbox(0.045, 0.034, 0.1, 0.014), rub, 0, 0.02, 0.095);
       for (let i = 0; i < 4; i++) add(g, box(0.047, 0.003, 0.006), shell, 0, 0.037, 0.06 + i * 0.022);
+    },
+    // a survey pad: a rugged grey slab with rubber bumpers on its corners, a glass screen (dark until it's switched on in
+    // your hands: see Player.setVM), a row of hard buttons under it and a hand strap across the back
+    mappad(g) {
+      const shell = M('padShell', { color: 0x4a4c48, roughness: 0.55, metalness: 0.25 }), rub = M('rubber', { color: 0x151515, roughness: 0.9 });
+      const glass = M('padGlass', { color: 0x050807, roughness: 0.08, metalness: 0.4 });
+      add(g, rbox(0.21, 0.018, 0.158, 0.006), shell, 0, 0.011, 0);
+      for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) add(g, rbox(0.03, 0.024, 0.03, 0.008), rub, x * 0.096, 0.012, z * 0.07);
+      const scr = add(g, new THREE.PlaneGeometry(0.168, 0.118), glass, 0, 0.0205, -0.008, -Math.PI / 2); scr.name = 'screen';
+      for (let i = 0; i < 3; i++) add(g, box(0.018, 0.004, 0.008), i === 1 ? m.red() : rub, -0.03 + i * 0.03, 0.021, 0.064);
+      add(g, box(0.15, 0.006, 0.03), rub, 0, -0.001, 0.0);
     },
     // a brass hand bell: flared skirt with a thick lip, a turned wooden handle, the clapper hanging inside
     bell(g) {
@@ -4371,6 +4396,7 @@ const HOLD = {
   walkie: { p: [0.22, -0.28, -0.42], r: [0.2, 0, 0] },
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },
+  mappad: { p: [0.0, -0.085, -0.33], r: [1.15, 0, 0] },
   painting: { p: [0, -1.2, -0.95], r: [0.15, 0, 0] },
   axle: { p: [0, -0.52, -0.78], r: [0, 0, 0] },
   lamp: { p: [0, -1.18, -0.85], r: [0, 0, 0] },
@@ -5724,7 +5750,8 @@ const Facility = (() => {
     // seed: the rest of the plant is laid out as it would be.)
     *leechNest() {
       const r = new RNG((this.seed ^ 0x6e3571) >>> 0);
-      if (!this.nestK || !r.chance(clamp(0.2 + 0.15 * this.nestK, 0, 0.55))) return;
+      // (the deeper the plant, the likelier something's bred down in it)
+      if (!this.nestK || !r.chance(clamp(0.2 + 0.15 * this.nestK + 0.08 * Math.max(0, this.levels - 4), 0, 0.65))) return;
       const solid = (k, nk) => !this.connected(k, nk);
       // the corners of a room with rock behind them and nothing standing in them, no lamp or vent its crown would swallow
       const cornersOf = (room, Y, h, sc = 1) => {
@@ -13404,7 +13431,7 @@ const ROBOT = { hip: 1.0, hipOff: 0.04, thigh: 0.44, shin: 0.44, foot: 0.09, upp
 // 1.75 m tall. What it holds is drawn at full size.
 const AV_SCALE = 1.62 / 1.94;
 // how each item is held on the avatar
-const HOLD_STYLE = { flashlight: 'aim', proflash: 'aim', tracker: 'low', walkie: 'low', stun: 'low', shovel: 'tool' };
+const HOLD_STYLE = { flashlight: 'aim', proflash: 'aim', tracker: 'low', mappad: 'low', walkie: 'low', stun: 'low', shovel: 'tool' };
 
 const RobotKit = (() => {
   const geo = {};
@@ -13852,6 +13879,8 @@ const MON_DEFS = {
   pale: { name: 'The Pale', hp: 3, zone: 'in', power: 3, radius: 0.4, height: 2.3 },
   mannequin: { name: 'Mannequin', hp: 9999, zone: 'in', power: 2, radius: 0.35, height: 1.7 },
   leech: { name: 'Ceiling Leech', hp: 2, zone: 'in', power: 1, radius: 0.3, height: 0.3, doors: false },
+  // (they come a few at a time: swarm, so a handful of them counts as one thing against the site's cap; see hostSpawnInterior)
+  roach: { name: 'Roaches', hp: 1, zone: 'in', power: 0.5, radius: 0.18, height: 0.15, doors: false, swarm: true },
   hound: { name: 'Hollow Hound', hp: 5, zone: 'out', power: 2, radius: 0.7, height: 1.2 },
   // (its body fills a corridor; what it steers by is a small core, so it can squeeze through any doorway)
   slime: { name: 'The Seep', hp: 9999, zone: 'in', power: 3, radius: 0.55, height: 2.8 },
@@ -13868,6 +13897,7 @@ const BESTIARY = {
   pale: 'Tall. Patient. It follows from behind and hates being watched, if it can see you looking: in the dark, more than a few steps off, it cannot. Glance at it and it slinks away. Stare at it, or keep looking round at it, and it stops being patient; leave it be a while and it settles again. If your light flickers and you feel watched, turn around.',
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and doorways, where people pass, and drops onto the head of whoever passes beneath. It moves to where it hears footsteps. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel. It cannot open a door: it goes round, or waits by one for somebody to open it.',
+  roach: 'Roaches the size of a boot, two or three together. They scuttle about in fits and starts, a dash and a dead stop, feelers going. They hear footsteps and feel anyone moving near them, and come at you in a rush along the floor, quicker than you walk but not as quick as you run; one bites at your ankles and is off again, round and back for another. They cannot stand light: put a beam on them and they scatter for the dark. They cannot work a door. One blow kills one.',
   hound: 'Roams the surface after dark. Completely blind; hunts by sound, and close to, by smell: do not stand still next to one, move away quietly. Walk, crouch, keep quiet. One that howls is calling the others. They will follow you into the ship if the hatch is open.',
   sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
   bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway, round a corner, where people pass; it hears you coming and lies down in your way. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
@@ -13915,6 +13945,10 @@ const MonModels = (() => {
     porc: () => M('porcm', () => S({ map: TEX.get('porcelain'), color: 0xa89f92, roughness: 0.32, metalness: 0.05 }, 2, 0.6)),
     joint: () => M('joint', () => new THREE.MeshStandardMaterial({ color: 0x3a3530, roughness: 0.5 })),
     leech: () => M('leech', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0xb09090, roughness: 0.18, metalness: 0.1 })),
+    // a roach's: a glossy chestnut shell, wing cases a shade paler, the legs and belly near black
+    roach: () => M('roach', () => S({ map: TEX.get('darkflesh'), color: 0x7a4422, roughness: 0.2, metalness: 0.25 }, 7, 0.5)),
+    roachWing: () => M('roachWing', () => S({ map: TEX.get('darkflesh'), color: 0x9a5a2a, roughness: 0.16, metalness: 0.25 }, 5, 0.4)),
+    roachLeg: () => M('roachLeg', () => new THREE.MeshStandardMaterial({ color: 0x24140a, roughness: 0.35, metalness: 0.15 })),
     hound: () => M('hound', () => new THREE.MeshStandardMaterial({ map: TEX.get('darkflesh'), color: 0x6a5450, roughness: 0.6 })),
     leg: () => M('leg', () => new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.6 })),
     sinew: () => M('sinew', () => S({ map: TEX.get('flesh'), color: 0x7a5a52, roughness: 0.45 }, 4, 1)),
@@ -14069,6 +14103,48 @@ const MonModels = (() => {
       P.al = limb(P.torso, -0.25, 0.56, 0, 0.048, 0.3, 0.042, 0.32, m);
       P.ar = limb(P.torso, 0.25, 0.56, 0, 0.048, 0.3, 0.042, 0.32, m);
       for (const L of [P.al, P.ar]) { mk(sph(0.05), j, L.a); mk(sph(0.045), j, L.b); mk(sph(0.055), m, L.end, 0, -0.03, 0).scale.set(0.8, 1.3, 0.6); }
+      root.userData.parts = P; return root;
+    },
+    // A roach as long as a boot: the shield over its head, the two wing cases down its back (parted a little at the
+    // tail), the ribbed belly showing under them, six spined legs splayed wide (the hind pair longest), feelers longer
+    // than it is and the two little prongs at its tail. Facing +z, its belly a few fingers off the floor
+    roach() {
+      const root = new THREE.Group(), P = {}, sh = mats.roach(), wing = mats.roachWing(), dk = mats.roachLeg();
+      P.body = grp(root, 0, 0.075, 0);
+      mk(sphZ(0.1, 14), dk, P.body, 0, -0.012, -0.05).scale.set(0.92, 0.34, 1.75);
+      // (the ridges where its belly plates meet, round the underside and up its flanks)
+      for (const [z, r] of [[-0.08, 0.086], [-0.12, 0.08], [-0.16, 0.068], [-0.2, 0.045]]) mk(new THREE.TorusGeometry(r, 0.005, 4, 14, Math.PI), dk, P.body, 0, -0.012, z, 0, 0, Math.PI).scale.set(1, 0.37, 1);
+      for (const s of [-1, 1]) mk(sphZ(0.1, 14), wing, P.body, s * 0.043, 0.012, -0.075, 0, s * 0.05, s * 0.06).scale.set(0.6, 0.24, 2.0);
+      mk(sphZ(0.1, 14), sh, P.body, 0, 0.018, 0.14).scale.set(1.08, 0.3, 0.72);
+      P.head = grp(P.body, 0, -0.01, 0.21);
+      mk(sph(0.042, 10), sh, P.head).scale.set(1.1, 0.8, 0.9);
+      for (const s of [-1, 1]) {
+        mk(sph(0.016, 8), mats.void(), P.head, s * 0.036, 0.006, 0.012).scale.set(0.7, 1.2, 0.8);
+        mk(cap(0.005, 0.035, 5), dk, P.head, s * 0.014, -0.03, 0.03, 0.6, 0, s * 0.2);
+      }
+      // (the feelers: two lengths each, so they can sweep and whip)
+      P.ant = [-1, 1].map((s) => {
+        const a = grp(P.head, s * 0.02, 0.012, 0.03);
+        mk(new THREE.CylinderGeometry(0.0035, 0.005, 0.16, 5).rotateX(Math.PI / 2).translate(0, 0, 0.08), dk, a);
+        const b = grp(a, 0, 0, 0.16);
+        mk(new THREE.CylinderGeometry(0.0015, 0.0035, 0.22, 4).rotateX(Math.PI / 2).translate(0, 0, 0.11), dk, b);
+        return { a, b, s };
+      });
+      for (const s of [-1, 1]) mk(new THREE.ConeGeometry(0.008, 0.06, 5), dk, P.body, s * 0.03, 0, -0.25, -Math.PI / 2 + 0.2, 0, -s * 0.25);
+      // the legs: hip out and up to the knee, then the shin down and out to the floor; each pair's knee bent so its foot
+      // just meets the floor, the front pair reaching forward and the hind pair back
+      const hy = P.body.position.y - 0.012, TH = 1.85;
+      P.legs = [];
+      [[0.1, 0.7, 0.07, 0.09], [0.03, -0.05, 0.08, 0.11], [-0.05, -0.75, 0.1, 0.15]].forEach(([z, fw, l1, l2], row) => {
+        for (const s of [-1, 1]) {
+          const L = limb(P.body, s * 0.05, -0.012, z, 0.011, l1, 0.007, l2, dk);
+          for (let k = 0; k < 3; k++) mk(new THREE.ConeGeometry(0.003, 0.026, 3), dk, L.b, 0, -l2 * (0.3 + k * 0.22), 0, 0, 0, -s * 2.05);
+          L.s = s; L.fw = fw; L.th = TH; L.kn = TH - Math.acos(clamp((hy - l1 * Math.cos(TH)) / l2, 0, 1));
+          // (tripod gait: front and hind on one side with the middle on the other)
+          L.ph = (row === 1 ? s > 0 : s < 0) ? 0 : Math.PI;
+          P.legs.push(L);
+        }
+      });
       root.userData.parts = P; return root;
     },
     // A fat, glistening grub as long as an arm, built as a chain: each of its segments hangs off the one before (P.joints,
@@ -14369,6 +14445,7 @@ const MON_CFG = {
   pale: { tau: 40, ear: 1, eye: { range: 26, cone: -0.35, dark: 8, touch: 1.2 }, find: { range: 20, cone: -0.2, dark: 8, touch: 1.2 } },
   mannequin: { tau: 20, ear: 0.8, eye: { range: 30, cone: -1, dark: 8, touch: 1.0 } },
   leech: { tau: 8, ear: 2.4, K: { voice: 0.6 } },
+  roach: { tau: 5, ear: 0.8, K: { step: 1.4 } },
   hound: { tau: 8, ear: 1 },
   slime: { tau: 15, ear: 1, K: { step: 1.5, voice: 0.3, door: 0.6 } },
   sister: { tau: 10, ear: 1 },
@@ -14783,6 +14860,82 @@ class Monster {
       }
       default: this.setState('roam');
     }
+  }
+  // Roaches: a few of them, scuttling about in fits and starts (a dash, a dead stop with the feelers going, a dash on).
+  // They hear footsteps and feel anyone moving about close by, and come for them in a rush along the floor, quicker
+  // than a walk and slower than a run; a bite at the ankles and it's off a few steps, then round and back for another.
+  // A beam on one and it scatters for the dark, and the others close by with it.
+  ai_roach(dt) {
+    this.scanT -= dt; this.cool -= dt;
+    if (this.scanT <= 0) {
+      this.scanT = 0.2;
+      const at = { x: this.pos.x, y: this.pos.y + 0.1, z: this.pos.z };
+      let lit = null;
+      for (const p of this.playersIn()) if (p.flash && this.g.canSee(p, at, p.flash === 2 ? 18 : 12, 0.94)) { lit = p; break; }
+      if (lit) {
+        if (this.state !== 'flee' || this.back != null) for (const o of this.g.monsters.values()) {
+          if (o.type === 'roach' && !o.dead && (o === this || (o.state !== 'flee' && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 5 && Math.abs(o.pos.y - this.pos.y) < 2))) o.scatter(lit);
+        }
+      } else if (this.cool <= 0 && (this.state === 'roam' || this.state === 'freeze' || this.state === 'rush')) {
+        let best = null, bd = 9;
+        for (const p of this.playersIn()) {
+          const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), e = Brain.P.get(p.id);
+          if (d < bd && Math.abs(p.pos.y - this.pos.y) < 2 && (d < 2.5 || (e ? e.spd > 1.2 : p.moving)) && this.clearTo(p)) { bd = d; best = p; }
+        }
+        const h = best ? null : Brain.hear(this, this.cfg.ear, this.cfg.K), hp = h && h.pid != null && h.loud > 0.2 ? this.g.players.get(h.pid) : null;
+        if (best && this.state !== 'rush') this.rush(best);
+        else if (hp && this.state !== 'rush') this.rush(hp, { x: h.x, z: h.z, y: h.y });
+        else if (hp && hp.id === this.target) { this.lastKnown = { x: h.x, z: h.z, y: h.y }; this.lastSeenT = Math.min(this.lastSeenT, 1); }
+      }
+    }
+    switch (this.state) {
+      case 'roam': {
+        if (this.st > (this.dash || 1.2)) { this.setState('freeze'); this.dash = 0.4 + Math.random() * 1.8; if (Math.random() < 0.5) this.goal = null; break; }
+        if (!this.goal) this.goal = this.randomGoal(3, 14, null, (k) => 1 + 2 * Brain.heat(k)) || this.randomGoal(3, 14);
+        if (this.moveTo(this.goal.x, this.goal.z, 3.6, dt) < 0.6) this.goal = null;
+        break;
+      }
+      case 'freeze': {
+        this.speedNow = 0;
+        if (this.st > (this.dash || 1)) { this.setState('roam'); this.dash = 0.5 + Math.random() * 1.6; }
+        break;
+      }
+      case 'rush': {
+        const p = this.g.players.get(this.target);
+        if (!p || !p.alive || p.zone !== 'in') { this.target = null; this.setState('freeze'); break; }
+        const sees = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 14 && Math.abs(p.pos.y - this.pos.y) < 2.5 && this.clearTo(p);
+        if (sees) { this.lastKnown = { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.lastSeenT = 0; } else this.lastSeenT += dt;
+        const g = this.lastKnown, rem = this.moveTo(g.x, g.z, 4.6, dt, { gy: g.y });
+        if (this.atk <= 0 && this.reaches(p, 0.75)) {
+          const f = this.forward();
+          this.g.hurtPlayer(p.id, 5, 'roach', f.x * 1.5, f.z * 1.5); this.g.emitSound('roach_bite', this.pos, {});
+          this.atk = 1.2; this.cool = 2.5 + Math.random() * 2; this.goal = this.randomGoal(3, 7); this.setState('flee'); this.back = p.id;
+          break;
+        }
+        if ((!sees && (this.lastSeenT > 3 || rem < 0.8)) || this.st > 14) { this.target = null; this.cool = 3; this.dash = 1 + Math.random(); this.setState('freeze'); }
+        break;
+      }
+      case 'flee': {
+        if (!this.goal) this.goal = this.randomGoal(3, 8);
+        const rem = this.moveTo(this.goal.x, this.goal.z, 5.2, dt);
+        if (rem < 0.6 || this.st > 4) {
+          const p = this.back != null ? this.g.players.get(this.back) : null;
+          this.goal = null; this.back = null;
+          if (p && p.alive && p.zone === 'in' && this.cool <= 0 && Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 10 && Math.abs(p.pos.y - this.pos.y) < 2) this.rush(p);
+          else { this.dash = 0.8 + Math.random() * 1.5; this.setState('freeze'); }
+        }
+        break;
+      }
+      default: this.setState('roam');
+    }
+  }
+  rush(p, at) { this.target = p.id; this.back = null; this.lastKnown = at || { x: p.pos.x, z: p.pos.z, y: p.pos.y }; this.lastSeenT = 0; this.setState('rush'); }
+  // (off from a beam: a few strides away, as far from whoever's holding it as it can find)
+  scatter(p) {
+    const fac = this.g.fac, W = fac.W;
+    this.target = null; this.back = null; this.cool = 2.5 + Math.random() * 2;
+    this.goal = this.randomGoal(4, 10, null, (k) => { const i = k % W, dx = fac.cx(i) - p.pos.x, dz = fac.cz((k - i) / W) - p.pos.z; return 0.05 + dx * dx + dz * dz; });
+    this.setState('flee'); this.st = 0;
   }
   // found you: the screech, and any other of its kind within earshot comes too, round by another way
   spotted(p) {
@@ -15782,6 +15935,7 @@ class Monster {
   onStateChange(from, to, lp) {
     if (this.type === 'crawler' && to === 'spot') SFX.play('crawler_screech', this.center(), { vol: 1.5, ref: 3 });
     if (this.type === 'leech' && to === 'attached') SFX.play('squelch', this.rpos, { vol: 1 });
+    if (this.type === 'roach' && to === 'rush' && Math.random() < 0.6) SFX.play('roach_hiss', this.center(), { vol: 0.8 });
     if (this.type === 'slime' && to === 'hunt') SFX.play('slime_gurgle', this.center(), { vol: 1.3, ref: 5 });
     if (this.type === 'leech' && from === 'attached') SFX.play('chitter', this.rpos, { vol: 1 });
     if (this.type === 'sister' && to === 'drawn') SFX.play('sister_twitch', this.headPos(), { vol: 1.3, ref: 3 });
@@ -15794,7 +15948,7 @@ class Monster {
   // twitches that die away, the colour draining out of it, and a dark pool spreading out underneath.
   onDeath() {
     const v = this.vis; v.deathT = 0;
-    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9, sister: 1.4, bound: 0.75 }[this.type] || 1 });
+    SFX.play('death_rattle', this.center(), { vol: 1.1, pitch: { crawler: 0.85, pale: 1.25, hound: 0.65, leech: 1.9, roach: 2.4, sister: 1.4, bound: 0.75 }[this.type] || 1 });
     // its own copies of its materials, so only this one goes grey
     const seen = new Map(); this.deadMats = [];
     this.mesh.traverse((o) => {
@@ -15810,9 +15964,9 @@ class Monster {
     v.fallYaw = 0; v.lift = 0;
     if (FL && inside && this.g.fac && !(this.type === 'bound' && v.lie > 0.5)) v.fallYaw = this.roomiest(this.rpos.x, this.rpos.y, this.rpos.z, this.rry + FL[0], FL[1]);
     if (grp) {
-      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
+      const r = { crawler: 1.6, pale: 1.2, hound: 1.85, leech: 0.7, roach: 0.3, sister: 1.0, bound: 1.3 }[this.type] || 1.2;
       const gy = inside ? this.g.fac.floorY(this.rpos.x, this.rpos.z, this.rpos.y + 0.5) : this.g.ext.height(this.rpos.x, this.rpos.z);
-      this.pool = new THREE.Mesh(new THREE.CircleGeometry(r, 22), new THREE.MeshStandardMaterial({ map: TEX.get('puff'), color: this.type === 'leech' ? 0x26380c : 0x4a0707, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.12, metalness: 0.3 }));
+      this.pool = new THREE.Mesh(new THREE.CircleGeometry(r, 22), new THREE.MeshStandardMaterial({ map: TEX.get('puff'), color: this.type === 'leech' ? 0x26380c : this.type === 'roach' ? 0x3a3010 : 0x4a0707, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.12, metalness: 0.3 }));
       this.pool.rotation.set(-Math.PI / 2, 0, Math.random() * TAU); this.pool.position.set(this.rpos.x, gy + 0.012, this.rpos.z); this.pool.scale.setScalar(0.05);
       grp.add(this.pool);
     }
@@ -15978,6 +16132,40 @@ class Monster {
         L.b.rotation.x = lerp(L.b.rotation.x, -1.7 - tw * 0.6, f);
       }
       P.head.rotation.set(0.35 * f + tw * 0.3, 0, 0.2 * f); P.teeth.scale.setScalar(1.12);
+    }
+  }
+  // A roach: its legs a blur of tripods when it runs (front and hind on one side with the middle on the other, swinging
+  // forward lifted and pushing back down), its feelers sweeping, whipping back when it dashes and twitching when it
+  // stops; dead, it's over on its back with its legs folding up, the last of them still pedalling a while
+  anim_roach(dt, v, lp) {
+    const P = this.P, t = v.t, s = v.speed, g = Math.min(1, s / 4);
+    v.ph = (v.ph || 0) + dt * TAU * Math.min(16, s * 4.2);
+    const f = this.dead ? this.deadK() : 0, tw = this.dead ? v.tw : 0;
+    for (const L of P.legs) {
+      const u = v.ph + L.ph, sw = g > 0.05 ? Math.sin(u) * 0.35 * Math.min(1, g * 2) : Math.sin(t * 7 + L.ph * 3 + L.fw) * 0.03;
+      const lift = g > 0.05 ? Math.max(0, Math.cos(u)) * 0.35 : 0;
+      // (the swing: forward is round toward its head; on the right that's a turn one way, on the left the other)
+      const th = lerp(L.th + lift, 1.2 + Math.sin(t * 9 + L.ph + L.fw * 4) * tw * 0.6, f), kn = lerp(L.kn + lift * 0.6, 2.2, f);
+      L.a.rotation.set(0, -L.s * (L.fw + sw), L.s * th); L.b.rotation.set(0, 0, -L.s * kn);
+    }
+    P.body.position.y = 0.075 + (g > 0.05 ? Math.abs(Math.sin(v.ph)) * 0.004 : 0);
+    v.atw = Math.random() < dt * (s > 0.3 ? 1 : 3) ? (Math.random() - 0.5) * 0.6 : (v.atw || 0) * Math.exp(-dt * 6);
+    for (const A of P.ant) {
+      const sweep = Math.sin(t * (3 + A.s * 0.4) + A.s) * (0.35 - g * 0.25), back = g * 0.3;
+      A.a.rotation.set(-0.35 + back * 0.6 + Math.sin(t * 2.3 + A.s) * 0.12, A.s * (0.35 + sweep + v.atw * A.s) - A.s * back, 0);
+      A.b.rotation.set(0.15 + Math.sin(t * 5 + A.s * 2) * 0.12 + g * 0.2, A.s * (0.1 + Math.sin(t * 4.1 + A.s) * 0.15), 0);
+    }
+    P.head.rotation.x = this.state === 'rush' ? 0.15 : Math.sin(t * 1.7) * 0.05;
+    // (and the patter of its claws as it goes: a dry, quick ticking)
+    v.skT = (v.skT || 0) - dt;
+    if (!this.dead && s > 1.2 && v.skT <= 0) {
+      v.skT = 0.28 + Math.random() * 0.22;
+      if (lp && Math.hypot(lp.pos.x - this.rpos.x, lp.pos.z - this.rpos.z) < 16) SFX.play('skitter', this.rpos, { vol: 0.5 + Math.min(0.6, s * 0.12) });
+    }
+    if (this.dead) {
+      const th = Math.PI * f;
+      this.mesh.rotation.z = th; this.mesh.position.y = this.rpos.y + 0.11 * (1 - Math.cos(th)) / 2 + Math.sin(th) * 0.06;
+      for (const A of P.ant) A.a.rotation.x = lerp(A.a.rotation.x, 0.1 + tw * 0.4, f);
     }
   }
   anim_pale(dt, v, lp) {
@@ -16759,7 +16947,9 @@ const Meteors = Pods.meteors;
 // doors (with their codes) of the level they're on, seen from above, every crewmate on it, and whatever a RADAR sweep
 // has picked up.
 const CrewCam = (() => {
-  const W = 768, H = 336, BAR = 26, FPS = 8, NEAR = 15;
+  // (W, H, BAR: the main screen's; a Survey Pad's map swaps its own in while it's drawn, see pad)
+  let W = 768, H = 336, BAR = 26;
+  const FPS = 8, NEAR = 15;
   const _cl = new THREE.Vector3(), _cs = new THREE.Vector3();
   let rt = null, canvas = null, g = null, otex = null, mat = null, cam = null, self = null, timer = 0, last = '';
   let mcv = null, mg = null, mtex = null, view = 0, sweep = null, blips = [];
@@ -16849,7 +17039,7 @@ const CrewCam = (() => {
     mg.fillStyle = col; mg.fillText(text, x, y + 1); mg.textAlign = 'left';
   };
   // the level someone's on, seen from above, centred on them
-  function drawFacMap(p, crew, t) {
+  function drawFacMap(p, crew, t, more) {
     const fac = G.fac, S = 7, P = posOf(p), L = fac.levelAt(P.x, P.z, P.y), cx = P.x, cz = P.z, my = BAR + (H - BAR) / 2;
     const X = (x) => W / 2 + (x - cx) * S, Y = (z) => my + (z - cz) * S;
     const i0 = fac.ti(cx - W / 2 / S) - 1, i1 = fac.ti(cx + W / 2 / S) + 1, j0 = fac.tj(cz - (H - BAR) / 2 / S) - 1, j1 = fac.tj(cz + (H - BAR) / 2 / S) + 1;
@@ -16899,6 +17089,7 @@ const CrewCam = (() => {
     }
     // what the radar found
     drawBlips(X, Y, t, (b) => b.zone === 'in' && b.lv === L);
+    if (more) more(X, Y, (o) => fac.levelAt(o.x, o.z, o.y) === L);
     // the crew on this level
     for (const q of crew) {
       if (!q.alive || q.zone !== 'in') continue;
@@ -16910,7 +17101,7 @@ const CrewCam = (() => {
     return L;
   }
   // outside: the ship, the way into the facility, any supply pods, the crew out in the open
-  function drawExtMap(p, crew, t) {
+  function drawExtMap(p, crew, t, more) {
     const S = 2.4, P = posOf(p), cx = G.inShip(p) ? 0 : P.x, cz = G.inShip(p) ? 0 : P.z, my = BAR + (H - BAR) / 2;
     const X = (x) => W / 2 + (x - cx) * S, Y = (z) => my + (z - cz) * S;
     mg.strokeStyle = 'rgba(80,200,110,.12)'; mg.lineWidth = 1;
@@ -16923,6 +17114,7 @@ const CrewCam = (() => {
     if (G.ext) for (const o of G.ext.interact) tag(o.which === 'fire' ? 'FIRE EXIT' : 'ENTRANCE', X(o.x), Y(o.z), '#ff6a50');
     for (const pod of Pods.list) if (pod.hit) tag(pod.opened ? 'POD (EMPTY)' : 'SUPPLY POD', X(pod.x), Y(pod.z), '#ffd040');
     drawBlips(X, Y, t, (b) => b.zone === 'out');
+    if (more) more(X, Y, () => true);
     for (const q of crew) {
       if (!q.alive || q.zone !== 'out') continue;
       const Q = posOf(q), col = suitCss(q.color), isP = q === p, x = X(Q.x), y = Y(Q.z);
@@ -16935,9 +17127,44 @@ const CrewCam = (() => {
     for (const b of blips) {
       if (!which(b)) continue;
       const a = 1 - (t - b.at) / 10, x = X(b.x), y = Y(b.z);
+      if (b.item) { pin(x, y, a); continue; }
       mg.fillStyle = `rgba(255,60,40,${a})`; mg.beginPath(); mg.arc(x, y, 5, 0, TAU); mg.fill();
       mg.strokeStyle = `rgba(255,60,40,${a * 0.5})`; mg.lineWidth = 1.5; mg.beginPath(); mg.arc(x, y, 5 + (t - b.at) * 6 % 14, 0, TAU); mg.stroke();
     }
+  }
+  // metal scrap lying about (not carried, not aboard): what the Salvage Locator can find. Glass, china, wood, cloth and
+  // bone it can't
+  const metalScrap = (it) => it.holder == null && !it.inShip && it.basket == null && ITEMS[it.type].kind === 'scrap' && (ITEM_MAT[it.type] === 'metal' || ITEM_MAT[it.type] === 'tin');
+  // an amber pin (a find of the Salvage Locator's)
+  const pin = (x, y, a) => { mg.fillStyle = `rgba(255,190,60,${a})`; mg.beginPath(); mg.moveTo(x, y - 6); mg.lineTo(x + 5, y); mg.lineTo(x, y + 6); mg.lineTo(x - 5, y); mg.closePath(); mg.fill(); };
+  // A Survey Pad's screen: the same map as the main screen's, on the pad in your hands, following you: the floor you're on
+  // (or the ground round the ship), north up, and with the Salvage Locator fitted, the metal scrap within 30 m pinned on
+  // it. A few frames a second, on its own canvas, with the pad's size swapped in for the main screen's while it draws
+  let pcv = null, pg = null, ptex = null, pmat = null, ptimer = 0;
+  function padMat() {
+    if (!pmat) { [pcv, pg] = TEX.canvas(384, 288); ptex = new THREE.CanvasTexture(pcv); ptex.colorSpace = THREE.SRGBColorSpace; pmat = new THREE.MeshBasicMaterial({ map: ptex, toneMapped: false }); }
+    return pmat;
+  }
+  function pad(p, dt) {
+    padMat(); if ((ptimer -= dt) > 0) return; ptimer = 1 / 6;
+    const keep = [mg, W, H, BAR], t = performance.now() / 1000, crew = [...G.players.values()];
+    mg = pg; W = 384; H = 288; BAR = 0;
+    try {
+      mg.fillStyle = '#020a05'; mg.fillRect(0, 0, W, H);
+      const P = posOf(p), loc = G.run && G.run.upgrades.locator;
+      const pins = loc ? (X, Y, ok) => { for (const it of G.items.values()) if (metalScrap(it) && (it.pos.y < FAC_Y0 + 60) === (p.zone === 'in') && Math.hypot(it.pos.x - P.x, it.pos.z - P.z) < 30 && ok(it.pos)) pin(X(it.pos.x), Y(it.pos.z), 0.7 + 0.3 * Math.sin(t * 4 + it.id)); } : null;
+      let where = '';
+      if (G.mode === 'orbit' || !G.round) {
+        mg.fillStyle = '#59e07a'; mg.font = '26px "VT323", monospace'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('NO SURVEY DATA IN ORBIT', W / 2, H / 2); mg.textAlign = 'left';
+      } else if (p.zone === 'in' && G.fac) where = G.fac.levelLabel(drawFacMap(p, crew, t, pins));
+      else { drawExtMap(p, crew, t, pins); where = G.inShip(p) ? 'SHIP' : 'OUTSIDE'; }
+      mg.fillStyle = 'rgba(2,10,5,.75)'; mg.fillRect(0, 0, W, 26);
+      mg.fillStyle = '#59e07a'; mg.font = '22px "VT323", monospace'; mg.textBaseline = 'middle'; mg.fillText('N ▲  ' + where, 6, 13);
+      if (loc) { mg.fillStyle = '#ffbe3c'; mg.textAlign = 'right'; mg.fillText('◆ LOCATOR', W - 6, 13); mg.textAlign = 'left'; }
+      // (scanlines, and the glass a touch brighter toward the top)
+      mg.fillStyle = 'rgba(0,0,0,.18)'; for (let y = 0; y < H; y += 3) mg.fillRect(0, y, W, 1);
+    } finally { [mg, W, H, BAR] = keep; }
+    ptex.needsUpdate = true;
   }
   // a radar sweep from whoever the map follows: a line rolls round and anything alive it crosses lights up
   function runSweep(p, t) {
@@ -16951,6 +17178,14 @@ const CrewCam = (() => {
       if (d > range || (inside && G.fac.levelAt(mx, mz, m.rpos.y) !== lv)) continue;
       let b = Math.atan2(mx - P.x, -(mz - P.z)); if (b < 0) b += TAU;
       if (b <= ang) { sweep.seen.add(m.id); blips.push({ x: mx, z: mz, at: t, zone: inside ? 'in' : 'out', lv }); SFX.play('ping', null, { f: 105, vol: 0.35 }); }
+    }
+    // (with the Salvage Locator fitted, the metal scrap it crosses too: a higher ping)
+    if (G.run && G.run.upgrades.locator) for (const it of G.items.values()) {
+      if (sweep.seen.has('i' + it.id) || !metalScrap(it) || (it.pos.y < FAC_Y0 + 60) !== !!inside) continue;
+      const d = Math.hypot(it.pos.x - P.x, it.pos.z - P.z);
+      if (d > range || (inside && G.fac.levelAt(it.pos.x, it.pos.z, it.pos.y) !== lv)) continue;
+      let b = Math.atan2(it.pos.x - P.x, -(it.pos.z - P.z)); if (b < 0) b += TAU;
+      if (b <= ang) { sweep.seen.add('i' + it.id); blips.push({ x: it.pos.x, z: it.pos.z, at: t, zone: inside ? 'in' : 'out', lv, item: true }); SFX.play('ping', null, { f: 190, vol: 0.2 }); }
     }
     // the sweep line itself
     const my = BAR + (H - BAR) / 2;
@@ -17104,7 +17339,7 @@ const CrewCam = (() => {
   }
   function reset() { view = 0; sweep = null; blips = []; }
   function setView(v) { if (v === view) return; view = v | 0; timer = 0; last = ''; }
-  return { init, update, layout, cycle, radar, reset, setView, get view() { return view; } };
+  return { init, update, layout, cycle, radar, reset, setView, pad, padMat, get view() { return view; } };
 })();
 
 </script>
@@ -18936,8 +19171,9 @@ const Player = (() => {
     vm.drop = 1;
     if (!type) return;
     const m = ItemMeshes.build(type, id);
-    vm.lens = null;
-    m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; if (o.name === 'lens') { o.material = o.material.clone(); vm.lens = o; } } });
+    vm.lens = null; vm.screen = null;
+    // (a Survey Pad's screen: in your own hands it shows the live map while it's on; see updateVM)
+    m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; if (o.name === 'lens') { o.material = o.material.clone(); vm.lens = o; } if (o.name === 'screen') { vm.screen = o; o.userData.off = o.material; } } });
     if (vm.lens) {
       vm.lensGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xfff0d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
       vm.lensGlow.scale.set(0.085, 0.085, 1); vm.lens.parent.add(vm.lensGlow); vm.lensGlow.position.copy(vm.lens.position).add(new THREE.Vector3(0, 0, -0.01));
@@ -18947,6 +19183,7 @@ const Player = (() => {
     vm.item = m; vm.holder.add(m);
   }
   function updateVM(dt, me, moveAmt) {
+    if (vm.screen) { const id = me.slots[me.sel], it = id != null && G.items.get(id), on = !!(it && it.on && it.battery > 0); vm.screen.material = on ? CrewCam.padMat() : vm.screen.userData.off; if (on) CrewCam.pad(me, dt); }
     const two = vm.type && ITEMS[vm.type].twoHanded;
     vm.swayX = damp(vm.swayX, clamp(-Input.mdx * 0.0012, -0.06, 0.06), 8, dt);
     vm.swayY = damp(vm.swayY, clamp(Input.mdy * 0.0012, -0.06, 0.06), 8, dt);
@@ -19285,7 +19522,7 @@ const Player = (() => {
       if (cur && !ui) {
         const d = ITEMS[cur.type];
         if (Input.lmbP) {
-          if (d.light || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
+          if (d.light || d.screen || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
           else if (d.lamp) toggleLamp(cur);
           else if (cur.type === 'shovel' && swingCd <= 0) {
             swingCd = 0.85; swingT = 0.45; SFX.play('swing');
@@ -20706,9 +20943,10 @@ const SITE_LOOT = {
   saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3, meter: 1.4, circuit: 1.4, camera: 1.2 },
   vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2, trophy: 1.5, vase: 1.5, battery: 1.3 },
 };
-const SEC_PER_MIN = 0.75;
+// how many real seconds a minute of the site's day takes (8 AM to midnight: a little over half an hour)
+const SEC_PER_MIN = 2;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 18;
+const PROTO = 19;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -20731,7 +20969,7 @@ const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = ne
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 17.4 };
-const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
+const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', roach: 'Eaten alive', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -20992,7 +21230,7 @@ const G = {
     // (a step that's built in pieces takes a piece a frame, and says false until it's done)
     const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
-      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); b.fac.nestK = site.mon.leech || 0; },
+      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); b.fac.nestK = site.mon.leech || 0.6; },
       pieces(() => b.fac.generateGen(), () => {}),
       // (and the host works out the plan of it the creatures go by: see Facility.nav)
       pieces(() => (G.isHost ? b.fac.navGen() : [].values()), () => {}),
@@ -21870,7 +22108,7 @@ const G = {
         const mult = G.round ? SITES[G.round.site].mult : 1;
         const what = rng.weighted({ cash: 30, treasure: 22, tool: 16, snack: 12, dud: 13, bomb: 7 });
         const type = what === 'cash' ? 'cash' : what === 'treasure' ? rng.pick(['goldbar', 'watch', 'candelabra', 'mask', 'bell', 'toy'])
-          : what === 'tool' ? rng.pick(['proflash', 'stun', 'tracker', 'walkie', 'flashlight']) : what === 'snack' ? rng.pick(['nightshift', 'cola', 'ration'])
+          : what === 'tool' ? rng.pick(['proflash', 'stun', 'tracker', 'walkie', 'flashlight', 'mappad']) : what === 'snack' ? rng.pick(['nightshift', 'cola', 'ration'])
           : what === 'dud' ? 'doll' : 'bomb';
         const d = ITEMS[type];
         const value = d.kind === 'scrap' ? Math.max(4, Math.round(rng.range(d.value[0], d.value[1]) * mult * SCRAP_SCALE * (what === 'treasure' ? 1.35 : what === 'dud' ? 0.35 : 1))) : 0;
@@ -22448,12 +22686,21 @@ const G = {
       const s = spots.splice(k, 1)[0];
       // spread finds out: no second piece lying a step away from the first
       for (let q = spots.length - 1; q >= 0; q--) if (spots[q].c == null && Math.hypot(spots[q].x - s.x, spots[q].z - s.z) < 2.2) spots.splice(q, 1);
-      const table = LOOT[s.tag] || LOOT.storage, w = {};
-      for (const t in table) { if (!s.big && ITEMS[t].twoHanded) continue; w[t] = table[t] * (bias[t] || 1); }
+      // (the deeper it lies, the likelier it's one of the good things: the floors nearest the top were picked over first)
+      const table = LOOT[s.tag] || LOOT.storage, w = {}, tilt = Math.min(1.2, 0.25 * s.lv);
+      for (const t in table) { if (!s.big && ITEMS[t].twoHanded) continue; w[t] = table[t] * (bias[t] || 1) * Math.pow((ITEMS[t].value[0] + ITEMS[t].value[1]) / 90, tilt); }
       const type = Object.keys(w).length ? r.weighted(w) : 'bolt', d = ITEMS[type];
       // scrap is junk: most of it is worth a few dollars, a real find is rare; the lower levels were never stripped
-      const deep = 1 + 0.2 * Math.round(fac.depthOfY(s.y));
+      const deep = 1 + 0.25 * s.lv;
       out.push({ id: G.nextItemId++, type, value: Math.max(3, Math.round(r.range(d.value[0], d.value[1]) * site.mult * SCRAP_SCALE * deep)), x: s.x, y: s.y, z: s.z, ry: r.range(0, TAU), c: s.c });
+    }
+    // (and down on the bottom floor of a deep one, that hardly anybody got down to: a piece or two of the good stuff besides)
+    const rich = Object.keys(ITEMS).filter((t) => ITEMS[t].kind === 'scrap' && t !== 'core' && t !== 'gift' && ITEMS[t].value[0] + ITEMS[t].value[1] >= 150);
+    for (let i = 0, nd = L >= 4 ? r.int(1, 2) : 0; i < nd; i++) {
+      const ks = spots.map((q, k) => (q.lv === L - 1 ? k : -1)).filter((k) => k >= 0); if (!ks.length) break;
+      const s = spots.splice(ks[r.int(0, ks.length - 1)], 1)[0], opts = rich.filter((t) => s.big || !ITEMS[t].twoHanded); if (!opts.length) continue;
+      const type = opts[r.int(0, opts.length - 1)], d = ITEMS[type];
+      out.push({ id: G.nextItemId++, type, value: Math.round(r.range(d.value[0], d.value[1]) * site.mult * SCRAP_SCALE * (1 + 0.25 * s.lv)), x: s.x, y: s.y, z: s.z, ry: r.range(0, TAU), c: s.c });
     }
     if (fac.coreSpot) { const d = ITEMS.core; out.push({ id: G.nextItemId++, type: 'core', value: Math.round(r.range(d.value[0], d.value[1]) * site.mult * SCRAP_SCALE), x: fac.coreSpot.x, y: fac.coreSpot.y, z: fac.coreSpot.z, ry: 0 }); }
     // a few snacks somebody never came back for: mostly in lockers and cabinets, desks, the front office
@@ -22477,14 +22724,18 @@ const G = {
     if (!type) {
       const counts = {}; let power = 0, n = 0;
       // (a nest's brood are its own: they don't count against what else turns up)
-      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in' && !m.home) { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n++; }
+      // (and a swarm of roaches counts as one thing, however many of them there are)
+      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in' && !m.home) { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n += m.def.swarm ? 1 / 3 : 1; }
       // (a plant more than four floors deep has room for a little more of it: one more thing for each floor past the fourth)
       const extra = Math.max(0, fac.levels - 4);
       if (n >= site.cap + Math.min(2, extra)) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
-      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2, clown: 1 };
-      const w = {}; for (const k in site.mon) if ((counts[k] || 0) < lim[k]) w[k] = site.mon[k] * Math.pow(0.3, counts[k] || 0);
+      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, roach: 1, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2, clown: 1 };
+      // (ceiling leeches and roaches turn up in every plant, wherever they don't already belong to it: the easy things, so
+      // there's always something about in there besides the clock)
+      const mon = Object.assign({ leech: 0.8, roach: 1.1 }, site.mon);
+      const w = {}; for (const k in mon) if ((counts[k] || 0) < lim[k]) w[k] = mon[k] * Math.pow(0.3, counts[k] || 0);
       // (the mannequins are kept down below: none in a facility that's all on one level)
       if (fac.levels < 2) delete w.mannequin;
       // (the Clown: one a landing at most, and only once the afternoon's come)
@@ -22501,7 +22752,8 @@ const G = {
     const wide = type === 'slime' || type === 'executioner' || type === 'clown';
     if (type === 'clown') { G.round.clownN = 1; minDist = Math.max(minDist, 40); }
     if (type === 'mannequin' && fac.levels < 2) return;
-    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' || type === 'clown' ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
+    // (the leeches mostly down in the lower half, where the infestation's got hold)
+    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' || type === 'clown' || (type === 'leech' && R0.chance(0.7)) ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
     for (const v of vents) if (far(v.x, v.z) && fac.levelAt(v.x, v.z, v.y) >= minLv) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
@@ -22513,6 +22765,8 @@ const G = {
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
+    // (the roaches: a few of them, out of the same vent one after another)
+    if (type === 'roach') for (let k = 0, n = R0.chance(0.5) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.4 + k * 0.5, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     // (the Sisters come in twos and threes)
     if (type === 'sister') for (let k = 0, n = R0.chance(0.35) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.8 + k * 0.9, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     if (spot.vent) G.emitSound('vent', new THREE.Vector3(spot.vent.x, spot.vent.y, spot.vent.z), { vol: 1.2, ref: 3 });

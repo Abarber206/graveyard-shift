@@ -122,8 +122,9 @@ const Player = (() => {
     vm.drop = 1;
     if (!type) return;
     const m = ItemMeshes.build(type, id);
-    vm.lens = null;
-    m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; if (o.name === 'lens') { o.material = o.material.clone(); vm.lens = o; } } });
+    vm.lens = null; vm.screen = null;
+    // (a Survey Pad's screen: in your own hands it shows the live map while it's on; see updateVM)
+    m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; if (o.name === 'lens') { o.material = o.material.clone(); vm.lens = o; } if (o.name === 'screen') { vm.screen = o; o.userData.off = o.material; } } });
     if (vm.lens) {
       vm.lensGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.get('glow'), color: 0xfff0d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
       vm.lensGlow.scale.set(0.085, 0.085, 1); vm.lens.parent.add(vm.lensGlow); vm.lensGlow.position.copy(vm.lens.position).add(new THREE.Vector3(0, 0, -0.01));
@@ -133,6 +134,7 @@ const Player = (() => {
     vm.item = m; vm.holder.add(m);
   }
   function updateVM(dt, me, moveAmt) {
+    if (vm.screen) { const id = me.slots[me.sel], it = id != null && G.items.get(id), on = !!(it && it.on && it.battery > 0); vm.screen.material = on ? CrewCam.padMat() : vm.screen.userData.off; if (on) CrewCam.pad(me, dt); }
     const two = vm.type && ITEMS[vm.type].twoHanded;
     vm.swayX = damp(vm.swayX, clamp(-Input.mdx * 0.0012, -0.06, 0.06), 8, dt);
     vm.swayY = damp(vm.swayY, clamp(Input.mdy * 0.0012, -0.06, 0.06), 8, dt);
@@ -471,7 +473,7 @@ const Player = (() => {
       if (cur && !ui) {
         const d = ITEMS[cur.type];
         if (Input.lmbP) {
-          if (d.light || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
+          if (d.light || d.screen || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
           else if (d.lamp) toggleLamp(cur);
           else if (cur.type === 'shovel' && swingCd <= 0) {
             swingCd = 0.85; swingT = 0.45; SFX.play('swing');

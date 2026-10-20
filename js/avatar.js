@@ -16,7 +16,7 @@ const ROBOT = { hip: 1.0, hipOff: 0.04, thigh: 0.44, shin: 0.44, foot: 0.09, upp
 // 1.75 m tall. What it holds is drawn at full size.
 const AV_SCALE = 1.62 / 1.94;
 // how each item is held on the avatar
-const HOLD_STYLE = { flashlight: 'aim', proflash: 'aim', tracker: 'low', walkie: 'low', stun: 'low', shovel: 'tool' };
+const HOLD_STYLE = { flashlight: 'aim', proflash: 'aim', tracker: 'low', mappad: 'low', walkie: 'low', stun: 'low', shovel: 'tool' };
 
 const RobotKit = (() => {
   const geo = {};

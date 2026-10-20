@@ -224,9 +224,10 @@ const SITE_LOOT = {
   saltreach: { flask: 1.4, jar: 1.3, engine: 1.3, axle: 1.2, goldbar: 1.3, meter: 1.4, circuit: 1.4, camera: 1.2 },
   vesper: { goldbar: 2.0, engine: 1.5, gear: 1.4, axle: 1.4, bell: 1.2, trophy: 1.5, vase: 1.5, battery: 1.3 },
 };
-const SEC_PER_MIN = 0.75;
+// how many real seconds a minute of the site's day takes (8 AM to midnight: a little over half an hour)
+const SEC_PER_MIN = 2;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 18;
+const PROTO = 19;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -249,7 +250,7 @@ const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = ne
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 17.4 };
-const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
+const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', roach: 'Eaten alive', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -510,7 +511,7 @@ const G = {
     // (a step that's built in pieces takes a piece a frame, and says false until it's done)
     const pieces = (start, end) => { let g = null; return () => { g = g || start(); const r = g.next(); if (!r.done) return false; end(r.value); }; };
     b.steps = [
-      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); b.fac.nestK = site.mon.leech || 0; },
+      () => { b.fac = new Facility(seed, site.size, siteKey, site.stairs, site.floors, true); b.fac.nestK = site.mon.leech || 0.6; },
       pieces(() => b.fac.generateGen(), () => {}),
       // (and the host works out the plan of it the creatures go by: see Facility.nav)
       pieces(() => (G.isHost ? b.fac.navGen() : [].values()), () => {}),
@@ -1388,7 +1389,7 @@ const G = {
         const mult = G.round ? SITES[G.round.site].mult : 1;
         const what = rng.weighted({ cash: 30, treasure: 22, tool: 16, snack: 12, dud: 13, bomb: 7 });
         const type = what === 'cash' ? 'cash' : what === 'treasure' ? rng.pick(['goldbar', 'watch', 'candelabra', 'mask', 'bell', 'toy'])
-          : what === 'tool' ? rng.pick(['proflash', 'stun', 'tracker', 'walkie', 'flashlight']) : what === 'snack' ? rng.pick(['nightshift', 'cola', 'ration'])
+          : what === 'tool' ? rng.pick(['proflash', 'stun', 'tracker', 'walkie', 'flashlight', 'mappad']) : what === 'snack' ? rng.pick(['nightshift', 'cola', 'ration'])
           : what === 'dud' ? 'doll' : 'bomb';
         const d = ITEMS[type];
         const value = d.kind === 'scrap' ? Math.max(4, Math.round(rng.range(d.value[0], d.value[1]) * mult * SCRAP_SCALE * (what === 'treasure' ? 1.35 : what === 'dud' ? 0.35 : 1))) : 0;
@@ -1966,12 +1967,21 @@ const G = {
       const s = spots.splice(k, 1)[0];
       // spread finds out: no second piece lying a step away from the first
       for (let q = spots.length - 1; q >= 0; q--) if (spots[q].c == null && Math.hypot(spots[q].x - s.x, spots[q].z - s.z) < 2.2) spots.splice(q, 1);
-      const table = LOOT[s.tag] || LOOT.storage, w = {};
-      for (const t in table) { if (!s.big && ITEMS[t].twoHanded) continue; w[t] = table[t] * (bias[t] || 1); }
+      // (the deeper it lies, the likelier it's one of the good things: the floors nearest the top were picked over first)
+      const table = LOOT[s.tag] || LOOT.storage, w = {}, tilt = Math.min(1.2, 0.25 * s.lv);
+      for (const t in table) { if (!s.big && ITEMS[t].twoHanded) continue; w[t] = table[t] * (bias[t] || 1) * Math.pow((ITEMS[t].value[0] + ITEMS[t].value[1]) / 90, tilt); }
       const type = Object.keys(w).length ? r.weighted(w) : 'bolt', d = ITEMS[type];
       // scrap is junk: most of it is worth a few dollars, a real find is rare; the lower levels were never stripped
-      const deep = 1 + 0.2 * Math.round(fac.depthOfY(s.y));
+      const deep = 1 + 0.25 * s.lv;
       out.push({ id: G.nextItemId++, type, value: Math.max(3, Math.round(r.range(d.value[0], d.value[1]) * site.mult * SCRAP_SCALE * deep)), x: s.x, y: s.y, z: s.z, ry: r.range(0, TAU), c: s.c });
+    }
+    // (and down on the bottom floor of a deep one, that hardly anybody got down to: a piece or two of the good stuff besides)
+    const rich = Object.keys(ITEMS).filter((t) => ITEMS[t].kind === 'scrap' && t !== 'core' && t !== 'gift' && ITEMS[t].value[0] + ITEMS[t].value[1] >= 150);
+    for (let i = 0, nd = L >= 4 ? r.int(1, 2) : 0; i < nd; i++) {
+      const ks = spots.map((q, k) => (q.lv === L - 1 ? k : -1)).filter((k) => k >= 0); if (!ks.length) break;
+      const s = spots.splice(ks[r.int(0, ks.length - 1)], 1)[0], opts = rich.filter((t) => s.big || !ITEMS[t].twoHanded); if (!opts.length) continue;
+      const type = opts[r.int(0, opts.length - 1)], d = ITEMS[type];
+      out.push({ id: G.nextItemId++, type, value: Math.round(r.range(d.value[0], d.value[1]) * site.mult * SCRAP_SCALE * (1 + 0.25 * s.lv)), x: s.x, y: s.y, z: s.z, ry: r.range(0, TAU), c: s.c });
     }
     if (fac.coreSpot) { const d = ITEMS.core; out.push({ id: G.nextItemId++, type: 'core', value: Math.round(r.range(d.value[0], d.value[1]) * site.mult * SCRAP_SCALE), x: fac.coreSpot.x, y: fac.coreSpot.y, z: fac.coreSpot.z, ry: 0 }); }
     // a few snacks somebody never came back for: mostly in lockers and cabinets, desks, the front office
@@ -1995,14 +2005,18 @@ const G = {
     if (!type) {
       const counts = {}; let power = 0, n = 0;
       // (a nest's brood are its own: they don't count against what else turns up)
-      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in' && !m.home) { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n++; }
+      // (and a swarm of roaches counts as one thing, however many of them there are)
+      for (const m of G.monsters.values()) if (!m.dead && m.def.zone === 'in' && !m.home) { counts[m.type] = (counts[m.type] || 0) + 1; power += m.def.power; n += m.def.swarm ? 1 / 3 : 1; }
       // (a plant more than four floors deep has room for a little more of it: one more thing for each floor past the fourth)
       const extra = Math.max(0, fac.levels - 4);
       if (n >= site.cap + Math.min(2, extra)) return;
       // never a pack of the same thing: one of each big creature, at most two of the small ones, and a type that is
       // already prowling is much less likely to be picked again
-      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2, clown: 1 };
-      const w = {}; for (const k in site.mon) if ((counts[k] || 0) < lim[k]) w[k] = site.mon[k] * Math.pow(0.3, counts[k] || 0);
+      const lim = { crawler: site.power >= 7 ? 2 : 1, leech: 2, roach: 1, pale: 1, mannequin: 1, slime: 1, sister: 2, bound: 2, clown: 1 };
+      // (ceiling leeches and roaches turn up in every plant, wherever they don't already belong to it: the easy things, so
+      // there's always something about in there besides the clock)
+      const mon = Object.assign({ leech: 0.8, roach: 1.1 }, site.mon);
+      const w = {}; for (const k in mon) if ((counts[k] || 0) < lim[k]) w[k] = mon[k] * Math.pow(0.3, counts[k] || 0);
       // (the mannequins are kept down below: none in a facility that's all on one level)
       if (fac.levels < 2) delete w.mannequin;
       // (the Clown: one a landing at most, and only once the afternoon's come)
@@ -2019,7 +2033,8 @@ const G = {
     const wide = type === 'slime' || type === 'executioner' || type === 'clown';
     if (type === 'clown') { G.round.clownN = 1; minDist = Math.max(minDist, 40); }
     if (type === 'mannequin' && fac.levels < 2) return;
-    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' || type === 'clown' ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
+    // (the leeches mostly down in the lower half, where the infestation's got hold)
+    let minLv = type === 'executioner' ? fac.levels - 1 : type === 'mannequin' || type === 'clown' || (type === 'leech' && R0.chance(0.7)) ? Math.max(1, Math.floor(fac.levels / 2)) : 0;
     let spot = null;
     const vents = wide ? [] : R0.shuffle(fac.vents.slice());
     for (const v of vents) if (far(v.x, v.z) && fac.levelAt(v.x, v.z, v.y) >= minLv) { spot = { x: v.x + v.nx * 1.2, z: v.z + v.nz * 1.2, vent: v }; break; }
@@ -2031,6 +2046,8 @@ const G = {
     if (!spot) return;
     const y = type === 'leech' ? fac.ceilY(spot.x, spot.z) - 0.18 : fac.floorY(spot.x, spot.z);
     G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x, y, z: spot.z });
+    // (the roaches: a few of them, out of the same vent one after another)
+    if (type === 'roach') for (let k = 0, n = R0.chance(0.5) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.4 + k * 0.5, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     // (the Sisters come in twos and threes)
     if (type === 'sister') for (let k = 0, n = R0.chance(0.35) ? 2 : 1; k < n; k++) G.timers.push({ t: 0.8 + k * 0.9, fn: () => { if (G.fac === fac) G.emit({ e: 'monSpawn', id: G.nextMonId++, type, x: spot.x + (Math.random() - 0.5) * 0.4, y, z: spot.z + (Math.random() - 0.5) * 0.4 }); } });
     if (spot.vent) G.emitSound('vent', new THREE.Vector3(spot.vent.x, spot.vent.y, spot.vent.z), { vol: 1.2, ref: 3 });

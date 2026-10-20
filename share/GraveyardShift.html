@@ -10300,12 +10300,11 @@ const Ship = (() => {
     pb(m, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.BoxGeometry(w, h, d), mat(x, y, z, rx, ry, rz)); }
     // (an open one, a bell or a sleeve, is solid from inside too: see twoSided)
     pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { const g = new THREE.CylinderGeometry(r1, r2, h, seg, 1, open); this.put(m, open ? twoSided(g) : g, mat(x, y, z, rx, ry, rz)); }
-    // a mug standing at (x, y, z) (the middle of its foot): a tapered body, hollow, with a rolled rim and the coffee
-    // standing a little below it, and a handle out on the side toward a (round from +x)
+    // a mug standing at (x, y, z) (the middle of its foot): a tapered body, hollow and empty, with a rolled rim, and a
+    // handle out on the side toward a (round from +x)
     mug(x, y, z, a = 0) {
-      const prof = [[0, 0], [0.036, 0], [0.038, 0.004], [0.041, 0.094], [0.042, 0.1], [0.0385, 0.1], [0.037, 0.094], [0.0362, 0.076], [0, 0.076]].map(([r, h]) => new THREE.Vector2(r, h));
+      const prof = [[0, 0], [0.036, 0], [0.038, 0.004], [0.041, 0.094], [0.042, 0.1], [0.0385, 0.1], [0.037, 0.094], [0.0345, 0.014], [0.03, 0.009], [0, 0.009]].map(([r, h]) => new THREE.Vector2(r, h));
       this.put('white', new THREE.LatheGeometry(prof, 24), mat(x, y, z));
-      this.put('black', new THREE.CircleGeometry(0.0362, 24), mat(x, y + 0.0764, z, -Math.PI / 2, 0, 0));
       this.put('white', new THREE.TorusGeometry(0.027, 0.0065, 8, 14, Math.PI), mat(x + Math.cos(a) * 0.0395, y + 0.052, z + Math.sin(a) * 0.0395, 0, -a, -Math.PI / 2));
     }
     ps(m, r, x, y, z, sx = 1, sy = 1, sz = 1, seg = 10) { this.put(m, new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.7))), mat(x, y, z, 0, 0, 0, sx, sy, sz)); }
@@ -11308,6 +11307,40 @@ const Ship = (() => {
       blanket(-1, -7.05, 3.5, [-2.2, -5.0]);
       blanket(1, -7.05, AIRLOCK.x0, [-5.8]);
       blanket(1, AIRLOCK.x1, 3.5, [2.5]);
+      // cobwebs up in the corners, under the pipes where no broom reaches: grey with dust, catching the light (the bay's
+      // back corners and the bulkhead's, and up in the airlock)
+      {
+        const [c, g] = TEX.canvas(256, 256), r = new RNG(4127), hx = 124, hy = 96;
+        g.strokeStyle = 'rgba(240,236,228,0.85)'; g.lineWidth = 1.2; g.lineCap = 'round';
+        // (the spokes out to the walls and the top; the bottom edge hangs free, a looser frame thread across it)
+        const sp = [];
+        for (let i = 0; i < 13; i++) { const a = -Math.PI + (i + r.range(-0.3, 0.3)) * (TAU / 13), dx = Math.cos(a), dy = Math.sin(a), k = Math.min(dx ? (dx > 0 ? 254 - hx : hx - 2) / Math.abs(dx) : 1e9, dy ? (dy > 0 ? (226 - hy) * 0.8 : hy - 2) / Math.abs(dy) : 1e9); sp.push([a, k]); }
+        for (const [a, k] of sp) { g.beginPath(); g.moveTo(hx, hy); g.lineTo(hx + Math.cos(a) * k, hy + Math.sin(a) * k); g.stroke(); }
+        // (the spiral, each turn sagging in a little between the spokes, and broken here and there)
+        for (let rr = 7; rr < 150; rr += r.range(6.5, 9.5)) for (let i = 0; i < sp.length; i++) {
+          const [a0, k0] = sp[i], [a1, k1] = sp[(i + 1) % sp.length]; if (rr > Math.min(k0, k1) - 3 || r.chance(0.12)) continue;
+          const am = (a0 + a1 + (a1 < a0 ? TAU : 0)) / 2;
+          g.beginPath(); g.moveTo(hx + Math.cos(a0) * rr, hy + Math.sin(a0) * rr); g.quadraticCurveTo(hx + Math.cos(am) * rr * 0.9, hy + Math.sin(am) * rr * 0.9, hx + Math.cos(a1) * rr, hy + Math.sin(a1) * rr); g.stroke();
+        }
+        // (loose strands hanging off it, and dust caught along the threads)
+        g.strokeStyle = 'rgba(236,232,224,0.45)';
+        for (let i = 0; i < 6; i++) { const x = r.range(40, 216), y = r.range(120, 190), l = r.range(18, 50); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + r.range(-8, 8), y + l * 0.6, x + r.range(-4, 4), y + l); g.stroke(); }
+        g.fillStyle = 'rgba(220,214,204,0.55)';
+        for (let i = 0; i < 160; i++) { const [a, k] = sp[r.int(0, sp.length - 1)], d = r.range(4, k); g.fillRect(hx + Math.cos(a) * d - 0.8, hy + Math.sin(a) * d - 0.8, r.range(1, 2.4), r.range(1, 2.4)); }
+        const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+        const wm = new THREE.MeshStandardMaterial({ map: tex, color: 0xd6d1c8, roughness: 1, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+        // (a sheet across the corner from (ax, az) on one wall to (bx, bz) on the other, y0 up to y1)
+        const web = (ax, az, bx, bz, y0, y1, flip) => {
+          const a = new THREE.Vector3(ax, 0, az), b = new THREE.Vector3(bx, 0, bz), e1 = b.clone().sub(a), w = e1.length(); e1.divideScalar(w);
+          const e2 = new THREE.Vector3(0, 1, 0), e3 = new THREE.Vector3().crossVectors(e1, e2), geo = new THREE.PlaneGeometry(w, y1 - y0);
+          if (flip) { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); }
+          const m = new THREE.Mesh(geo, wm); m.matrixAutoUpdate = false; m.matrix.makeBasis(e1, e2, e3).setPosition(a.add(b).multiplyScalar(0.5).setY((y0 + y1) / 2));
+          m.castShadow = false; m.renderOrder = 2; this.group.add(m);
+        };
+        web(-6.97, -3.4, -6.55, -3.95, 2.25, 3.08, false); web(-6.97, 3.5, -6.72, 3.95, 2.4, 3.08, true);
+        web(3.47, -3.35, 2.9, -3.95, 2.3, 3.08, true); web(3.47, 3.4, 2.95, 3.95, 2.4, 3.08, false);
+        web(-3.52, 3.62, -3.24, 3.95, 2.5, 3.08, true);
+      }
       // perforated steel panels over the whole ceiling
       // (with the roof hatch's opening cut in it, over the airlock)
       {

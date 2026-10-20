@@ -1316,7 +1316,9 @@ const Ship = (() => {
       // low cargo net holding kit bags against the starboard wall
       this.pq('net', 1.6, 1.15, -5.65, 0.68, 3.72, 0, Math.PI, 0);
       for (const [x, y, rz] of [[-6.1, 0.24, 0.1], [-5.45, 0.22, -0.05]]) this.put('olive', new THREE.CapsuleGeometry(0.2, 0.45, 4, 10), mat(x, y, 3.82, 0, 0, Math.PI / 2 + rz));
-      this.pb('crate', 0.4, 0.36, 0.34, -5.05, 0.18, 3.8, 0, 0.15, 0); this.ps('olive', 0.18, -5.75, 0.6, 3.84, 1.3, 1, 0.9, 10);
+      this.ps('olive', 0.18, -5.75, 0.6, 3.84, 1.3, 1, 0.9, 10);
+      // (a crate on its own past the net, between the rib and the airlock)
+      this.pb('crate', 0.4, 0.36, 0.34, -4.15, 0.18, 3.76, 0, 0.12, 0); this.col(-4.4, -3.9, 3.55, 4.0);
       for (let i = 0; i < 5; i++) this.pc(SB, 0.012, 0.012, 0.06, -6.4 + i * 0.4, 1.25, 3.97, Math.PI / 2, 0, 0, 6);
       this.pb('orange', 1.6, 0.04, 0.02, -5.65, 1.25, 3.72);
       this.col(-6.5, -4.8, 3.6, 4.0);

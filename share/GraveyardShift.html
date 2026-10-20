@@ -16751,6 +16751,8 @@ const Pods = (() => {
 
   return {
     get list() { return list; },
+    // (the glint's star, for a twinkle anywhere else in the sky)
+    glintTex() { return materials().glint; },
     // a pod is on its way (everyone): e = { id, x, z, dir, items, t? (for late joiners), opened? }
     spawn(e) {
       const ext = G.ext; if (!ext) return;
@@ -23467,7 +23469,7 @@ const G = {
     const cam = R.camera;
     if (me.zone !== 'in' || !fac) {
       const pos = me.alive ? cam.position.clone() : new THREE.Vector3(me.pos.x, me.pos.y + 1.1, me.pos.z);
-      G.sendoff = { t: 0, pos, q: cam.quaternion.clone(), yaw: me.yaw, zone: 'out' };
+      G.sendoff = { t: 0, pos, q: cam.quaternion.clone(), yaw: me.yaw, zone: 'out', murk: G.murk() };
       HUD.hideSpectate(); HUD.letterbox(true); R.fx.static = 0;
       return;
     }
@@ -23477,9 +23479,12 @@ const G = {
     const pos = dir.normalize().multiplyScalar(30); pos.y = ext.height(pos.x, pos.z) + 1.7;
     const shipAt = G.ship.group.position.clone(); shipAt.y += 1.5;
     const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(pos, shipAt, new THREE.Vector3(0, 1, 0)));
-    G.sendoff = { t: 0, pos, q, yaw: Math.atan2(pos.x, pos.z), zone: 'out', cut: 1.2 };
+    G.sendoff = { t: 0, pos, q, yaw: Math.atan2(pos.x, pos.z), zone: 'out', cut: 1.2, murk: G.murk() };
     HUD.hideSpectate(); HUD.letterbox(true); R.fx.static = 1; SFX.play('static', null, { dur: 1.2, vol: 1.2 });
   },
+  // (how thick the air is down here for losing sight of something, under fog, rain or storm; a clear day keeps it in
+  // view until it's up in the cloud)
+  murk() { return G.ext && G.round && G.round.weather !== 'clear' ? G.ext.lighting(G.round.time).fogDen : 0; },
   updateSendoff(dt) {
     const so = G.sendoff, me = G.me(), cam = R.camera;
     so.t += dt;
@@ -23495,11 +23500,23 @@ const G = {
     me.zoneView = 'out'; R.flash.intensity = 0;
     cam.position.copy(so.pos); cam.position.y += Math.sin(t * 0.8) * 0.012; cam.quaternion.copy(so.q); cam.updateMatrixWorld();
     // watching it climb away, the view closes in on it
-    const fov = Settings.fov - 26 * sstep(40, 700, so.pos.distanceTo(shipAt));
+    const far = so.pos.distanceTo(shipAt), fov = Settings.fov - 26 * sstep(40, 700, far);
     if (Math.abs(cam.fov - fov) > 0.05) { cam.fov = damp(cam.fov, fov, 3, dt); cam.updateProjectionMatrix(); }
+    // and where you lose it, up in the murk or the cloud, one sharp twinkle and a ting, the way they go in cartoons
+    const f = G.flight;
+    if (!so.kira && f && f.kind === 'takeoff' && f.t > FLY.liftAt + FLY.burst && (1 - Math.exp(-((so.murk * far) ** 2)) > 0.97 || shipAt.y - G.ext.height(shipAt.x, shipAt.z) > 300 || f.t > (f.dur || FLY.toDur) - 1)) {
+      so.kira = { t: 0, at: shipAt.clone() }; SFX.play('glint', null, { vol: 3.5 });
+    }
+    if (so.kira) {
+      const k = so.kira, g = G.twinkle || (G.twinkle = new THREE.Sprite(new THREE.SpriteMaterial({ map: Pods.glintTex(), color: new THREE.Color(5, 4.6, 4), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })));
+      if (g.parent !== R.scene) R.scene.add(g);
+      k.t += dt; const u = k.t, a = u < 0.06 ? u / 0.06 : Math.max(0, 1 - (u - 0.06) / 0.5), s = so.pos.distanceTo(k.at) * (0.03 + 0.07 * a);
+      g.visible = a > 0; g.position.copy(k.at); g.scale.set(s, s, 1); g.material.opacity = a; g.material.rotation = u * 3;
+    }
   },
   endSendoff() {
     if (!G.sendoff) return;
+    if (G.twinkle) G.twinkle.visible = false;
     if (G.sendoff.cut) R.fx.static = 0;
     G.sendoff = null; HUD.letterbox(false);
     R.camera.fov = Settings.fov; R.camera.updateProjectionMatrix();

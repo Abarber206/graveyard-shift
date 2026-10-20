@@ -157,6 +157,8 @@ const Pods = (() => {
 
   return {
     get list() { return list; },
+    // (the glint's star, for a twinkle anywhere else in the sky)
+    glintTex() { return materials().glint; },
     // a pod is on its way (everyone): e = { id, x, z, dir, items, t? (for late joiners), opened? }
     spawn(e) {
       const ext = G.ext; if (!ext) return;

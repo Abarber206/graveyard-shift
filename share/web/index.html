@@ -13154,7 +13154,8 @@ const Ship = (() => {
       }
       g.A = axis(best, new THREE.Vector3());
       g.dur = 3.8 + 4 * tb / Math.PI;
-      if (this.byWorld) { const h = this.sunHidden(at(best, trip, E.hEnd, _gP), s0); g.ecl = h.k > 0.5 && h.m.userData.world; }
+      // (only with the sun up over the ground there: on the night side it's just night)
+      if (this.byWorld) { const h = this.sunHidden(at(best, trip, E.hEnd, _gP), s0); g.ecl = h.k > 0.5 && h.m.userData.world && up(best, trip) > 0; }
       g.kb = Math.min(trip, E.trip) / ib; g.kx = Math.max(0, trip - E.trip) / ix;
       // (how far round it has gone at any moment, worked out once: the same however the frames fall, and for anyone
       // who joins partway down)

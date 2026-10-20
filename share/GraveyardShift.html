@@ -3494,17 +3494,17 @@ const MATS = (() => {
 // Item definitions (tools from the store + scrap found in facilities) and their procedural meshes.
 const ITEMS = {
   // ---- tools ----
-  flashlight: { name: 'Flashlight', kind: 'tool', price: 15, weight: 1, battery: 150, light: { power: 1, range: 26, angle: 0.42 }, desc: 'Cheap handheld light. Your best friend down there.' },
-  proflash: { name: 'Pro Flashlight', kind: 'tool', price: 28, weight: 1.4, battery: 320, light: { power: 1.9, range: 38, angle: 0.5 }, desc: 'Brighter, wider, lasts longer.' },
-  shovel: { name: 'Shovel', kind: 'tool', price: 30, weight: 7, weapon: true, desc: 'Hit things. Some of them stay down.' },
-  walkie: { name: 'Walkie-Talkie', kind: 'tool', price: 12, weight: 1, battery: 500, desc: 'Hold to talk to crewmates anywhere. Sometimes picks up... other things.' },
-  stun: { name: 'Stun Grenade', kind: 'tool', price: 30, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
-  tracker: { name: 'Motion Tracker', kind: 'tool', price: 45, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
-  mappad: { name: 'Survey Pad', kind: 'tool', price: 40, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
+  flashlight: { name: 'Flashlight', kind: 'tool', price: 20, weight: 1, battery: 150, light: { power: 1, range: 26, angle: 0.42 }, desc: 'Cheap handheld light. Your best friend down there.' },
+  proflash: { name: 'Pro Flashlight', kind: 'tool', price: 38, weight: 1.4, battery: 320, light: { power: 1.9, range: 38, angle: 0.5 }, desc: 'Brighter, wider, lasts longer.' },
+  shovel: { name: 'Shovel', kind: 'tool', price: 40, weight: 7, weapon: true, desc: 'Hit things. Some of them stay down.' },
+  walkie: { name: 'Walkie-Talkie', kind: 'tool', price: 18, weight: 1, battery: 500, desc: 'Hold to talk to crewmates anywhere. Sometimes picks up... other things.' },
+  stun: { name: 'Stun Grenade', kind: 'tool', price: 40, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
+  tracker: { name: 'Motion Tracker', kind: 'tool', price: 60, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
+  mappad: { name: 'Survey Pad', kind: 'tool', price: 55, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
-  cola: { name: 'Kick Cola', kind: 'food', price: 8, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
-  ration: { name: 'Ration Bar', kind: 'food', price: 6, weight: 0.3, desc: 'Company issue. Tastes like the box it came in. Patches you up a little.' },
-  nightshift: { name: 'Night Shift', kind: 'food', price: 14, weight: 0.4, desc: 'Energy drink. No two cans do quite the same thing.' },
+  cola: { name: 'Kick Cola', kind: 'food', price: 10, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
+  ration: { name: 'Ration Bar', kind: 'food', price: 8, weight: 0.3, desc: 'Company issue. Tastes like the box it came in. Patches you up a little.' },
+  nightshift: { name: 'Night Shift', kind: 'food', price: 18, weight: 0.4, desc: 'Energy drink. No two cans do quite the same thing.' },
   mystery: { name: 'Unlabelled Can', kind: 'food', weight: 0.4, desc: '' },
   // ---- scrap ----
   bell: { name: 'Brass Bell', kind: 'scrap', value: [28, 64], weight: 3, noise: 'bell', noiseR: 26 },
@@ -3588,13 +3588,13 @@ const FOOD_SPOTS = { lockers: 3, office: 2, entrance: 2, storage: 1, corridor: 0
 const FOOD_FIND = { mystery: 1.4, cola: 1, ration: 0.8, nightshift: 0.45 };
 const SCRAP_TYPES = Object.keys(ITEMS).filter((k) => ITEMS[k].kind === 'scrap' && !ITEMS[k].core);
 const UPGRADES = {
-  harness: { name: 'Exo-Harness', price: 150, desc: 'Carried weight slows you half as much.' },
-  implant: { name: 'Stamina Implant', price: 120, desc: '+60% sprint stamina, faster recovery.' },
-  cells: { name: 'Extended Cells', price: 90, desc: 'All batteries last 60% longer.' },
-  belt: { name: 'Utility Belt', price: 250, desc: 'A fifth inventory slot.' },
-  flood: { name: 'Ship Floodlight', price: 60, desc: 'A powerful lamp on the ship roof. Find your way home.' },
-  locator: { name: 'Salvage Locator', price: 80, desc: "A metal detector wired into the ship's radar. A RADAR sweep picks up metal scrap as well as anything moving, and Survey Pads pin metal scrap close by. It cannot find glass, china, wood, cloth or bone." },
-  rover: { name: 'Scout Rover', price: 240, desc: 'A remote-control rover with a camera and a cargo basket. Drive it from the console by the airlock. It can be carried, with both hands, slowly.' },
+  harness: { name: 'Exo-Harness', price: 200, desc: 'Carried weight slows you half as much.' },
+  implant: { name: 'Stamina Implant', price: 160, desc: '+60% sprint stamina, faster recovery.' },
+  cells: { name: 'Extended Cells', price: 120, desc: 'All batteries last 60% longer.' },
+  belt: { name: 'Utility Belt', price: 325, desc: 'A fifth inventory slot.' },
+  flood: { name: 'Ship Floodlight', price: 80, desc: 'A powerful lamp on the ship roof. Find your way home.' },
+  locator: { name: 'Salvage Locator', price: 110, desc: "A metal detector wired into the ship's radar. A RADAR sweep picks up metal scrap as well as anything moving, and Survey Pads pin metal scrap close by. It cannot find glass, china, wood, cloth or bone." },
+  rover: { name: 'Scout Rover', price: 320, desc: 'A remote-control rover with a camera and a cargo basket. Drive it from the console by the airlock. It can be carried, with both hands, slowly.' },
 };
 
 const ItemMeshes = (() => {

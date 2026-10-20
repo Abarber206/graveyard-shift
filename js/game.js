@@ -259,7 +259,7 @@ const G = {
   noises: [], timers: [], nextItemId: 1, nextMonId: 1, nextPid: 1, lampSrc: new Map(),
   lightSources: [], sendT: 0, leechOn: null, flicker: 0, seq: null, leverConfirm: 0, corpses: [], departT: 0, grenades: [],
   bombs: [], fuses: [], blasts: [],
-  dir: { t: 20, howl: 40, light: 0, beat: 0 }, now: 0,
+  dir: { t: 20, light: 0, beat: 0 }, now: 0,
   marks: [], flight: null, fp: null, shipM: new THREE.Matrix4(), shipQ: new THREE.Quaternion(), shipMoved: false,
   simCam: new THREE.Object3D(),
 
@@ -551,7 +551,7 @@ const G = {
     // (of the facility, only what can be seen from wherever each view is drawn from is drawn: see Facility.showFor)
     R.scene.onBeforeRender = (r, s, cam) => { if (G.fac) G.fac.showFor(_eyeAt.setFromMatrixPosition(cam.matrixWorld)); };
     G.lightSources = [...G.ship.lights, ...G.ext.lights, ...G.fac.lamps];
-    G.round = { site: siteKey, seed, weather, ecl: b.ecl, time: 8 * 60, power: true, coreTaken: false, startShip: new Set(), warn1: false, warn2: false, spawnT: 45, houndT: 30, blackoutT: 150 + Math.random() * 240, blackout: false, allDeadT: 0, total: 0 };
+    G.round = { site: siteKey, seed, weather, ecl: b.ecl, time: 8 * 60, power: true, coreTaken: false, startShip: new Set(), warn1: false, warn2: false, spawnT: 45, houndT: 4 + Math.random() * 16, blackoutT: 150 + Math.random() * 240, blackout: false, allDeadT: 0, total: 0 };
     SFX.setWeather(weather === 'rain' ? 0.8 : weather === 'storm' ? 1 : 0, weather === 'storm' ? 1.4 : weather === 'fog' ? 0.7 : 1);
   },
   teardownSite(full) {
@@ -2447,7 +2447,7 @@ const G = {
       if (r.time >= 19 * 60) {
         r.houndT -= dt;
         const hounds = [...G.monsters.values()].filter((m) => m.type === 'hound' && !m.dead).length;
-        if (r.houndT <= 0) { r.houndT = 40 + Math.random() * 45; if (hounds < site.hounds + (r.time > 22 * 60 && !site.bonus ? 1 : 0)) G.hostSpawnHound(); }
+        if (r.houndT <= 0) { r.houndT = r.time < 20 * 60 ? 15 + Math.random() * 15 : 40 + Math.random() * 45; if (hounds < site.hounds + (r.time > 22 * 60 && !site.bonus ? 1 : 0)) G.hostSpawnHound(); }
       }
       // blackouts
       if (!r.coreTaken) {
@@ -3740,9 +3740,6 @@ const G = {
         if (pos) SFX.play(pick, pos, { vol: pick === 'scream' ? 0.5 : pick === 'whisper' ? 0.35 : 0.9, rev: 0.7 });
         if (pick === 'groan' || pick === 'metal_bang') Player.addShake(0.08);
       }
-    } else if (me.zone === 'out' && G.round && G.round.time > 19 * 60) {
-      d.howl -= dt;
-      if (d.howl <= 0) { d.howl = 35 + Math.random() * 60; const a = Math.random() * TAU; SFX.play('howl', new THREE.Vector3(cam.x + Math.cos(a) * 70, cam.y + 5, cam.z + Math.sin(a) * 70), { vol: 1.4, ref: 30, rev: 0.4 }); }
     }
   },
   updateHUD(dt) {

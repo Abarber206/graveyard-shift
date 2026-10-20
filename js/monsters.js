@@ -25,7 +25,7 @@ const BESTIARY = {
   mannequin: 'Only moves when nobody is looking. In the dark, looking does not count: keep a light on it and back away. Invulnerable. Bring a friend to watch it while you leave.',
   leech: 'Clings to ceilings above corridors and doorways, where people pass, and drops onto the head of whoever passes beneath. It moves to where it hears footsteps. Suffocates its host. Look up. Mash [E] to tear it off, or have a crewmate hit it with a shovel. It cannot open a door: it goes round, or waits by one for somebody to open it.',
   roach: 'Roaches the size of a boot, two or three together. They scuttle about in fits and starts, a dash and a dead stop, feelers going. They hear footsteps and feel anyone moving near them, and come at you in a rush along the floor, quicker than you walk but not as quick as you run; one bites at your ankles and is off again, round and back for another. They cannot stand light: put a beam on them and they scatter for the dark. They cannot work a door. One blow kills one.',
-  hound: 'Roams the surface after dark. Completely blind; hunts by sound, and close to, by smell: do not stand still next to one, move away quietly. Walk, crouch, keep quiet. One that howls is calling the others. They will follow you into the ship if the hatch is open.',
+  hound: 'Roams the surface from 7 PM. Completely blind, though where its eyes were shines back in a flashlight beam; hunts by sound, and close to, by smell: do not stand still next to one, move away quietly. Walk, crouch, keep quiet. One that howls is calling the others. They will follow you into the ship if the hatch is open.',
   sister: 'They come in twos and threes, in what is left of their uniforms. Blind: they go for light. Turn a flashlight on one, or carry a lit lamp past it, and the whole ward comes for you, jerking and stopping and jerking on. Kill the light and keep still and they lose you; they will stand where they stopped, twitching, a long time. Three hits.',
   bound: 'Looks like a body. Lies on the floor like one, in a corridor, in a doorway, round a corner, where people pass; it hears you coming and lies down in your way. It gets up when you are close enough to touch it. No arms, no face, and a hole at the top it retches through: keep out of the mist, it eats through a suit. Slow, but it does not give up easily. Four hits. Walk wide round anything lying down.',
   executioner: 'Nobody has a body cam recording of it from the front. Pulling a core sets off the alarm, and sometimes the alarm brings it up from below: a great figure in an iron hood, dragging a blade longer than you are. You will hear it before you see it. It does not run, it does not stop, and nothing we have so much as marks it. When it lifts the blade, get out of reach. Then get out of the building.',
@@ -334,9 +334,13 @@ const MonModels = (() => {
       // head: a long blind skull, skin grown over where the eyes should be, a heavy brow, flared nostrils
       P.head = grp(P.neck, 0, -0.18, 0.5);
       mk(sphZ(0.18, 16), m, P.head, 0, 0.06, 0.0).scale.set(0.88, 0.78, 1.3);
+      // (and under the skin where they were, something still shines back a flashlight's beam: see anim_hound)
+      P.shine = new THREE.SpriteMaterial({ map: TEX.get('glow'), color: new THREE.Color(1.5, 1.9, 1.3), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      P.eyes = [];
       for (const s of [-1, 1]) {
         mk(cap(0.028, 0.1, 6), bone, P.head, s * 0.085, 0.14, 0.1, 0.3, 0, Math.PI / 2 + s * 0.2);
         mk(sph(0.03, 8), sin, P.head, s * 0.09, 0.09, 0.15).scale.set(0.6, 0.8, 0.3);
+        const e = new THREE.Sprite(P.shine); e.position.set(s * 0.09, 0.09, 0.17); e.visible = false; P.head.add(e); P.eyes.push(e);
         mk(new THREE.ConeGeometry(0.045, 0.14, 5), m, P.head, s * 0.1, 0.17, -0.12, -0.9, 0, s * -0.4);
       }
       P.jawU = grp(P.head, 0, 0.03, 0.12);
@@ -1685,6 +1689,8 @@ class Monster {
     }
     switch (this.state) {
       case 'wander': {
+        // (now and then, nothing to go after, it howls: from where it really is, so you know where the pack is)
+        if ((this.howlT = (this.howlT ?? 8 + Math.random() * 25) - dt) <= 0) { this.howlT = 30 + Math.random() * 45; this.g.emitSound('howl', this.pos.clone().setY(this.pos.y + 1.2), { vol: 1.4, ref: 30, rev: 0.4 }); }
         // (aboard, after someone it followed in: the way out is along the bay to the airlock and down the ramp)
         if (this.g.ship.inside(this.pos.x, this.pos.y + 0.5, this.pos.z)) { const dx = (SHIP.doorX0 + SHIP.doorX1) / 2, aisle = Math.abs(this.pos.x - dx) > 0.3 && this.pos.z < 2; this.goal = null; this.stepToward(dx, aisle ? 1.3 : 8.5, 2.2, dt, 6); break; }
         if (!this.goal || this.st > 14) { this.goal = this.randomGoal(10, 40); this.st = 0; }
@@ -2664,5 +2670,17 @@ class Monster {
       for (const L of [P.fl, P.fr, P.bl, P.br]) { L.a.rotation.x = lerp(L.a.rotation.x, 0.25 + tw * 0.7, f); L.b.rotation.x = lerp(L.b.rotation.x, -0.12, f); }
       P.jawL.rotation.x = 0.55; P.jawU.rotation.x = -0.1; P.neck.rotation.set(0.25 * f, 0, 0); P.tail.rotation.y = 0.2;
     }
+    // Caught in your flashlight, the skin over where its eyes were shines back milky green, a long way past where the
+    // beam lights anything (the way an animal's eyes do at night, back along the beam to whoever holds it), as long as
+    // it's looking your way
+    const me = G.me(); let k = 0, d = 0;
+    if (me && !this.dead && R.flash.intensity > 0 && G.zoneOf(me) === this.zone) {
+      const cam = R.camera, at = P.head.getWorldPosition(_hp), to = _sl.copy(at).sub(cam.position); d = to.length(); to.divideScalar(Math.max(d, 1e-3));
+      const beam = sstep(Math.cos(R.flash.angle * 1.1), Math.cos(R.flash.angle * 0.5), _sl2.set(0, 0, -1).applyQuaternion(cam.quaternion).dot(to));
+      const face = sstep(0.15, 0.7, -_sp.set(0, 0, 1).transformDirection(P.head.matrixWorld).dot(to));
+      k = beam * face * sstep(R.flash.distance * 2, R.flash.distance * 0.8, d);
+    }
+    P.shine.opacity = k;
+    for (const e of P.eyes) { e.visible = k > 0.01; e.scale.setScalar(Math.max(0.06, d * 0.005)); }
   }
 }

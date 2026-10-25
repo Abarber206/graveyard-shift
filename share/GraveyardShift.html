@@ -10999,8 +10999,9 @@ const Ship = (() => {
       { const s = archR(W - 0.02, Hd - 0.01, 0.19), win = new THREE.Path(); win.absarc(0, 1.55, 0.15, 0, TAU, true); s.holes.push(win);
         const g = ext(s, 0.05, 0.01); g.translate(0, 0, -0.025); meshAt(g, hullM, 0, 0, 0, 0, door);
         const gl = new THREE.Mesh(new THREE.CircleGeometry(0.15, 24), this.glassMat); gl.position.set(0, 1.55, 0); door.add(gl);
-        for (const z of [-0.04, 0.04]) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 24), dm); ring.position.set(0, 1.55, z); door.add(ring); }
-        for (const z of [-0.045, 0.045]) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.42, 0.03), dm); h.position.set(W / 2 - 0.16, 1.05, z); door.add(h); }
+        // (the inside's ring and grab kept flat to the plate, so they clear the cabin wall as it slides away behind it)
+        for (const z of [-0.026, 0.04]) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 24), dm); ring.position.set(0, 1.55, z); door.add(ring); }
+        for (const [z, d] of [[-0.041, 0.012], [0.045, 0.03]]) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.42, d), dm); h.position.set(W / 2 - 0.16, 1.05, z); door.add(h); }
         // the stripe stands proud of the plate both sides, so it never flickers through the face
         const band = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.09, 0.084), MATS.get('hazard')); band.position.set(0, 0.16, 0); door.add(band); }
       this.doorMesh = door;
@@ -12213,11 +12214,15 @@ const Ship = (() => {
       {
         const cx = (SHIP.doorX0 + SHIP.doorX1) / 2, w = DOOR.x1 - DOOR.x0;
         const rim = rrect(DOOR.x0, DOOR.x1, DOOR.y0, DOOR.y1, DOOR.r, 14, true), ring = rrect(DOOR.x0 - 0.1, DOOR.x1 + 0.1, DOOR.y0 - 0.1, DOOR.y1 + 0.1, DOOR.r + 0.1, 14, true);
+        // (the lining stands back from the hatch's path up its right side, so the hatch slides into the wall through a slot
+        // and not through the lining; a dark pocket behind the slot takes it, so nothing shows through the hull there)
         for (let i = 0; i < rim.length - 1; i++) {
-          const [x0, y0] = rim[i], [x1, y1] = rim[i + 1];
-          quad(D.lining, [x0, y0, 4.17], [x1, y1, 4.17], sk(x1, y1, 1, 0.002), sk(x0, y0, 1, 0.002));
+          const [x0, y0] = rim[i], [x1, y1] = rim[i + 1], zi = x0 > cx && x1 > cx && Math.max(y0, y1) < SHIP.doorH + 0.06 ? 4.31 : 4.17;
+          quad(D.lining, [x0, y0, zi], [x1, y1, zi], sk(x1, y1, 1, 0.002), sk(x0, y0, 1, 0.002));
           quad(D.band, sk(x0, y0, 1, 0.006), sk(x1, y1, 1, 0.006), sk(...ring[i + 1], 1, 0.006), sk(...ring[i], 1, 0.006));
         }
+        { const px = DOOR.x1 + 0.78, ph = SHIP.doorH + 0.11, py = ph / 2 - 0.04;
+          this.pb('tunnel', 1.56, ph, 0.012, px, py, 4.318); this.pb('tunnel', 0.012, ph, 0.16, DOOR.x1 + 1.56, py, 4.24); this.pb('tunnel', 1.56, 0.012, 0.16, px, SHIP.doorH + 0.07, 4.24); }
         const zs = skinW(cx, 0) + 0.04;
         this.pb('darkmetal', w, 0.06, zs - 4.17, cx, -0.03, (4.17 + zs) / 2);
         this.pb('hazard', w - 0.1, 0.006, 0.1, cx, 0.003, zs - 0.08);
@@ -19748,13 +19753,14 @@ const Player = (() => {
   const LADDER = { x: AIRLOCK.x1 - 0.58, z: ROOF.hz };
   // holding on to the airlock ladder: forward climbs, back goes down, looking about as you like. Off the bottom rung onto
   // the lock's floor; up through the hatch onto the roof deck if its lid is open (shut, you push it open when you come
-  // up under it, if it may be opened at all: else that's as far as you go); jump or use lets go
+  // up under it, if it may be opened at all: else that's as far as you go). Up in the trunk with the hatch over your
+  // head, use works its lid (shut it after you on the way down); anywhere lower use lets go, and jump always does
   let ladder = null;
   function stepLadder(me, dt, cam, ui) {
     const L = ladder, F = ROOF, open = G.ship.roofLid.open && G.roofOpen();
     let f = 0;
     if (!ui) { f = (Input.down('KeyW') ? 1 : 0) - (Input.down('KeyS') ? 1 : 0); if (Input.analog.y) f = Input.analog.y; }
-    const top = open ? F.y : F.y + 0.32 - 1.85, y0 = L.y;
+    const top = open ? F.y : F.y + 0.32 - 1.85, y0 = L.y, atHatch = L.y > F.y - 2.6 && G.roofOpen();
     // (and if the lid comes down while you're up past it, you duck back under it)
     L.y = clamp(L.y + f * 1.3 * dt, 0, Math.max(top, L.y - 1.5 * dt));
     if (f > 0 && L.y >= top - 0.01 && !open && G.roofOpen() && (L.push -= dt) <= 0) { L.push = 1.2; G.request({ a: 'roofLid', open: true }); }
@@ -19763,7 +19769,9 @@ const Player = (() => {
     me.moving = f !== 0; me.air = false; me.sprint = false;
     if (f > 0 && L.y >= F.y - 0.001) { ladder = null; me.roof = true; me.pos.set(F.hx + 0.05, F.y, F.hz - 0.85); onGround = true; }
     else if (f < 0 && L.y <= 0.001) { ladder = null; me.pos.set(LADDER.x - 0.2, 0, LADDER.z); onGround = true; }
+    else if (!ui && Input.hit('KeyE') && atHatch) G.request({ a: 'roofLid', open: !G.ship.roofLid.open });
     else if (!ui && (Input.hit('Space') || Input.hit('KeyE'))) { ladder = null; onGround = L.y < 0.05; me.pos.x -= 0.15; }
+    HUD.prompt(ladder ? { label: atHatch ? (G.ship.roofLid.open ? 'Close the hatch' : 'Open the hatch') : 'Let go' } : null, me);
     cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
   }
   function stepClimb(me, dt, cam) {
@@ -20070,7 +20078,7 @@ const Player = (() => {
         me.pitch = clamp(me.pitch - Input.mdy * s * (Settings.invertY ? -1 : 1), -1.52, 1.52);
       }
       // ---------- on the ladder: both hands on it, nothing else to do but climb or let go ----------
-      if (ladder) { vm.root.visible = false; target = null; HUD.prompt({ label: 'Let go' }, me); stepLadder(me, dt, cam, ui); return; }
+      if (ladder) { vm.root.visible = false; target = null; stepLadder(me, dt, cam, ui); return; }
       // ---------- sitting: look around from the seat; any move key, jump or crouch gets you up ----------
       if (seat != null) {
         const S = G.ship.seats[seat];

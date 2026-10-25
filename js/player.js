@@ -55,13 +55,14 @@ const Player = (() => {
   const LADDER = { x: AIRLOCK.x1 - 0.58, z: ROOF.hz };
   // holding on to the airlock ladder: forward climbs, back goes down, looking about as you like. Off the bottom rung onto
   // the lock's floor; up through the hatch onto the roof deck if its lid is open (shut, you push it open when you come
-  // up under it, if it may be opened at all: else that's as far as you go); jump or use lets go
+  // up under it, if it may be opened at all: else that's as far as you go). Up in the trunk with the hatch over your
+  // head, use works its lid (shut it after you on the way down); anywhere lower use lets go, and jump always does
   let ladder = null;
   function stepLadder(me, dt, cam, ui) {
     const L = ladder, F = ROOF, open = G.ship.roofLid.open && G.roofOpen();
     let f = 0;
     if (!ui) { f = (Input.down('KeyW') ? 1 : 0) - (Input.down('KeyS') ? 1 : 0); if (Input.analog.y) f = Input.analog.y; }
-    const top = open ? F.y : F.y + 0.32 - 1.85, y0 = L.y;
+    const top = open ? F.y : F.y + 0.32 - 1.85, y0 = L.y, atHatch = L.y > F.y - 2.6 && G.roofOpen();
     // (and if the lid comes down while you're up past it, you duck back under it)
     L.y = clamp(L.y + f * 1.3 * dt, 0, Math.max(top, L.y - 1.5 * dt));
     if (f > 0 && L.y >= top - 0.01 && !open && G.roofOpen() && (L.push -= dt) <= 0) { L.push = 1.2; G.request({ a: 'roofLid', open: true }); }
@@ -70,7 +71,9 @@ const Player = (() => {
     me.moving = f !== 0; me.air = false; me.sprint = false;
     if (f > 0 && L.y >= F.y - 0.001) { ladder = null; me.roof = true; me.pos.set(F.hx + 0.05, F.y, F.hz - 0.85); onGround = true; }
     else if (f < 0 && L.y <= 0.001) { ladder = null; me.pos.set(LADDER.x - 0.2, 0, LADDER.z); onGround = true; }
+    else if (!ui && Input.hit('KeyE') && atHatch) G.request({ a: 'roofLid', open: !G.ship.roofLid.open });
     else if (!ui && (Input.hit('Space') || Input.hit('KeyE'))) { ladder = null; onGround = L.y < 0.05; me.pos.x -= 0.15; }
+    HUD.prompt(ladder ? { label: atHatch ? (G.ship.roofLid.open ? 'Close the hatch' : 'Open the hatch') : 'Let go' } : null, me);
     cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
   }
   function stepClimb(me, dt, cam) {
@@ -377,7 +380,7 @@ const Player = (() => {
         me.pitch = clamp(me.pitch - Input.mdy * s * (Settings.invertY ? -1 : 1), -1.52, 1.52);
       }
       // ---------- on the ladder: both hands on it, nothing else to do but climb or let go ----------
-      if (ladder) { vm.root.visible = false; target = null; HUD.prompt({ label: 'Let go' }, me); stepLadder(me, dt, cam, ui); return; }
+      if (ladder) { vm.root.visible = false; target = null; stepLadder(me, dt, cam, ui); return; }
       // ---------- sitting: look around from the seat; any move key, jump or crouch gets you up ----------
       if (seat != null) {
         const S = G.ship.seats[seat];

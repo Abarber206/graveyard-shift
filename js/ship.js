@@ -1705,12 +1705,18 @@ const Ship = (() => {
           return s > -0.04 && s < ${f(wsL + 0.04)} && h > -0.2 && h < 0.35 && az < ${f(CK.w1 + 0.05)} + ${f(halfAt(CK.wsTop) - CK.w1)} * s / ${f(wsL)};
         }
 `;
-      // (and the paint, on the skin itself: charcoal below the chine, the top of the nose dark ahead of the glass, each
-      // edge crisp at any distance)
+      // (and the paint, on the skin itself: charcoal below the chine, the top of the nose dark ahead of the glass, and the
+      // livery, an orange cheatline with a dark pinstripe under it tapering off at both ends, broken by the hatch; each
+      // edge crisp at any distance, and never a hair off the skin to flicker against it, seen however low along it)
       const paint = `#include <color_fragment>
           { float aa = fwidth(vHullP.y) + 0.002;
             diffuseColor.rgb *= mix(0.46, 1.0, smoothstep(0.36 - aa, 0.36 + aa, vHullP.y));
-            diffuseColor.rgb *= mix(1.0, 0.4, step(${f(CK.x1 + 0.05)}, vHullP.x) * smoothstep(0.62 - aa, 0.62 + aa, vHullP.y)); }`;
+            diffuseColor.rgb *= mix(1.0, 0.4, step(${f(CK.x1 + 0.05)}, vHullP.x) * smoothstep(0.62 - aa, 0.62 + aa, vHullP.y));
+            float tp = smoothstep(-13.6, -11.6, vHullP.x) * (1.0 - smoothstep(8.6, 10.4, vHullP.x));
+            tp *= 1.0 - step(0.0, vHullP.z) * step(${f(DOOR.x0 - 0.15)}, vHullP.x) * step(vHullP.x, ${f(DOOR.x1 + 0.15)});
+            float ob = 1.0 - smoothstep(0.17 * tp - aa, 0.17 * tp + aa, abs(vHullP.y - 0.74)), pb = 1.0 - smoothstep(0.025 * tp - aa, 0.025 * tp + aa, abs(vHullP.y - 0.5));
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.539, 0.037, 0.010), ob * step(0.001, tp));
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.0075, 0.008, 0.0085), pb * step(0.001, tp)); }`;
       const cut = (m, painted) => {
         m.onBeforeCompile = (sh) => {
           sh.vertexShader = 'varying vec3 vHullP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vHullP = position;');
@@ -1861,25 +1867,7 @@ const Ship = (() => {
       const mk = (pos, m) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals(); return addMesh(g, m); };
       mk(D.lining, this.cm.tunnel);
       mk(D.band, new THREE.MeshStandardMaterial({ color: 0x141516, roughness: 0.4, metalness: 0.35, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })).castShadow = false;
-      // livery: an orange cheatline with a dark pinstripe under it, tapering off at both ends (broken by the hatch)
-      {
-        const o = [], k = [], strip = (arr, s, x0, x1, yc, h) => {
-          const n = Math.max(2, Math.ceil((x1 - x0) / 0.25));
-          for (let i = 0; i < n; i++) {
-            const a = lerp(x0, x1, i / n), b = lerp(x0, x1, (i + 1) / n);
-            quad(arr, sk(a, yc - h(a), s, 0.01), sk(b, yc - h(b), s, 0.01), sk(b, yc + h(b), s, 0.01), sk(a, yc + h(a), s, 0.01));
-          }
-        };
-        const taper = (x) => sstep(-13.6, -11.6, x) * (1 - sstep(8.6, 10.4, x));
-        for (const [s, x0, x1] of [[1, -13.6, DOOR.x0 - 0.15], [1, DOOR.x1 + 0.15, 10.4], [-1, -13.6, 10.4]]) {
-          strip(o, s, x0, x1, 0.74, (x) => 0.17 * taper(x));
-          strip(k, s, x0, x1, 0.5, (x) => 0.025 * taper(x));
-        }
-        // (lifted off the skin a little and drawn a fixed hair nearer, not by how steeply the skin is seen: that much
-        // more again where the nose curves away, and the paint would show through the nose and the lights in front of it)
-        const dm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4 });
-        mk(o, dm(0xc2541a)).castShadow = false; mk(k, dm(0x151617)).castShadow = false;
-      }
+      // (the livery is painted on the skin: see paint)
       // a raised seam along each shoulder
       for (const s of [-1, 1]) { const pts = []; for (let x = -11; x <= 5.01; x += 1) { const u = upperAt(x, 0.5); pts.push(V(x, u.y, s * u.z)); } this.tube('darkmetal', pts, 0.03, 48, 6); }
       // belly lights

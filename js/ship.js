@@ -3241,7 +3241,7 @@ const Ship = (() => {
       // its moons it stands well off, the moon a small ball against the wall of the giant, several times its size)
       const a = R * (look.giant ? r.range(1.25, 1.7) : byGiant ? r.range(5.5, 8) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
       this.turn = 0; this.glide = null;
-      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 2.5, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 1.35 };
+      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 2.5, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 0.85 };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       // (and its own weather today: the same seed, the world's own character)
       if (!look.airless && !look.giant) this.setWeather(seed, typeof SITE_LOOK === 'undefined' ? null : Object.keys(SITE_LOOK).find((k) => SITE_LOOK[k] === look));

@@ -2323,12 +2323,12 @@ const Exterior = (() => {
           const ru = this.rangeMat.uniforms;
           ru.uSun.value.copy(L.sunDir); ru.uSunCol.value.copy(L.sunColor); ru.uSunK.value = L.sun; ru.uSky.value.copy(L.hemiSky); ru.uHemiK.value = L.hemi;
           ru.uFog.value.copy(L.fog); ru.uScatter.value.copy(L.scatter);
-          ru.uD.value = R.vol.on ? 0 : L.fogDen * 0.4; ru.uF.value = 0.024; ru.uTopAdd.value = clamp((L.fogDen - 0.008) * 2400, 0, 220);
+          ru.uD.value = L.fogDen * 0.4 * (1 - (R.vol.on ? R.vol.k : 0)); ru.uF.value = 0.024; ru.uTopAdd.value = clamp((L.fogDen - 0.008) * 2400, 0, 220);
         }
         // the cloud and the mist: drifting by the site's own clock; the banks gone in a fog, the ground mist thickest at
         // dawn and by night
         // (with the volumetric air on, it carries the mist and the cloud itself: see R.vol)
-        if (this.clouds) this.clouds.visible = !R.vol.on;
+        if (this.clouds) this.clouds.visible = !R.vol.on || R.vol.k < 0.5;
         if (R.vol.on && this.heightTex) {
           const vu = R.vol.mat.uniforms, h = (G.round ? G.round.time : 480) / 60, wet = this.weather === 'rain' ? 1 : this.weather === 'storm' ? 1.5 : 0, dawn = 1 - sstep(7.5, 10.5, h);
           vu.tH.value = this.heightTex; this.group.getWorldPosition(vu.uOrg.value); vu.uFar.value = 600; vu.uHB.value.set(-this.heightBox[0] / 2, -this.heightBox[0] / 2, this.heightBox[0], 0); vu.uHR.value.set(this.heightBox[1], this.heightBox[2]);

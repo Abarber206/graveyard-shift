@@ -344,7 +344,7 @@ const R = (() => {
       }
       gl_FragColor = vec4(acc, T);
     }`;
-  const vol = { on: false, rt: null, mat: null, scene: null, frame: 0 }, _vp = new THREE.Vector3(), _vt = new THREE.Vector3();
+  const vol = { on: false, k: 1, rt: null, mat: null, scene: null, frame: 0 }, _vp = new THREE.Vector3(), _vt = new THREE.Vector3();
   let bloomA, bloomB, bloomPre, bloomBlur, quadScene, quad, shadowSize = 15;
   function init(canvas) {
     installFog();
@@ -424,7 +424,8 @@ const R = (() => {
     postScene = new THREE.Scene(); const pm = new THREE.Mesh(tri, post); pm.frustumCulled = false; postScene.add(pm);
     quadScene = new THREE.Scene(); quad = new THREE.Mesh(tri, bloomPre); quad.frustumCulled = false; quadScene.add(quad);
     // the air laid over the frame: what's lost on the way (alpha) and the light it scatters toward you (rgb)
-    vol.comp = new THREE.ShaderMaterial({ uniforms: { tVol: { value: vol.rt.texture } }, vertexShader: POST_VS, fragmentShader: 'uniform sampler2D tVol; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tVol, vUv); }',
+    // (k: how much of it there is, so it can come in and go out over a moment or two rather than all at once)
+    vol.comp = new THREE.ShaderMaterial({ uniforms: { tVol: { value: vol.rt.texture }, uK: { value: 1 } }, vertexShader: POST_VS, fragmentShader: 'uniform sampler2D tVol; uniform float uK; varying vec2 vUv; void main(){ vec4 c = texture2D(tVol, vUv); gl_FragColor = vec4(c.rgb * uK, mix(1.0, c.a, uK)); }',
       depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.SrcAlphaFactor });
     postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     window.addEventListener('resize', resize);
@@ -570,7 +571,7 @@ const R = (() => {
   }
   function setBeam(i, s, on) {
     const b = beams[i]; if (!b) return;
-    b.visible = on && !vol.on;
+    b.visible = on && !(vol.on && vol.k > 0.5);
     if (!on) return;
     b.position.copy(s.position); b.lookAt(s.target.position);
     b.material.uniforms.uA.value = 0.07;
@@ -627,7 +628,7 @@ const R = (() => {
         renderer.setRenderTarget(vol.rt); renderer.render(vol.scene, postCam); renderer.setRenderTarget(rt);
         // (laid over the world now, before your hands and what you're holding are drawn, so they're never lost in it,
         // even against the sky)
-        const qm = quad.material; quad.material = vol.comp; renderer.render(quadScene, postCam); quad.material = qm;
+        const qm = quad.material; quad.material = vol.comp; vol.comp.uniforms.uK.value = vol.k; renderer.render(quadScene, postCam); quad.material = qm;
       }
       u.uVolOn.value = vol.on ? 1 : 0;
       // (on the ground with no air, the sun in the sky glares the same way, while its disc can be seen)
@@ -717,7 +718,13 @@ const R = (() => {
     // compile what a new object needs before it is ever drawn: where the browser can, off the main thread, so the
     // first frame that shows it doesn't stall. Calls back once it's ready (or after a while regardless).
     // (the volumetric air's own pass, compiled ahead of the first time it's needed)
-    warmVol() { const keep = renderer.getRenderTarget(); renderer.setRenderTarget(vol.rt); try { renderer.compile(vol.scene, postCam); } finally { renderer.setRenderTarget(keep); } },
+    // (both its passes: the march, and laying it over the frame; so the first time it's needed, out on the ground, nothing
+    // stops to compile)
+    warmVol() {
+      const keep = renderer.getRenderTarget(), qm = quad.material;
+      try { renderer.setRenderTarget(vol.rt); renderer.compile(vol.scene, postCam); renderer.setRenderTarget(rt); quad.material = vol.comp; renderer.compile(quadScene, postCam); }
+      finally { quad.material = qm; renderer.setRenderTarget(keep); }
+    },
     // (into: the scene it'll be drawn in, whose lights it's built for; anything already in that scene is compiled by
     // compiling the scene itself, or its own lights would be counted twice and the programs built for one too many)
     precompile(obj, cb, into = scene) {

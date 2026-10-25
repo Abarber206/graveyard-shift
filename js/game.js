@@ -246,7 +246,7 @@ const FLY = {
 // On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
 // sunUp over the ground under it; starting deep on the night side, only just up)
 const ENTRY = { turn0: 0.4, burn: 6.5, drop: 7, air: 27, white: 35, site: 35.2, hAir: 0.07, hEnd: 0.02, trip: 1.3, tripMax: 1.75, sunUp: 0.65 };
-const _wispW = new THREE.Color(1, 1, 1), _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3(), _rainV = new THREE.Vector3(), _rainP = new THREE.Vector3();
+const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3(), _rainV = new THREE.Vector3(), _rainP = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 17.4 };
@@ -3223,9 +3223,7 @@ const G = {
         // world filling more of the glass each time you look)
         if (t > E.burn + 6.5 && t < E.air - 2) { s.trimT = (s.trimT ?? 1.5) - dt; if (s.trimT <= 0) { s.trimT = 3.5 + Math.random() * 4; G.rcsPuff(false); Player.addShake(0.05); SFX.play('hiss_valve', new THREE.Vector3(Math.random() < 0.5 ? 11.5 : -6, 0.9, Math.random() < 0.5 ? -0.8 : 0.8), { vol: 0.6, ref: 3 }); } }
         // (the long fall reads as the speed it is, without going any faster: the view stretching a little as it gathers
-        // pace, a shiver through the frame building all the way down with the odd jolt, and once it's into the thin top
-        // of the air, wisps of it whipping back past the glass, faster and thicker the lower it gets, till the fire
-        // takes over)
+        // pace, and a shiver through the frame building all the way down with the odd jolt)
         const fall = sstep(E.burn + 3, E.air, t);
         G.fovAdd = 5 * fall + 6 * sstep(E.air - 2, E.white - 1.3, t);
         if (fall > 0.2 && Math.random() < dt * 1.4 * fall) Player.addShake(0.1 + 0.12 * Math.random());
@@ -3244,19 +3242,11 @@ const G = {
         // through, the braking burn that holds the ship up over the ground instead)
         const deep = sstep(E.air - 2, E.white - 1, t);
         Player.addShake(0.03 + 0.1 * burn + 0.08 * fall + 0.55 * G.entryHeat + 0.08 * deep + (S.airless ? 0.2 * deep : 0));
-        // (up in the dark the odd fleck of dust and ice catching the light goes flicking past; in the top of the air, its
-        // wisps stream back past the glass)
-        const wisp = S.airless ? 0 : sstep(0.22, 0.07, hr) * (1 - 0.7 * G.entryHeat) * (1 - S.shut.t), dust = fall * (1 - wisp) * (1 - G.entryHeat) * (1 - S.shut.t), fr = Math.min(4, dt * 60);
-        for (let i = Math.round(dust * 3 * fr + Math.random() * 0.6); i > 0; i--) {
+        // (up in the dark the odd fleck of dust and ice catching the light goes flicking past)
+        const dust = fall * (1 - G.entryHeat) * (1 - S.shut.t);
+        for (let i = Math.round(dust * 2 * Math.min(4, dt * 60) + Math.random() * 0.5); i > 0; i--) {
           const a = Math.random() * TAU, rr = 3 + Math.random() * 11;
-          FX.emit({ at: _fxA.set(25 + Math.random() * 40, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0, speed: [150, 220], grav: 0, drag: 0, life: [0.25, 0.45], size: [0.02, 0.05], streak: 0.05, color: [0.75, 0.8, 0.95], alpha: 0.5, fadeIn: 0.1 });
-        }
-        if (wisp > 0.02) {
-          const c = (G._wispC || (G._wispC = new THREE.Color())).set((SITE_LOOK[G.run.route] || SITE_LOOK.ashgrove).atmo).lerp(_wispW, 0.65);
-          for (let i = Math.round(wisp * 16 * fr + Math.random()); i > 0; i--) {
-            const a = (Math.random() - 0.5) * 2.8, rr = 4.5 + Math.random() * 7;
-            FX.emit({ at: _fxA.set(18 + Math.random() * 34, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr * (Math.random() < 0.5 ? -1 : 1)), dir: _fxD.set(-1, 0, 0), spread: 0, speed: [120, 180], grav: 0, drag: 0, life: [0.3, 0.5], size: [0.04, 0.1], streak: 0.12, color: [c.r, c.g, c.b], alpha: 0.3 + 0.5 * wisp, fadeIn: 0.1 });
-          }
+          FX.emit({ at: _fxA.set(25 + Math.random() * 40, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0, speed: [150, 220], grav: 0, drag: 0, life: [0.25, 0.45], size: [0.02, 0.04], streak: 0.008, color: [0.75, 0.8, 0.95], alpha: 0.5, fadeIn: 0.1 });
         }
         // going this fast into the air: it buffets the ship in sudden jolts, the frame groaning, and sparks of burning air
         // streak back past the glass (round the outside of the hull, never through it)
@@ -3528,7 +3518,7 @@ const G = {
         const rate = 1.6 + 14 * (1 - Math.min(1, G.ship.arrive));
         for (let i = Math.floor(rate * dt + Math.random()); i > 0; i--) {
           const a = Math.random() * TAU, rr = 2.5 + Math.random() * 12;
-          FX.emit({ at: _fxA.set(30 + Math.random() * 40, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0.04, speed: [80, 130], grav: 0, drag: 0, life: [0.6, 0.9], size: [0.02, 0.045], streak: 0.05, color: [0.8 * sd.vis + 0.15, 0.84 * sd.vis + 0.15, 0.95 * sd.vis + 0.18], alpha: 0.45, fadeIn: 0.15 });
+          FX.emit({ at: _fxA.set(30 + Math.random() * 40, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0.04, speed: [80, 130], grav: 0, drag: 0, life: [0.6, 0.9], size: [0.02, 0.045], streak: 0.01, color: [0.8 * sd.vis + 0.15, 0.84 * sd.vis + 0.15, 0.95 * sd.vis + 0.18], alpha: 0.45, fadeIn: 0.15 });
         }
       }
       R.fx.sun = 0; G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
@@ -3568,7 +3558,7 @@ const G = {
       scene.background.set(0x000000); scene.fog.color.set((G.round && SITES[G.round.site].murk) || 0x000000); scene.fog.density = 0.07 + 0.014 * dp;
       R.hemi.intensity = 0.04 * (1 - 0.32 * dp); R.hemi.color.set(0x8899aa).lerp(_orange.setRGB(0.42, 0.42, 0.33), Math.min(1, dp * 0.5)); R.hemi.groundColor.set(0x000000); R.sun.intensity = 0;
       // (the volumetric air, if it's on: the building's still, dusty air, the flashlights' beams showing in it)
-      if (Settings.volumetric) { R.vol.on = true; R.volIndoor(scene.fog.color, 0.062 + 0.012 * dp); scene.fog.density = 0; }
+      if (Settings.volumetric) { R.vol.on = true; R.vol.k = 1; R.volIndoor(scene.fog.color, 0.062 + 0.012 * dp); scene.fog.density = 0; }
       SFX.setEnv('interior');
       R.fx.exposure = 1.25 - 0.06 * dp;
       G.ext.group.visible = false; G.ext.rain.visible = false;
@@ -3579,16 +3569,19 @@ const G = {
       // (no air: the sun glares as it does from space, as long as it is up and nothing is across it)
       R.fx.sun = G.ext.biome.airless ? clamp(L.sun / 5, 0, 1) : 0; R.fx.sunDir.copy(L.sunDir);
       scene.background.copy(L.fog); scene.fog.color.copy(L.fog); scene.fog.density = L.fogDen;
-      // (the volumetric air, if it's on, takes over from the flat fog: not on an airless world, nor up in the cloud deck)
-      R.vol.on = !!Settings.volumetric && !G.ext.biome.airless && !G.camCarried; G.ext.fogDen = L.fogDen;
-      // height fog that pools in the hollows and glows toward the sun
-      R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);
       // riding the ship up through the cloud deck (or down out of it): from about 30 m above the ground the air
       // thickens into cloud, so the land falls away into it instead of running out
       const deck = G.camCarried && !G.ext.biome.airless ? sstep(28, 105, cam.y - G.ext.height(cam.x, cam.z)) : 0;
+      // (the volumetric air, if it's on, takes over from the flat fog: not on an airless world, nor up in the cloud deck;
+      // coming down out of the deck it comes in over a second or two as the flat fog goes, never all at once on landing)
+      const wantVol = !!Settings.volumetric && !G.ext.biome.airless && (!G.camCarried || deck < 0.02);
+      G.volK = G.volK == null ? (wantVol ? 1 : 0) : damp(G.volK, wantVol ? 1 : 0, 2.2, dt);
+      R.vol.on = G.volK > 0.003; R.vol.k = G.volK; G.ext.fogDen = L.fogDen;
+      // height fog that pools in the hollows and glows toward the sun
+      R.setFog(L.sunDir, L.scatter, L.fogFalloff, 0);
       G.ext.skyMat.uniforms.inCloud.value = deck * 0.97;
       if (deck > 0) { scene.fog.density = lerp(L.fogDen, 0.034, deck); R.setFog(L.sunDir, L.scatter, L.fogFalloff * (1 - deck), 0); }
-      if (R.vol.on) scene.fog.density = 0;
+      if (R.vol.on) scene.fog.density *= 1 - R.vol.k;
       G.ext.starMat.opacity = L.stars; G.ext.moon.material.opacity = L.night * 0.7;
       G.ext.sky.position.copy(cam); G.ext.stars.position.copy(cam);
       R.hemi.intensity = L.hemi; R.hemi.color.copy(L.hemiSky); R.hemi.groundColor.set(0x1a1712);
@@ -3621,7 +3614,8 @@ const G = {
       // (the rain smears the way it's passing you: straight down standing still, slanting back past the glass flying)
       { const rv = G.ext.rainMat.uniforms.uVel.value; if (G.rainAt && dt > 0) { _rainV.copy(cam).sub(_rainP).divideScalar(dt); if (_rainV.lengthSq() > 200 * 200) _rainV.set(0, 0, 0); rv.lerp(_rainV, 1 - Math.exp(-6 * dt)); } _rainP.copy(cam); G.rainAt = true; }
       // (and beads and runs on the ship's windows, out here or flying up through it; none once it's out in space)
-      { const gu = G.ship.glassU.uRainK; gu.value = damp(gu.value, raining && !G.ship.space.visible ? (G.round.weather === 'storm' ? 1 : 0.75) : 0, 0.5, dt); }
+      // (never with the blast shutters down over the glass: there's nothing to see of it then)
+      { G.rainGlass = damp(G.rainGlass || 0, raining && !G.ship.space.visible ? (G.round.weather === 'storm' ? 1 : 0.75) : 0, 0.5, dt); G.ship.glassU.uRainK.value = G.rainGlass * (1 - G.ship.shut.t); }
       // (and the rain splashing up off the ground and the water all round you)
       if (raining && dt > 0 && !G.camCarried) {
         const n = dt * (G.round.weather === 'storm' ? 110 : 60) + Math.random(), w = G.ext.water, l = FX.lit(cam, 'out');

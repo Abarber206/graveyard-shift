@@ -741,7 +741,7 @@ const R = (() => {
       Object.assign(sun.shadow.camera, { left: -size, right: size, top: size, bottom: -size, far });
       sun.shadow.camera.updateProjectionMatrix();
     },
-    get renderer() { return renderer; }, get scene() { return scene; }, get camera() { return camera; },
+    get renderer() { return renderer; }, get scene() { return scene; }, get camera() { return camera; }, get res() { return post.uniforms.uRes.value; },
     get bgScene() { return bgScene; }, get bgSun() { return bgSun; },
     get vmScene() { return vmScene; }, get vmCamera() { return vmCamera; },
     get hemi() { return hemi; }, get sun() { return sun; }, get flash() { return flash; }, get remote() { return remote; },

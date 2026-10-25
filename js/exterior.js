@@ -82,6 +82,7 @@ const Rings = {
     return Math.exp(-(-Math.log(1 - 0.94 * a) * 1.1 * lane(g.x, g.y) * lane(g.z, g.w)) / Math.max(Math.abs(sn), 0.03));
   },
 };
+const BOLT_N = 96; // the lightning bolt's ribbon segments, at most
 const _ringW = new THREE.Color(1, 1, 1), _ringP = new THREE.Vector3(), _pollen = new THREE.Color(1.3, 1.25, 0.5);
 function obbCollide(p, r, c) {
   const dx = p.x - c.x, dz = p.z - c.z, cs = Math.cos(c.ry), sn = Math.sin(c.ry);
@@ -2267,28 +2268,60 @@ const Exterior = (() => {
       const u = this.roid.material.uniforms; u.uSun.value.copy(L.sunDir); u.uGlint.value = clamp(1 - ang / 0.025, 0, 1) * 1.6;
     }
     buildRain(grp) {
-      // each drop is a short line; both of its vertices share the drop's head position (position) and differ
-      // only by aOff, so wrapping and the ship cut-out always treat a drop as one piece
-      const n = 2400, p = new Float32Array(n * 6), o = new Float32Array(n * 6), rr = new RNG(5);
-      for (let i = 0; i < n; i++) { const x = rr.range(-20, 20), y = rr.range(0, 24), z = rr.range(-20, 20); p.set([x, y, z, x, y, z], i * 6); o.set([0, 0, 0, 0.03, -0.55, 0], i * 6); }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('aOff', new THREE.BufferAttribute(o, 3));
+      // each drop is a thin ribbon facing you: its four corners share the drop's head position (position) and differ
+      // only by aQ (across, -1..1; along, head 0 to tail 1), so wrapping and the ship cut-out treat a drop as one piece
+      const n = 2400, p = new Float32Array(n * 12), q = new Float32Array(n * 8), ix = new Uint32Array(n * 6), rr = new RNG(5);
+      for (let i = 0; i < n; i++) {
+        const x = rr.range(-20, 20), y = rr.range(0, 24), z = rr.range(-20, 20);
+        p.set([x, y, z, x, y, z, x, y, z, x, y, z], i * 12); q.set([-1, 0, 1, 0, -1, 1, 1, 1], i * 8);
+        const v = i * 4; ix.set([v, v + 1, v + 2, v + 1, v + 3, v + 2], i * 6);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('aQ', new THREE.BufferAttribute(q, 2)); g.setIndex(new THREE.BufferAttribute(ix, 1));
       this.rainMat = new THREE.ShaderMaterial({
-        uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uVel: { value: new THREE.Vector3() }, uOp: { value: 0.2 }, uShipInv: this.shipInv },
-        vertexShader: `uniform float uTime; uniform vec3 uCam, uVel; uniform mat4 uShipInv; attribute vec3 aOff; varying float vA;${SHIP_HULL_GLSL}
+        uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uVel: { value: new THREE.Vector3() }, uOp: { value: 0.2 }, uRes: { value: R.res }, uShipInv: this.shipInv },
+        vertexShader: `uniform float uTime; uniform vec3 uCam, uVel; uniform vec2 uRes; uniform mat4 uShipInv; attribute vec2 aQ; varying float vA; varying vec2 vQ;${SHIP_HULL_GLSL}
+          bool inShip(vec3 w){ vec3 l = (uShipInv * vec4(w, 1.0)).xyz; return abs(l.z) < shipHW(l.x) && l.y < 4.6 && l.y > -1.4; }
           void main(){ vec3 h = position; h.y = mod(h.y - uTime * 22.0, 24.0) - 8.0;
             h.x = mod(h.x - uCam.x + 20.0, 40.0) - 20.0 + uCam.x; h.z = mod(h.z - uCam.z + 20.0, 40.0) - 20.0 + uCam.z; h.y += uCam.y;
-            // no rain inside (or through) the ship's hull, wherever the ship is, nor under it: just under its outline
-            vec3 l = (uShipInv * vec4(h, 1.0)).xyz;
-            if (abs(l.z) < shipHW(l.x) && l.y < 4.6 && l.y > -1.4) h.y -= 2000.0;
             // (each streak's tail drawn back along how it's moving past you: down, and back the way you're going)
             vec3 tail = -uVel * 0.03; float tl = length(tail); if (tl > 4.0) tail *= 4.0 / tl;
-            vec3 p = h + aOff + (aOff.y < 0.0 ? tail : vec3(0.0));
-            vA = 1.0 - clamp(length(p.xz - uCam.xz) / 20.0, 0.0, 1.0);
-            gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`,
-        fragmentShader: 'uniform float uOp; varying float vA; void main(){ gl_FragColor = vec4(0.62, 0.68, 0.75, uOp * vA); }',
-        transparent: true, depthWrite: false,
+            vec3 e = h + vec3(0.03, -0.55, 0.0) + tail;
+            vQ = aQ; vA = 1.0 - clamp(length(h.xz - uCam.xz) / 20.0, 0.0, 1.0);
+            // no rain inside (or through) the ship's hull, wherever the ship is, nor under it: no part of a streak
+            vec4 va = viewMatrix * vec4(h, 1.0), vb = viewMatrix * vec4(e, 1.0);
+            if (inShip(h) || inShip(e) || inShip(mix(h, e, 0.5)) || max(va.z, vb.z) > -0.05) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
+            // (the ends of the ribbon on screen, the width across it at least a pixel and a half so it never breaks up)
+            vec4 a = projectionMatrix * va, b = projectionMatrix * vb, c = aQ.y < 0.5 ? a : b;
+            vec2 d = (b.xy / b.w - a.xy / a.w) * uRes; d = dot(d, d) > 1e-6 ? normalize(d) : vec2(0.0, 1.0);
+            float px = max(1.5, 0.012 * projectionMatrix[1][1] * 0.5 * uRes.y / c.w);
+            c.xy += vec2(-d.y, d.x) * aQ.x * px / uRes * c.w;
+            gl_Position = c; }`,
+        fragmentShader: `uniform float uOp; varying float vA; varying vec2 vQ;
+          void main(){ float a = (1.0 - vQ.x * vQ.x) * smoothstep(0.0, 0.12, vQ.y) * (1.0 - 0.75 * vQ.y);
+            gl_FragColor = vec4(0.62, 0.68, 0.75, 1.7 * uOp * vA * a); }`,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
       });
-      this.rain = new THREE.LineSegments(g, this.rainMat); this.rain.frustumCulled = false; this.rain.visible = false; grp.add(this.rain);
+      this.rain = new THREE.Mesh(g, this.rainMat); this.rain.frustumCulled = false; this.rain.visible = false; grp.add(this.rain);
+
+      // and the bolt that comes down on someone holding metal out in it (G.strike): crossed ribbons along a jagged path,
+      // nothing drawn until there's a bolt (but in the scene, so its shader is compiled with the site's)
+      const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BOLT_N * 36), 3)); bg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(BOLT_N * 36), 3)); bg.setDrawRange(0, 0);
+      this.bolt = new THREE.Mesh(bg, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false }));
+      this.bolt.frustumCulled = false; grp.add(this.bolt);
+    }
+    drawBolt(at, seed) {
+      const r = new RNG(seed), P = this.bolt.geometry.attributes.position, C = this.bolt.geometry.attributes.color;
+      // (split again and again, each new midpoint knocked aside by a share of its span: the forked, crooked line of it)
+      const split = (a, b, n, k) => { if (n === 0) return [a]; const m = a.clone().lerp(b, 0.5), d = a.distanceTo(b) * k; m.x += r.range(-d, d); m.z += r.range(-d, d); m.y += r.range(-d, d) * 0.3; return [...split(a, m, n - 1, k), ...split(m, b, n - 1, k)]; };
+      const top = at.clone().add(new THREE.Vector3(r.range(-18, 18), 110, r.range(-18, 18))), main = [...split(top, at, 6, 0.4), at];
+      const ar = [[main, 0.22, 1]];
+      for (let b = 0; b < 2; b++) { const i = 8 + Math.floor(r.range(0, 32)), s0 = main[i], e = s0.clone().add(new THREE.Vector3(r.range(-14, 14), -r.range(14, 34), r.range(-14, 14))); ar.push([[...split(s0, e, 3, 0.35), e], 0.1, 0.45]); }
+      let v = 0;
+      for (const [pts, w, k] of ar) for (let i = 0; i < pts.length - 1 && v < BOLT_N * 12; i++) {
+        const a = pts[i], b = pts[i + 1], f = k * (0.6 + 0.4 * (1 - i / pts.length));
+        for (const [ox, oz] of [[w, 0], [0, w]]) for (const [p, s] of [[a, -1], [b, -1], [b, 1], [a, -1], [b, 1], [a, 1]]) { P.setXYZ(v, p.x + s * ox, p.y, p.z + s * oz); C.setXYZ(v, 1.6 * f, 1.8 * f, 2.6 * f); v++; }
+      }
+      P.needsUpdate = true; C.needsUpdate = true; this.bolt.geometry.setDrawRange(0, v); this.bolt.material.opacity = 1;
     }
     // the ship's wind on whatever grows round it: from (x, z), shoving s metres at the source, fading over about r
     setBlast(x, z, s, r) { this.blastU.value.set(x, z, s, r); }

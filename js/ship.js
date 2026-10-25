@@ -2957,20 +2957,20 @@ const Ship = (() => {
       // of the world turned to the ship, on its night side or the dusk along it, where lightning shows; by day it's lost
       // in the glare off the cloud tops)
       const cv = this.cloudU.uCamL.value, look = cv.lengthSq() > 0 ? (this._lLook || (this._lLook = new THREE.Vector3())).copy(cv).normalize() : null, sv = this.cloudU.uSunL.value;
-      while (on && cells.length < 6) {
+      while (on && cells.length < 4) {
         let c;
         for (let k = 0; k < 16; k++) {
           if (st.length && Math.random() < 0.75) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.9).add(s.c); }
           else { const lat = (Math.random() < 0.5 ? Math.random() * 0.35 : 0.6 + Math.random() * 0.45) * (Math.random() < 0.5 ? 1 : -1), lon = Math.random() * TAU; c = _gV.set(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat)); }
           if (!look || (c.normalize().dot(look) > 0.3 && (c.dot(sv) < 0.15 || k > 10))) break;
         }
-        cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.015 + Math.random() * 0.03, next: Math.random() * 1.5 });
+        cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.015 + Math.random() * 0.03, next: Math.random() * 4 });
       }
       for (const c of on ? cells : []) {
         if ((c.next -= dt) > 0) continue;
-        c.next = 0.4 + Math.random() * 2.2;
+        c.next = 2.5 + Math.random() * 5.5;
         // (a stroke, or now and then the whole cell going off at once, one flash setting off the next across it)
-        for (let n = Math.random() < 0.35 ? 2 + Math.floor(Math.random() * 2) : 1, d = 0; n > 0; n--, d += 0.04 + Math.random() * 0.12) {
+        for (let n = Math.random() < 0.2 ? 2 + Math.floor(Math.random() * 2) : 1, d = 0; n > 0; n--, d += 0.04 + Math.random() * 0.12) {
           const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(c.c, -v.dot(c.c)).normalize().multiplyScalar(c.r * Math.random());
           let k = -1; for (let j = 0; j < 6; j++) if (!fl[j]) { k = j; break; }
           if (k < 0) k = this.flashK = ((this.flashK || 0) + 1) % 6;

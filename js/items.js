@@ -63,7 +63,7 @@ const ITEMS = {
 // what each thing is made of, for the sound it makes landing (see SFX drop): metal rings, tin clinks, glass and
 // porcelain chime, wood and bone knock, plastic tocks, soft things just thump
 const ITEM_MAT = {
-  gear: 'metal', axle: 'metal', engine: 'metal', bolt: 'metal', goldbar: 'metal', core: 'metal', toolbox: 'metal', extinguisher: 'metal', typewriter: 'metal', register: 'metal', shovel: 'metal',
+  gear: 'metal', axle: 'metal', engine: 'metal', bolt: 'metal', goldbar: 'metal', core: 'metal', toolbox: 'metal', extinguisher: 'metal', typewriter: 'metal', register: 'metal', shovel: 'metal', shipcam: 'metal',
   bell: 'tin', candelabra: 'tin', watch: 'tin', horn: 'tin', kettle: 'tin', trophy: 'tin', lantern: 'tin', toy: 'tin', flashlight: 'tin', proflash: 'tin', stun: 'tin', cola: 'tin', nightshift: 'tin', mystery: 'tin', camera: 'tin', lamp: 'tin',
   flask: 'glass', jar: 'glass', bottle: 'glass', vase: 'porcelain', mask: 'porcelain', doll: 'porcelain',
   painting: 'wood', radio: 'wood', globe: 'wood', skull: 'bone',

@@ -227,7 +227,7 @@ const SITE_LOOT = {
 // how many real seconds a minute of the site's day takes (8 AM to midnight: a little over half an hour)
 const SEC_PER_MIN = 2;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 20;
+const PROTO = 21;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -246,11 +246,11 @@ const FLY = {
 // On the way it goes trip round the world (radians), or as far as tripMax to come down into the morning (the sun
 // sunUp over the ground under it; starting deep on the night side, only just up)
 const ENTRY = { turn0: 0.4, burn: 6.5, drop: 7, air: 27, white: 35, site: 35.2, hAir: 0.07, hEnd: 0.02, trip: 1.3, tripMax: 1.75, sunUp: 0.65 };
-const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3(), _rainV = new THREE.Vector3(), _rainP = new THREE.Vector3();
+const _shQ = new THREE.Quaternion(), _rq2b = new THREE.Quaternion(), _lampP = new THREE.Vector3(), _fxA = new THREE.Vector3(), _fxD = new THREE.Vector3(), _fxV = new THREE.Vector3(), _rainV = new THREE.Vector3(), _rainP = new THREE.Vector3(), _boltA = new THREE.Vector3();
 const _orange = new THREE.Color(), _ahead = new THREE.Vector3(), _air = new THREE.Color(), _smokeCol = new THREE.Color(), _peekV = new THREE.Vector3(), _noGlow = new THREE.Color(0, 0, 0), _eyeAt = new THREE.Vector3();
 // a hyperjump to another world: the drive winds up, punches through, drops out, brakes into orbit
 const JUMP = { punch: 2.2, drop: 6.4, end: 17.4 };
-const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', roach: 'Eaten alive', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
+const DEATH_TEXT = { water: 'Drowned', clown: 'Taken', crawler: 'Mauled', pale: 'Neck snapped', mannequin: 'Caught', leech: 'Suffocated', roach: 'Eaten alive', hound: 'Eaten', slime: 'Swallowed', left: 'Left behind', friend: 'Friendly fire', blast: 'Blown apart', meteor: 'Struck by a meteor', lightning: 'Struck by lightning', impact: 'Still on the surface at impact', sister: 'Cut open', bound: 'Dissolved', executioner: 'Executed', unknown: 'Unknown' };
 
 const G = {
   mode: 'menu', isHost: true, online: false, localId: 0, saveKey: null,
@@ -1006,6 +1006,9 @@ const G = {
       HUD.closeTerminal(true);
       SFX.play('engine', null, { dur: 3.6, vol: 1.1 });
     },
+    // the storm's lightning finding someone holding metal: the warning crackle, then the bolt
+    boltWarn(e) { const p = G.players.get(e.pid); if (p) p.boltT = 2.3; },
+    bolt(e) { const p = G.players.get(e.pid); if (p) p.boltT = 0; G.strike(e); },
     // a supply pod on its way down, and one being cracked open
     meteors(e) { Meteors.spawn(e); },
     mist(e) { G.addMist(e); },
@@ -1489,6 +1492,37 @@ const G = {
   // something the creatures might hear (see Brain.hear): how far it carries, and what kind of noise it is (step, voice,
   // item, door, bang); src: the creature that made it, which doesn't go after its own din
   addNoise(pos, r, zone, pid, kind = 'bang', src) { G.noises.push({ x: pos.x, y: pos.y, z: pos.z, r, zone, pid, age: 0, kind, src }); },
+  // whether someone's out under the open sky with metal in their hand (not under the ship, not on an airless moon)
+  boltBait(p) {
+    if (G.mode !== 'site' || !G.ext || G.ext.biome.airless || p.zone !== 'out' || G.inShip(p) || G.ship.onFootprint(p.pos.x, p.pos.z)) return false;
+    const id = p.slots[p.sel], it = id != null && G.items.get(id);
+    return !!it && ITEM_MAT[it.type] === 'metal';
+  },
+  // the bolt: a jagged white thread from the cloud to the ground, the whole sky lit, the crack of it on top of you (and
+  // later the further off you are)
+  strike(e) {
+    if (G.mode !== 'site' || !G.ext) return;
+    const gy = G.groundAt(e.x, e.z), at = new THREE.Vector3(e.x, gy, e.z), d = at.distanceTo(R.camera.position);
+    G.ext.drawBolt(at, e.s); G.boltLife = 0.45;
+    // (down in the facility, only the thunder, muffled)
+    const inside = G.me() && G.me().zone === 'in';
+    if (!inside) { R.fx.flash = Math.max(R.fx.flash, d < 60 ? 0.8 : 0.55); G.dir.flashT = 0.4; }
+    SFX.play('thunder', null, { vol: inside ? 0.4 : d < 40 ? 1.5 : 1.1, delay: d / 340 }); SFX.play('zap', at.clone().setY(gy + 1), { vol: 1, ref: 6 });
+    FX.sparks(at.clone().setY(gy + (e.hit ? 1.1 : 0.2)), { n: [30, 45], spread: 1.8, speed: [3, 9], floor: gy });
+    FX.puff(at.clone().setY(gy + 0.3), { color: [0.3, 0.3, 0.32], alpha: 0.3 });
+  },
+  // before it: sparks dancing off the metal in their hand, fizzing, quicker as it comes (every peer sees the same)
+  stepBolts(dt) {
+    for (const p of G.players.values()) {
+      if (!(p.boltT > 0)) continue;
+      p.boltT -= dt; if (!p.alive) { p.boltT = 0; continue; }
+      const me = p.id === G.localId, at = _boltA;
+      if (me) { const c = R.camera; at.set(0.22, -0.24, -0.5).applyQuaternion(c.quaternion).add(c.position); }
+      else at.copy(p.rpos).setY(p.rpos.y + 1.05);
+      if (Math.random() < dt * (5 + 14 * (1 - p.boltT / 2.3))) FX.sparks(at, { n: [1, 3], spread: 2.4, speed: [0.4, 1.8], size: [0.008, 0.016], life: [0.08, 0.25], grav: 2 });
+      if ((p.zapT = (p.zapT || 0) - dt) <= 0) { p.zapT = 0.3 + Math.random() * 0.45; SFX.play('zap', at, { vol: me ? 0.45 : 0.6, ref: 3 }); }
+    }
+  },
   hurtPlayer(pid, dmg, cause, kx = 0, kz = 0, silent = false) {
     const p = G.players.get(pid); if (!p || !p.alive) return;
     const hp = Math.max(0, p.hp - dmg);
@@ -1527,7 +1561,7 @@ const G = {
   // how a body goes as it dies: thrown away from what killed it (the blow's own push, or else away from the creature),
   // the harder the blow the harder, the top of it going first so it topples over the way it was hit
   deathThrow(e, pos, mon) {
-    const k = { blast: 8, meteor: 10, impact: 10, executioner: 5, clown: 5, crawler: 4.5, hound: 4, friend: 3.5, sister: 3, bound: 2.5, water: 0.4 }[e.cause] ?? 2;
+    const k = { blast: 8, meteor: 10, lightning: 6, impact: 10, executioner: 5, clown: 5, crawler: 4.5, hound: 4, friend: 3.5, sister: 3, bound: 2.5, water: 0.4 }[e.cause] ?? 2;
     const d = new THREE.Vector3(e.kx || 0, 0, e.kz || 0);
     if (d.lengthSq() < 1e-4 && mon && mon.pos) d.set(pos.x - mon.pos.x, 0, pos.z - mon.pos.z);
     if (d.lengthSq() < 1e-4) d.set(Math.random() - 0.5, 0, Math.random() - 0.5);
@@ -2328,6 +2362,22 @@ const G = {
         if (G.ext.water - p.pos.y > 1.45) G.hurtPlayer(p.id, 20, 'water');
       }
     }
+    // Out in the rain with a lump of metal in your hand you're the best way down for the lightning: now and then the air
+    // round it starts to crackle and spark (two seconds or so to let go of it), then the bolt comes down where you stand
+    const wx = G.round && G.round.weather, wet = wx === 'storm' ? 0.008 : wx === 'rain' ? 0.0025 : 0;
+    if (wet && G.mode === 'site' && !G.flight && G.ext && (G.boltT = (G.boltT || 0) - dt) <= 0) {
+      G.boltT = 0.5;
+      for (const p of G.alivePlayers()) if (!p.boltAt && G.now > (p.boltCool || 0) && G.boltBait(p) && Math.random() < wet * 0.5) {
+        p.boltAt = G.now + 2300; p.boltFrom = { x: p.pos.x, z: p.pos.z }; G.emit({ e: 'boltWarn', pid: p.id });
+      }
+    }
+    for (const p of G.alivePlayers()) if (p.boltAt && G.now >= p.boltAt) {
+      const live = G.now - p.boltAt < 3000 && G.mode === 'site' && G.ext; p.boltAt = 0; p.boltCool = G.now + 25000; if (!live) continue;
+      // (let go of it in time and it takes what you dropped instead)
+      const hit = G.boltBait(p), at = hit ? p.pos : p.boltFrom;
+      G.emit({ e: 'bolt', pid: p.id, hit, x: +at.x.toFixed(2), z: +at.z.toFixed(2), s: Math.floor(Math.random() * 1e6) });
+      if (hit) G.hurtPlayer(p.id, 80, 'lightning');
+    }
     // On an airless moon or rock the sky isn't empty. Some landings a meteoroid shower comes through (a light one, or a
     // heavy one with a big strike in it), the survey office radioing a warning half a minute ahead. And now and then the
     // shower is only the leading edge: debris shed by something much bigger on its way in. It shows as a new star, then
@@ -3081,7 +3131,7 @@ const G = {
     me.talking = G.online && Voice.talking; me.loud = me.talking ? Voice.loudness : 0;
     if (G.isHost) { G.hostTick(dt); Bots.update(dt); }
     G.netTick(dt);
-    G.presentPlayers(dt);
+    G.presentPlayers(dt); G.stepBolts(dt);
     for (const m of G.monsters.values()) {
       if (m._carry) { m.mesh.rotation.copy(m._carry); m._carry = null; }
       m.present(dt, G.isHost, G.now, me);
@@ -3610,7 +3660,8 @@ const G = {
         R.sun.target.position.copy(tgt); R.sun.position.copy(tgt).addScaledVector(L.sunDir, 140);
       }
       const raining = G.round.weather === 'rain' || G.round.weather === 'storm';
-      G.ext.rain.visible = raining; G.ext.rainMat.uniforms.uTime.value = t; G.ext.rainMat.uniforms.uCam.value.copy(cam);
+      // (none aboard with the shutters down: there's no seeing out, so none of it must come in)
+      G.ext.rain.visible = raining && !(G.ship.shut.t > 0.3 && (G.camCarried || G.ship.inside(cam.x, cam.y, cam.z))); G.ext.rainMat.uniforms.uTime.value = t; G.ext.rainMat.uniforms.uCam.value.copy(cam);
       // (the rain smears the way it's passing you: straight down standing still, slanting back past the glass flying)
       { const rv = G.ext.rainMat.uniforms.uVel.value; if (G.rainAt && dt > 0) { _rainV.copy(cam).sub(_rainP).divideScalar(dt); if (_rainV.lengthSq() > 200 * 200) _rainV.set(0, 0, 0); rv.lerp(_rainV, 1 - Math.exp(-6 * dt)); } _rainP.copy(cam); G.rainAt = true; }
       // (and beads and runs on the ship's windows, out here or flying up through it; none once it's out in space)
@@ -3642,6 +3693,8 @@ const G = {
         if (G.dir.light <= 0) { G.dir.light = 8 + Math.random() * 18; R.fx.flash = 0.55; G.dir.flashT = 0.25; SFX.play('thunder', null, { vol: 1, delay: 0.4 + Math.random() * 2 }); }
       }
       if (G.dir.flashT > 0) { G.dir.flashT -= dt; R.hemi.intensity += 3 * (Math.random() < 0.5 ? 1 : 0.3); }
+      // (a bolt that came down: on, a flicker off, on again, then gone)
+      if (G.boltLife > 0) { G.boltLife -= dt; const u = 0.45 - G.boltLife; G.ext.bolt.material.opacity = G.boltLife <= 0 ? 0 : u < 0.06 ? 1 : u < 0.11 ? 0.2 : u < 0.2 ? 1 : 1 - (u - 0.2) / 0.25; }
     }
     // NIGHT EYES: the dark gives up a little more
     R.fx.exposure *= Player.fx.light;

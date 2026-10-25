@@ -2950,7 +2950,7 @@ const G = {
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
         // (the roof hatch: climb when its lid's open; open and shut it from below or off the deck, landed)
         const lid = G.ship.roofLid.open;
-        if (o.kind === 'ladder') { if (me.roof) continue; label = !G.roofOpen() ? 'Roof hatch (sealed)' : lid ? 'Climb to the roof' : 'Open the roof hatch'; }
+        if (o.kind === 'ladder') { if (me.roof) continue; label = 'Climb the ladder'; }
         if (o.kind === 'roofHatch') { if (!me.roof || !lid) continue; label = 'Climb down'; }
         if (o.kind === 'roofLid') {
           if (o.below ? me.roof : !me.roof || (o.when === 'open') !== lid) continue;
@@ -3014,9 +3014,9 @@ const G = {
       case 'hatch': G.request({ a: 'hatch' }); break;
       case 'jump': G.request({ a: 'engage' }); break;
       case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
-      case 'ladder': if (!G.roofOpen()) SFX.play('err', null, { vol: 0.5 }); else if (G.ship.roofLid.open) Player.climb(true); else G.request({ a: 'roofLid', open: true }); break;
+      case 'ladder': Player.grabLadder(false); break;
       case 'roofLid': if (G.roofOpen()) G.request({ a: 'roofLid', open: !G.ship.roofLid.open }); else SFX.play('err', null, { vol: 0.5 }); break;
-      case 'roofHatch': Player.climb(false); break;
+      case 'roofHatch': Player.grabLadder(true); break;
       case 'roverPick': G.request({ a: 'roverPick' }); break;
       case 'basketPut': G.request({ a: 'basketPut', item: t.ref }); break;
       case 'basketTake': { const slot = me.slots[me.sel] == null ? me.sel : me.slots.indexOf(null); if (slot >= 0) G.request({ a: 'basketTake', item: t.ref, slot }); break; }

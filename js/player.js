@@ -53,6 +53,26 @@ const Player = (() => {
   // through the trunk, and out (the deck's ROOF; standing on it, me.roof)
   let climb = null;
   const LADDER = { x: AIRLOCK.x1 - 0.58, z: ROOF.hz };
+  // holding on to the airlock ladder: forward climbs, back goes down, looking about as you like. Off the bottom rung onto
+  // the lock's floor; up through the hatch onto the roof deck if its lid is open (shut, you push it open when you come
+  // up under it, if it may be opened at all: else that's as far as you go); jump or use lets go
+  let ladder = null;
+  function stepLadder(me, dt, cam, ui) {
+    const L = ladder, F = ROOF, open = G.ship.roofLid.open && G.roofOpen();
+    let f = 0;
+    if (!ui) { f = (Input.down('KeyW') ? 1 : 0) - (Input.down('KeyS') ? 1 : 0); if (Input.analog.y) f = Input.analog.y; }
+    const top = open ? F.y : F.y + 0.32 - 1.85, y0 = L.y;
+    // (and if the lid comes down while you're up past it, you duck back under it)
+    L.y = clamp(L.y + f * 1.3 * dt, 0, Math.max(top, L.y - 1.5 * dt));
+    if (f > 0 && L.y >= top - 0.01 && !open && G.roofOpen() && (L.push -= dt) <= 0) { L.push = 1.2; G.request({ a: 'roofLid', open: true }); }
+    L.acc += Math.abs(L.y - y0); if (L.acc > 0.3) { L.acc = 0; SFX.play('step', null, { surf: 'metal', vol: 0.45, pitch: 1.15 }); }
+    me.pos.set(LADDER.x, L.y, LADDER.z); vel.set(0, 0, 0); kick.set(0, 0, 0);
+    me.moving = f !== 0; me.air = false; me.sprint = false;
+    if (f > 0 && L.y >= F.y - 0.001) { ladder = null; me.roof = true; me.pos.set(F.hx + 0.05, F.y, F.hz - 0.85); onGround = true; }
+    else if (f < 0 && L.y <= 0.001) { ladder = null; me.pos.set(LADDER.x - 0.2, 0, LADDER.z); onGround = true; }
+    else if (!ui && (Input.hit('Space') || Input.hit('KeyE'))) { ladder = null; onGround = L.y < 0.05; me.pos.x -= 0.15; }
+    cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+  }
   function stepClimb(me, dt, cam) {
     const c = climb, F = ROOF; c.t += dt;
     const a = clamp(c.t / 0.5, 0, 1), b = clamp((c.t - 0.5) / 0.55, 0, 1);
@@ -238,7 +258,7 @@ const Player = (() => {
     setSuit(c) { if (vm.sleeveMat) vm.sleeveMat.color.set(suitHex(c)); },
     spawn(x, y, z, yaw) {
       const me = G.me(); if (!me) return;
-      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null; me.roof = false; climb = null;
+      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null; me.roof = false; climb = null; ladder = null;
       stamina = 1; exhausted = false; deathCam = null;
     },
     knock(kx, kz) { kick.x += kx; kick.z += kz; shake = Math.max(shake, 0.6); },
@@ -265,6 +285,14 @@ const Player = (() => {
     // up the airlock ladder onto the roof deck, or back down
     climb(up) { const me = G.me(); if (!me || climb) return; if (seat != null) standUp(me); climb = { t: 0, up, x0: me.pos.x, z0: me.pos.z, swap: false, rung: 0.1 }; },
     get climbing() { return !!climb; },
+    // take hold of the airlock ladder where you stand on it (from the roof: at its head, coming down through the hatch)
+    grabLadder(fromTop) {
+      const me = G.me(); if (!me || climb || ladder) return; if (seat != null) standUp(me);
+      ladder = { y: fromTop ? ROOF.y - 0.05 : clamp(me.pos.y, 0, 1.2), acc: 0, push: 0 };
+      if (fromTop) { me.roof = false; me.pitch = -0.6; } else me.yaw = -Math.PI / 2;
+      SFX.play('step', null, { surf: 'metal', vol: 0.5, pitch: 1.1 });
+    },
+    get onLadder() { return !!ladder; },
     swing() { swingT = SWING; swungHard = false; },
     resetVM() { setVM(null); },
     // where the walkie-talkie in your hand is on screen (just over the tip of its antenna), for words coming out of it:
@@ -348,6 +376,8 @@ const Player = (() => {
         me.yaw -= Input.mdx * s;
         me.pitch = clamp(me.pitch - Input.mdy * s * (Settings.invertY ? -1 : 1), -1.52, 1.52);
       }
+      // ---------- on the ladder: both hands on it, nothing else to do but climb or let go ----------
+      if (ladder) { vm.root.visible = false; target = null; HUD.prompt({ label: 'Let go' }, me); stepLadder(me, dt, cam, ui); return; }
       // ---------- sitting: look around from the seat; any move key, jump or crouch gets you up ----------
       if (seat != null) {
         const S = G.ship.seats[seat];

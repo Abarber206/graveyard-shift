@@ -10193,7 +10193,7 @@ const SHIP = { doorX0: -3.15, doorX1: -1.85, doorH: 2.15, h: 3.4, ground: -1.2 }
 const AIRLOCK = { x0: -3.62, x1: -1.38, z0: 2.55, ix0: -3.05, ix1: -1.95, ih: 2.15 };
 // the roof deck: a railed platform up on the crown over the bay (its floor at y, inside x0..x1, z0..z1), reached by a
 // ladder in the airlock and a hatch (hx, hz) up through its ceiling and the hull
-const ROOF = { x0: -4.4, x1: -0.6, z0: -0.6, z1: 3.9, y: 5.15, hx: -1.85, hz: 3.0, rail: 1.05 };
+const ROOF = { x0: -6.0, x1: -0.6, z0: -0.6, z1: 3.9, y: 5.15, hx: -1.85, hz: 3.0, rail: 1.05 };
 // a delivery in orbit, second by second: the inner door shuts and the drone shows far off, a blinking light that takes
 // its time coming in (long enough for the crew to gather at the portholes); the lock vents and the hatch opens, the
 // drone comes in, sets the order down, backs out and leaves; the hatch shuts and the lock repressurises
@@ -10834,8 +10834,10 @@ const Ship = (() => {
       // its frame, and stilts down onto the hull (longer toward the shoulder, where the crown falls away)
       for (const z of [R.z0, R.z1]) this.pb(D, w, 0.12, 0.08, cx, R.y - 0.11, z);
       for (const x of [R.x0, R.x1]) this.pb(D, 0.08, 0.12, d, x, R.y - 0.11, cz);
-      for (let i = 0; i < 4; i++) this.pb(D, 0.06, 0.08, d, R.x0 + (i + 0.5) * w / 4, R.y - 0.09, cz);
+      for (let i = 0, n = Math.round(w); i < n; i++) this.pb(D, 0.06, 0.08, d, R.x0 + (i + 0.5) * w / n, R.y - 0.09, cz);
       for (const x of [R.x0 + 0.15, cx, R.x1 - 0.15]) for (const z of [R.z0 + 0.15, cz, R.z1 - 0.15]) {
+        // (none down onto the roof vent the deck's back end stands over)
+        if (Math.hypot((x + 5.5) / 0.62, (z - 1.95) / 0.47) < 1) continue;
         const top = skinTop(x, z), h = R.y - 0.17 - top + 0.1; if (h <= 0.05) continue;
         this.pc(D, 0.045, 0.06, h, x, top - 0.1 + h / 2, z, 0, 0, 0, 8);
         this.pc(D, 0.12, 0.12, 0.03, x, top + 0.01, z, 0, 0, 0, 10);
@@ -19680,6 +19682,26 @@ const Player = (() => {
   // through the trunk, and out (the deck's ROOF; standing on it, me.roof)
   let climb = null;
   const LADDER = { x: AIRLOCK.x1 - 0.58, z: ROOF.hz };
+  // holding on to the airlock ladder: forward climbs, back goes down, looking about as you like. Off the bottom rung onto
+  // the lock's floor; up through the hatch onto the roof deck if its lid is open (shut, you push it open when you come
+  // up under it, if it may be opened at all: else that's as far as you go); jump or use lets go
+  let ladder = null;
+  function stepLadder(me, dt, cam, ui) {
+    const L = ladder, F = ROOF, open = G.ship.roofLid.open && G.roofOpen();
+    let f = 0;
+    if (!ui) { f = (Input.down('KeyW') ? 1 : 0) - (Input.down('KeyS') ? 1 : 0); if (Input.analog.y) f = Input.analog.y; }
+    const top = open ? F.y : F.y + 0.32 - 1.85, y0 = L.y;
+    // (and if the lid comes down while you're up past it, you duck back under it)
+    L.y = clamp(L.y + f * 1.3 * dt, 0, Math.max(top, L.y - 1.5 * dt));
+    if (f > 0 && L.y >= top - 0.01 && !open && G.roofOpen() && (L.push -= dt) <= 0) { L.push = 1.2; G.request({ a: 'roofLid', open: true }); }
+    L.acc += Math.abs(L.y - y0); if (L.acc > 0.3) { L.acc = 0; SFX.play('step', null, { surf: 'metal', vol: 0.45, pitch: 1.15 }); }
+    me.pos.set(LADDER.x, L.y, LADDER.z); vel.set(0, 0, 0); kick.set(0, 0, 0);
+    me.moving = f !== 0; me.air = false; me.sprint = false;
+    if (f > 0 && L.y >= F.y - 0.001) { ladder = null; me.roof = true; me.pos.set(F.hx + 0.05, F.y, F.hz - 0.85); onGround = true; }
+    else if (f < 0 && L.y <= 0.001) { ladder = null; me.pos.set(LADDER.x - 0.2, 0, LADDER.z); onGround = true; }
+    else if (!ui && (Input.hit('Space') || Input.hit('KeyE'))) { ladder = null; onGround = L.y < 0.05; me.pos.x -= 0.15; }
+    cam.position.set(me.pos.x, me.pos.y + eyeH(), me.pos.z); cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+  }
   function stepClimb(me, dt, cam) {
     const c = climb, F = ROOF; c.t += dt;
     const a = clamp(c.t / 0.5, 0, 1), b = clamp((c.t - 0.5) / 0.55, 0, 1);
@@ -19865,7 +19887,7 @@ const Player = (() => {
     setSuit(c) { if (vm.sleeveMat) vm.sleeveMat.color.set(suitHex(c)); },
     spawn(x, y, z, yaw) {
       const me = G.me(); if (!me) return;
-      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null; me.roof = false; climb = null;
+      me.pos.set(x, y, z); me.yaw = yaw; me.pitch = 0; vel.set(0, 0, 0); kick.set(0, 0, 0); seat = null; me.seat = null; me.roof = false; climb = null; ladder = null;
       stamina = 1; exhausted = false; deathCam = null;
     },
     knock(kx, kz) { kick.x += kx; kick.z += kz; shake = Math.max(shake, 0.6); },
@@ -19892,6 +19914,14 @@ const Player = (() => {
     // up the airlock ladder onto the roof deck, or back down
     climb(up) { const me = G.me(); if (!me || climb) return; if (seat != null) standUp(me); climb = { t: 0, up, x0: me.pos.x, z0: me.pos.z, swap: false, rung: 0.1 }; },
     get climbing() { return !!climb; },
+    // take hold of the airlock ladder where you stand on it (from the roof: at its head, coming down through the hatch)
+    grabLadder(fromTop) {
+      const me = G.me(); if (!me || climb || ladder) return; if (seat != null) standUp(me);
+      ladder = { y: fromTop ? ROOF.y - 0.05 : clamp(me.pos.y, 0, 1.2), acc: 0, push: 0 };
+      if (fromTop) { me.roof = false; me.pitch = -0.6; } else me.yaw = -Math.PI / 2;
+      SFX.play('step', null, { surf: 'metal', vol: 0.5, pitch: 1.1 });
+    },
+    get onLadder() { return !!ladder; },
     swing() { swingT = SWING; swungHard = false; },
     resetVM() { setVM(null); },
     // where the walkie-talkie in your hand is on screen (just over the tip of its antenna), for words coming out of it:
@@ -19975,6 +20005,8 @@ const Player = (() => {
         me.yaw -= Input.mdx * s;
         me.pitch = clamp(me.pitch - Input.mdy * s * (Settings.invertY ? -1 : 1), -1.52, 1.52);
       }
+      // ---------- on the ladder: both hands on it, nothing else to do but climb or let go ----------
+      if (ladder) { vm.root.visible = false; target = null; HUD.prompt({ label: 'Let go' }, me); stepLadder(me, dt, cam, ui); return; }
       // ---------- sitting: look around from the seat; any move key, jump or crouch gets you up ----------
       if (seat != null) {
         const S = G.ship.seats[seat];
@@ -24255,7 +24287,7 @@ const G = {
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
         // (the roof hatch: climb when its lid's open; open and shut it from below or off the deck, landed)
         const lid = G.ship.roofLid.open;
-        if (o.kind === 'ladder') { if (me.roof) continue; label = !G.roofOpen() ? 'Roof hatch (sealed)' : lid ? 'Climb to the roof' : 'Open the roof hatch'; }
+        if (o.kind === 'ladder') { if (me.roof) continue; label = 'Climb the ladder'; }
         if (o.kind === 'roofHatch') { if (!me.roof || !lid) continue; label = 'Climb down'; }
         if (o.kind === 'roofLid') {
           if (o.below ? me.roof : !me.roof || (o.when === 'open') !== lid) continue;
@@ -24319,9 +24351,9 @@ const G = {
       case 'hatch': G.request({ a: 'hatch' }); break;
       case 'jump': G.request({ a: 'engage' }); break;
       case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
-      case 'ladder': if (!G.roofOpen()) SFX.play('err', null, { vol: 0.5 }); else if (G.ship.roofLid.open) Player.climb(true); else G.request({ a: 'roofLid', open: true }); break;
+      case 'ladder': Player.grabLadder(false); break;
       case 'roofLid': if (G.roofOpen()) G.request({ a: 'roofLid', open: !G.ship.roofLid.open }); else SFX.play('err', null, { vol: 0.5 }); break;
-      case 'roofHatch': Player.climb(false); break;
+      case 'roofHatch': Player.grabLadder(true); break;
       case 'roverPick': G.request({ a: 'roverPick' }); break;
       case 'basketPut': G.request({ a: 'basketPut', item: t.ref }); break;
       case 'basketTake': { const slot = me.slots[me.sel] == null ? me.sel : me.slots.indexOf(null); if (slot >= 0) G.request({ a: 'basketTake', item: t.ref, slot }); break; }

@@ -7,7 +7,7 @@ const SHIP = { doorX0: -3.15, doorX1: -1.85, doorH: 2.15, h: 3.4, ground: -1.2 }
 const AIRLOCK = { x0: -3.62, x1: -1.38, z0: 2.55, ix0: -3.05, ix1: -1.95, ih: 2.15 };
 // the roof deck: a railed platform up on the crown over the bay (its floor at y, inside x0..x1, z0..z1), reached by a
 // ladder in the airlock and a hatch (hx, hz) up through its ceiling and the hull
-const ROOF = { x0: -4.4, x1: -0.6, z0: -0.6, z1: 3.9, y: 5.15, hx: -1.85, hz: 3.0, rail: 1.05 };
+const ROOF = { x0: -6.0, x1: -0.6, z0: -0.6, z1: 3.9, y: 5.15, hx: -1.85, hz: 3.0, rail: 1.05 };
 // a delivery in orbit, second by second: the inner door shuts and the drone shows far off, a blinking light that takes
 // its time coming in (long enough for the crew to gather at the portholes); the lock vents and the hatch opens, the
 // drone comes in, sets the order down, backs out and leaves; the hatch shuts and the lock repressurises
@@ -648,8 +648,10 @@ const Ship = (() => {
       // its frame, and stilts down onto the hull (longer toward the shoulder, where the crown falls away)
       for (const z of [R.z0, R.z1]) this.pb(D, w, 0.12, 0.08, cx, R.y - 0.11, z);
       for (const x of [R.x0, R.x1]) this.pb(D, 0.08, 0.12, d, x, R.y - 0.11, cz);
-      for (let i = 0; i < 4; i++) this.pb(D, 0.06, 0.08, d, R.x0 + (i + 0.5) * w / 4, R.y - 0.09, cz);
+      for (let i = 0, n = Math.round(w); i < n; i++) this.pb(D, 0.06, 0.08, d, R.x0 + (i + 0.5) * w / n, R.y - 0.09, cz);
       for (const x of [R.x0 + 0.15, cx, R.x1 - 0.15]) for (const z of [R.z0 + 0.15, cz, R.z1 - 0.15]) {
+        // (none down onto the roof vent the deck's back end stands over)
+        if (Math.hypot((x + 5.5) / 0.62, (z - 1.95) / 0.47) < 1) continue;
         const top = skinTop(x, z), h = R.y - 0.17 - top + 0.1; if (h <= 0.05) continue;
         this.pc(D, 0.045, 0.06, h, x, top - 0.1 + h / 2, z, 0, 0, 0, 8);
         this.pc(D, 0.12, 0.12, 0.03, x, top + 0.01, z, 0, 0, 0, 10);

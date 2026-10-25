@@ -200,7 +200,10 @@ class Avatar {
       this.carryDim = { hw: Math.min(0.3, (size.x / 2 + 0.02) / S), z: zc / S };
       this.carry.add(w);
     } else {
-      if (this.style === 'tool') m.position.set(-mid.x, -mid.y, -box.max.z + 0.12);           // grab the shovel near its T-grip
+      // the shovel: the fist round the shaft a little behind the blade, the shaft across the palm (out the front of the
+      // forearm, not on down past the fingers), so it's carried at the side, blade ahead and a little low, clear of the
+      // legs and the floor
+      if (this.style === 'tool') { m.position.set(-mid.x, -mid.y, -0.05); w.rotation.x = 0.52; }
       else if (this.style === 'aim') m.position.set(-mid.x, -mid.y, -mid.z + 0.03);           // torch body in the palm
       else m.position.set(-mid.x, -box.min.y - Math.min(0.05, size.y * 0.3), -mid.z);          // sits in the palm, upright
       this.armR.grip.add(w);

@@ -1989,7 +1989,7 @@ const Exterior = (() => {
       for (let t = 0; t < 80 && placed < 3; t++) {
         const p = this.pathPoint(r.range(0.15, 0.85)), l = Math.hypot(p.dx, p.dz) || 1, side = r.chance(0.5) ? 1 : -1, off = r.range(6, 14);
         const x = p.x + (-p.dz / l) * off * side, z = p.z + (p.dx / l) * off * side;
-        if (!this.clearOf(x, z, -3) || Math.hypot(x, z) < 26) continue;
+        if (!this.clearOf(x, z, -3) || this.wreckNear(x, z, 2) || Math.hypot(x, z) < 26) continue;
         this.vehicle(grp, x, z, Math.atan2(p.dx, p.dz) + r.range(-0.6, 0.6), new RNG(this.seed + t * 17));
         placed++;
       }
@@ -2021,13 +2021,13 @@ const Exterior = (() => {
       }
       return null;
     }
-    // (whether a spot is within m of the wreck's two big pieces, plus a margin for the debris round them)
-    wreckNear(x, z, m) { const w = this.wreckAt; return !!w && (Math.hypot(x - w.x, z - w.z) < 9 + m || Math.hypot(x - w.x1, z - w.z1) < 9 + m); }
-    // (whether a spot is under the wreck's big pieces, where nothing grows)
+    // (whether a spot is within m of the wreck: its two big pieces and the furrow between, with the debris thrown round them)
+    wreckNear(x, z, m) { const w = this.wreckAt; return !!w && (Math.hypot(x - w.x, z - w.z) < 10 + m || Math.hypot(x - (w.x + w.x1) / 2, z - (w.z + w.z1) / 2) < 9 + m || Math.hypot(x - w.x1, z - w.z1) < 10 + m); }
+    // (whether a spot is under the wreck's big pieces or in the furrow it churned up, where nothing grows)
     underWreck(x, z) {
       const w = this.wreckAt; if (!w) return false;
       const fx = Math.sin(w.ry), fz = Math.cos(w.ry), dx = x - w.x, dz = z - w.z, a = dx * fx + dz * fz, b = dx * fz - dz * fx;
-      return (Math.abs(b) < 2.2 && a > -4.4 && a < 4.8) || Math.hypot(x - w.x1, z - w.z1) < 2.6;
+      return (Math.abs(b) < 3.2 && a > -22 && a < 6.5) || Math.hypot(x - w.x1, z - w.z1) < 2.8;
     }
     buildShipwreck(grp) {
       const w = this.wreckAt; if (!w) return;

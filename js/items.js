@@ -230,7 +230,7 @@ const ItemMeshes = (() => {
     flashlight(g) { torch(g, 0.021, 0.036, 0.17, m.yellow(), m.black()); },
     proflash(g) { torch(g, 0.025, 0.046, 0.22, m.dsteel(), m.blue()); },
     // a navvy's spade: an ash shaft, a D-grip of steel prongs and a worn black crossbar at the top (+z), a riveted
-    // steel socket, and a pointed blade (-z) dished into a scoop and set at a slight lift to the shaft, its green paint
+    // steel socket, and a pointed blade (-z) dished into a scoop, straight on down the line of the shaft, its green paint
     // long since worn off the edge and the tread
     shovel(g) {
       add(g, cyl(0.017, 0.021, 0.95), m.wood(), 0, 0.03, 0.175, Math.PI / 2);
@@ -239,11 +239,11 @@ const ItemMeshes = (() => {
       add(g, cyl(0.022, 0.019, 0.05, 10), m.dsteel(), 0, 0.03, 0.645, Math.PI / 2);
       add(g, cyl(0.021, 0.03, 0.16, 12), m.dsteel(), 0, 0.03, -0.32, Math.PI / 2);
       for (const sd of [-1, 1]) add(g, sph(0.006, 6), m.steel(), sd * 0.022, 0.03, -0.29);
-      const bl = new THREE.Group(); bl.position.set(0, 0.03, -0.39); bl.rotation.x = 0.18; g.add(bl);
+      const bl = new THREE.Group(); bl.position.set(0, 0.03, -0.39); g.add(bl);
       const sh = new THREE.Shape(); sh.moveTo(-0.115, 0); sh.lineTo(0.115, 0); sh.lineTo(0.112, 0.2); sh.quadraticCurveTo(0.1, 0.26, 0, 0.3); sh.quadraticCurveTo(-0.1, 0.26, -0.112, 0.2); sh.lineTo(-0.115, 0);
       const bg = new THREE.ExtrudeGeometry(sh, { depth: 0.006, bevelEnabled: false, curveSegments: 6 }), bp = bg.attributes.position;
       // (laid along -z, dished: the sides curl up into a scoop)
-      for (let i = 0; i < bp.count; i++) { const x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i); bp.setXYZ(i, x, z - 0.003 + 0.028 * Math.pow(x / 0.115, 2), -y); }
+      for (let i = 0; i < bp.count; i++) { const x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i); bp.setXYZ(i, x, z - 0.003 + 0.024 * Math.pow(x / 0.115, 2), -y); }
       bg.computeVertexNormals();
       const blade = M('shovelBlade', { color: 0x34402f, roughness: 0.6, metalness: 0.45, side: THREE.DoubleSide }, Object.assign({}, PAINT, { k: [0.5, 0.55, 0.0008, 0.3], bare: 0x8e9294, edge: 0.012 }));
       const b = new THREE.Mesh(bg, blade); b.castShadow = b.receiveShadow = true; bl.add(b);

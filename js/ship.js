@@ -267,7 +267,7 @@ const Ship = (() => {
     ${Rings.GLSL}${CLOUD_SPIN}
     uniform sampler2D uMap; uniform sampler3D uNoise;
     uniform vec3 uCamL, uSunL, uAmb, uCol; uniform vec4 uShell; uniform float uFade, uCirRot, uSunI, uTexel;
-    uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; uniform vec4 uFlash[3];
+    uniform vec4 uPdCast[3]; uniform vec3 uPdSunW; uniform vec4 uFlash[6];
     varying vec3 vPos; varying vec3 vWP;
     vec3 sunCol(float m){ return mix(vec3(1.0, 0.34, 0.1), vec3(1.0, 0.96, 0.9), smoothstep(0.0, 0.3, m)) * smoothstep(-0.02, 0.05, m); }
     vec3 dW;
@@ -343,9 +343,12 @@ const Ship = (() => {
         float g = max(dot(rd, uSunL), 0.0), fwd = 1.0 + 2.0 * pow(g, 6.0) * (1.0 - alpha * 0.7);
         vec3 amb = uAmb * 0.3 * smoothstep(-0.12, 0.4, mu) + vec3(0.0008, 0.001, 0.0016);
         col = (accS * lam * shadow * shd * fwd * uSunI + amb * accA) * uCol;
-        // (lightning flickering deep in a storm, lighting the cloud round it from inside: on the night side, a tiny wink
-        // of light far below, a storm the size of a country)
-        for (int i = 0; i < 3; i++) { vec4 L = uFlash[i]; if (L.w > 0.0) col += vec3(0.6, 0.68, 1.0) * L.w * 14.0 * accA * exp(-(1.0 - dot(nw, L.xyz)) / 0.00016); }
+        // (lightning flickering deep in a storm, lighting the cloud round it from inside: a knot of light where the stroke
+        // is, and the cloud for miles round glowing with it, brightest where it's thickest so its own billows show; on
+        // the night side a storm the size of a country winking far below, washed out by day)
+        { float dk = 1.0 - 0.85 * smoothstep(-0.12, 0.3, mu);
+          for (int i = 0; i < 6; i++) { vec4 L = uFlash[i]; if (L.w > 0.0) { float e = 1.0 - dot(nw, L.xyz);
+            col += vec3(0.62, 0.7, 1.0) * L.w * dk * accA * (5.0 * exp(-e / 0.0001) + 2.6 * accA * exp(-e / 0.004)); } } }
       }
       // the high wisps: a thin sheet over it all (or, from under it, behind it)
       float dc = b * b - c0 + Rc * Rc;
@@ -1608,14 +1611,15 @@ const Ship = (() => {
         // screen
         const sp = W(1.8, 0.25, topY(0.25) + 0.004);
         const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.26), new THREE.MeshBasicMaterial({ map: TEX.sign(side < 0 ? 'COMMS  CH 4\nSIG  -71dB\nLINK  OK' : 'ENG  1  OK\nENG  2  OK\nRCS  ARM', { w: 256, h: 160, size: 30, bg: '#031008', fg: '#5dff7a', border: false, dirty: false }) }));
-        scr.geometry.applyMatrix4(basis(dir.clone().multiplyScalar(side), nTop, sp)); this.group.add(scr);
+        scr.geometry.applyMatrix4(basis(dir.clone().multiplyScalar(-side), nTop, sp)); this.group.add(scr);   // (the right way up, standing in the aisle facing it)
         // button banks
         for (let i = 0; i < 10; i++) for (let r = 0; r < 2; r++) { const o = 0.16 + r * 0.14, p = W(2.2 + i * 0.07, o, topY(o)); this.pb(['glowAmber', 'glowGreen', 'black', 'glowRed', 'black'][(i + r * 3) % 5], 0.032, 0.014, 0.032, p.x, p.y, p.z, -side * tilt, ry, 0); }
         // throttle quadrant by the pilot's hand
         { const b = W(3.0, 0.3, topY(0.3)); this.pb('black', 0.22, 0.06, 0.16, b.x, b.y + 0.03, b.z, -side * tilt, ry, 0);
           for (const k of [-1, 1]) { const p0 = W(3.0, 0.3 + k * 0.04, topY(0.3) + 0.05), p1 = W(3.09, 0.3 + k * 0.04, topY(0.3) + 0.24); this.beam(D, p0, p1, 0.016); this.ps(k < 0 ? 'black' : 'red', 0.03, p1.x, p1.y, p1.z, 1, 1, 1, 8); } }
-        if (side > 0) { const m = W(1.55, 0.3, topY(0.3)); this.pc('black', 0.05, 0.05, 0.03, m.x, m.y + 0.015, m.z, 0, 0, 0, 12); this.pc('white', 0.04, 0.036, 0.1, m.x, m.y + 0.06, m.z, 0, 0, 0, 12); }
-        else { const m = W(1.6, 0.27, topY(0.27) + 0.008); this.put('cork', new THREE.BoxGeometry(0.24, 0.012, 0.32), basis(dir, nTop, m)); this.put('paper', new THREE.PlaneGeometry(0.2, 0.27), basis(dir, nTop, m.clone().addScaledVector(nTop, 0.008))); }
+        if (side > 0) { const m = W(1.55, 0.3, topY(0.3)); this.pc('black', 0.05, 0.05, 0.03, m.x, m.y + 0.015, m.z, 0, 0, 0, 12); this.mug(m.x, m.y + 0.03, m.z, Math.PI); }
+        else { const m = W(1.47, 0.27, topY(0.27) + 0.008);   // (the clipboard at the end, clear of the screen)
+          this.put('cork', new THREE.BoxGeometry(0.24, 0.012, 0.32), basis(dir, nTop, m)); this.put('paper', new THREE.PlaneGeometry(0.2, 0.27), basis(dir, nTop, m.clone().addScaledVector(nTop, 0.008))); }
         const oc = W(um, dep / 2, 0); this.obb(oc.x, oc.z, (u1 - u0) / 2, dep / 2, ry);
         // sun visor hinged at the top of the windshield
         this.pc(D, 0.012, 0.012, 0.8, 6.62, 2.86, side * 0.95, Math.PI / 2, 0, 0, 6); this.pb('pad', 0.02, 0.32, 0.75, 6.67, 2.71, side * 0.95, 0, 0, 0.35);
@@ -2868,7 +2872,7 @@ const Ship = (() => {
         uMap: { value: this.wxRT.texture }, uNoise: { value: R.vol.noise || null }, uCamL: { value: V() }, uSunL: { value: V(1, 0, 0) },
         uAmb: { value: new THREE.Color() }, uCol: { value: new THREE.Color(1, 1, 1) }, uShell: { value: new THREE.Vector4(Rw * CLOUD.base, Rw * CLOUD.top, Rw * CLOUD.cirrus, Rw) },
         uFade: { value: 0 }, uCirRot: { value: 0 }, uSunI: { value: 1.55 }, uTexel: { value: TAU * Rw * CLOUD.top / tier.w },
-        uPdCast: U.cast, uPdSunW: U.sunW, uVort: this.vortU, uVturn: this.vturnU, uFlash: { value: [0, 1, 2].map(() => new THREE.Vector4()) },
+        uPdCast: U.cast, uPdSunW: U.sunW, uVort: this.vortU, uVturn: this.vturnU, uFlash: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
       }, this.ringU);
       const cm = new THREE.ShaderMaterial({ uniforms: cu, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS(), defines: {}, transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false });
       this.clouds = new THREE.Mesh(new THREE.SphereGeometry(Rw * CLOUD.hull, 96, 48), cm); this.clouds.visible = false; this.tilt.add(this.clouds);
@@ -2961,29 +2965,36 @@ const Ship = (() => {
       this.cloudU.uFade.value = this.pdU.cfade.value = X.fade * X.fade * (3 - 2 * X.fade);
       this.clouds.visible = this.cloudsOn && X.fade > 0;
     }
-    // lightning, the way real storms throw it: a few thunderstorm cells going at once, each flickering in its own patch
-    // of sky for a while (a flash every second or two somewhere in it, two or three strokes at a time) before it dies
+    // lightning, the way real storms throw it: several thunderstorm cells going at once, each flickering in its own patch
+    // of sky for a while (a flash every second or two somewhere in it, two or three strokes at a time, now and then the
+    // whole cell going off together) before it dies
     // out and another starts up somewhere else; in today's big storms most of all, else anywhere along the tropics and
     // the storm tracks (it only shows where there's cloud to light). Just what the eye sees; nobody else needs the same
     stepLightning(dt) {
       const F = this.cloudU.uFlash.value, st = this.wxStorms || [], fl = this.flashes || (this.flashes = []), cells = this.lCells || (this.lCells = []);
       const on = this.clouds.visible && !this.airless;
       for (let i = cells.length - 1; i >= 0; i--) if ((cells[i].life -= dt) <= 0) cells.splice(i, 1);
-      while (on && cells.length < 4) {
+      while (on && cells.length < 6) {
         let c;
-        if (st.length && Math.random() < 0.55) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 1.1).add(s.c); }
+        if (st.length && Math.random() < 0.75) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.9).add(s.c); }
         else { const lat = (Math.random() < 0.5 ? Math.random() * 0.35 : 0.6 + Math.random() * 0.45) * (Math.random() < 0.5 ? 1 : -1), lon = Math.random() * TAU; c = _gV.set(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat)); }
-        cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.01 + Math.random() * 0.025, next: Math.random() * 1.5 });
+        cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.015 + Math.random() * 0.03, next: Math.random() * 1.5 });
       }
       for (const c of on ? cells : []) {
         if ((c.next -= dt) > 0) continue;
-        c.next = 0.6 + Math.random() * 2.6;
-        const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(c.c, -v.dot(c.c)).normalize().multiplyScalar(c.r * Math.random());
-        fl[this.flashK = ((this.flashK || 0) + 1) % 3] = { d: c.c.clone().add(v).normalize(), t: 0, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
+        c.next = 0.4 + Math.random() * 2.2;
+        // (a stroke, or now and then the whole cell going off at once, one flash setting off the next across it)
+        for (let n = Math.random() < 0.35 ? 2 + Math.floor(Math.random() * 2) : 1, d = 0; n > 0; n--, d += 0.04 + Math.random() * 0.12) {
+          const v = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); v.addScaledVector(c.c, -v.dot(c.c)).normalize().multiplyScalar(c.r * Math.random());
+          let k = -1; for (let j = 0; j < 6; j++) if (!fl[j]) { k = j; break; }
+          if (k < 0) k = this.flashK = ((this.flashK || 0) + 1) % 6;
+          fl[k] = { d: c.c.clone().add(v).normalize(), t: -d, n: 1 + Math.floor(Math.random() * 3), k: 0.5 + Math.random() };
+        }
       }
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 6; i++) {
         const f = fl[i]; if (!f) { F[i].w = 0; continue; }
-        f.t += dt; const u = f.t / 0.11, ph = u - Math.floor(u);
+        f.t += dt; if (f.t < 0) { F[i].w = 0; continue; }
+        const u = f.t / 0.11, ph = u - Math.floor(u);
         F[i].set(f.d.x, f.d.y, f.d.z, u < f.n ? f.k * Math.pow(Math.sin(Math.min(1, ph / 0.55) * Math.PI), 2) * (1 - 0.3 * Math.floor(u)) : 0);
         if (u >= f.n) fl[i] = null;
       }
@@ -3238,13 +3249,13 @@ const Ship = (() => {
       const N = N0.clone().applyAxisAngle(D, r.range(-0.6, 0.6)).normalize();
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard; it takes
-      // an hour and more to go round, and the world turns slower still, so up here it hangs almost still, far too big
-      // to see move (only the ground under it creeps by, the way it does from a real orbit)
+      // half an hour or so to go round, and the world turns slower still, so up here it hangs nearly still, far too big
+      // to see move quickly, the ground under it creeping by and the day and night sliding over it as you watch
       // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it; round one of
       // its moons it stands well off, the moon a small ball against the wall of the giant, several times its size)
       const a = R * (look.giant ? r.range(1.25, 1.7) : byGiant ? r.range(5.5, 8) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
       this.turn = 0; this.glide = null;
-      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 6, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 0.15 };
+      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 2.5, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 0.35 };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       // (and its own weather today: the same seed, the world's own character)
       if (!look.airless && !look.giant) this.setWeather(seed, typeof SITE_LOOK === 'undefined' ? null : Object.keys(SITE_LOOK).find((k) => SITE_LOOK[k] === look));

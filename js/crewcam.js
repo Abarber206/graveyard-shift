@@ -318,77 +318,34 @@ const CrewCam = (() => {
     mat.uniforms.uMap.value = 0;
     timer = 1 / FPS;
     if (view === crew.length + 1) { hullCams(me, t); return; }
-    const rects = layout(crew.length);
+    // (everyone else's body-cams: each of you sees the rest of the crew's feeds, never your own; alone, there's nobody
+    // else's to show, so the ship's own cameras)
+    const cams = crew.filter((p) => p.id !== G.localId);
+    if (!cams.length) { hullCams(me, t); return; }
+    const rects = layout(cams.length);
     const sa = selfAvatar(), mon = G.ship.monMesh, ext = G.ext && G.ext.group, extV = ext && ext.visible;
     mon.visible = false;   // (never draw the screen into itself)
     R.rig();
-    crew.forEach((p, i) => {
+    cams.forEach((p, i) => {
       const r = rects[i]; if (!p.alive) return;
-      const isMe = p.id === G.localId;
-      eyeOf(p, isMe);
+      eyeOf(p, false);
       // (each lit the way it is where they are: see G.feedLight)
       R.rig(true); if (ext) ext.visible = extV;
       // (the body-cams don't march the air: they get the flat mist back while they're drawn)
       if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075;
-      if (!isMe) { G.feedLight(p, cam.position); if (ext && p.zone === 'in') ext.visible = false; }
+      G.feedLight(p, cam.position); if (ext && p.zone === 'in') ext.visible = false;
       cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
-      // you appear in everyone else's feed; nobody sees the inside of their own head
-      if (sa) { sa.root.visible = !isMe && me.alive; if (!isMe) { const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0)); if (G.camCarried) { mp.applyMatrix4(G.shipM); q = q.premultiply(G.shipQ); } sa.root.position.copy(mp); sa.root.quaternion.copy(q); sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch }); } }
-      const av = !isMe && p.avatar; if (av) av.root.visible = false;
+      // you appear in everyone else's feed
+      if (sa) { sa.root.visible = me.alive; const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0)); if (G.camCarried) { mp.applyMatrix4(G.shipM); q = q.premultiply(G.shipQ); } sa.root.position.copy(mp); sa.root.quaternion.copy(q); sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch }); }
+      const av = p.avatar; if (av) av.root.visible = false;
       R.renderView(cam, rt, r.x, r.y, r.w, r.h);
       if (av) av.root.visible = p.alive;
     });
     R.rig(true); if (ext) ext.visible = extV;
     if (sa) sa.root.visible = false;
     mon.visible = true;
-    const key = crew.map((p) => p.id + where(p) + p.alive).join() + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft) + Math.floor(t * 1.1 % 1 < 0.6);
-    if (key !== last) { last = key; drawOverlay(crew, rects, t); }
-  }
-  // the ship's own cameras on its hull: four feeds on the same old tube, live wherever the ship is (space and the world
-  // below from orbit, the sky on the way down, the site once it's landed). The tripod's feed only once it's set up on
-  // the ground; until then the nose camera's takes its place. You show up in them the way you do in the crew's feeds.
-  function hullCams(me, t) {
-    const S = G.ship, down = S.groundCamUp, cams = S.hullCams.filter((c) => (down ? !c.space : !c.ground)), rects = layout(cams.length);
-    S.monMesh.visible = false;
-    const fd0 = R.scene.fog.density; if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075;
-    const sa = selfAvatar();
-    if (sa) {
-      const mp = me.pos.clone(); let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, me.yaw, 0));
-      if (G.shipMoved && G.playerAboard(me)) { mp.applyMatrix4(G.shipM); q = q.premultiply(G.shipQ); }
-      sa.root.visible = me.alive && me.zone === 'out'; sa.root.position.copy(mp); sa.root.quaternion.copy(q);
-      sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch });
-    }
-    const liveOf = (c) => c.inside || !c.ground || down;
-    cams.forEach((c, i) => {
-      const r = rects[i]; if (!liveOf(c)) return;
-      cam.position.copy(c.pos); _t.copy(c.look); cam.up.set(0, 1, 0);
-      if (G.shipMoved) { cam.position.applyMatrix4(G.shipM); _t.applyMatrix4(G.shipM); cam.up.applyQuaternion(G.shipQ); }
-      cam.lookAt(_t); cam.fov = 82; cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
-      R.renderView(cam, rt, r.x, r.y, r.w, r.h);
-    });
-    cam.fov = 72; cam.up.set(0, 1, 0); R.scene.fog.density = fd0;
-    if (sa) sa.root.visible = false;
-    S.monMesh.visible = true;
-    const key = 'hull' + down + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
-    if (key === last) return;
-    last = key;
-    g.clearRect(0, 0, W, H); drawBar('◀  SHIP CAMS  ▶');
-    cams.forEach((c, i) => {
-      const r = rects[i], x = r.x, y = H - r.y - r.h;
-      g.strokeStyle = 'rgba(0,0,0,0.9)'; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, r.w - 3, r.h - 3);
-      const live = liveOf(c);
-      if (!live) {
-        g.fillStyle = 'rgba(6,8,6,0.95)'; g.fillRect(x + 3, y + 3, r.w - 6, r.h - 6);
-        for (let k = 0; k < 90; k++) { g.fillStyle = `rgba(200,200,200,${Math.random() * 0.18})`; g.fillRect(x + Math.random() * r.w, y + Math.random() * r.h, 3, 1); }
-        g.fillStyle = '#a8d8a0'; g.textAlign = 'center'; g.font = '22px "VT323", monospace'; g.fillText('NO EXTERIOR FEED', x + r.w / 2, y + r.h / 2); g.textAlign = 'left';
-      }
-      g.font = '18px "VT323", monospace';
-      const tag = (c.inside ? '' : 'EXT · ') + c.name;
-      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x + 6, y + 6, g.measureText(tag).width + 12, 20);
-      g.fillStyle = '#e8f0e0'; g.fillText(tag, x + 12, y + 17);
-      if (live && (t * 1.1) % 1 < 0.6) { g.fillStyle = '#ff3a2a'; g.beginPath(); g.arc(x + r.w - 16, y + 16, 5, 0, TAU); g.fill(); g.fillStyle = '#e8f0e0'; g.fillText('REC', x + r.w - 52, y + 17); }
-    });
-    otex.needsUpdate = true;
+    const key = cams.map((p) => p.id + where(p) + p.alive).join() + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft) + Math.floor(t * 1.1 % 1 < 0.6);
+    if (key !== last) { last = key; drawOverlay(cams, rects, t); }
   }
   // the buttons under the screen: page through the views (CAMS, a map following each crewmate, then the hull cameras)
   function cycle(dir) {

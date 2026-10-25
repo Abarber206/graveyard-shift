@@ -1341,8 +1341,8 @@ const Facility = (() => {
     // seed: the rest of the plant is laid out as it would be.)
     *leechNest() {
       const r = new RNG((this.seed ^ 0x6e3571) >>> 0);
-      // (the deeper the plant, the likelier something's bred down in it)
-      if (!this.nestK || !r.chance(clamp(0.2 + 0.15 * this.nestK + 0.08 * Math.max(0, this.levels - 4), 0, 0.65))) return;
+      // (more days than not; the deeper the plant, the likelier still)
+      if (!this.nestK || !r.chance(clamp(0.45 + 0.15 * this.nestK + 0.08 * Math.max(0, this.levels - 4), 0, 0.85))) return;
       const solid = (k, nk) => !this.connected(k, nk);
       // the corners of a room with rock behind them and nothing standing in them, no lamp or vent its crown would swallow
       const cornersOf = (room, Y, h, sc = 1) => {
@@ -1358,11 +1358,11 @@ const Facility = (() => {
         }
         return out;
       };
-      // the room: somewhere off the beaten track, the deeper the likelier
+      // the room: somewhere off the beaten track, on any floor (the upper ones a little likelier, where crews go)
       const cand = this.rooms.filter((o) => !['entrance', 'stairs', 'core', 'exit'].includes(o.type) && o.w * o.h >= 9);
       let pick = null;
       for (let tries = 0; tries < 12 && cand.length && !pick; tries++) {
-        let tot = 0; const ws = cand.map((o) => { const w = (1 + 1.5 * o.lv) * Math.sqrt(o.w * o.h); tot += w; return w; });
+        let tot = 0; const ws = cand.map((o) => { const w = Math.sqrt(o.w * o.h) / (1 + 0.25 * o.lv); tot += w; return w; });
         let x = r.next() * tot, q = 0; for (; q < cand.length - 1; q++) { x -= ws[q]; if (x <= 0) break; }
         const room = cand.splice(q, 1)[0], Y = this.roomY(room), h = RT[room.type].h, corners = cornersOf(room, Y, h);
         if (corners.length) pick = { room, Y, h, corners: r.shuffle(corners) };

@@ -9,7 +9,7 @@ const ITEMS = {
   stun: { name: 'Stun Grenade', kind: 'tool', price: 40, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
   tracker: { name: 'Motion Tracker', kind: 'tool', price: 60, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
   // (the ship's own ground camera: it comes out with the ramp and is packed away again for flight; not for sale)
-  shipcam: { name: 'Ship Camera', kind: 'tool', weight: 4, twoHanded: true, tall: 0.9, desc: "The ship's ground camera on its tripod. Set it down anywhere outside and it watches the way you face; its feed is on the ship's cams." },
+  shipcam: { name: 'Ship Camera', kind: 'tool', weight: 4, twoHanded: true, tall: 0.9, desc: "The ship's ground camera on its tripod. Set it down anywhere and it watches the way you face; its feed is on the ship's cams (the deeper in the facility, the weaker its signal)." },
   mappad: { name: 'Survey Pad', kind: 'tool', price: 55, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
   cola: { name: 'Kick Cola', kind: 'food', price: 10, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },

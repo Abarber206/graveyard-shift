@@ -3501,7 +3501,7 @@ const ITEMS = {
   stun: { name: 'Stun Grenade', kind: 'tool', price: 40, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
   tracker: { name: 'Motion Tracker', kind: 'tool', price: 60, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
   // (the ship's own ground camera: it comes out with the ramp and is packed away again for flight; not for sale)
-  shipcam: { name: 'Ship Camera', kind: 'tool', weight: 4, twoHanded: true, tall: 0.9, desc: "The ship's ground camera on its tripod. Set it down anywhere outside and it watches the way you face; its feed is on the ship's cams." },
+  shipcam: { name: 'Ship Camera', kind: 'tool', weight: 4, twoHanded: true, tall: 0.9, desc: "The ship's ground camera on its tripod. Set it down anywhere and it watches the way you face; its feed is on the ship's cams (the deeper in the facility, the weaker its signal)." },
   mappad: { name: 'Survey Pad', kind: 'tool', price: 55, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
   cola: { name: 'Kick Cola', kind: 'food', price: 10, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
@@ -17448,30 +17448,47 @@ const CrewCam = (() => {
       sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch });
     }
     // (the ground camera is wherever the crew have set it up, watching the way it faces; carried, it sees what its
-    // carrier faces, bobbing along; down in the plant, under all that rock, there's no signal from it)
+    // carrier faces. Down in the plant its signal has all that rock to get through: the further down, the weaker,
+    // c.k from 1 down to a tenth, the picture choppier and snowier and now and then lost altogether)
     const gc = [...G.items.values()].find((it) => it.type === 'shipcam');
     const groundAt = (c) => {
       if (!gc) return false;
       const h = gc.holder != null ? G.players.get(gc.holder) : null;
-      if (h ? h.zone !== 'out' : G.itemZone(gc) !== 'out') return false;
+      c.zone = h ? h.zone : G.itemZone(gc);
+      const at = h ? (h.id === G.localId ? h.pos : h.rpos) : gc.pos;
+      c.k = c.zone === 'in' && G.fac ? clamp(0.8 - 0.14 * G.fac.levelAt(at.x, at.z, at.y), 0.1, 1) : 1;
+      if (c.zone === 'in' && !G.fac) return false;
       if (h) { const at = h.id === G.localId ? h.pos : h.rpos, yaw = h.id === G.localId ? h.yaw : h.ryaw || h.yaw, pt = h.id === G.localId ? h.pitch : h.rpitch || 0;
         c.pos = (c.pos || new THREE.Vector3()).set(at.x - Math.sin(yaw) * 0.6, at.y + 1.25, at.z - Math.cos(yaw) * 0.6); c.look = (c.look || new THREE.Vector3()).set(c.pos.x - Math.sin(yaw) * 10, c.pos.y + Math.sin(pt) * 10, c.pos.z - Math.cos(yaw) * 10); }
       else { const p = gc.vis || gc.pos, fx = -Math.sin(gc.ry), fz = -Math.cos(gc.ry);
         c.pos = (c.pos || new THREE.Vector3()).set(p.x + fx * 0.17, p.y + 1.28, p.z + fz * 0.17); c.look = (c.look || new THREE.Vector3()).set(c.pos.x + fx * 10, c.pos.y - 0.6, c.pos.z + fz * 10); }
       return true;
     };
-    const liveOf = (c) => c.inside || !c.ground || (down && groundAt(c));
+    const liveOf = (c) => c.inside || !c.ground || (down && groundAt(c) && !(c.drop > 0));
+    let weak = false;
     cams.forEach((c, i) => {
-      const r = rects[i]; if (!liveOf(c)) return;
+      const r = rects[i];
+      // (a weak signal: now and then it drops out altogether for a moment, and the picture only comes through every
+      // few frames, the feed hanging in between)
+      if (c.ground && down && gc && groundAt(c) && c.k < 1) {
+        weak = true; if (c.drop > 0) c.drop -= 1 / FPS; else if (Math.random() < 0.05 * (1 - c.k) * (1 - c.k)) c.drop = 0.15 + Math.random() * 0.5;
+        if ((c.skip = (c.skip || 0) + 1) < 1 + Math.floor((1 - c.k) * 7)) return; c.skip = 0;
+      } else c.drop = 0;
+      if (!liveOf(c)) return;
       cam.position.copy(c.pos); _t.copy(c.look); cam.up.set(0, 1, 0);
       if (G.shipMoved) { cam.position.applyMatrix4(G.shipM); _t.applyMatrix4(G.shipM); cam.up.applyQuaternion(G.shipQ); }
       cam.lookAt(_t); cam.fov = 82; cam.aspect = r.w / r.h; cam.updateProjectionMatrix();
+      // (down in the plant it sees the plant's own dark, its lamps and whoever's flashlight is about, as a crewmate's
+      // feed does, not the daylight by the ship)
+      const ext = c.zone === 'in' && G.ext && G.ext.group, extV = ext && ext.visible;
+      if (ext) { R.rig(); G.feedLight({ zone: 'in' }, cam.position); ext.visible = false; if (R.vol.on) R.scene.fog.density = Math.max(R.scene.fog.density, 0.07); }
       R.renderView(cam, rt, r.x, r.y, r.w, r.h);
+      if (ext) { R.rig(true); ext.visible = extV; if (R.vol.on && G.ext) R.scene.fog.density = G.ext.fogDen || 0.0075; }
     });
     cam.fov = 72; cam.up.set(0, 1, 0); R.scene.fog.density = fd0;
     if (sa) sa.root.visible = false;
     S.monMesh.visible = true;
-    const key = 'hull' + down + cams.map(liveOf).join() + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
+    const key = 'hull' + down + cams.map(liveOf).join() + Math.floor(t * 1.1 % 1 < 0.6) + (weak ? Math.floor(t * 9) : '') + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
     if (key === last) return;
     last = key;
     g.clearRect(0, 0, W, H); drawBar('◀  SHIP CAMS  ▶');
@@ -17482,7 +17499,14 @@ const CrewCam = (() => {
       if (!live) {
         g.fillStyle = 'rgba(6,8,6,0.95)'; g.fillRect(x + 3, y + 3, r.w - 6, r.h - 6);
         for (let k = 0; k < 90; k++) { g.fillStyle = `rgba(200,200,200,${Math.random() * 0.18})`; g.fillRect(x + Math.random() * r.w, y + Math.random() * r.h, 3, 1); }
-        g.fillStyle = '#a8d8a0'; g.textAlign = 'center'; g.font = '22px "VT323", monospace'; g.fillText('NO EXTERIOR FEED', x + r.w / 2, y + r.h / 2); g.textAlign = 'left';
+        g.fillStyle = '#a8d8a0'; g.textAlign = 'center'; g.font = '22px "VT323", monospace'; g.fillText(c.ground && down && gc ? 'NO SIGNAL' : 'NO EXTERIOR FEED', x + r.w / 2, y + r.h / 2); g.textAlign = 'left';
+      }
+      // (the weak signal's snow and tearing over the picture, and how much of it is getting through)
+      if (live && c.ground && c.k < 1) {
+        const n = Math.round((1 - c.k) * 520);
+        for (let k = 0; k < n; k++) { g.fillStyle = `rgba(${200 + Math.random() * 55 | 0},${200 + Math.random() * 55 | 0},${200 + Math.random() * 55 | 0},${0.12 + Math.random() * 0.5 * (1 - c.k)})`; g.fillRect(x + Math.random() * r.w, y + Math.random() * r.h, 2 + Math.random() * 6, 1 + (Math.random() < 0.2 ? 1 : 0)); }
+        for (let k = 0, m = Math.random() < (1 - c.k) ? 1 + Math.floor(Math.random() * 3) : 0; k < m; k++) { const ty = y + Math.random() * r.h; g.fillStyle = `rgba(230,230,220,${0.1 + 0.25 * (1 - c.k)})`; g.fillRect(x + 3, ty, r.w - 6, 2 + Math.random() * 5); }
+        g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x + r.w - 118, y + r.h - 26, 112, 20); g.fillStyle = c.k > 0.5 ? '#a8d8a0' : c.k > 0.25 ? '#f2c060' : '#ff7a60'; g.font = '18px "VT323", monospace'; g.fillText('SIGNAL ' + Math.round(c.k * 100) + '%', x + r.w - 110, y + r.h - 15);
       }
       g.font = '18px "VT323", monospace';
       const tag = (c.inside ? '' : 'EXT · ') + c.name;

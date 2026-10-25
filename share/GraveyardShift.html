@@ -4469,10 +4469,13 @@ function paintTex(v) {
 }
 
 // How items sit in the first-person hand (position relative to camera, rotation) and on avatars.
-// (a hold given by which way the item's far end, its -z, points from the eye, and how far it's turned about that)
-function holdDir(d, roll) {
-  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(d[0], d[1], d[2]).normalize());
-  const e = new THREE.Euler().setFromQuaternion(q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll)));
+// (a hold given by which way the item's far end, its -z, points from the eye, turned about that so its top (+y) faces
+// the eye looking at the point 'at': a long thing's head then reads square on, straight across the line of it)
+function holdDir(d, at) {
+  const Z = new THREE.Vector3(d[0], d[1], d[2]).normalize().negate(), v = new THREE.Vector3(at[0], at[1], at[2]).normalize();
+  const X = new THREE.Vector3().crossVectors(v, Z).normalize(), Y = new THREE.Vector3().crossVectors(Z, X);
+  if (Y.dot(v) > 0) { X.negate(); Y.negate(); }
+  const e = new THREE.Euler().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
   return [e.x, e.y, e.z];
 }
 const HOLD = {
@@ -4481,7 +4484,7 @@ const HOLD = {
   proflash: { p: [0.26, -0.24, -0.42], r: [0.05, 0, 0] },
   // (carried ready in the right hand, gripped low on the shaft in the corner of view, the blade up at the top right and
   // the D-grip down out of sight; see holdDir)
-  shovel: { p: [0.541, 0.005, -0.743], r: holdDir([0.45, 0.75, -0.5], -0.5), grip: [-0.201, -0.335, 0.223], gr: [0.85, 0.3, 0] },
+  shovel: { p: [0.529, -0.08, -0.797], r: holdDir([0.42, 0.62, -0.66], [0.752, 0.249, -1.148]), grip: [-0.189, -0.28, 0.297], gr: [0.85, 0.3, 0] },
   walkie: { p: [0.22, -0.28, -0.42], r: [0.2, 0, 0] },
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },

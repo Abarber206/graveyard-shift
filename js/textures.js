@@ -266,6 +266,19 @@ const TEX = (() => {
       speckle(g, 128, 128, 16);
       return finish(c);
     },
+    // the same tread plate, clean: for the ship's deck, where one map over the whole floor does the dirt (see Ship)
+    tread() {
+      const [c, g] = CQ(128, 128);
+      g.fillStyle = '#4c5154'; g.fillRect(0, 0, 128, 128);
+      for (let y = 0; y < 128; y += 16) for (let x = 0; x < 128; x += 16) {
+        const ox = (y / 16) % 2 ? 8 : 0;
+        g.save(); g.translate(x + ox + 4, y + 8); g.rotate(((y / 16) % 2 ? 1 : -1) * 0.7);
+        g.fillStyle = 'rgba(160,170,175,.35)'; g.fillRect(-5, -1.5, 10, 3); g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(-5, 1.5, 10, 1.5);
+        g.restore();
+      }
+      speckle(g, 128, 128, 10);
+      return finish(c);
+    },
     rust() {
       const [c, g] = CQ(128, 128);
       g.fillStyle = '#5a3a24'; g.fillRect(0, 0, 128, 128);
@@ -1216,6 +1229,7 @@ const MATS = (() => {
     ceiling: () => N('ceiling', 1.5, { roughness: 0.95 }),
     metal: () => N('metalPanel', 2.2, { roughness: 0.6, metalness: 0.45 }),
     grate: () => N('grate', 3, { roughness: 0.55, metalness: 0.5 }),
+    tread: () => N('tread', 3, { roughness: 0.55, metalness: 0.5 }),
     rust: () => N('rust', 2.2, { roughness: 0.9, metalness: 0.3 }),
     // painted steel, gone grubby, chipped down to rust (its colour: the drab green-grey it was painted, which anything
     // repainted another colour (MATS.rep) is tinted by, the way it always was)

@@ -2490,6 +2490,19 @@ const TEX = (() => {
       speckle(g, 128, 128, 16);
       return finish(c);
     },
+    // the same tread plate, clean: for the ship's deck, where one map over the whole floor does the dirt (see Ship)
+    tread() {
+      const [c, g] = CQ(128, 128);
+      g.fillStyle = '#4c5154'; g.fillRect(0, 0, 128, 128);
+      for (let y = 0; y < 128; y += 16) for (let x = 0; x < 128; x += 16) {
+        const ox = (y / 16) % 2 ? 8 : 0;
+        g.save(); g.translate(x + ox + 4, y + 8); g.rotate(((y / 16) % 2 ? 1 : -1) * 0.7);
+        g.fillStyle = 'rgba(160,170,175,.35)'; g.fillRect(-5, -1.5, 10, 3); g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(-5, 1.5, 10, 1.5);
+        g.restore();
+      }
+      speckle(g, 128, 128, 10);
+      return finish(c);
+    },
     rust() {
       const [c, g] = CQ(128, 128);
       g.fillStyle = '#5a3a24'; g.fillRect(0, 0, 128, 128);
@@ -3440,6 +3453,7 @@ const MATS = (() => {
     ceiling: () => N('ceiling', 1.5, { roughness: 0.95 }),
     metal: () => N('metalPanel', 2.2, { roughness: 0.6, metalness: 0.45 }),
     grate: () => N('grate', 3, { roughness: 0.55, metalness: 0.5 }),
+    tread: () => N('tread', 3, { roughness: 0.55, metalness: 0.5 }),
     rust: () => N('rust', 2.2, { roughness: 0.9, metalness: 0.3 }),
     // painted steel, gone grubby, chipped down to rust (its colour: the drab green-grey it was painted, which anything
     // repainted another colour (MATS.rep) is tinted by, the way it always was)
@@ -10645,6 +10659,56 @@ const Ship = (() => {
     }
     // lettering sprayed or printed straight onto something (no plate of its own): w x h, in fg
     stencil(t, w, h, x, y, z, ry, fg) { return this.sign(t, w, h, x, y, z, ry, { w: 256, h: Math.round(256 * h / w), size: Math.round(200 * h / w), bold: true, bg: 'rgba(0,0,0,0)', fg, border: false, dirty: false, clear: true }); }
+    // The bay's deck: clean tread plate a metre to the tile, under one map of the whole floor, so no two metres of it look
+    // alike: the plates' seams and bolts, the lanes boots have polished between the airlock, the flight deck, the
+    // terminal, the racks and the engine room (scuffed with rubber), crates dragged by the racks, rust bleeding from seams
+    // and round the airlock where the wet comes in, grime gathered along the walls. (Grey 128 leaves the plate as it is;
+    // darker is dirtier and duller, lighter worn brighter and smoother.)
+    deckFloorMat() {
+      const W = 11.05, D = 8.34, X0 = -7.35, Z0 = -4.17, S = 48;
+      const grime = TEX.drawn(Math.round(W * S), Math.round(D * S), (g, w, h) => {
+        const r = new RNG(2207), P = (x, z) => [(x - X0) * S, (z - Z0) * S];
+        g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, w, h);
+        const blob = (x, z, rad, col, a) => { const [px, py] = P(x, z), R0 = rad * S, gr = g.createRadialGradient(px, py, 0, px, py, R0); gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.fillRect(px - R0, py - R0, R0 * 2, R0 * 2); };
+        for (let i = 0; i < 80; i++) blob(r.range(-7.3, 3.7), r.range(-4.1, 4.1), r.range(0.4, 1.7), r.chance(0.6) ? '70,66,60' : '178,175,170', r.range(0.08, 0.24));
+        const lanes = [[[-2.5, 2.3], [-1.0, 1.0], [1.5, 0.2], [3.6, 0]], [[-2.5, 2.3], [-0.5, -0.5], [1.8, -2.4], [2.6, -2.9]], [[-2.5, 2.3], [-3.8, 0.2], [-4.6, -1.8]], [[-1.0, 0.7], [-4.0, 0.1], [-7.0, 0]], [[0.0, -1.5], [0.0, -3.4]]];
+        g.lineCap = g.lineJoin = 'round';
+        for (const pts of lanes) for (const [k, a] of [[1.1, 0.07], [0.7, 0.1], [0.35, 0.1]]) {
+          g.strokeStyle = `rgba(196,194,190,${a})`; g.lineWidth = 0.8 * k * S; g.beginPath(); pts.forEach(([x, z], i) => { const [px, py] = P(x, z); i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke();
+        }
+        // (scuffs and rubber marks along the lanes)
+        for (let i = 0; i < 220; i++) {
+          const pts = lanes[r.int(0, lanes.length - 1)], j = r.int(0, pts.length - 2), t = r.next(), a = pts[j], b = pts[j + 1];
+          const [px, py] = P(lerp(a[0], b[0], t) + r.range(-0.35, 0.35), lerp(a[1], b[1], t) + r.range(-0.35, 0.35)), an = r.range(0, TAU), l = r.range(0.04, 0.16) * S;
+          g.strokeStyle = `rgba(22,20,18,${r.range(0.12, 0.35)})`; g.lineWidth = r.range(0.01, 0.025) * S; g.beginPath(); g.arc(px, py, l, an, an + r.range(0.4, 1.2)); g.stroke();
+        }
+        // (crates dragged across in front of the racks: long pale scratches)
+        for (let i = 0; i < 26; i++) { const [px, py] = P(r.range(-6.6, -3.2), r.range(-3.6, 3.6) * 0.9), an = r.range(-0.3, 0.3) + (r.chance(0.5) ? 0 : Math.PI / 2), l = r.range(0.3, 1.1) * S;
+          g.strokeStyle = `rgba(210,208,204,${r.range(0.08, 0.2)})`; g.lineWidth = 0.008 * S; g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(an) * l, py + Math.sin(an) * l); g.stroke(); }
+        // (grime gathered along the walls and into the back corners)
+        const edge = (x0, z0, x1, z1, gx0, gy0, gx1, gy1) => { const [ax, ay] = P(x0, z0), [bx, by] = P(x1, z1), [cx, cy] = P(gx0, gy0), [dx, dy] = P(gx1, gy1), gr = g.createLinearGradient(cx, cy, dx, dy); gr.addColorStop(0, 'rgba(40,36,30,.55)'); gr.addColorStop(1, 'rgba(40,36,30,0)'); g.fillStyle = gr; g.fillRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay)); };
+        edge(X0, -4.17, 3.7, -3.4, 0, -4.0, 0, -3.4); edge(X0, 3.4, 3.7, 4.17, 0, 4.0, 0, 3.4); edge(X0, -4.17, -6.3, 4.17, -7.05, 0, -6.3, 0);
+        // (the plates: seams every 2.44 m along and 1.22 m across, a lit lip beside each, bolts at corners and along the edges)
+        const seam = (x0, z0, x1, z1) => { const [ax, ay] = P(x0, z0), [bx, by] = P(x1, z1); g.strokeStyle = 'rgba(24,22,20,.8)'; g.lineWidth = 0.022 * S; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.strokeStyle = 'rgba(205,203,198,.22)'; g.lineWidth = 0.012 * S; g.beginPath(); g.moveTo(ax + 0.02 * S, ay + 0.02 * S); g.lineTo(bx + 0.02 * S, by + 0.02 * S); g.stroke(); };
+        const xs = [], zs = []; for (let x = X0 + 2.44; x < 3.7; x += 2.44) xs.push(x); for (let z = Z0 + 1.22; z < 4.17; z += 1.22) zs.push(z);
+        for (const x of xs) seam(x, Z0, x, -Z0); for (const z of zs) seam(X0, z, 3.7, z);
+        for (const x of [X0 + 0.06, ...xs, 3.64]) for (let z = Z0 + 0.06; z < 4.17; z += 0.61) { const [px, py] = P(x + (x > X0 + 1 && x < 3.6 ? 0.07 : 0), z); g.fillStyle = 'rgba(20,18,16,.6)'; g.beginPath(); g.arc(px, py, 0.016 * S, 0, TAU); g.fill(); g.fillStyle = 'rgba(210,205,198,.35)'; g.beginPath(); g.arc(px - 0.005 * S, py - 0.005 * S, 0.008 * S, 0, TAU); g.fill(); }
+        // (rust bleeding from some of the seams, and the wet patch inside the airlock door)
+        for (let i = 0; i < 14; i++) { const along = r.chance(0.5), x = along ? r.range(-7, 3.4) : xs[r.int(0, xs.length - 1)], z = along ? zs[r.int(0, zs.length - 1)] : r.range(-3.9, 3.9); blob(x, z, r.range(0.12, 0.35), '120,62,28', r.range(0.25, 0.5)); }
+        blob(-2.5, 2.35, 0.9, '58,44,30', 0.35); blob(-2.6, 2.3, 0.45, '120,64,30', 0.3);
+      });
+      grime.colorSpace = THREE.NoColorSpace;
+      const m = MATS.rep('tread', 11, 8.6).clone();
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.tGrime = { value: grime };
+        sh.vertexShader = 'varying vec2 vDeckUv;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n vDeckUv = uv;');
+        sh.fragmentShader = 'uniform sampler2D tGrime; varying vec2 vDeckUv;\n' + sh.fragmentShader
+          .replace('#include <map_fragment>', '#include <map_fragment>\n vec3 deckG = texture2D(tGrime, vDeckUv).rgb; diffuseColor.rgb *= deckG * 2.0;')
+          .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = clamp(roughnessFactor - (dot(deckG, vec3(0.3333)) - 0.5) * 0.8, 0.08, 1.0);');
+      };
+      m.customProgramCacheKey = () => 'deckFloor';
+      return m;
+    }
     // straight wall along X at the given z with round portholes (the cabin side; the hull skin outside is separate)
     sideWall(z, side, x0, x1, holes, gap) {
       const s = new THREE.Shape(); s.moveTo(x0, 0); s.lineTo(x1, 0); s.lineTo(x1, H); s.lineTo(x0, H); s.closePath();
@@ -10740,7 +10804,7 @@ const Ship = (() => {
       this.bk = {};
       this.makeMaterials();
       // ===== cargo bay shell (the cabin side; the curved hull skin wraps around it in buildHull) =====
-      this.box(11.05, 0.15, 8.34, [metal, metal, MATS.rep('grate', 11, 8.6), metal, metal, metal], -1.825, -0.075, 0);
+      this.box(11.05, 0.15, 8.34, [metal, metal, this.deckFloorMat(), metal, metal, metal], -1.825, -0.075, 0);
       // (the roof slab, with the roof hatch's trunk opening cut right through it, so the hatch can be seen through, both ways)
       { const sh = new THREE.Shape(); sh.moveTo(-1.825 - 5.525, -4.17); sh.lineTo(-1.825 + 5.525, -4.17); sh.lineTo(-1.825 + 5.525, 4.17); sh.lineTo(-1.825 - 5.525, 4.17); sh.closePath();
         const ho = new THREE.Path(); ho.absarc(ROOF.hx, ROOF.hz, 0.445, 0, TAU, true); sh.holes.push(ho);

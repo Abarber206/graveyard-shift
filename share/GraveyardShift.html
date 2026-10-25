@@ -8569,11 +8569,14 @@ const Exterior = (() => {
         if (d > R) continue;
         const GR = this.biome.grass, W = this.water;
         let dens = GR.dens - bare * 0.9 + patch * 0.6, wk = 1;
-        // reeds gather along the water's edge and stand a little way out into the shallows, never in deep water;
-        // anything else thins out and shortens toward the edge and stops at it, never standing in the water
+        // reeds crowd along the water's edge; anything else thins out and shortens toward it. Either way a tuft stops
+        // at the edge, all of it on dry ground (judged by the lowest ground under its spread, so none hangs out over
+        // the water or seems to float in it)
         if (W != null) {
-          if (GR.kind === 'reeds') { if (y < W - 0.2) dens = -1; else { dens += sstep(W + 1.6, W + 0.15, y) * 0.3; wk = 0.55 + 0.45 * sstep(W - 0.2, W + 0.25, y); } }
-          else { wk = sstep(W + 0.04, W + 0.55, y); if (wk <= 0) dens = -1; else dens -= (1 - wk) * 0.45; }
+          const lo = y > W + 1 ? y : c.lo ?? (c.lo = this.footY(x, z, 0.45));
+          if (lo < W + 0.03) dens = -1;
+          else if (GR.kind === 'reeds') { dens += sstep(W + 1.6, W + 0.15, y) * 0.3; wk = 0.55 + 0.45 * sstep(W + 0.03, W + 0.4, lo); }
+          else { wk = sstep(W + 0.03, W + 0.55, lo); dens -= (1 - wk) * 0.45; }
         }
         // (each blade's size, turn and shade are kept with its spot too, and written straight into the instance arrays)
         if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; c.av = hash(i, j, 12) < 0.25 ? 1 : 0; }
@@ -8673,7 +8676,7 @@ const Exterior = (() => {
       // (in clumps; fewer at the lower picture settings)
       const list = [], low = typeof Settings !== 'undefined' && Settings.res <= 1, W = this.water;
       const ok = (x, z) => Math.hypot(x, z) > 30 && Math.hypot(x, z) < 150 && this.pathInfo(x, z).d > 5 && this.gridAt(this.grid.bare, x, z) < 0.35
-        && Math.hypot(x - this.center.x, z - this.center.z) > 62 && (!this.fire || Math.hypot(x - this.fire.x, z - this.fire.z) > 12) && (W == null || this.height(x, z) > W + 0.15) && this.clearOf(x, z, 1.2);
+        && Math.hypot(x - this.center.x, z - this.center.z) > 62 && (!this.fire || Math.hypot(x - this.fire.x, z - this.fire.z) > 12) && (W == null || this.footY(x, z, 0.8) > W + 0.1) && this.clearOf(x, z, 1.2);
       for (let n = 0, t = 0; n < Math.round(nClump * (low ? 0.5 : 1)) && t < 400; t++) {
         const a = r.range(0, TAU), d = r.range(32, 145), cx = Math.cos(a) * d, cz = Math.sin(a) * d;
         if (!ok(cx, cz)) continue; n++;

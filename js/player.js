@@ -361,8 +361,8 @@ const Player = (() => {
       const moving = (f !== 0 || st !== 0);
       const implant = G.run && G.run.upgrades.implant;
       const adrenaline = (G.adrenaline || 0) > 0;
-      const wantSprint = !ui && Input.down('ShiftLeft') && f > 0 && (!exhausted || adrenaline) && !leeched;
-      if (wantSprint && crouch) crouch = false;
+      // (crouched, you creep: there's no running bent double, however hard the stick or the key is pushed)
+      const wantSprint = !ui && Input.down('ShiftLeft') && f > 0 && (!exhausted || adrenaline) && !leeched && !crouch;
       const sprint = wantSprint && (stamina > 0 || adrenaline);
       const wmul = clamp(1 - weightOf(me) / 110, 0.45, 1);
       tickPerks(dt);

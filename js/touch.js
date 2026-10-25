@@ -62,7 +62,7 @@ const Touch = (() => {
     const m = Math.min(1, len / R0), a = len > 1 ? 1 / len : 0;
     Input.analog.x = dx * a * m; Input.analog.y = -dy * a * m;
     // pushed out past the rim, forward: sprint
-    const sprint = len > R0 * 1.25 && -dy / Math.max(1, len) > 0.6;
+    const sprint = len > R0 * 1.25 && -dy / Math.max(1, len) > 0.6 && !crouchOn;
     if (sprint) Input.keys.add('ShiftLeft'); else Input.keys.delete('ShiftLeft');
     base.classList.toggle('sprint', sprint);
   }

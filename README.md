@@ -27,7 +27,7 @@ Open the play link on your phone and turn it sideways. Touch controls come up by
 
 - **Left thumb:** a thumbstick appears wherever you put it down. Push gently to walk slowly, and past the rim to sprint.
 - **Right side:** drag anywhere to look around.
-- **Buttons under your right thumb:** JUMP (the big one), USE just above it (hold it to talk on a walkie-talkie), **E** to interact (it lights up when there's something to use), CROUCH (stays on until you tap it again), SCAN, LIGHT and DROP.
+- **Buttons under your right thumb:** JUMP (the big one), USE just above it (hold it to talk on a walkie-talkie), **E** to interact (it lights up when there's something to use), CROUCH (stays on until you tap it again; crouched, pushing the stick past its rim doesn't sprint), SCAN, LIGHT and DROP.
 - **Hotbar:** tap a slot to hold what's in it. II pauses and CHAT opens the chat.
 
 To **install it** like an app: on Android, use INSTALL APP in the main menu (or *Add to Home screen* in Chrome's menu). On iPhone or iPad, tap Share, then *Add to Home Screen*. It then opens full screen and in landscape, and once it has loaded it also works offline in single player.
@@ -188,7 +188,7 @@ A bot is a real crewmate: it's on the crew cams and the map, creatures hunt it, 
 |---|---|
 | WASD | Move |
 | Shift | Sprint |
-| C (hold) | Crouch (quieter) |
+| C (hold) | Crouch (quieter and slower; no sprinting while crouched) |
 | Space | Jump |
 | E | Interact / pick up / sit / mash to escape |
 | Left click | Use held item |

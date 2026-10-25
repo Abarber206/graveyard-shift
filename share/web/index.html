@@ -7962,6 +7962,7 @@ const Exterior = (() => {
       if (Math.hypot(x - this.fire.x, z - this.fire.z) < 11) return false;
       if (this.pathInfo(x, z).d < 5.5 + m) return false;
       if (this.water != null && this.height(x, z) < this.water - 0.6) return false;
+      if (this.wreckNear(x, z, m)) return false;
       return Math.hypot(x, z) < 165;
     }
     // (the land and the rest are each built in pieces, so a landing can put them together a frame or so apart: see
@@ -8045,6 +8046,7 @@ const Exterior = (() => {
         const water = new THREE.Mesh(new THREE.PlaneGeometry(size, size), wm); water.rotation.x = -Math.PI / 2; water.position.y = W; water.receiveShadow = true; grp.add(water);
       }
       yield;
+      this.wreckAt = this.pickWreck();
       // ---- dead forest: branching trees and snags that creak in the wind ----
       this.windU = { value: 0 };
       // the ship's own wind: the downwash of its lift jets, and the blast when its mains fire, shoving everything that
@@ -8154,7 +8156,7 @@ const Exterior = (() => {
       this.buildComplex(grp); yield;
       this.buildFireExit(grp); yield;
       this.buildPylons(grp); yield;
-      this.buildWrecks(grp); yield;
+      this.buildWrecks(grp); this.buildShipwreck(grp); yield;
       this.buildWorldExtras(grp); yield;
       this.buildLampPosts(grp); yield;
       this.buildSky(grp); yield;
@@ -8633,6 +8635,8 @@ const Exterior = (() => {
         }
         // (each blade's size, turn and shade are kept with its spot too, and written straight into the instance arrays)
         if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; c.av = hash(i, j, 12) < 0.25 ? 1 : 0; }
+        if (c.wr === undefined) c.wr = this.underWreck(x, z);
+        if (c.wr) dens = -1;
         if (c.g < dens && ng < 5200) {
           const s = c.s0 * sstep(R, R - 7, d) * (0.5 + 0.5 * wk), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
           A[o] = c.cs * s; A[o + 1] = 0; A[o + 2] = -c.sn * s; A[o + 3] = 0; A[o + 4] = 0; A[o + 5] = sy; A[o + 6] = 0; A[o + 7] = 0;
@@ -9354,7 +9358,7 @@ const Exterior = (() => {
       for (let n = -3; n <= 3; n++) {
         const x = nrm.x * off + dir.x * n * 55, z = nrm.z * off + dir.z * n * 55;
         if (Math.hypot(x, z) > 160) continue;
-        if (Math.hypot(x - this.center.x, z - this.center.z) < 64 || Math.hypot(x - this.fire.x, z - this.fire.z) < 14 || this.pathInfo(x, z).d < 6) continue;
+        if (Math.hypot(x - this.center.x, z - this.center.z) < 64 || Math.hypot(x - this.fire.x, z - this.fire.z) < 14 || this.pathInfo(x, z).d < 6 || this.wreckNear(x, z, 2)) continue;
         // (stood on the lowest of its four feet, those on the uphill side sunk deeper, so none hangs over a slope)
         const leaning = this.key === 'hollow', yaw = -(a + Math.PI / 2), cs = Math.cos(yaw), sn = Math.sin(yaw);
         let y = Infinity; for (const [fx, fz] of [[-1.32, -1.32], [1.32, -1.32], [-1.32, 1.32], [1.32, 1.32]]) y = Math.min(y, this.height(x + fx * cs + fz * sn, z - fx * sn + fz * cs));
@@ -9503,6 +9507,123 @@ const Exterior = (() => {
           this.vehicle(grp, w.x, w.z, this.cbase.ry + a, new RNG(this.seed + lx * 3)); break;
         }
       }
+    }
+    // ---------------- an old ship down ----------------
+    // Somewhere off the trail lies one of the Company's ships that didn't make it, years back: the forward fuselage dug
+    // in nose first at the end of the furrow it ploughed, rolled half onto its side, its back end torn open on bare
+    // frames and hanging cable; the tail snapped off behind it, an engine pod and a landing leg thrown clear, hull plates
+    // and scrap strewn the length of the furrow. (Picked before the trees and rocks, which keep clear of it: clearOf.)
+    pickWreck() {
+      const r = new RNG(this.seed + 4242), W = this.water;
+      for (let t = 0; t < 240; t++) {
+        const a = r.range(0, TAU), d = r.range(55, 135), x = Math.cos(a) * d, z = Math.sin(a) * d, ry = r.range(0, TAU), fx = Math.sin(ry), fz = Math.cos(ry);
+        if (!this.clearOf(x, z, 9) || !this.clearOf(x - fx * 16, z - fz * 16, 6) || this.pathInfo(x, z).d < 16 || this.pathInfo(x - fx * 16, z - fz * 16).d < 12) continue;
+        // (the length of it on fairly level, dry ground)
+        let lo = 1e9, hi = -1e9;
+        for (let k = -5; k <= 1; k++) for (const s of [-3, 3]) { const h = this.height(x + fx * k * 4 + fz * s, z + fz * k * 4 - fx * s); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+        if (hi - lo > 3.2 || (W != null && lo < W + 0.25)) continue;
+        return { x, z, ry, x1: x - fx * 16, z1: z - fz * 16 };
+      }
+      return null;
+    }
+    // (whether a spot is within m of the wreck's two big pieces, plus a margin for the debris round them)
+    wreckNear(x, z, m) { const w = this.wreckAt; return !!w && (Math.hypot(x - w.x, z - w.z) < 9 + m || Math.hypot(x - w.x1, z - w.z1) < 9 + m); }
+    // (whether a spot is under the wreck's big pieces, where nothing grows)
+    underWreck(x, z) {
+      const w = this.wreckAt; if (!w) return false;
+      const fx = Math.sin(w.ry), fz = Math.cos(w.ry), dx = x - w.x, dz = z - w.z, a = dx * fx + dz * fz, b = dx * fz - dz * fx;
+      return (Math.abs(b) < 2.2 && a > -4.4 && a < 4.8) || Math.hypot(x - w.x1, z - w.z1) < 2.6;
+    }
+    buildShipwreck(grp) {
+      const w = this.wreckAt; if (!w) return;
+      const r = new RNG(this.seed + 4243), BI = this.biome, P = BI.ground;
+      const fx = Math.sin(w.ry), fz = Math.cos(w.ry), rx = Math.cos(w.ry), rz = -Math.sin(w.ry);
+      const at = (lx, lz) => ({ x: w.x + rx * lx + fx * lz, z: w.z + rz * lx + fz * lz });
+      // (its old grey and orange gone dull and chalky; some of it burnt black; the frames bare dark metal)
+      const hull = MATS.get('hull').clone(); hull.side = THREE.DoubleSide; hull.color = new THREE.Color(0.74, 0.7, 0.64); hull.roughness = 0.85; hull.metalness = 0.2;
+      const burnt = hull.clone(); burnt.color = new THREE.Color(0.2, 0.18, 0.17);
+      const dirt = new THREE.MeshStandardMaterial({ map: TEX.get(BI.terrainTex), color: new THREE.Color(P.damp[0] * 1.3, P.damp[1] * 1.3, P.damp[2] * 1.3), roughness: 1, flatShading: true });
+      const frame = MATS.get('darkmetal'), rust = MATS.get('rust'), cable = MATS.get('cable'), parts = new Map();
+      const put = (m, geo, matrix) => { if (!parts.has(m)) parts.set(m, []); parts.get(m).push({ geo, matrix }); };
+      // a length of the fuselage: the ship's rounded-box section lofted along z from z0 to z1, scaled along it by prof(t)
+      // (0 at z0 to 1 at z1), dented, the z1 end torn ragged
+      const A = 1.9, T = 1.45, B = 1.25, se = (v, n) => Math.sign(v) * Math.pow(Math.abs(v), 2 / n);
+      const tube = (z0, z1, prof, torn) => {
+        const M = 24, N = 14, pos = [], uv = [], idx = [], jag = Array.from({ length: M + 1 }, () => r.range(0.1, 1.4)), ph = r.range(0, TAU);
+        jag[M] = jag[0];
+        for (let i = 0; i <= N; i++) for (let j = 0; j <= M; j++) {
+          const t = i / N, a = (j / M) * TAU, c = Math.cos(a), sn = Math.sin(a);
+          const k = prof(t) * (1 - 0.07 * Math.max(0, Math.sin(a * 2 + ph) * Math.sin(t * 6 + a + ph)));
+          const z = lerp(z0, z1 - (torn ? jag[j] * Math.sign(z1 - z0) : 0), t);
+          pos.push(A * se(c, 3) * k, (sn > 0 ? T : B) * se(sn, 3) * k, z); uv.push(z / 4, j / M * 2);
+        }
+        for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) { const a = i * (M + 1) + j, b = a + M + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+        return g;
+      };
+      // the forward fuselage: nose down in the dirt, rolled onto its side, the break at its back end
+      const h0 = this.footY(w.x, w.z, 3), roll = r.range(0.35, 0.6) * (r.chance(0.5) ? 1 : -1);
+      const FM = mat(w.x, h0 + 0.55, w.z, 0.17, w.ry, roll);
+      put(hull, tube(4.8, -4, (t) => (t < 0.42 ? Math.pow(Math.sin(t / 0.42 * Math.PI / 2), 0.55) : 1), true), FM);
+      // (its frames standing bare past the tear, stringers sticking out of it, cable spilling down out of it)
+      for (let k = 0; k < 4; k++) {
+        const z = -2.9 - k * 0.38, tor = new THREE.TorusGeometry(1, 0.04, 5, 18, r.range(1.1, 2.8 - k * 0.4));
+        put(frame, tor, FM.clone().multiply(mat(0, 0, z, 0, 0, r.range(0, TAU), A * 0.97, T * 0.97, 1)));
+      }
+      for (let k = 0; k < 6; k++) { const a = r.range(0, TAU), l = r.range(1, 2.6); put(frame, new THREE.BoxGeometry(0.06, 0.09, l), FM.clone().multiply(mat(A * 0.95 * se(Math.cos(a), 3), T * 0.95 * se(Math.sin(a), 3), -3.6 - l / 2, r.range(-0.25, 0.25), r.range(-0.3, 0.3), 0))); }
+      for (let k = 0; k < 5; k++) { const l = r.range(1.2, 2.4); put(cable, new THREE.CylinderGeometry(0.03, 0.03, l, 5), FM.clone().multiply(mat(r.range(-1, 1), r.range(-0.6, 0.4) - l * 0.4, -3.9 - r.range(0, 0.5), r.range(-0.6, 0.6), 0, r.range(-0.5, 0.5)))); }
+      this.addObb(w.x + fx * 0.4, w.z + fz * 0.4, 2.1, 4.6, w.ry);
+      // the tail, snapped off and spun round behind it, its fin up out of the grass and its end burnt out
+      const tr = w.ry + r.range(0.5, 1.4) * (r.chance(0.5) ? 1 : -1), troll = r.range(0.9, 1.5) * (r.chance(0.5) ? 1 : -1), h1 = this.footY(w.x1, w.z1, 2);
+      const TM = mat(w.x1, h1 + 0.35, w.z1, r.range(-0.08, 0.08), tr, troll);
+      put(hull, tube(-2.6, 1.8, (t) => 0.5 + 0.5 * t, true), TM);
+      put(burnt, new THREE.CircleGeometry(1, 20), TM.clone().multiply(mat(0, 0, -2.6, 0, Math.PI, 0, A * 0.5, T * 0.5, 1)));
+      { const sh = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(2.8, 0), new THREE.Vector2(1.3, 2.1), new THREE.Vector2(0.4, 2.1)]);
+        const fin = new THREE.ExtrudeGeometry(sh, { depth: 0.1, bevelEnabled: false }); fin.rotateY(Math.PI / 2);
+        put(hull, fin, TM.clone().multiply(mat(-0.05, T * 0.62, 0.3))); }
+      this.addObb(w.x1, w.z1, 1.6, 2.5, tr);
+      // an engine pod and a landing leg, flung clear
+      const ground = (lx, lz) => { const p = at(lx, lz); return { ...p, y: this.footY(p.x, p.z, 0.8) }; };
+      { const side = r.chance(0.5) ? 1 : -1, e = ground(side * r.range(5, 7), r.range(-12, -4)), er = r.range(0, TAU);
+        const EM = mat(e.x, e.y + 0.42, e.z, 0.08, er, r.range(-0.1, 0.1));
+        put(burnt, new THREE.CylinderGeometry(0.55, 0.6, 2.4, 16).rotateX(Math.PI / 2), EM);
+        put(frame, new THREE.CylinderGeometry(0.62, 0.42, 0.8, 16, 1, true).rotateX(Math.PI / 2), EM.clone().multiply(mat(0, 0, -1.55)));
+        put(rust, new THREE.CylinderGeometry(0.3, 0.55, 0.5, 14).rotateX(Math.PI / 2), EM.clone().multiply(mat(0, 0, 1.4)));
+        this.addCircle(e.x, e.z, 0.9);
+        const l = ground(-side * r.range(4, 6), r.range(-18, -8)), lr = r.range(0, TAU), LM = mat(l.x, l.y + 0.2, l.z, 0, lr, Math.PI / 2 - 0.1);
+        put(frame, new THREE.CylinderGeometry(0.09, 0.11, 2.6, 8), LM.clone().multiply(mat(0, 0.3, 0)));
+        put(rust, new THREE.CylinderGeometry(0.5, 0.58, 0.14, 14), LM.clone().multiply(mat(0, -1.05, 0)));
+        put(frame, new THREE.CylinderGeometry(0.05, 0.05, 1.6, 6), LM.clone().multiply(mat(0.35, 0.6, 0, 0, 0, 0.35))); }
+      // plates torn off it, and smaller scrap, the length of the furrow: some lying flat, some stuck in the ground on edge
+      const pick = () => { const q = r.next(); return q < 0.55 ? hull : q < 0.8 ? burnt : rust; };
+      for (let k = 0; k < 16; k++) {
+        const g = ground(r.range(-6, 6) * (r.chance(0.6) ? 0.5 : 1), r.range(-24, 6)), up = r.chance(0.25), wd = r.range(0.7, 2), dp = r.range(0.5, 1.4);
+        if (this.underWreck(g.x, g.z)) continue;
+        put(pick(), new THREE.BoxGeometry(wd, 0.04, dp), mat(g.x, g.y + (up ? dp * 0.25 : 0.03), g.z, up ? r.range(0.9, 1.3) : r.range(-0.12, 0.12), r.range(0, TAU), r.range(-0.15, 0.15)));
+      }
+      for (let k = 0; k < 22; k++) {
+        const g = ground(r.range(-5, 5), r.range(-22, 7)), s0 = r.range(0.12, 0.45);
+        if (this.underWreck(g.x, g.z)) continue;
+        put(r.chance(0.5) ? rust : r.chance(0.5) ? burnt : frame, new THREE.BoxGeometry(s0, s0 * r.range(0.3, 0.8), s0 * r.range(0.6, 1.6)), mat(g.x, g.y + s0 * 0.12, g.z, r.range(-0.4, 0.4), r.range(0, TAU), r.range(-0.4, 0.4)));
+      }
+      // the furrow it ploughed: dirt thrown up along both sides and heaped in front of the nose
+      for (let lz = -20; lz <= 2; lz += r.range(2.4, 3.6)) for (const s of [-1, 1]) {
+        const g = ground(s * r.range(2.6, 3.3), lz), k = 0.5 + 0.5 * sstep(-20, 0, lz);
+        put(dirt, new THREE.IcosahedronGeometry(1, 1), mat(g.x, g.y - 0.1, g.z, 0, w.ry + r.range(-0.2, 0.2), 0, r.range(0.9, 1.4) * k, r.range(0.25, 0.45) * k, r.range(1.8, 2.6)));
+      }
+      { const g = ground(0, 6.2); put(dirt, new THREE.IcosahedronGeometry(1, 1), mat(g.x, g.y - 0.15, g.z, 0, w.ry, 0, 2.6, 0.6, 1.4)); }
+      for (const [m, list] of parts) { const me = new THREE.Mesh(mergeGeoList(list), m); me.castShadow = me.receiveShadow = true; grp.add(me); }
+      // (and the furrow's floor: churned earth gone dark, black with soot toward the wreck)
+      const NX = 7, NZ = 30, pos = [], col = [], idx = [], soot = [0.06, 0.055, 0.05];
+      for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
+        const lx = (i / (NX - 1) - 0.5) * 6, lz = -22 + (j / (NZ - 1)) * 27, p = at(lx, lz), sk = sstep(-8, 2, lz);
+        pos.push(p.x, this.height(p.x, p.z) + 0.05, p.z);
+        col.push(lerp(P.damp[0] * 0.5, soot[0], sk), lerp(P.damp[1] * 0.5, soot[1], sk), lerp(P.damp[2] * 0.5, soot[2], sk), (1 - Math.pow(Math.abs(lx) / 3, 2)) * sstep(-22, -16, lz) * sstep(5, 3, lz) * 0.85);
+      }
+      for (let j = 0; j < NZ - 1; j++) for (let i = 0; i < NX - 1; i++) { const a = j * NX + i; idx.push(a, a + NX, a + 1, a + 1, a + NX, a + NX + 1); }
+      const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); fg.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); fg.setIndex(idx); fg.computeVertexNormals();
+      const fur = new THREE.Mesh(fg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      fur.receiveShadow = true; grp.add(fur);
     }
     buildLampPosts(grp) {
       const ts = [0.14, 0.34, 0.54, 0.74], rr = new RNG(this.seed + 4242);

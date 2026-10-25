@@ -140,7 +140,7 @@ const BIOMES = {
     deadwood: { logs: 30, stumps: 60, charred: true },
     grass: { kind: 'ash', dens: 0.1, h: 0.6 },
     sky: { top: [0.72, 0.38, 0.34], hor: [0.9, 0.46, 0.36], sun: [1.0, 0.42, 0.28], hemi: [0.9, 0.52, 0.48], dim: 0.8, fogAdd: 0.006 },
-    motes: 'ash', plant: 'ruin', sign: 'S I T E   0',
+    motes: 'ash', plant: 'ruin', sign: 'S I T E   0', pave: 0.8,
     vehicles: { colors: [0x2a2624], van: 0.3, burnt: true },
   },
   // a hothouse world: an overgrown hydroponic farm under a warm green haze, everything dripping and growing
@@ -152,7 +152,7 @@ const BIOMES = {
     deadwood: { logs: 40, stumps: 16, charred: false },
     grass: { kind: 'fern', dens: 0.5, h: 1.3 },
     sky: { top: [0.85, 1.0, 0.75], hor: [0.95, 1.06, 0.72], sun: [1.05, 1.0, 0.78], hemi: [0.85, 1.0, 0.75], dim: 0.95, fogAdd: 0.01 },
-    motes: 'pollen', plant: 'farm', sign: 'VERDIGRIS AGRICULTURAL',
+    motes: 'pollen', plant: 'farm', sign: 'VERDIGRIS AGRICULTURAL', pave: 0.6,
     vehicles: { colors: [0x4a6a3a, 0xa8a088, 0x8a5a2a], van: 0.6, burnt: false },
   },
   // an ice world: wind-scoured snowfields and frozen rock under a hard white sky, snow always coming down
@@ -164,7 +164,7 @@ const BIOMES = {
     deadwood: { logs: 10, stumps: 12, charred: false },
     grass: { kind: 'frost', dens: 0.14, h: 0.7 },
     sky: { top: [0.85, 0.95, 1.12], hor: [1.08, 1.12, 1.2], sun: [0.95, 1.0, 1.1], hemi: [0.9, 1.0, 1.15], dim: 1.05, fogAdd: 0.008 },
-    motes: 'snow', plant: 'depot', sign: 'RIMEFALL COLD STORAGE',
+    motes: 'snow', plant: 'depot', sign: 'RIMEFALL COLD STORAGE', pave: 0.5,
     vehicles: { colors: [0xb8c8d0, 0x8a2a20, 0x4a5a6a], van: 0.7, burnt: false },
   },
   // a moor: low rolling heather and peat under a bruised violet sky, mist lying in the hollows
@@ -225,7 +225,7 @@ const BIOMES = {
     deadwood: { logs: 0, stumps: 0, charred: false },
     grass: { kind: 'none', dens: -1, h: 0.5 },
     sky: { top: [1, 1, 1], hor: [1, 1, 1], sun: [1.15, 1.12, 1.08], hemi: [0.8, 0.84, 0.95], dim: 1, fogAdd: 0 },
-    motes: 'none', plant: 'lab', sign: 'MERCY SURVEY OUTPOST',
+    motes: 'none', plant: 'lab', sign: 'MERCY SURVEY OUTPOST', pave: 0.55,
     vehicles: { colors: [0xd8d8d0, 0x8a8a8a], van: 0.7, burnt: false },
   },
   // a captured asteroid: dark broken rock, jagged spurs and crater pits, a mining claim bored into it
@@ -237,7 +237,7 @@ const BIOMES = {
     deadwood: { logs: 0, stumps: 0, charred: false },
     grass: { kind: 'none', dens: -1, h: 0.5 },
     sky: { top: [1, 1, 1], hor: [1, 1, 1], sun: [1.1, 1.06, 1.0], hemi: [0.85, 0.82, 0.8], dim: 1, fogAdd: 0 },
-    motes: 'none', plant: 'pump', sign: 'MERCY MINERAL CLAIM',
+    motes: 'none', plant: 'pump', sign: 'MERCY MINERAL CLAIM', pave: 0.5,
     vehicles: { colors: [0xb88a2a, 0x6a6a6a], van: 0.3, burnt: false },
   },
 };
@@ -366,6 +366,8 @@ const Exterior = (() => {
     }
     // the lowest the drawn ground goes round a spot, out to r: what something r across has to be sunk to, to stand
     // in it on a slope without a gap on the downhill side
+    // whether the ground here is mostly the plant's old paving (for footsteps)
+    paved(x, z) { return !!this.grid && !!this.grid.pave && this.gridAt(this.grid.pave, x, z) > 0.7; }
     footY(x, z, r) { let m = this.height(x, z); for (let k = 0; k < 6; k++) m = Math.min(m, this.height(x + Math.cos(k * 1.047) * r, z + Math.sin(k * 1.047) * r)); return m; }
     // the land's true shape, which the terrain mesh is built from
     shapeH(x, z) {
@@ -469,7 +471,10 @@ const Exterior = (() => {
       const pos = geo.attributes.position, uv = geo.attributes.uv, cols = new Float32Array(pos.count * 3);
       // coarse grids (2 m) kept for ground cover placement: terrain height and where nothing may grow
       this.grid = { n: seg + 1, size, h: new Float32Array(pos.count), bare: new Float32Array(pos.count) };
-      const trails = new Float32Array(pos.count), yards = new Float32Array(pos.count);
+      const trails = new Float32Array(pos.count), yards = new Float32Array(pos.count), en = this.entrance, PK = this.biome.pave ?? 1;
+      // (and the plant's old paving: whole round the entrance, broken up across the yard, the trail turning into what's
+      // left of a road as it nears the plant; how much shows depends on the world, drifted over with snow or dust)
+      const pave = this.grid.pave = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) {
         if (i % 2000 === 1999) yield;
         const x = pos.getX(i), z = pos.getZ(i), h = this.shapeH(x, z);
@@ -479,7 +484,10 @@ const Exterior = (() => {
         yards[i] = sstep(48, 30, Math.hypot(x - this.center.x, z - this.center.z));
         const pads = Math.max(sstep(19, 14, Math.hypot(x, z)), sstep(8, 5, Math.hypot(x - this.fire.x, z - this.fire.z)));
         this.grid.bare[i] = Math.max(sstep(0.15, 0.45, trails[i]), sstep(0.3, 0.7, yards[i]), pads);
+        const dc = Math.hypot(x - this.center.x, z - this.center.z), gn = this.noise.noise(x * 0.045 + 11, z * 0.045 - 7) * 0.5 + 0.5;
+        pave[i] = PK * Math.min(1, Math.max(sstep(54, 26, dc) * (0.35 + 0.85 * gn), sstep(24, 9, Math.hypot(x - en.x, z - en.z)), trails[i] * sstep(95, 45, dc) * 0.85));
       }
+      geo.setAttribute('aPave', new THREE.BufferAttribute(pave, 1));
       this.grid.ready = true;
       geo.computeVertexNormals();
       yield;
@@ -503,6 +511,26 @@ const Exterior = (() => {
       }
       geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
       const tmat = new THREE.MeshStandardMaterial({ map: TEX.get(BI.terrainTex), roughness: W != null ? 0.75 : 1, vertexColors: true });
+      // the paving laid over the ground where aPave says, broken up: each slab more or less gone (by its own roll), and
+      // what's left crumbling at its edges into the dirt, a dark lip along each break
+      tmat.onBeforeCompile = (sh) => {
+        sh.uniforms.uPave = { value: TEX.get('paving') };
+        sh.vertexShader = 'attribute float aPave; varying float vPave;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\nvPave = aPave;');
+        sh.fragmentShader = `uniform sampler2D uPave; varying float vPave;
+          float paveH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float paveN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(paveH(i), paveH(i + vec2(1.0, 0.0)), f.x), mix(paveH(i + vec2(0.0, 1.0)), paveH(i + vec2(1.0, 1.0)), f.x), f.y); }\n` + sh.fragmentShader.replace('#include <map_fragment>', `
+          vec4 sampledDiffuseColor = texture2D(map, vMapUv);
+          if (vPave > 0.002) {
+            vec2 wp = vMapUv * 5.0, sl = floor(wp * 0.375);
+            float n = paveN(wp * 0.45) * 0.6 + paveN(wp * 1.7) * 0.28 + paveN(wp * 6.0) * 0.12;
+            float m = vPave * 1.15 - 0.08 + (paveH(sl + 17.0) - 0.5) * 0.4, e = m - n;
+            float k = smoothstep(-0.02, 0.02, e);
+            vec3 pc = texture2D(uPave, wp * 0.125).rgb * (0.85 + 0.3 * paveH(sl + 3.0)) * (1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.07, e)));
+            sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, pc, k);
+          }
+          diffuseColor *= sampledDiffuseColor;`);
+      };
+      tmat.customProgramCacheKey = () => 'terrainPave';
       const terrain = new THREE.Mesh(geo, tmat); terrain.receiveShadow = true; grp.add(terrain);
       this.terrainGeo = geo; this.terrainMat = tmat;
       // the marsh: one sheet of dark standing water fills every hollow below the waterline, black-green and thick with
@@ -1081,13 +1109,14 @@ const Exterior = (() => {
         if (!c) {
           const x = (i + hash(i, j, 1)) * cell, z = (j + hash(i, j, 2)) * cell;
           // (grass grows in patches: thick in some places, gone in others)
-          c = { x, z, y: this.height(x, z), bare: this.gridAt(this.grid.bare, x, z), patch: this.noise.noise(x * 0.07, z * 0.07) * 0.5 + this.noise.noise(x * 0.23 + 5, z * 0.23) * 0.2 };
+          c = { x, z, y: this.height(x, z), bare: this.gridAt(this.grid.bare, x, z), pave: this.gridAt(this.grid.pave, x, z), patch: this.noise.noise(x * 0.07, z * 0.07) * 0.5 + this.noise.noise(x * 0.23 + 5, z * 0.23) * 0.2 };
           CG.set(key, c);
         }
-        const { x, z, y, bare, patch } = c, d = Math.hypot(x - cx, z - cz);
+        const { x, z, y, bare, pave, patch } = c, d = Math.hypot(x - cx, z - cz);
         if (d > R) continue;
         const GR = this.biome.grass, W = this.water;
-        let dens = GR.dens - bare * 0.9 + patch * 0.6, wk = 1;
+        // (only a straggle of it coming up through the old paving)
+        let dens = GR.dens - bare * 0.9 - pave * 0.55 + patch * 0.6, wk = 1;
         // reeds crowd along the water's edge; anything else thins out and shortens toward it. Either way a tuft stops
         // at the edge, all of it on dry ground (judged by the lowest ground under its spread, so none hangs out over
         // the water or seems to float in it)

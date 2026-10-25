@@ -133,7 +133,7 @@ const FX = (() => {
     step(at, surf, k = 1, zone = 'out', vel = null, deep = 0) {
       if (surf === 'metal') return;
       if (surf === 'water') { api.splash(_f.set(at.x, G.ext && G.ext.water != null ? G.ext.water : at.y, at.z), 0.25 * k + Math.min(1, deep) * 0.45, zone); return; }
-      const B = G.ext && G.ext.biome, kind = zone === 'in' ? 'grit' : B && B.motes === 'snow' ? 'snow' : B && (B.motes === 'ash' || B.motes === 'embers') ? 'ash' : G.ext && G.ext.water != null ? 'mud' : 'dust';
+      const B = G.ext && G.ext.biome, kind = zone === 'in' || surf === 'concrete' ? 'grit' : B && B.motes === 'snow' ? 'snow' : B && (B.motes === 'ash' || B.motes === 'embers') ? 'ash' : G.ext && G.ext.water != null ? 'mud' : 'dust';
       const base = kind === 'snow' ? SNOW : kind === 'ash' ? ASH : kind === 'grit' ? [0.5, 0.48, 0.44] : kind === 'mud' ? B.ground.damp : B ? B.ground.trail : [0.45, 0.4, 0.33];
       const l = api.lit(at, zone), col = [base[0] * l, base[1] * l, base[2] * l], f = at.clone().setY(at.y + 0.04);
       // (wet ground throws no dust: a spatter of mud off the boot instead)
@@ -148,7 +148,7 @@ const FX = (() => {
       if (zone === 'in') { api.step(at, 'concrete', k * 0.8, 'in'); return; }
       if (G.mode !== 'site' || !G.ext || (G.ship.onFootprint(at.x, at.z) && at.y > SHIP.ground + 0.3) || G.ship.rampAt(at.x, at.z) != null) return;
       const w = G.ext.water;
-      api.step(at, w != null && w > at.y + 0.08 ? 'water' : 'dirt', k, 'out', null, w != null ? w - at.y : 0);
+      api.step(at, w != null && w > at.y + 0.08 ? 'water' : G.ext.paved(at.x, at.z) ? 'concrete' : 'dirt', k, 'out', null, w != null ? w - at.y : 0);
     },
     // what a sound heard somewhere throws off as well (every peer hears the same sounds, so everyone sees the same):
     // a blow landing on flesh, on metal, into a slime; a door smashed in

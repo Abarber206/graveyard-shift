@@ -62,6 +62,8 @@ Keep that file current when gameplay changes.
     (sheets from `TEX.wear`: paint / metal / vinyl / rubber), looked up triplanar in the object's own space so it neither
     stretches nor slides in flight; `edge` rubs the paint off along box edges (from the faces' UVs). Copies made by
     `MATS.rep` / `MATS.aged` keep it.
+  - The terrain is one vertex-coloured mesh; the plant's broken yard paving is blended into its shader from a per-vertex
+    `aPave` (also `grid.pave`, for `paved()` footsteps and thinner grass), cut up per pixel (`TEX paving`, `BIOMES[k].pave`).
   - Item models are in `items.js` (`ItemMeshes`), creatures in `monsters.js` (`MonModels`), the crew robot in `avatar.js`.
   - The ship is built in `ship.js` (`pb`/`pc`/`ps`/`pt` push geometry into material buckets, which are merged).
   - Sounds (`audio.js`) come from physical models, never bare oscillators (the user asked for nothing that sounds synth):

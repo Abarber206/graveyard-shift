@@ -182,7 +182,7 @@ const Player = (() => {
     if (me.roof) return 'metal';
     if (G.ship.onFootprint(me.pos.x, me.pos.z) && me.pos.y < 1) return 'metal';
     if (wadeDepth(me) > 0.08) return 'water';
-    return G.mode === 'orbit' ? 'metal' : 'dirt';
+    return G.mode === 'orbit' ? 'metal' : G.ext && G.ext.paved(me.pos.x, me.pos.z) ? 'concrete' : 'dirt';
   }
   // how deep you're standing in the marsh's water (0 out of it)
   function wadeDepth(me) { return me.zone === 'out' && G.mode === 'site' && G.ext && G.ext.water != null ? Math.max(0, G.ext.water - me.pos.y) : 0; }

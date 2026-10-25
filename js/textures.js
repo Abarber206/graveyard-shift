@@ -406,6 +406,30 @@ const TEX = (() => {
       speckle(g, 256, 256, 16); return finish(c);
     },
     // wind-packed snow: soft drifts, sastrugi ridges, a little grit and the odd rock showing through
+    // the plant's old yard paving, 8 m square, three slabs a side: weathered concrete, each slab its own tone, dark
+    // joints packed with dirt and weeds coming up through them, cracks, oil stains, spalled chips (see Exterior's terrain)
+    paving() {
+      const [c, g] = C(512, 512), S = 512 / 3;
+      g.fillStyle = '#76736b'; g.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { const v = r.range(-16, 10) | 0; g.fillStyle = `rgba(${118 + v},${115 + v},${108 + v},0.5)`; g.fillRect(i * S, j * S, S, S); }
+      blotches(g, 512, 512, 70, '46,42,36', 0.05, 0.22, 12, 70); blotches(g, 512, 512, 30, '160,156,146', 0.04, 0.1, 10, 50);
+      blotches(g, 512, 512, 7, '16,14,12', 0.18, 0.4, 10, 34);
+      cracks(g, 512, 512, 26, 'rgba(28,25,20,.6)');
+      for (let i = 0; i < 260; i++) { const v = r.chance(0.5) ? 56 : 160; g.fillStyle = `rgba(${v},${v - 3},${v - 8},${r.range(0.2, 0.5)})`; g.beginPath(); g.ellipse(r.next() * 512, r.next() * 512, r.range(1, 4), r.range(1, 3), r.range(0, 3), 0, TAU); g.fill(); }
+      // (the joints wrap round the edges, so the seam between repeats is itself a joint)
+      for (let k = 0; k <= 3; k++) {
+        const p = Math.round(k * S);
+        g.fillStyle = 'rgba(150,146,138,.35)'; g.fillRect(p - 4, 0, 8, 512); g.fillRect(0, p - 4, 512, 8);
+        g.fillStyle = 'rgba(36,31,24,.92)'; g.fillRect(p - 2, 0, 4, 512); g.fillRect(0, p - 2, 512, 4);
+      }
+      g.lineWidth = 1;
+      for (let i = 0; i < 120; i++) {
+        const vert = r.chance(0.5), along = r.next() * 512, jp = Math.round(r.int(0, 3) * S), x = vert ? jp : along, y = vert ? along : jp;
+        for (let b = r.int(2, 6); b > 0; b--) { const v = r.range(-20, 20) | 0; g.strokeStyle = `rgba(${72 + v},${88 + v},${44 + v},.85)`; g.beginPath(); g.moveTo(x + r.range(-2, 2), y + r.range(-2, 2)); g.lineTo(x + r.range(-7, 7), y + r.range(-7, 7)); g.stroke(); }
+      }
+      speckle(g, 512, 512, 22);
+      return finish(c);
+    },
     terrainSnow() {
       const [c, g] = C(256, 256);
       g.fillStyle = '#d8dee6'; g.fillRect(0, 0, 256, 256);

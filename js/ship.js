@@ -345,10 +345,10 @@ const Ship = (() => {
         col = (accS * lam * shadow * shd * fwd * uSunI + amb * accA) * uCol;
         // (lightning flickering deep in a storm, lighting the cloud round it from inside: a knot of light where the stroke
         // is, and the cloud for miles round glowing with it, brightest where it's thickest so its own billows show; on
-        // the night side a storm the size of a country winking far below, washed out by day)
-        { float dk = 1.0 - 0.85 * smoothstep(-0.12, 0.3, mu);
+        // the night side a storm the size of a country flickering far below, fainter by day)
+        { float dk = 1.0 - 0.55 * smoothstep(-0.12, 0.3, mu);
           for (int i = 0; i < 6; i++) { vec4 L = uFlash[i]; if (L.w > 0.0) { float e = 1.0 - dot(nw, L.xyz);
-            col += vec3(0.62, 0.7, 1.0) * L.w * dk * accA * (5.0 * exp(-e / 0.0001) + 2.6 * accA * exp(-e / 0.004)); } } }
+            col += vec3(0.62, 0.7, 1.0) * L.w * dk * accA * (5.0 * exp(-e / 0.0001) + 3.0 * accA * exp(-e / 0.008)); } } }
       }
       // the high wisps: a thin sheet over it all (or, from under it, behind it)
       float dc = b * b - c0 + Rc * Rc;
@@ -2664,8 +2664,8 @@ const Ship = (() => {
             void main(){
               vec2 d = gl_PointCoord - 0.5; float r2 = dot(d, d) * 4.0, s = fract(uT / 1.7);
               float hull = (0.55 + 4.0 * pow(max(0.0, sin(uT * 0.23)), 80.0)) * uLit;
-              float strobe = (s < 0.04 || abs(s - 0.13) < 0.02) ? 7.0 : 0.0, nav = step(0.5, fract(uT * 0.45 + 0.2));
-              vec3 c = vec3(1.0, 0.95, 0.86) * hull * exp(-r2 * 10.0) + vec3(1.0) * strobe * exp(-r2 * 4.0) + vec3(1.0, 0.12, 0.08) * 0.7 * nav * exp(-r2 * 14.0);
+              float strobe = (s < 0.04 || abs(s - 0.13) < 0.02) ? 2.2 : 0.0, nav = step(0.5, fract(uT * 0.45 + 0.2));
+              vec3 c = vec3(1.0, 0.95, 0.86) * hull * exp(-r2 * 10.0) + vec3(1.0) * strobe * exp(-r2 * 12.0) + vec3(1.0, 0.12, 0.08) * 0.7 * nav * exp(-r2 * 14.0);
               gl_FragColor = vec4(c, 1.0);
             }`,
         }));
@@ -2974,10 +2974,17 @@ const Ship = (() => {
       const F = this.cloudU.uFlash.value, st = this.wxStorms || [], fl = this.flashes || (this.flashes = []), cells = this.lCells || (this.lCells = []);
       const on = this.clouds.visible && !this.airless;
       for (let i = cells.length - 1; i >= 0; i--) if ((cells[i].life -= dt) <= 0) cells.splice(i, 1);
+      // (mostly in today's big storms, else along the tropics and the storm tracks; and where they'd be seen: on the face
+      // of the world turned to the ship, on its night side or the dusk along it, where lightning shows; by day it's lost
+      // in the glare off the cloud tops)
+      const cv = this.cloudU.uCamL.value, look = cv.lengthSq() > 0 ? (this._lLook || (this._lLook = new THREE.Vector3())).copy(cv).normalize() : null, sv = this.cloudU.uSunL.value;
       while (on && cells.length < 6) {
         let c;
-        if (st.length && Math.random() < 0.75) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.9).add(s.c); }
-        else { const lat = (Math.random() < 0.5 ? Math.random() * 0.35 : 0.6 + Math.random() * 0.45) * (Math.random() < 0.5 ? 1 : -1), lon = Math.random() * TAU; c = _gV.set(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat)); }
+        for (let k = 0; k < 16; k++) {
+          if (st.length && Math.random() < 0.75) { const s = st[Math.floor(Math.random() * st.length)]; c = _gV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); c.addScaledVector(s.c, -c.dot(s.c)).normalize().multiplyScalar(s.rad * Math.sqrt(Math.random()) * 0.9).add(s.c); }
+          else { const lat = (Math.random() < 0.5 ? Math.random() * 0.35 : 0.6 + Math.random() * 0.45) * (Math.random() < 0.5 ? 1 : -1), lon = Math.random() * TAU; c = _gV.set(-Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat)); }
+          if (!look || (c.normalize().dot(look) > 0.3 && (c.dot(sv) < 0.15 || k > 10))) break;
+        }
         cells.push({ c: c.clone().normalize(), life: 6 + Math.random() * 18, r: 0.015 + Math.random() * 0.03, next: Math.random() * 1.5 });
       }
       for (const c of on ? cells : []) {

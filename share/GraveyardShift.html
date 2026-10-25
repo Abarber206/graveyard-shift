@@ -10623,6 +10623,8 @@ const Ship = (() => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: TEX.sign(text, opts), transparent: !!opts.clear, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1 }));
       m.position.set(x, y, z); m.rotation.y = ry; this.group.add(m); return m;
     }
+    // lettering sprayed or printed straight onto something (no plate of its own): w x h, in fg
+    stencil(t, w, h, x, y, z, ry, fg) { return this.sign(t, w, h, x, y, z, ry, { w: 256, h: Math.round(256 * h / w), size: Math.round(200 * h / w), bold: true, bg: 'rgba(0,0,0,0)', fg, border: false, dirty: false, clear: true }); }
     // straight wall along X at the given z with round portholes (the cabin side; the hull skin outside is separate)
     sideWall(z, side, x0, x1, holes, gap) {
       const s = new THREE.Shape(); s.moveTo(x0, 0); s.lineTo(x1, 0); s.lineTo(x1, H); s.lineTo(x0, H); s.closePath();
@@ -11072,6 +11074,25 @@ const Ship = (() => {
         glowRed: L(0.95, 0.12, 0.06), glowAmber: L(0.95, 0.55, 0.1), glowGreen: L(0.25, 0.9, 0.35), glowBlue: L(0.3, 0.6, 1.0),
         glowWarm: B(1.7, 1.4, 0.95),
       };
+      // the crew's paperwork: typed memos (a header, lines of type, a stamp, folded, a coffee ring), and playing cards
+      const paper = (seed, head, stamp) => {
+        const [c, g] = TEX.canvas(256, 352), r = new RNG(seed), f = '"Share Tech Mono", monospace';
+        g.fillStyle = '#e4ddca'; g.fillRect(0, 0, 256, 352);
+        g.fillStyle = '#2a2622'; g.font = `bold 19px ${f}`; g.fillText(head, 20, 38); g.fillRect(20, 48, 216, 2);
+        g.font = `11px ${f}`; g.fillText('MERCY SALVAGE CO.  FORM ' + (100 + (seed % 800)), 20, 64);
+        for (let y = 84; y < 318; y += 13) { if (r.chance(0.14)) { y += 6; continue; } g.fillStyle = `rgba(40,36,32,${r.range(0.45, 0.65)})`; g.fillRect(20, y, r.range(110, 216), 4); }
+        g.save(); g.translate(r.range(150, 190), r.range(270, 300)); g.rotate(r.range(-0.3, 0.1)); g.strokeStyle = 'rgba(150,28,18,.7)'; g.lineWidth = 3; g.strokeRect(-48, -15, 96, 30);
+        g.fillStyle = 'rgba(150,28,18,.7)'; g.font = `bold 16px ${f}`; g.textAlign = 'center'; g.fillText(stamp, 0, 6); g.restore();
+        g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, 117, 256, 2); g.fillRect(0, 234, 256, 2);
+        g.strokeStyle = 'rgba(90,60,30,.28)'; g.lineWidth = 5; g.beginPath(); g.arc(r.range(50, 200), r.range(90, 300), 28, 0, TAU * 0.85); g.stroke();
+        for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(60,50,35,${r.range(0.02, 0.08)})`; g.fillRect(r.range(0, 256), r.range(0, 352), r.range(4, 30), r.range(2, 16)); }
+        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+        return S({ map: t, roughness: 0.95, side: THREE.DoubleSide });
+      };
+      this.cm.memoA = paper(11, 'CARGO MANIFEST', 'CHECKED'); this.cm.memoB = paper(23, 'NIGHT SHIFT ROTA', 'POSTED'); this.cm.memoC = paper(37, 'QUOTA NOTICE', 'FINAL');
+      { const [c, g] = TEX.canvas(64, 92); g.fillStyle = '#ece6d6'; g.fillRect(0, 0, 64, 92); g.strokeStyle = '#8a8270'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 86);
+        g.fillStyle = '#a31c14'; g.font = 'bold 16px serif'; g.fillText('7', 8, 20); g.font = '34px serif'; g.textAlign = 'center'; g.fillText('\u2665', 32, 58);
+        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; this.cm.card = S({ map: t, roughness: 0.7, side: THREE.DoubleSide }); }
       // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
       // rubbed bright (see MATS.wear)
       for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) (this.cm[n].roughness = Math.max(this.cm[n].roughness, 0.58)), MATS.wear(this.cm[n], { kind: 'paint', k: [0.66, 0.48, 0.002, 0.4], bare: 0x6a6e70, edge: 0.022 });
@@ -11377,7 +11398,7 @@ const Ship = (() => {
         this.pc(D, 0.05, 0.06, ty - 0.07, tx, (ty - 0.07) / 2, tz, 0, 0, 0, 12); this.pc(D, 0.24, 0.27, 0.025, tx, 0.0125, tz, 0, 0, 0, 18);
         for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.4; this.pc('steelBolt', 0.014, 0.014, 0.012, tx + Math.cos(a) * 0.2, 0.028, tz + Math.sin(a) * 0.2, 0, 0, 0, 6); }
         // a hand of cards fanned out, the deck, a card face-down; two mugs; a lunchbox; a thermos; a pair of dice
-        for (let i = 0; i < 5; i++) this.pq('paper', 0.058, 0.084, tx - 0.36 + i * 0.03, ty + 0.002 + i * 0.0004, tz + 0.1, -Math.PI / 2, 0, 0.45 - i * 0.22);
+        for (let i = 0; i < 5; i++) this.pq('card', 0.058, 0.084, tx - 0.36 + i * 0.03, ty + 0.002 + i * 0.0004, tz + 0.1, -Math.PI / 2, 0, 0.45 - i * 0.22);
         this.pq('red', 0.058, 0.084, tx + 0.02, ty + 0.002, tz - 0.12, -Math.PI / 2, 0, 0.3);
         this.pb('white', 0.064, 0.022, 0.09, tx + 0.18, ty + 0.011, tz - 0.06, 0, 0.2, 0); this.pb('red', 0.065, 0.003, 0.091, tx + 0.18, ty + 0.0235, tz - 0.06, 0, 0.2, 0);
         for (const [mx, mz, r] of [[tx - 0.05, tz + 0.2, 0], [tx + 0.36, tz + 0.16, 2]]) this.mug(mx, ty, mz, r);
@@ -11484,11 +11505,16 @@ const Ship = (() => {
       for (const [a, b, c, d] of [[-0.8, -0.3, -3.91, -3.69], [0.2, 0.5, -3.91, -3.79], [-0.09, 0.04, -3.64, -3.56], [-0.43, 0.43, -3.98, -3.85]]) this.top(a, b, c, d, 1.0, 'on');
       // the charger's battery pack and its cable
       this.pb('yellow', 0.42, 0.32, 0.3, -3.6, 0.16, -3.8); this.pb('black', 0.08, 0.05, 0.06, -3.72, 0.345, -3.8); this.pb('red', 0.08, 0.05, 0.06, -3.48, 0.345, -3.8);
+      this.stencil('48V  DANGER', 0.32, 0.05, -3.6, 0.2, -3.6485, 0, '#1c1a16');
       this.tube('cable', [V(-3.75, 1.02, -3.88), V(-3.84, 0.72, -3.74), V(-3.76, 0.42, -3.66), V(-3.72, 0.37, -3.78)], 0.016, 16); this.pc('darkmetal', 0.025, 0.02, 0.04, -3.75, 1.03, -3.88, 0, 0, 0, 8);
       this.col(-3.82, -3.38, -4.0, -3.63); this.top(-3.81, -3.39, -3.95, -3.65, 0.32); this.top(-3.77, -3.67, -3.84, -3.76, 0.32, 'on'); this.top(-3.53, -3.43, -3.84, -3.76, 0.32, 'on');
       // intercom with a coiled handset cord
       this.pb('painted', 0.24, 0.34, 0.07, -6.0, 1.45, -3.965); this.pb('vent', 0.16, 0.1, 0.01, -6.0, 1.55, -3.928);
-      this.pb('black', 0.06, 0.24, 0.06, -5.92, 1.4, -3.9); this.pb('glowRed', 0.02, 0.02, 0.006, -6.08, 1.58, -3.927);
+      // (the handset in its cradle: a grip with an earpiece and a mouthpiece; three buttons; its label)
+      this.pr('black', 0.05, 0.22, 0.05, 0.015, -5.92, 1.4, -3.9); for (const y of [1.3, 1.5]) this.pc('black', 0.034, 0.03, 0.035, -5.92, y, -3.88, Math.PI / 2, 0, 0, 12);
+      this.pb(D, 0.07, 0.03, 0.05, -5.92, 1.555, -3.93); this.pb('glowRed', 0.02, 0.02, 0.006, -6.08, 1.58, -3.927);
+      for (let i = 0; i < 3; i++) this.pc('black', 0.011, 0.011, 0.012, -6.08 + i * 0.035, 1.36, -3.926, Math.PI / 2, 0, 0, 8);
+      this.stencil('INTERCOM', 0.12, 0.022, -6.05, 1.31, -3.9295, 0, '#e8e2d0');
       { const pts = []; for (let i = 0; i <= 60; i++) { const t = i / 60, a = t * TAU * 9; pts.push(V(-5.92 + Math.cos(a) * 0.02, 1.27 - t * 0.38, -3.9 + Math.sin(a) * 0.02)); } this.tube('black', pts, 0.005, 120, 4); }
       // low cargo net holding kit bags against the starboard wall
       this.pq('net', 1.6, 1.15, -5.65, 0.68, 3.72, 0, Math.PI, 0);
@@ -11518,7 +11544,7 @@ const Ship = (() => {
         this.col(-7.05, -6.6, z - 0.3, z + 0.3);
       }
       for (const [z, m, t] of [[0.92, 'yellow', 0.12], [1.28, 'white', -0.1]]) { this.wallHook(-7.04, 2.29, z, Math.PI / 2); this.hardHat(m, -7.05 + 0.193, 2.276, z, -0.15, Math.PI / 2 + t * 0.4, 0); }
-      this.pb('painted', 0.1, 0.6, 0.55, -7.0, 2.45, -1.1);
+      this.pb('painted', 0.1, 0.6, 0.55, -7.0, 2.45, -1.1); this.stencil('MAIN BREAKERS', 0.36, 0.036, -6.9485, 2.185, -1.1, Math.PI / 2, '#e8e2d0');
       for (let r = 0; r < 3; r++) for (let c = 0; c < 6; c++) this.pb('black', 0.02, 0.07, 0.04, -6.945, 2.27 + r * 0.16, -1.32 + c * 0.088);
       for (let c = 0; c < 5; c++) this.pb(c === 3 ? 'glowRed' : 'glowGreen', 0.006, 0.015, 0.015, -6.948, 2.71, -1.28 + c * 0.1);
       this.pc(D, 0.03, 0.03, 0.66, -7.0, 3.07, -1.1, 0, 0, 0, 8);
@@ -11555,7 +11581,7 @@ const Ship = (() => {
       this.pb('crate', 0.4, 0.3, 0.36, -6.7, sy[2] + 0.15, -2.4, 0, 0.2, 0);
       this.pb('crate', 0.6, 0.5, 0.7, -6.7, sy[0] + 0.25, 2.3);
       // (battery cases: a rubber lid band, catches, a stencil on the front)
-      const sten = (t, w, h, x, y, z, ry, fg) => this.sign(t, w, h, x, y, z, ry, { w: 256, h: Math.round(256 * h / w), size: Math.round(200 * h / w), bold: true, bg: 'rgba(0,0,0,0)', fg, border: false, dirty: false, clear: true });
+      const sten = (...a) => this.stencil(...a);
       for (const z of [3.05, 3.4]) {
         this.pb('yellow', 0.42, 0.3, 0.28, -6.66, sy[0] + 0.15, z); this.pb('black', 0.43, 0.04, 0.29, -6.66, sy[0] + 0.25, z);
         for (const s of [-1, 1]) this.pb('hardware', 0.012, 0.05, 0.03, -6.446, sy[0] + 0.23, z + s * 0.08);
@@ -11578,7 +11604,7 @@ const Ship = (() => {
       this.pt(D, 0.15, 0.012, 3.05, 0.3, -2.55, Math.PI / 2, 0, 0, 16);
       this.mug(2.05, 0.9, -3.15);
       // (the papers lie on the desk mat, between the keyboard and the trackball, clear of both)
-      this.pq('paper', 0.21, 0.29, 3.075, 0.9058, -3.245, -Math.PI / 2, 0.05, 0); this.pq('paper', 0.21, 0.29, 3.08, 0.9064, -3.25, -Math.PI / 2, -0.07, 0);
+      this.pq('memoC', 0.21, 0.29, 3.075, 0.9058, -3.245, -Math.PI / 2, 0.05, 0); this.pq('memoA', 0.21, 0.29, 3.08, 0.9064, -3.25, -Math.PI / 2, -0.07, 0);
       this.pc(D, 0.07, 0.08, 0.03, 3.3, 0.915, -3.8, 0, 0, 0, 12);
       this.beam(D, V(3.3, 0.93, -3.8), V(3.25, 1.25, -3.7), 0.015); this.beam(D, V(3.25, 1.25, -3.7), V(3.12, 1.2, -3.55), 0.015);
       this.pc(D, 0.04, 0.09, 0.1, 3.1, 1.15, -3.52, 0.5, 0, 0, 12); this.ps('glowWarm', 0.03, 3.1, 1.11, -3.5, 1, 1, 1, 8);
@@ -11588,15 +11614,20 @@ const Ship = (() => {
       // bulkhead (bay side): flight deck sign, first-aid kit, extinguisher, notice board
       this.sign('FLIGHT DECK', 1.0, 0.2, 3.49, 2.95, 0, -Math.PI / 2, sx);
       this.pb('white', 0.1, 0.4, 0.5, 3.45, 1.45, -2.0); this.pb('red', 0.006, 0.22, 0.06, 3.397, 1.43, -2.0); this.pb('red', 0.006, 0.06, 0.22, 3.397, 1.43, -2.0); this.pb('hardware', 0.02, 0.03, 0.12, 3.395, 1.29, -2.0);
-      this.sign('FIRST AID', 0.3, 0.045, 3.396, 1.6, -2.0, -Math.PI / 2, { w: 256, h: 38, size: 30, bold: true, bg: 'rgba(0,0,0,0)', fg: '#8e1c14', border: false, dirty: false, clear: true });
+      this.stencil('FIRST AID', 0.3, 0.045, 3.396, 1.6, -2.0, -Math.PI / 2, '#8e1c14');
+      for (const y of [1.33, 1.57]) this.pc('hardware', 0.009, 0.009, 0.05, 3.398, y, -2.245, 0, 0, 0, 8);
       this.pb(D, 0.03, 0.5, 0.12, 3.485, 0.6, 2.0);
       this.pc('red', 0.085, 0.085, 0.5, 3.38, 0.58, 2.0, 0, 0, 0, 16); this.ps('red', 0.085, 3.38, 0.83, 2.0, 1, 0.6, 1, 12);
       this.pc(D, 0.03, 0.035, 0.08, 3.38, 0.9, 2.0, 0, 0, 0, 8); this.pb(D, 0.13, 0.02, 0.03, 3.355, 0.95, 2.0);
-      this.tube('black', [V(3.4, 0.92, 2.03), V(3.33, 0.88, 2.1), V(3.31, 0.6, 2.1), V(3.32, 0.45, 2.07)], 0.012, 12);
+      // (its instruction label, the strap holding it to the bracket, the pressure gauge, the horn on the end of the hose)
+      this.pc('white', 0.0865, 0.0865, 0.16, 3.38, 0.55, 2.0, 0, 0, 0, 16); this.pc(D, 0.088, 0.088, 0.025, 3.38, 0.74, 2.0, 0, 0, 0, 16);
+      this.pc(D, 0.022, 0.022, 0.012, 3.35, 0.905, 2.0, 0, 0, Math.PI / 2, 12); this.put('gauge', new THREE.CircleGeometry(0.018, 14), mat(3.3435, 0.905, 2.0, 0, -Math.PI / 2, 0));
+      this.pc('black', 0.012, 0.022, 0.07, 3.3, 0.42, 2.09, 0, 0, 0, 10);
+      this.tube('black', [V(3.4, 0.92, 2.03), V(3.33, 0.88, 2.1), V(3.3, 0.6, 2.11), V(3.3, 0.45, 2.09)], 0.012, 12);
       this.sign('FIRE', 0.24, 0.12, 3.49, 1.05, 2.0, -Math.PI / 2, { w: 128, h: 64, size: 40, bg: '#a01810', fg: '#f4e8d8', border: false, dirty: false });
       this.pb('cork', 0.03, 0.75, 1.0, 3.485, 1.95, 3.0);
       for (const z of [2.48, 3.52]) this.pb(D, 0.04, 0.8, 0.03, 3.48, 1.95, z); for (const y of [1.56, 2.34]) this.pb(D, 0.04, 0.03, 1.07, 3.48, y, 3.0);
-      this.pq('paper', 0.21, 0.28, 3.468, 2.05, 2.7, 0, -Math.PI / 2, 0.08); this.pq('paper', 0.21, 0.29, 3.468, 2.02, 3.18, 0, -Math.PI / 2, -0.05); this.pq('noteY', 0.1, 0.1, 3.468, 1.75, 3.38, 0, -Math.PI / 2, -0.1);
+      this.pq('memoB', 0.21, 0.28, 3.468, 2.05, 2.7, 0, -Math.PI / 2, 0.08); this.pq('memoA', 0.21, 0.29, 3.468, 2.02, 3.18, 0, -Math.PI / 2, -0.05); this.pq('noteY', 0.1, 0.1, 3.468, 1.75, 3.38, 0, -Math.PI / 2, -0.1);
       for (const [y, z] of [[2.17, 2.7], [2.15, 3.18], [1.79, 3.38]]) this.ps('red', 0.012, 3.46, y, z, 1, 1, 1, 6);
       this.sign('DAYS WITHOUT AN\nINCIDENT:  0', 0.5, 0.22, 3.466, 1.7, 2.84, -Math.PI / 2, { w: 256, h: 112, size: 26, bg: '#e8e0c8', fg: '#2a2620' });
       // airlock: a hazard plate on the bay floor in front of the inner door; cargo stencil on the port wall
@@ -11605,7 +11636,7 @@ const Ship = (() => {
       // tie-down rings set into the floor
       for (const x of [-5.5, -2.5, 0.5]) for (const z of [-2.6, 0, 2.6]) { this.pb(SB, 0.14, 0.012, 0.14, x, 0.006, z); this.pt(SB, 0.06, 0.012, x, 0.02, z, Math.PI / 2, 0, 0, 10, Math.PI); }
       // red emergency lights high on the walls
-      for (const x of [-5.6, -0.3, 2.95]) for (const s of [-1, 1]) { this.pb(D, 0.16, 0.1, 0.08, x, 3.05, s * 3.96); this.pb('glowRed', 0.12, 0.06, 0.012, x, 3.05, s * 3.917); }
+      for (const x of [-5.6, -0.3, 2.95]) for (const s of [-1, 1]) { this.pb(D, 0.16, 0.1, 0.08, x, 3.05, s * 3.96); this.pb('glowRed', 0.12, 0.06, 0.012, x, 3.05, s * 3.917); for (const dx of [-0.04, 0, 0.04]) this.pb(D, 0.008, 0.08, 0.008, x + dx, 3.05, s * 3.905); this.pb(D, 0.15, 0.008, 0.008, x, 3.05, s * 3.903); }
     }
     // ---------- the bay, lived in: padded insulation blankets on the upper walls, perforated ceiling panels, deck
     // hatches and oil stains, and the things a crew piles up (a clock that keeps site time, the coffee machine, an
@@ -11694,8 +11725,14 @@ const Ship = (() => {
         const x = 3.47, z = -3.4, y = 1.45;
         this.pb('white', 0.04, 0.95, 0.36, x + 0.01, y, z);
         for (const s of [-1, 1]) { this.pb('red', 0.07, 1.0, 0.04, x - 0.02, y, z + s * 0.18); this.pb('red', 0.07, 0.04, 0.4, x - 0.02, y + s * 0.48, z); }
-        this.beam('wood', V(x - 0.04, y - 0.4, z + 0.05), V(x - 0.04, y + 0.36, z - 0.02), 0.03, 0.035);
-        this.pb('red', 0.03, 0.08, 0.2, x - 0.04, y + 0.33, z - 0.06); this.pb('steelBolt', 0.025, 0.07, 0.05, x - 0.04, y + 0.33, z - 0.17);
+        // (the axe: a pick at the back, the blade flaring to a ground steel edge, all of it inside the case and clear of
+        // the glass; shapes drawn with the blade to +X, turned to face the bay)
+        this.beam('wood', V(x - 0.03, y - 0.4, z + 0.05), V(x - 0.03, y + 0.36, z - 0.02), 0.03, 0.035);
+        const head = new THREE.Shape(); head.moveTo(-0.09, 0); head.lineTo(-0.03, 0.025); head.lineTo(0.03, 0.03); head.lineTo(0.1, 0.06); head.quadraticCurveTo(0.135, 0, 0.1, -0.06); head.lineTo(0.03, -0.03); head.lineTo(-0.03, -0.025); head.lineTo(-0.09, 0);
+        const edge = new THREE.Shape(); edge.moveTo(0.094, 0.057); edge.lineTo(0.1, 0.06); edge.quadraticCurveTo(0.135, 0, 0.1, -0.06); edge.lineTo(0.094, -0.057); edge.quadraticCurveTo(0.124, 0, 0.094, 0.057);
+        const toCase = (d) => new THREE.Matrix4().makeBasis(V(0, 0, -1), V(0, 1, 0), V(1, 0, 0)).setPosition(x - 0.03 - d / 2, y + 0.33, z - 0.017);
+        this.put('red', new THREE.ExtrudeGeometry(head, { depth: 0.024, bevelEnabled: false, curveSegments: 8 }), toCase(0.024));
+        this.put('steelBolt', new THREE.ExtrudeGeometry(edge, { depth: 0.026, bevelEnabled: false, curveSegments: 8 }), toCase(0.026));
         this.pb('glass', 0.006, 0.92, 0.32, x - 0.055, y, z);
         this.sign('IN EMERGENCY\nBREAK GLASS', 0.3, 0.1, x - 0.06, y + 0.58, z, -Math.PI / 2, { w: 256, h: 84, size: 26, bold: true, bg: '#a01810', fg: '#f4e8d8', border: false, dirty: false });
       }
@@ -11727,6 +11764,10 @@ const Ship = (() => {
         g.font = '15px "Share Tech Mono", monospace'; g.fillText(sub, 128, H2 - 26);
         for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(40,30,20,${Math.random() * 0.12})`; g.fillRect(Math.random() * 256, Math.random() * H2, Math.random() * 40, Math.random() * 20); }
         g.fillStyle = 'rgba(230,220,190,.5)'; g.beginPath(); g.moveTo(256, 0); g.lineTo(226, 0); g.lineTo(256, 30); g.fill();
+        // (creased where it was folded to ship, the edges nicked and torn, tape yellowed at a corner)
+        g.fillStyle = 'rgba(255,250,235,.12)'; g.fillRect(0, H2 / 2 - 1, 256, 2); g.fillRect(127, 0, 2, H2); g.fillStyle = 'rgba(0,0,0,.14)'; g.fillRect(0, H2 / 2 + 1, 256, 2); g.fillRect(129, 0, 2, H2);
+        g.fillStyle = 'rgba(30,24,18,.9)'; for (let i = 0; i < 7; i++) { const e = i % 4, t = Math.random(), x = e === 0 ? t * 256 : e === 1 ? 256 : e === 2 ? t * 256 : 0, y = e === 0 ? 0 : e === 1 ? t * H2 : e === 2 ? H2 : t * H2; g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.lineTo(x + (Math.random() - 0.5) * 6, y + (e === 2 ? -1 : 1) * 9); g.fill(); }
+        g.fillStyle = 'rgba(200,170,90,.45)'; g.fillRect(4, H2 - 30, 34, 14);
         const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
         const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1 }));
         m.position.set(x, y, z); m.rotation.y = ry; this.group.add(m);

@@ -227,7 +227,7 @@ const SITE_LOOT = {
 // how many real seconds a minute of the site's day takes (8 AM to midnight: a little over half an hour)
 const SEC_PER_MIN = 2;
 const SELL_RATE = [1.0, 0.85, 0.7, 0.5];
-const PROTO = 21;
+const PROTO = 22;
 // the ship's flights between orbit and the ground (seconds, metres)
 const FLY = {
   landDur: 12, landH: 300, landRun: 190, // powered descent: from this high, this far back along the approach
@@ -292,7 +292,7 @@ const G = {
     G.noises = []; G.timers = []; G.grenades = []; G.round = null; G.leechOn = null; G.seq = null; G.flicker = 0;
     G.ship.setDoor(false); G.ship.door.t = 0;
     G.flight = null; G.updateFlight(0); G.ship.setLanded(false); SFX.setThrust(0, true, 0);
-    G.robot = null; G.ship.poseRobot(-1); G.ship.lockCycling = false; G.ship.idoor.open = true; G.ship.idoor.t = 1;
+    G.robot = null; G.ship.poseRobot(-1); G.ship.lockCycling = false; G.ship.idoor.open = true; G.ship.idoor.t = 1; G.ship.roofLid.open = false; G.ship.roofLid.t = 0;
     G.endSendoff(); G.entryHeat = 0; G.fovAdd = 0; G.jumping = false; R.fx.white = 0; R.fx.heat = 0;
     G.siteBuild = null; G.siteShown = true; G.setCabinPower(1);
     G.bombs = []; G.fuses = []; for (const b of G.blasts) for (const p of b.parts) R.scene.remove(p.o); G.blasts = [];
@@ -691,7 +691,7 @@ const G = {
       blasts: G.fac ? G.fac.blasts.map((b) => (b.open ? 1 : 0)) : [],
       hatch: G.ship.door.open,
       flight: G.flight ? { kind: G.flight.kind, t: G.flight.t, aboard: G.flight.aboard ? [...G.flight.aboard] : null } : null,
-      idoor: G.ship.idoor.open, lock: !!G.ship.lockCycling,
+      idoor: G.ship.idoor.open, lock: !!G.ship.lockCycling, roofLid: G.ship.roofLid.open,
       robot: G.robot ? { t: G.robot.t, items: G.robot.items } : null,
       pods: Pods.serialize(),
       rover: Rover.owned ? Rover.serialize() : null,
@@ -727,6 +727,7 @@ const G = {
       G.updateFlight(0); const S = G.ship; S.gearT = S.gearTarget; S.rampT = S.rampTarget; S.poseGear();
     } else G.ship.setLanded(!!s.round);
     G.ship.idoor.open = s.idoor !== false; G.ship.idoor.t = G.ship.idoor.open ? 1 : 0; G.ship.lockCycling = !!s.lock;
+    G.ship.roofLid.open = !!s.roofLid; G.ship.roofLid.t = G.ship.roofLid.open ? 1 : 0;
     if (s.robot) { G.robot = { t: s.robot.t, items: s.robot.items, done: {} }; for (const k in DELIVERY) if (DELIVERY[k] <= s.robot.t) G.robot.done[k] = true; G.ship.setRobotCargo(s.robot.items); }
     for (const p of s.pods || []) Pods.spawn(p);
     G.applyRunVisuals();
@@ -981,6 +982,8 @@ const G = {
     // (fy: how far above where it settles it starts, so it drops into place)
     itemSpawn(e) { const it = G.createItem(e.d); it.vis.y += e.d.fy != null ? e.d.fy : 0.6; },
     // the inner airlock door; when it shuts by itself (a delivery coming), nobody gets shut in the chamber
+    // the roof hatch's lid swung open or shut (or shut by the ship itself before the burn out of the air)
+    roofLid(e) { G.ship.roofLid.open = e.open; SFX.play('ship_door', new THREE.Vector3(ROOF.hx, e.open ? 4.4 : 4.6, ROOF.hz), { vol: 0.7 }); },
     idoor(e) {
       G.ship.idoor.open = e.open; SFX.play('ship_door', new THREE.Vector3(-2.5, 1.2, AIRLOCK.z0), { vol: 0.8 });
       if (!e.open && e.auto) {
@@ -1362,6 +1365,12 @@ const G = {
       case 'chat': if (String(r.text || '').startsWith('/')) Bots.command(pid, String(r.text).slice(0, 60)); else G.emit({ e: 'chat', pid, text: String(r.text || '').slice(0, 120), radio: !!r.radio && p.alive && G.hasItem(pid, 'walkie') }); break;
       case 'struggle': {
         for (const m of G.monsters.values()) if (m.type === 'leech' && m.state === 'attached' && m.victim === pid) { m.grip -= 8 + Math.random() * 4; if (m.grip <= 0) m.detach(); }
+        break;
+      }
+      case 'roofLid': {
+        // (from the airlock under it or off the deck beside it, and only while the hatch may be open at all)
+        if (!G.roofOpen() || p.zone !== 'out' || Math.hypot(at.x - ROOF.hx, at.z - ROOF.hz) > 3) return;
+        if (!!r.open !== G.ship.roofLid.open) G.emit({ e: 'roofLid', open: !!r.open });
         break;
       }
       case 'idoor': {
@@ -2353,6 +2362,8 @@ const G = {
     G.emit({ e: 'peers', list: [...G.players.values()].map((q) => q.peerId).filter(Boolean) });
   },
   hostTick(dt) {
+    // the roof hatch swings itself shut once it mayn't be open (the shutters coming down for the burn out of the air)
+    if (G.ship.roofLid.open && !G.roofOpen()) G.emit({ e: 'roofLid', open: false });
     // The marsh water only slows you while you wade; over your head it drowns you
     if (G.mode === 'site' && !G.flight && G.ext && G.ext.water != null && (G.waterT = (G.waterT || 0) - dt) <= 0) {
       G.waterT = 0.5;
@@ -2937,8 +2948,14 @@ const G = {
         if (o.kind === 'idoor') label = G.ship.lockCycling ? 'Locked' : G.ship.idoor.open ? 'Close door' : 'Open door';
         if (o.kind === 'charger') { const id = me.slots[me.sel], it = id != null && G.items.get(id), busy = G.ship.chg && G.ship.chg.t != null && G.ship.chg.t < 2.4; label = busy ? 'Charging…' : it && ITEMS[it.type].battery ? 'Charge ' + ITEMS[it.type].name : 'Charging station'; }
         if (o.kind === 'rover') { if (!Rover.owned) continue; const R0 = Rover.state; label = R0.driver != null ? 'Rover in use' : R0.carrier != null ? 'Rover being carried' : G.flight || G.mode !== 'site' ? 'Rover (no signal until landed)' : 'Drive rover'; }
-        if (o.kind === 'ladder') { if (me.roof) continue; label = G.roofOpen() ? 'Climb to the roof' : 'Roof hatch (sealed)'; }
-        if (o.kind === 'roofHatch') { if (!me.roof) continue; label = 'Climb down'; }
+        // (the roof hatch: climb when its lid's open; open and shut it from below or off the deck, landed)
+        const lid = G.ship.roofLid.open;
+        if (o.kind === 'ladder') { if (me.roof) continue; label = !G.roofOpen() ? 'Roof hatch (sealed)' : lid ? 'Climb to the roof' : 'Open the roof hatch'; }
+        if (o.kind === 'roofHatch') { if (!me.roof || !lid) continue; label = 'Climb down'; }
+        if (o.kind === 'roofLid') {
+          if (o.below ? me.roof : !me.roof || (o.when === 'open') !== lid) continue;
+          label = !G.roofOpen() ? 'Roof hatch (sealed)' : lid ? 'Close the roof hatch' : 'Open the roof hatch';
+        }
         out.push({ kind: o.kind, ref: o, x: o.x, y: o.y, z: o.z, r: o.r, h: o.h, label });
       }
       if (G.ext) Pods.interactables(me, out);
@@ -2997,7 +3014,8 @@ const G = {
       case 'hatch': G.request({ a: 'hatch' }); break;
       case 'jump': G.request({ a: 'engage' }); break;
       case 'rover': if (t.label === 'Drive rover') G.request({ a: 'drive' }); break;
-      case 'ladder': if (G.roofOpen()) Player.climb(true); else SFX.play('err', null, { vol: 0.5 }); break;
+      case 'ladder': if (!G.roofOpen()) SFX.play('err', null, { vol: 0.5 }); else if (G.ship.roofLid.open) Player.climb(true); else G.request({ a: 'roofLid', open: true }); break;
+      case 'roofLid': if (G.roofOpen()) G.request({ a: 'roofLid', open: !G.ship.roofLid.open }); else SFX.play('err', null, { vol: 0.5 }); break;
       case 'roofHatch': Player.climb(false); break;
       case 'roverPick': G.request({ a: 'roverPick' }); break;
       case 'basketPut': G.request({ a: 'basketPut', item: t.ref }); break;

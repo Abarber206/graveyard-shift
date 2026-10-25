@@ -555,7 +555,10 @@ const Ship = (() => {
       this.makeMaterials();
       // ===== cargo bay shell (the cabin side; the curved hull skin wraps around it in buildHull) =====
       this.box(11.05, 0.15, 8.34, [metal, metal, MATS.rep('grate', 11, 8.6), metal, metal, metal], -1.825, -0.075, 0);
-      this.box(11.05, 0.1, 8.34, metal, -1.825, H + 0.05, 0);
+      // (the roof slab, with the roof hatch's trunk opening cut right through it, so the hatch can be seen through, both ways)
+      { const sh = new THREE.Shape(); sh.moveTo(-1.825 - 5.525, -4.17); sh.lineTo(-1.825 + 5.525, -4.17); sh.lineTo(-1.825 + 5.525, 4.17); sh.lineTo(-1.825 - 5.525, 4.17); sh.closePath();
+        const ho = new THREE.Path(); ho.absarc(ROOF.hx, ROOF.hz, 0.445, 0, TAU, true); sh.holes.push(ho);
+        this.extrude(sh, 0.1, metal, new THREE.Matrix4().makeRotationX(Math.PI / 2).premultiply(new THREE.Matrix4().makeTranslation(0, H + 0.1, 0))); }
       this.box(0.3, H, 8.34, metal, -7.2, H / 2, 0); // back wall
       this.sideWall(-4.0, -1, -7.05, 3.6, [-2.2, -5.0]);
       this.sideWall(4.0, 1, -7.05, 3.6, [2.5, -5.8], [SHIP.doorX0, SHIP.doorX1]);
@@ -664,8 +667,26 @@ const Ship = (() => {
       this.pc(D, 0.46, 0.46, th + 0.05, R.hx, top + th / 2 - 0.02, R.hz, 0, 0, 0, 20, true);
       this.pc(D, 0.46, 0.46, 0.32, R.hx, R.y + 0.16, R.hz, 0, 0, 0, 20, true);
       this.pt('hazard', 0.47, 0.035, R.hx, R.y + 0.32, R.hz, Math.PI / 2, 0, 0, 24);
-      this.pc(D, 0.5, 0.5, 0.06, R.hx, R.y + 0.36 + 0.45, R.hz + 0.56, Math.PI / 2 + 0.2, 0, 0, 20);
-      this.pc('steelBolt', 0.06, 0.06, 0.12, R.hx, R.y + 0.34, R.hz + 0.47, 0, 0, Math.PI / 2, 8);
+      // (the lid, on its hinge at the back of the coaming: shut it lies on the coaming's hazard ring; open it stands back
+      // past upright. A yellow handwheel on each face and the locking dogs and seal round its underside, so from the
+      // ladder below it reads as a hatch. Opened and shut by the crew, landed: see roofLid)
+      {
+        const g = new THREE.Group(); g.position.set(R.hx, R.y + 0.385, R.hz + 0.47); this.group.add(g);
+        const dm = MATS.get('darkmetal'), yel = this.cm.yellow, add = (geo, m, x, y, z, rx = 0, ry = 0, rz = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.set(rx, ry, rz); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
+        const c = -0.47;
+        add(new THREE.CylinderGeometry(0.5, 0.5, 0.06, 28), dm, 0, 0, c);
+        add(new THREE.TorusGeometry(0.44, 0.018, 6, 28), dm, 0, 0.032, c, Math.PI / 2);
+        add(new THREE.TorusGeometry(0.41, 0.014, 6, 28), MATS.get('rubber'), 0, -0.036, c, Math.PI / 2);
+        for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4; add(new THREE.BoxGeometry(0.09, 0.03, 0.04), dm, Math.cos(a) * 0.36, -0.045, c + Math.sin(a) * 0.36, 0, -a, 0); }
+        for (const sy of [1, -1]) {
+          add(new THREE.CylinderGeometry(0.035, 0.035, 0.08, 10), dm, 0, sy * 0.07, c);
+          add(new THREE.TorusGeometry(0.15, 0.014, 6, 22), yel, 0, sy * 0.11, c, Math.PI / 2);
+          for (let k = 0; k < 3; k++) add(new THREE.BoxGeometry(0.3, 0.016, 0.016), yel, 0, sy * 0.11, c, 0, k * Math.PI / 3, 0);
+        }
+        add(new THREE.BoxGeometry(0.26, 0.03, 0.12), dm, 0, 0.03, -0.04);
+        this.roofLid = { open: false, t: 0, g };
+      }
+      this.pc('steelBolt', 0.03, 0.03, 0.3, R.hx, R.y + 0.385, R.hz + 0.47, 0, 0, Math.PI / 2, 8); this.pb(D, 0.34, 0.06, 0.08, R.hx, R.y + 0.355, R.hz + 0.5);
       // (the ladder's grab hoop: up over the top of the coaming from the head of one rail to the other)
       this.pt(Y, 0.22, 0.022, AIRLOCK.x1 - 0.2, R.y + 0.32, R.hz, 0, Math.PI / 2, 0, 12, Math.PI);
       // the trunk: open right through, its own walls seen from within, from the coaming down to the airlock's ceiling,
@@ -683,13 +704,23 @@ const Ship = (() => {
         for (const y of [0.4, 1.6, 2.8]) this.pb(D, 0.14, 0.04, 0.04, lx + 0.08, y, R.hz + s * 0.22);
       }
       for (let y = 0.3; y < LH - 0.15; y += 0.3) this.pc('steelBolt', 0.016, 0.016, 0.44, lx, y, R.hz, Math.PI / 2, 0, 0, 6);
-      // the hatch in the airlock's ceiling: a framed round opening up into the trunk
+      // the hatch in the airlock's ceiling: a framed round opening up into the trunk, labelled, and a caged lamp up the
+      // trunk's side so the lid's underside shows from below (and the way out to the sky when it's open)
       for (const s of [-1, 1]) { this.pb(D, 1.08, 0.06, 0.1, R.hx, H - 0.03, R.hz + s * 0.49); this.pb(D, 0.1, 0.06, 0.88, R.hx + s * 0.49, H - 0.03, R.hz); }
       this.pb('hazard', 1.1, 0.02, 0.07, R.hx, H - 0.065, R.hz - 0.55); this.pb('hazard', 1.1, 0.02, 0.07, R.hx, H - 0.065, R.hz + 0.55);
+      { const t = TEX.drawn(256, 32, (g) => { g.fillStyle = '#e8d8a0'; g.font = 'bold 26px "Share Tech Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('ROOF HATCH', 128, 17); });
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.052), new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2 }));
+        m.position.set(R.hx, H - 0.0615, R.hz + 0.49); m.rotation.x = Math.PI / 2; this.group.add(m); }
+      this.pt(D, 0.045, 0.006, R.hx - 0.405, 4.35, R.hz, 0, Math.PI / 2, 0, 10); this.ps('glowWarm', 0.028, R.hx - 0.415, 4.35, R.hz, 1, 1, 1, 8); this.pb(D, 0.03, 0.08, 0.06, R.hx - 0.435, 4.35, R.hz);
+      this.lights.push({ x: R.hx - 0.3, y: 4.35, z: R.hz, color: 0xffc890, power: 0.22, state: 'on', zone: 'out', range: 2.6, lit: 1, ship: true, phase: 3 });
       this.col(lx - 0.05, AIRLOCK.x1, R.hz - 0.28, R.hz + 0.28);
       // you take hold of the ladder by looking at the rungs themselves (anywhere up them), not just near it
       this.interact.push({ kind: 'ladder', x: lx - 0.04, y: 1.6, z: R.hz, r: 0.1, h: 1.3 });
       this.interact.push({ kind: 'roofHatch', x: R.hx, y: R.y + 0.4, z: R.hz, r: 0.3 });
+      // (the lid: from below, at the hatch in the ceiling; from above, at the lid, wherever it is)
+      this.interact.push({ kind: 'roofLid', below: true, x: R.hx, y: H - 0.05, z: R.hz, r: 0.45 });
+      this.interact.push({ kind: 'roofLid', when: 'shut', x: R.hx, y: R.y + 0.42, z: R.hz, r: 0.4 });
+      this.interact.push({ kind: 'roofLid', when: 'open', x: R.hx, y: R.y + 0.85, z: R.hz + 0.57, r: 0.4 });
     }
     // ---------- the airlock: a slim outer hatch in the hull, a small chamber, an inner door into the bay ----------
     buildAirlock() {
@@ -3633,6 +3664,8 @@ const Ship = (() => {
       this.door.t = damp(this.door.t, tgt, 3.2, dt);
       if (Math.abs(this.door.t - tgt) < 0.003) this.door.t = tgt;
       this.doorMesh.position.x = (SHIP.doorX0 + SHIP.doorX1) / 2 + sstep(0, 1, this.door.t) * (SHIP.doorX1 - SHIP.doorX0 + 0.12);
+      // the roof hatch's lid swings up on its hinge and back down
+      { const L = this.roofLid, lt = L.open ? 1 : 0; L.t = damp(L.t, lt, 2.6, dt); if (Math.abs(L.t - lt) < 0.003) L.t = lt; L.g.rotation.x = (Math.PI / 2 + 0.2) * sstep(0, 1, L.t); }
       // the inner door's halves part; its lamp shows whether the lock is safe to go through
       const it = this.idoor.open ? 1 : 0;
       this.idoor.t = damp(this.idoor.t, it, 3.6, dt); if (Math.abs(this.idoor.t - it) < 0.003) this.idoor.t = it;

@@ -419,6 +419,13 @@ const Ship = (() => {
     put(m, geo, matrix) { (this.bk[m] || (this.bk[m] = [])).push({ geo, matrix }); }
     pb(m, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0) { this.put(m, new THREE.BoxGeometry(w, h, d), mat(x, y, z, rx, ry, rz)); }
     // (an open one, a bell or a sleeve, is solid from inside too: see twoSided)
+    // a box w x h x d with its edges rounded off by r (upholstery, padding): a plain box's outline, bevelled all round
+    pr(m, w, h, d, r, x, y, z, rx = 0, ry = 0, rz = 0) {
+      const s = new THREE.Shape(), a = w / 2 - r, b = h / 2 - r, dd = Math.max(0.001, d - 2 * r);
+      s.moveTo(-a, -b); s.lineTo(a, -b); s.lineTo(a, b); s.lineTo(-a, b); s.lineTo(-a, -b);
+      const g = new THREE.ExtrudeGeometry(s, { depth: dd, bevelEnabled: true, bevelSize: r, bevelThickness: r, bevelSegments: 3, curveSegments: 4 });
+      g.translate(0, 0, -dd / 2); this.put(m, g, mat(x, y, z, rx, ry, rz));
+    }
     pc(m, r1, r2, h, x, y, z, rx = 0, ry = 0, rz = 0, seg = 12, open = false) { const g = new THREE.CylinderGeometry(r1, r2, h, seg, 1, open); this.put(m, open ? twoSided(g) : g, mat(x, y, z, rx, ry, rz)); }
     // a mug standing at (x, y, z) (the middle of its foot): a tapered body, hollow and empty, with a rolled rim, and a
     // handle out on the side toward a (round from +x)
@@ -1048,16 +1055,17 @@ const Ship = (() => {
       for (const s of [-1, 1]) this.pb(D, 0.9, 0.04, 0.06, x, 0.02, z + s * 0.2);
       this.pb(D, 0.3, 0.06, 0.3, x, 0.07, z); this.pc(D, 0.07, 0.09, 0.26, x, 0.23, z);
       this.pb(D, 0.5, 0.05, 0.5, x + 0.02, 0.35, z);
-      this.pb(L, 0.56, 0.11, 0.48, x + 0.02, 0.43, z);
-      for (const s of [-1, 1]) this.pb(L, 0.56, 0.14, 0.07, x + 0.02, 0.46, z + s * 0.26);
-      this.pb(L, 0.13, 0.86, 0.48, bx, 0.92, z, 0, 0, tilt);
-      for (const s of [-1, 1]) this.pb(L, 0.15, 0.8, 0.08, bx + 0.02, 0.92, z + s * 0.27, 0, 0, tilt);
-      this.pb(L, 0.14, 0.26, 0.36, x - 0.35, 1.47, z, 0, 0, tilt);
-      for (const s of [-1, 1]) this.pb(L, 0.12, 0.24, 0.07, x - 0.33, 1.47, z + s * 0.2, 0, -s * 0.35, tilt);
+      // (the padding's edges rounded over, as upholstery is, not cut square)
+      this.pr(L, 0.56, 0.11, 0.48, 0.035, x + 0.02, 0.43, z);
+      for (const s of [-1, 1]) this.pr(L, 0.56, 0.14, 0.07, 0.03, x + 0.02, 0.46, z + s * 0.26);
+      this.pr(L, 0.13, 0.86, 0.48, 0.04, bx, 0.92, z, 0, 0, tilt);
+      for (const s of [-1, 1]) this.pr(L, 0.15, 0.8, 0.08, 0.03, bx + 0.02, 0.92, z + s * 0.27, 0, 0, tilt);
+      this.pr(L, 0.14, 0.26, 0.36, 0.04, x - 0.35, 1.47, z, 0, 0, tilt);
+      for (const s of [-1, 1]) this.pr(L, 0.12, 0.24, 0.07, 0.025, x - 0.33, 1.47, z + s * 0.2, 0, -s * 0.35, tilt);
       this.pb(D, 0.06, 0.9, 0.42, bx - 0.09, 0.95, z, 0, 0, tilt);
       for (const s of [-1, 1]) {
         this.pb(D, 0.44, 0.05, 0.08, x - 0.02, 0.66, z + s * 0.33);
-        this.pb('pad', 0.36, 0.05, 0.09, x - 0.02, 0.705, z + s * 0.33);
+        this.pr('pad', 0.36, 0.05, 0.09, 0.02, x - 0.02, 0.705, z + s * 0.33);
         this.pb('black', 0.1, 0.03, 0.07, x + 0.1, 0.74, z + s * 0.33);
         this.pb('glowAmber', 0.015, 0.008, 0.015, x + 0.08, 0.757, z + s * 0.33 + 0.015);
         this.pb('glowGreen', 0.015, 0.008, 0.015, x + 0.12, 0.757, z + s * 0.33 - 0.015);
@@ -1365,14 +1373,37 @@ const Ship = (() => {
       for (const [a, b, c, d, l] of [[-6.96, -6.4, -3.48, -2.92, 0], [-6.9, -6.4, -2.8, -2.3, 0], [-6.8, -6.6, -3.44, -2.76, 1], [-6.84, -6.48, -2.45, -1.95, 1], [-6.84, -6.46, -3.39, -3.01, 2], [-6.94, -6.46, -2.62, -2.18, 2],
         [-7, -6.4, 1.95, 2.65, 0], [-6.87, -6.45, 2.91, 3.54, 0], [-6.86, -6.48, 1.87, 2.33, 1], [-6.72, -6.48, 2.71, 3.09, 1], [-6.93, -6.43, 1.94, 2.46, 2], [-6.95, -6.37, 2.79, 3.41, 2]]) this.top(a, b, c, d, sy[l], 'on');
       this.pb('crate', 0.5, 0.42, 0.5, -6.68, sy[0] + 0.21, -3.2, 0, 0.1, 0); this.pb('crate', 0.45, 0.34, 0.45, -6.65, sy[0] + 0.17, -2.55, 0, -0.08, 0);
-      for (const z of [-3.35, -3.1, -2.85]) { this.pc('green', 0.09, 0.09, 0.32, -6.7, sy[1] + 0.16, z, 0, 0, 0, 12); this.pc('black', 0.03, 0.03, 0.04, -6.7, sy[1] + 0.34, z, 0, 0, 0, 8); }
-      this.pb('red', 0.36, 0.2, 0.5, -6.66, sy[1] + 0.1, -2.2); this.pt('black', 0.12, 0.012, -6.66, sy[1] + 0.2, -2.2, 0, Math.PI / 2, 0, 10, Math.PI);
+      // (gas bottles: a domed shoulder, a brass valve with its handwheel, a paper label gone grey round the middle)
+      for (const z of [-3.35, -3.1, -2.85]) {
+        const y0 = sy[1];
+        this.pc('green', 0.09, 0.09, 0.26, -6.7, y0 + 0.13, z, 0, 0, 0, 16); this.ps('green', 0.09, -6.7, y0 + 0.26, z, 1, 0.55, 1, 16);
+        this.pc('white', 0.0915, 0.0915, 0.09, -6.7, y0 + 0.14, z, 0, 0, 0, 16);
+        this.pc('brass', 0.022, 0.026, 0.05, -6.7, y0 + 0.325, z, 0, 0, 0, 8); this.pt('black', 0.03, 0.007, -6.7, y0 + 0.355, z, Math.PI / 2, 0, 0, 10);
+      }
+      // (a steel toolbox: its lid a shade proud of the box over a dark seam, two catches, the carry handle on lugs)
+      { const y0 = sy[1], x = -6.66, z = -2.2;
+        this.pb('red', 0.36, 0.135, 0.5, x, y0 + 0.0675, z); this.pb('red', 0.368, 0.065, 0.508, x, y0 + 0.1675, z); this.pb('black', 0.362, 0.006, 0.502, x, y0 + 0.136, z);
+        for (const s of [-1, 1]) { this.pb('hardware', 0.012, 0.045, 0.032, x + 0.186, y0 + 0.135, z + s * 0.16); this.pb('black', 0.05, 0.03, 0.02, x, y0 + 0.215, z + s * 0.12); }
+        this.pt('black', 0.12, 0.012, x, y0 + 0.2, z, 0, Math.PI / 2, 0, 10, Math.PI); }
       for (let i = 0; i < 4; i++) this.pt('cable', 0.16, 0.025, -6.65, sy[2] + 0.03 + i * 0.05, -3.2, Math.PI / 2, 0, 0, 16);
       this.pb('crate', 0.4, 0.3, 0.36, -6.7, sy[2] + 0.15, -2.4, 0, 0.2, 0);
       this.pb('crate', 0.6, 0.5, 0.7, -6.7, sy[0] + 0.25, 2.3);
-      for (const z of [3.05, 3.4]) { this.pb('yellow', 0.42, 0.3, 0.28, -6.66, sy[0] + 0.15, z); this.pb('black', 0.43, 0.04, 0.29, -6.66, sy[0] + 0.25, z); }
-      this.pb('white', 0.38, 0.22, 0.46, -6.67, sy[1] + 0.11, 2.1); this.pb('red', 0.006, 0.12, 0.04, -6.477, sy[1] + 0.11, 2.1); this.pb('red', 0.006, 0.04, 0.12, -6.477, sy[1] + 0.11, 2.1);
-      for (const z of [2.75, 2.9, 3.05]) this.pc('black', 0.03, 0.035, 0.24, -6.6, sy[1] + 0.035, z, 0, 0, Math.PI / 2, 10);
+      // (battery cases: a rubber lid band, catches, a stencil on the front)
+      const sten = (t, w, h, x, y, z, ry, fg) => this.sign(t, w, h, x, y, z, ry, { w: 256, h: Math.round(256 * h / w), size: Math.round(200 * h / w), bold: true, bg: 'rgba(0,0,0,0)', fg, border: false, dirty: false, clear: true });
+      for (const z of [3.05, 3.4]) {
+        this.pb('yellow', 0.42, 0.3, 0.28, -6.66, sy[0] + 0.15, z); this.pb('black', 0.43, 0.04, 0.29, -6.66, sy[0] + 0.25, z);
+        for (const s of [-1, 1]) this.pb('hardware', 0.012, 0.05, 0.03, -6.446, sy[0] + 0.23, z + s * 0.08);
+        sten('BATTERY', 0.2, 0.045, -6.4485, sy[0] + 0.13, z, Math.PI / 2, '#1c1a16');
+      }
+      // (the spare first-aid case: lid over a seam, catches, a handle, the cross and its label)
+      { const y0 = sy[1], x = -6.67, z = 2.1;
+        this.pb('white', 0.38, 0.17, 0.46, x, y0 + 0.085, z); this.pb('white', 0.386, 0.05, 0.466, x, y0 + 0.195, z); this.pb('black', 0.382, 0.005, 0.462, x, y0 + 0.171, z);
+        this.pb('red', 0.006, 0.11, 0.035, x + 0.193, y0 + 0.085, z); this.pb('red', 0.006, 0.035, 0.11, x + 0.193, y0 + 0.085, z);
+        for (const s of [-1, 1]) this.pb('hardware', 0.012, 0.04, 0.03, x + 0.196, y0 + 0.17, z + s * 0.17);
+        this.pb('black', 0.04, 0.02, 0.16, x, y0 + 0.23, z);
+        sten('FIRST AID', 0.2, 0.032, x + 0.1945, y0 + 0.195, z, Math.PI / 2, '#8e1c14'); }
+      // (spare torches: a ribbed grip, a steel bezel round the lens)
+      for (const z of [2.75, 2.9, 3.05]) { this.pc('black', 0.03, 0.035, 0.24, -6.6, sy[1] + 0.035, z, 0, 0, Math.PI / 2, 10); this.pc('hardware', 0.038, 0.038, 0.03, -6.47, sy[1] + 0.038, z, 0, 0, Math.PI / 2, 12); }
       for (let i = 0; i < 3; i++) this.pb('olive', 0.5, 0.08, 0.55, -6.66, sy[2] + 0.04 + i * 0.08, 3.1, 0, i * 0.08, 0);
       this.hardHat('orange', -6.68, sy[2], 2.2, 0, 0.7, 0);
       // the terminal corner: a stool, a cold coffee, papers, a desk lamp, sticky notes on the monitor
@@ -1390,7 +1421,8 @@ const Ship = (() => {
       onBezel('noteY', -0.48, 0.24, 0.1); onBezel('noteP', 0.485, -0.27, -0.08); onBezel('noteB', 0.49, -0.157, 0.05);
       // bulkhead (bay side): flight deck sign, first-aid kit, extinguisher, notice board
       this.sign('FLIGHT DECK', 1.0, 0.2, 3.49, 2.95, 0, -Math.PI / 2, sx);
-      this.pb('white', 0.1, 0.4, 0.5, 3.45, 1.45, -2.0); this.pb('red', 0.006, 0.26, 0.07, 3.397, 1.45, -2.0); this.pb('red', 0.006, 0.07, 0.26, 3.397, 1.45, -2.0); this.pb('hardware', 0.02, 0.03, 0.12, 3.395, 1.29, -2.0);
+      this.pb('white', 0.1, 0.4, 0.5, 3.45, 1.45, -2.0); this.pb('red', 0.006, 0.22, 0.06, 3.397, 1.43, -2.0); this.pb('red', 0.006, 0.06, 0.22, 3.397, 1.43, -2.0); this.pb('hardware', 0.02, 0.03, 0.12, 3.395, 1.29, -2.0);
+      this.sign('FIRST AID', 0.3, 0.045, 3.396, 1.6, -2.0, -Math.PI / 2, { w: 256, h: 38, size: 30, bold: true, bg: 'rgba(0,0,0,0)', fg: '#8e1c14', border: false, dirty: false, clear: true });
       this.pb(D, 0.03, 0.5, 0.12, 3.485, 0.6, 2.0);
       this.pc('red', 0.085, 0.085, 0.5, 3.38, 0.58, 2.0, 0, 0, 0, 16); this.ps('red', 0.085, 3.38, 0.83, 2.0, 1, 0.6, 1, 12);
       this.pc(D, 0.03, 0.035, 0.08, 3.38, 0.9, 2.0, 0, 0, 0, 8); this.pb(D, 0.13, 0.02, 0.03, 3.355, 0.95, 2.0);

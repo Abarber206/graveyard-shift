@@ -136,6 +136,29 @@ const ItemMeshes = (() => {
     eyeRed: () => M('eyeRed', { color: 0x300000, emissive: 0xff2010, emissiveIntensity: 1.2 }),
     candle: () => M('candle', { color: 0xe8e0c8, roughness: 0.8 }),
   };
+  // Everything's been knocking about a derelict for years: no colour as bright as it left the factory, nothing as smooth,
+  // grime worked into it and its edges rubbed. Every piece's surfaces get that once, as they're first made: a worn one
+  // worn harder, a plain one given wear to suit what it is (metal scuffed, paint and plastic grimed and chipped, cloth
+  // and paper just grimy). Glass, lit parts and the shared world surfaces (wood, rust) are left alone.
+  const aged = new WeakSet(), _hsl = {};
+  function age(g) {
+    const keep = [MATS.get('wood'), MATS.get('rust')];
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (!mt || aged.has(mt) || keep.includes(mt) || !mt.isMeshStandardMaterial || mt.transparent) continue;
+        aged.add(mt);
+        if (mt.emissiveIntensity > 0 && mt.emissive.getHex() !== 0) continue;
+        const metal = mt.metalness >= 0.5, w = mt.userData.wear;
+        mt.color.getHSL(_hsl); mt.color.setHSL(_hsl.h, _hsl.s * (metal ? 0.88 : 0.72), _hsl.l * 0.92);
+        mt.roughness = Math.min(1, mt.roughness + 0.1);
+        if (w) MATS.wear(mt, Object.assign({}, w, { k: [Math.max(w.k[0], 0.58), Math.max(w.k[1], metal ? 0.25 : 0.3), w.k[2], w.k[3] || 0], edge: w.edge ?? (metal || mt.map ? 0 : 0.006) }));
+        else if (!Object.prototype.hasOwnProperty.call(mt, 'onBeforeCompile'))
+          MATS.wear(mt, metal ? { kind: 'metal', k: [0.5, 0.25, 0.0005], bare: 0xb4b8ba, s: 3 }
+            : { kind: mt.roughness > 0.8 ? 'vinyl' : 'paint', k: [0.55, mt.map ? 0.06 : 0.14, 0.0005, 0.25], bare: 0x6e665c, s: 3, edge: mt.map ? 0 : 0.006 });
+      }
+    });
+  }
   const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
   const cyl = (r1, r2, h, s = 12) => new THREE.CylinderGeometry(r1, r2, h, s);
   const sph = (r, s = 12) => new THREE.SphereGeometry(r, s, Math.max(6, s * 0.75));
@@ -206,11 +229,25 @@ const ItemMeshes = (() => {
     },
     flashlight(g) { torch(g, 0.021, 0.036, 0.17, m.yellow(), m.black()); },
     proflash(g) { torch(g, 0.025, 0.046, 0.22, m.dsteel(), m.blue()); },
+    // a navvy's spade: an ash shaft, a D-grip of steel prongs and a worn black crossbar at the top (+z), a riveted
+    // steel socket, and a pointed blade (-z) dished into a scoop and set at a slight lift to the shaft, its green paint
+    // long since worn off the edge and the tread
     shovel(g) {
-      add(g, cyl(0.02, 0.02, 1.0), m.wood(), 0, 0.03, 0.15, Math.PI / 2);
-      add(g, box(0.16, 0.025, 0.04), m.black(), 0, 0.03, 0.66);
-      add(g, box(0.22, 0.02, 0.28), m.dsteel(), 0, 0.02, -0.48);
-      add(g, cyl(0.03, 0.02, 0.1), m.dsteel(), 0, 0.03, -0.33, Math.PI / 2);
+      add(g, cyl(0.017, 0.021, 0.95), m.wood(), 0, 0.03, 0.175, Math.PI / 2);
+      for (const sd of [-1, 1]) add(g, box(0.012, 0.016, 0.15), m.dsteel(), sd * 0.03, 0.03, 0.705, 0, sd * 0.36, 0);
+      add(g, cyl(0.016, 0.016, 0.13, 10), m.black(), 0, 0.03, 0.775, 0, 0, Math.PI / 2);
+      add(g, cyl(0.022, 0.019, 0.05, 10), m.dsteel(), 0, 0.03, 0.645, Math.PI / 2);
+      add(g, cyl(0.021, 0.03, 0.16, 12), m.dsteel(), 0, 0.03, -0.32, Math.PI / 2);
+      for (const sd of [-1, 1]) add(g, sph(0.006, 6), m.steel(), sd * 0.022, 0.03, -0.29);
+      const bl = new THREE.Group(); bl.position.set(0, 0.03, -0.39); bl.rotation.x = 0.18; g.add(bl);
+      const sh = new THREE.Shape(); sh.moveTo(-0.115, 0); sh.lineTo(0.115, 0); sh.lineTo(0.112, 0.2); sh.quadraticCurveTo(0.1, 0.26, 0, 0.3); sh.quadraticCurveTo(-0.1, 0.26, -0.112, 0.2); sh.lineTo(-0.115, 0);
+      const bg = new THREE.ExtrudeGeometry(sh, { depth: 0.006, bevelEnabled: false, curveSegments: 6 }), bp = bg.attributes.position;
+      // (laid along -z, dished: the sides curl up into a scoop)
+      for (let i = 0; i < bp.count; i++) { const x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i); bp.setXYZ(i, x, z - 0.003 + 0.028 * Math.pow(x / 0.115, 2), -y); }
+      bg.computeVertexNormals();
+      const blade = M('shovelBlade', { color: 0x34402f, roughness: 0.6, metalness: 0.45, side: THREE.DoubleSide }, Object.assign({}, PAINT, { k: [0.5, 0.55, 0.0008, 0.3], bare: 0x8e9294, edge: 0.012 }));
+      const b = new THREE.Mesh(bg, blade); b.castShadow = b.receiveShadow = true; bl.add(b);
+      add(bl, box(0.232, 0.012, 0.024), blade, 0, 0.016, -0.004);
     },
     // a rugged handset: moulded body, speaker slots, a little lit screen, a keypad, side talk button, channel knob,
     // a rubber antenna, a belt clip on the back
@@ -785,6 +822,7 @@ const ItemMeshes = (() => {
     build(type, seed = 0) {
       const g = new THREE.Group();
       (B[type] || B.gear)(g, seed);
+      age(g);
       g.userData.type = type;
       return g;
     },
@@ -915,11 +953,19 @@ function paintTex(v) {
 }
 
 // How items sit in the first-person hand (position relative to camera, rotation) and on avatars.
+// (a hold given by which way the item's far end, its -z, points from the eye, and how far it's turned about that)
+function holdDir(d, roll) {
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(d[0], d[1], d[2]).normalize());
+  const e = new THREE.Euler().setFromQuaternion(q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll)));
+  return [e.x, e.y, e.z];
+}
 const HOLD = {
   default: { p: [0.28, -0.3, -0.55], r: [0, 0, 0] },
   flashlight: { p: [0.26, -0.24, -0.42], r: [0.05, 0, 0] },
   proflash: { p: [0.26, -0.24, -0.42], r: [0.05, 0, 0] },
-  shovel: { p: [0.36, -0.36, -0.6], r: [-0.2, 0.15, -0.2] },
+  // (carried ready in the right hand, gripped low on the shaft in the corner of view, the blade up at the top right and
+  // the D-grip down out of sight; see holdDir)
+  shovel: { p: [0.541, 0.005, -0.743], r: holdDir([0.45, 0.75, -0.5], -0.5), grip: [-0.201, -0.335, 0.223], gr: [0.85, 0.3, 0] },
   walkie: { p: [0.22, -0.28, -0.42], r: [0.2, 0, 0] },
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },

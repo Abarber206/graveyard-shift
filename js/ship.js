@@ -878,17 +878,17 @@ const Ship = (() => {
       for (let i = -128; i < 256; i += 32) { ng.beginPath(); ng.moveTo(i, 0); ng.lineTo(i + 128, 128); ng.stroke(); ng.beginPath(); ng.moveTo(i + 128, 0); ng.lineTo(i, 128); ng.stroke(); }
       const netTex = new THREE.CanvasTexture(nc); netTex.colorSpace = THREE.SRGBColorSpace; netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping; netTex.repeat.set(5, 3.5);
       this.cm = {
-        red: S({ color: 0xa3231a, roughness: 0.42, metalness: 0.25 }),
-        white: S({ color: 0xd2cdc0, roughness: 0.55 }),
+        red: S({ color: 0x8c2a20, roughness: 0.42, metalness: 0.25 }),
+        white: S({ color: 0xc2bcae, roughness: 0.55 }),
         green: S({ color: 0x3f5b3a, roughness: 0.45, metalness: 0.35 }),
-        yellow: S({ color: 0xc4961e, roughness: 0.5, metalness: 0.25 }),
-        orange: S({ color: 0xc2541a, roughness: 0.75 }),
+        yellow: S({ color: 0xab8a32, roughness: 0.5, metalness: 0.25 }),
+        orange: S({ color: 0xa8552a, roughness: 0.75 }),
         olive: S({ color: 0x4a4934, roughness: 0.95 }),
         black: S({ color: 0x151617, roughness: 0.45 }),
         cork: S({ color: 0x8d6b43, roughness: 1 }),
         brass: S({ color: 0xa88a45, metalness: 0.9, roughness: 0.38 }),
         pad: S({ color: 0x302c28, roughness: 0.8 }),
-        blue: S({ color: 0x2c4a6e, roughness: 0.5, metalness: 0.2 }),
+        blue: S({ color: 0x34485e, roughness: 0.5, metalness: 0.2 }),
         tunnel: S({ color: 0x23262a, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide }),
         gauge: S({ map: gaugeTex, roughness: 0.25, emissive: 0xffffff, emissiveMap: gaugeTex, emissiveIntensity: 0.15 }),
         net: S({ map: netTex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.95 }),
@@ -901,8 +901,8 @@ const Ship = (() => {
       };
       // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
       // rubbed bright (see MATS.wear)
-      for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) MATS.wear(this.cm[n], { kind: 'paint', k: [0.55, 0.42, 0.002, 0.25], bare: 0x6a6e70, edge: 0.018 });
-      MATS.wear(this.cm.black, { kind: 'paint', k: [0.55, 0.28, 0.0015, 0.7], bare: 0x484b4e, edge: 0.012 });
+      for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) (this.cm[n].roughness = Math.max(this.cm[n].roughness, 0.58)), MATS.wear(this.cm[n], { kind: 'paint', k: [0.66, 0.48, 0.002, 0.4], bare: 0x6a6e70, edge: 0.022 });
+      MATS.wear(this.cm.black, { kind: 'paint', k: [0.62, 0.32, 0.0015, 0.8], bare: 0x484b4e, edge: 0.014 });
       MATS.wear(this.cm.pad, { kind: 'vinyl', k: [0.55, 0.05, 0.0016, 0.6], bare: 0x2a2420, s: 1.6 });
       MATS.wear(this.cm.brass, { kind: 'metal', k: [0.4, 0.15, 0.0008], bare: 0xd8c08a, s: 2 });
       MATS.wear(this.cm.cork, { kind: 'vinyl', k: [0.5, 0, 0.002, 0.3], s: 2 });

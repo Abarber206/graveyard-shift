@@ -3652,6 +3652,29 @@ const ItemMeshes = (() => {
     eyeRed: () => M('eyeRed', { color: 0x300000, emissive: 0xff2010, emissiveIntensity: 1.2 }),
     candle: () => M('candle', { color: 0xe8e0c8, roughness: 0.8 }),
   };
+  // Everything's been knocking about a derelict for years: no colour as bright as it left the factory, nothing as smooth,
+  // grime worked into it and its edges rubbed. Every piece's surfaces get that once, as they're first made: a worn one
+  // worn harder, a plain one given wear to suit what it is (metal scuffed, paint and plastic grimed and chipped, cloth
+  // and paper just grimy). Glass, lit parts and the shared world surfaces (wood, rust) are left alone.
+  const aged = new WeakSet(), _hsl = {};
+  function age(g) {
+    const keep = [MATS.get('wood'), MATS.get('rust')];
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (!mt || aged.has(mt) || keep.includes(mt) || !mt.isMeshStandardMaterial || mt.transparent) continue;
+        aged.add(mt);
+        if (mt.emissiveIntensity > 0 && mt.emissive.getHex() !== 0) continue;
+        const metal = mt.metalness >= 0.5, w = mt.userData.wear;
+        mt.color.getHSL(_hsl); mt.color.setHSL(_hsl.h, _hsl.s * (metal ? 0.88 : 0.72), _hsl.l * 0.92);
+        mt.roughness = Math.min(1, mt.roughness + 0.1);
+        if (w) MATS.wear(mt, Object.assign({}, w, { k: [Math.max(w.k[0], 0.58), Math.max(w.k[1], metal ? 0.25 : 0.3), w.k[2], w.k[3] || 0], edge: w.edge ?? (metal || mt.map ? 0 : 0.006) }));
+        else if (!Object.prototype.hasOwnProperty.call(mt, 'onBeforeCompile'))
+          MATS.wear(mt, metal ? { kind: 'metal', k: [0.5, 0.25, 0.0005], bare: 0xb4b8ba, s: 3 }
+            : { kind: mt.roughness > 0.8 ? 'vinyl' : 'paint', k: [0.55, mt.map ? 0.06 : 0.14, 0.0005, 0.25], bare: 0x6e665c, s: 3, edge: mt.map ? 0 : 0.006 });
+      }
+    });
+  }
   const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
   const cyl = (r1, r2, h, s = 12) => new THREE.CylinderGeometry(r1, r2, h, s);
   const sph = (r, s = 12) => new THREE.SphereGeometry(r, s, Math.max(6, s * 0.75));
@@ -3722,11 +3745,25 @@ const ItemMeshes = (() => {
     },
     flashlight(g) { torch(g, 0.021, 0.036, 0.17, m.yellow(), m.black()); },
     proflash(g) { torch(g, 0.025, 0.046, 0.22, m.dsteel(), m.blue()); },
+    // a navvy's spade: an ash shaft, a D-grip of steel prongs and a worn black crossbar at the top (+z), a riveted
+    // steel socket, and a pointed blade (-z) dished into a scoop and set at a slight lift to the shaft, its green paint
+    // long since worn off the edge and the tread
     shovel(g) {
-      add(g, cyl(0.02, 0.02, 1.0), m.wood(), 0, 0.03, 0.15, Math.PI / 2);
-      add(g, box(0.16, 0.025, 0.04), m.black(), 0, 0.03, 0.66);
-      add(g, box(0.22, 0.02, 0.28), m.dsteel(), 0, 0.02, -0.48);
-      add(g, cyl(0.03, 0.02, 0.1), m.dsteel(), 0, 0.03, -0.33, Math.PI / 2);
+      add(g, cyl(0.017, 0.021, 0.95), m.wood(), 0, 0.03, 0.175, Math.PI / 2);
+      for (const sd of [-1, 1]) add(g, box(0.012, 0.016, 0.15), m.dsteel(), sd * 0.03, 0.03, 0.705, 0, sd * 0.36, 0);
+      add(g, cyl(0.016, 0.016, 0.13, 10), m.black(), 0, 0.03, 0.775, 0, 0, Math.PI / 2);
+      add(g, cyl(0.022, 0.019, 0.05, 10), m.dsteel(), 0, 0.03, 0.645, Math.PI / 2);
+      add(g, cyl(0.021, 0.03, 0.16, 12), m.dsteel(), 0, 0.03, -0.32, Math.PI / 2);
+      for (const sd of [-1, 1]) add(g, sph(0.006, 6), m.steel(), sd * 0.022, 0.03, -0.29);
+      const bl = new THREE.Group(); bl.position.set(0, 0.03, -0.39); bl.rotation.x = 0.18; g.add(bl);
+      const sh = new THREE.Shape(); sh.moveTo(-0.115, 0); sh.lineTo(0.115, 0); sh.lineTo(0.112, 0.2); sh.quadraticCurveTo(0.1, 0.26, 0, 0.3); sh.quadraticCurveTo(-0.1, 0.26, -0.112, 0.2); sh.lineTo(-0.115, 0);
+      const bg = new THREE.ExtrudeGeometry(sh, { depth: 0.006, bevelEnabled: false, curveSegments: 6 }), bp = bg.attributes.position;
+      // (laid along -z, dished: the sides curl up into a scoop)
+      for (let i = 0; i < bp.count; i++) { const x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i); bp.setXYZ(i, x, z - 0.003 + 0.028 * Math.pow(x / 0.115, 2), -y); }
+      bg.computeVertexNormals();
+      const blade = M('shovelBlade', { color: 0x34402f, roughness: 0.6, metalness: 0.45, side: THREE.DoubleSide }, Object.assign({}, PAINT, { k: [0.5, 0.55, 0.0008, 0.3], bare: 0x8e9294, edge: 0.012 }));
+      const b = new THREE.Mesh(bg, blade); b.castShadow = b.receiveShadow = true; bl.add(b);
+      add(bl, box(0.232, 0.012, 0.024), blade, 0, 0.016, -0.004);
     },
     // a rugged handset: moulded body, speaker slots, a little lit screen, a keypad, side talk button, channel knob,
     // a rubber antenna, a belt clip on the back
@@ -4301,6 +4338,7 @@ const ItemMeshes = (() => {
     build(type, seed = 0) {
       const g = new THREE.Group();
       (B[type] || B.gear)(g, seed);
+      age(g);
       g.userData.type = type;
       return g;
     },
@@ -4431,11 +4469,19 @@ function paintTex(v) {
 }
 
 // How items sit in the first-person hand (position relative to camera, rotation) and on avatars.
+// (a hold given by which way the item's far end, its -z, points from the eye, and how far it's turned about that)
+function holdDir(d, roll) {
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(d[0], d[1], d[2]).normalize());
+  const e = new THREE.Euler().setFromQuaternion(q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll)));
+  return [e.x, e.y, e.z];
+}
 const HOLD = {
   default: { p: [0.28, -0.3, -0.55], r: [0, 0, 0] },
   flashlight: { p: [0.26, -0.24, -0.42], r: [0.05, 0, 0] },
   proflash: { p: [0.26, -0.24, -0.42], r: [0.05, 0, 0] },
-  shovel: { p: [0.36, -0.36, -0.6], r: [-0.2, 0.15, -0.2] },
+  // (carried ready in the right hand, gripped low on the shaft in the corner of view, the blade up at the top right and
+  // the D-grip down out of sight; see holdDir)
+  shovel: { p: [0.541, 0.005, -0.743], r: holdDir([0.45, 0.75, -0.5], -0.5), grip: [-0.201, -0.335, 0.223], gr: [0.85, 0.3, 0] },
   walkie: { p: [0.22, -0.28, -0.42], r: [0.2, 0, 0] },
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },
@@ -10995,17 +11041,17 @@ const Ship = (() => {
       for (let i = -128; i < 256; i += 32) { ng.beginPath(); ng.moveTo(i, 0); ng.lineTo(i + 128, 128); ng.stroke(); ng.beginPath(); ng.moveTo(i + 128, 0); ng.lineTo(i, 128); ng.stroke(); }
       const netTex = new THREE.CanvasTexture(nc); netTex.colorSpace = THREE.SRGBColorSpace; netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping; netTex.repeat.set(5, 3.5);
       this.cm = {
-        red: S({ color: 0xa3231a, roughness: 0.42, metalness: 0.25 }),
-        white: S({ color: 0xd2cdc0, roughness: 0.55 }),
+        red: S({ color: 0x8c2a20, roughness: 0.42, metalness: 0.25 }),
+        white: S({ color: 0xc2bcae, roughness: 0.55 }),
         green: S({ color: 0x3f5b3a, roughness: 0.45, metalness: 0.35 }),
-        yellow: S({ color: 0xc4961e, roughness: 0.5, metalness: 0.25 }),
-        orange: S({ color: 0xc2541a, roughness: 0.75 }),
+        yellow: S({ color: 0xab8a32, roughness: 0.5, metalness: 0.25 }),
+        orange: S({ color: 0xa8552a, roughness: 0.75 }),
         olive: S({ color: 0x4a4934, roughness: 0.95 }),
         black: S({ color: 0x151617, roughness: 0.45 }),
         cork: S({ color: 0x8d6b43, roughness: 1 }),
         brass: S({ color: 0xa88a45, metalness: 0.9, roughness: 0.38 }),
         pad: S({ color: 0x302c28, roughness: 0.8 }),
-        blue: S({ color: 0x2c4a6e, roughness: 0.5, metalness: 0.2 }),
+        blue: S({ color: 0x34485e, roughness: 0.5, metalness: 0.2 }),
         tunnel: S({ color: 0x23262a, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide }),
         gauge: S({ map: gaugeTex, roughness: 0.25, emissive: 0xffffff, emissiveMap: gaugeTex, emissiveIntensity: 0.15 }),
         net: S({ map: netTex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.95 }),
@@ -11018,8 +11064,8 @@ const Ship = (() => {
       };
       // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
       // rubbed bright (see MATS.wear)
-      for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) MATS.wear(this.cm[n], { kind: 'paint', k: [0.55, 0.42, 0.002, 0.25], bare: 0x6a6e70, edge: 0.018 });
-      MATS.wear(this.cm.black, { kind: 'paint', k: [0.55, 0.28, 0.0015, 0.7], bare: 0x484b4e, edge: 0.012 });
+      for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) (this.cm[n].roughness = Math.max(this.cm[n].roughness, 0.58)), MATS.wear(this.cm[n], { kind: 'paint', k: [0.66, 0.48, 0.002, 0.4], bare: 0x6a6e70, edge: 0.022 });
+      MATS.wear(this.cm.black, { kind: 'paint', k: [0.62, 0.32, 0.0015, 0.8], bare: 0x484b4e, edge: 0.014 });
       MATS.wear(this.cm.pad, { kind: 'vinyl', k: [0.55, 0.05, 0.0016, 0.6], bare: 0x2a2420, s: 1.6 });
       MATS.wear(this.cm.brass, { kind: 'metal', k: [0.4, 0.15, 0.0008], bare: 0xd8c08a, s: 2 });
       MATS.wear(this.cm.cork, { kind: 'vinyl', k: [0.5, 0, 0.002, 0.3], s: 2 });
@@ -19488,7 +19534,8 @@ const Player = (() => {
   // how long use is held on a door before it opens or shuts
   const DOOR_HOLD = 0.5; let holdT = 0, holdOn = null;
   let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0, prevWade = 0;
-  let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
+  const SWING = 0.6; // how long a shovel swing takes, back to the shoulder (the hit goes out 0.16 s in)
+  let swingT = 0, swungHard = false, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
   let target = null;
   // a ship seat (index into G.ship.seats) while sitting in it, and how far into the sitting-down move the view is
   let seat = null, sitT = 0;
@@ -19586,10 +19633,15 @@ const Player = (() => {
     const bx = Math.cos(bob) * 0.012 * moveAmt, by = Math.abs(Math.sin(bob)) * 0.016 * moveAmt;
     vm.root.position.set(vm.swayX + bx, vm.swayY - by - vm.drop * 0.4 - crouchT * 0.01, 0);
     vm.root.visible = me.alive && !!vm.type;
-    // swing animation (shovel)
-    const s = swingT > 0 ? Math.sin((1 - swingT / 0.45) * Math.PI) : 0;
-    vm.holder.rotation.set(-s * 1.1, s * 0.5, s * 0.6);
-    vm.holder.position.set(-s * 0.15, s * 0.1, s * 0.1);
+    // the shovel's swing: drawn back and up off the shoulder, brought down hard across the view, the blow jarring in the
+    // hands where it lands (when the hit is sent: see the swing), carried through, and back up onto the shoulder
+    {
+      const p = swingT > 0 ? 1 - swingT / SWING : 1, wd = sstep(0, 0.16, p) * (1 - sstep(0.16, 0.3, p)), st = sstep(0.14, 0.3, p) * (1 - sstep(0.42, 1, p));
+      const jt = swingT > 0 ? Math.exp(-Math.pow((p - 0.31) / 0.035, 2)) * Math.sin(p * 160) * 0.05 : 0;
+      vm.holder.rotation.set(wd * 0.32 - st * 1.05 + jt, -wd * 0.1 + st * 0.55, -wd * 0.18 + st * 0.65 + jt);
+      vm.holder.position.set(wd * 0.04 - st * 0.12, wd * 0.05 - st * 0.06, wd * 0.06 - st * 0.12);
+      if (swingT > 0 && p >= 0.3 && !swungHard) { swungHard = true; shake = Math.max(shake, 0.05); }
+    }
     // eating / drinking: the hand brings it in close under your face and tips it back, holds it there a moment.
     // (the holder pivots about the middle of what's held, and that point travels to just below the mouth)
     if (eatT > 0 && vm.type) {
@@ -19616,8 +19668,10 @@ const Player = (() => {
       // a fist closed round something small stays square to it, whichever way the forearm comes in
       if (h.fist) { gl.quaternion.copy(A.quaternion).invert().multiply(vm.item.quaternion); gl.scale.set(1.1, 1, 0.8); }
       else { gl.quaternion.identity(); gl.scale.set(1, 1, 1); }
-      vm.armL.visible = two;
-      vm.armL.position.set(h.p[0] - 0.22, h.p[1] - 0.06, h.p[2] + 0.12); vm.armL.rotation.set(0.1, -0.25, 0);
+      vm.armL.visible = two || !!h.gripL;
+      // (the other hand: on its own grip point if the hold gives one, else steadying the load from the left)
+      if (h.gripL) { const L = vm.armL; L.rotation.set(h.grL[0], h.grL[1], h.grL[2]); _vmv.set(0, 0, -0.04).applyEuler(L.rotation); L.position.set(h.p[0] + h.gripL[0] - _vmv.x, h.p[1] + h.gripL[1] - _vmv.y, h.p[2] + h.gripL[2] - _vmv.z); }
+      else { vm.armL.position.set(h.p[0] - 0.22, h.p[1] - 0.06, h.p[2] + 0.12); vm.armL.rotation.set(0.1, -0.25, 0); }
     }
   }
   function eyeH() { return lerp(1.62, 1.05, crouchT); }
@@ -19701,7 +19755,7 @@ const Player = (() => {
     // up the airlock ladder onto the roof deck, or back down
     climb(up) { const me = G.me(); if (!me || climb) return; if (seat != null) standUp(me); climb = { t: 0, up, x0: me.pos.x, z0: me.pos.z, swap: false, rung: 0.1 }; },
     get climbing() { return !!climb; },
-    swing() { swingT = 0.45; },
+    swing() { swingT = SWING; swungHard = false; },
     resetVM() { setVM(null); },
     // where the walkie-talkie in your hand is on screen (just over the tip of its antenna), for words coming out of it:
     // { x, y } from -1 to 1 like the camera's; null when there isn't one showing
@@ -19920,7 +19974,7 @@ const Player = (() => {
           if (d.light || d.screen || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
           else if (d.lamp) toggleLamp(cur);
           else if (cur.type === 'shovel' && swingCd <= 0) {
-            swingCd = 0.85; swingT = 0.45; SFX.play('swing');
+            swingCd = 0.85; swingT = SWING; swungHard = false; SFX.play('swing');
             const e = cam.getWorldPosition(new THREE.Vector3()), dir = cam.getWorldDirection(new THREE.Vector3());
             setTimeout(() => G.request({ a: 'swing', o: [e.x, e.y, e.z], d: [dir.x, dir.y, dir.z] }), 160);
           } else if ((cur.type === 'stun' || d.bomb) && useCd <= 0) {

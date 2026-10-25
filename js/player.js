@@ -44,7 +44,8 @@ const Player = (() => {
   // how long use is held on a door before it opens or shuts
   const DOOR_HOLD = 0.5; let holdT = 0, holdOn = null;
   let onGround = true, crouch = false, crouchT = 0, stamina = 1, exhausted = false, bob = 0, stepAcc = 0, shake = 0, roll = 0, prevWade = 0;
-  let swingT = 0, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
+  const SWING = 0.6; // how long a shovel swing takes, back to the shoulder (the hit goes out 0.16 s in)
+  let swingT = 0, swungHard = false, swingCd = 0, scanCd = 0, useCd = 0, airT = 0, pantT = 0, fovKick = 0, keyed = false, eatT = 0, unwrapT = 0;
   let target = null;
   // a ship seat (index into G.ship.seats) while sitting in it, and how far into the sitting-down move the view is
   let seat = null, sitT = 0;
@@ -142,10 +143,15 @@ const Player = (() => {
     const bx = Math.cos(bob) * 0.012 * moveAmt, by = Math.abs(Math.sin(bob)) * 0.016 * moveAmt;
     vm.root.position.set(vm.swayX + bx, vm.swayY - by - vm.drop * 0.4 - crouchT * 0.01, 0);
     vm.root.visible = me.alive && !!vm.type;
-    // swing animation (shovel)
-    const s = swingT > 0 ? Math.sin((1 - swingT / 0.45) * Math.PI) : 0;
-    vm.holder.rotation.set(-s * 1.1, s * 0.5, s * 0.6);
-    vm.holder.position.set(-s * 0.15, s * 0.1, s * 0.1);
+    // the shovel's swing: drawn back and up off the shoulder, brought down hard across the view, the blow jarring in the
+    // hands where it lands (when the hit is sent: see the swing), carried through, and back up onto the shoulder
+    {
+      const p = swingT > 0 ? 1 - swingT / SWING : 1, wd = sstep(0, 0.16, p) * (1 - sstep(0.16, 0.3, p)), st = sstep(0.14, 0.3, p) * (1 - sstep(0.42, 1, p));
+      const jt = swingT > 0 ? Math.exp(-Math.pow((p - 0.31) / 0.035, 2)) * Math.sin(p * 160) * 0.05 : 0;
+      vm.holder.rotation.set(wd * 0.32 - st * 1.05 + jt, -wd * 0.1 + st * 0.55, -wd * 0.18 + st * 0.65 + jt);
+      vm.holder.position.set(wd * 0.04 - st * 0.12, wd * 0.05 - st * 0.06, wd * 0.06 - st * 0.12);
+      if (swingT > 0 && p >= 0.3 && !swungHard) { swungHard = true; shake = Math.max(shake, 0.05); }
+    }
     // eating / drinking: the hand brings it in close under your face and tips it back, holds it there a moment.
     // (the holder pivots about the middle of what's held, and that point travels to just below the mouth)
     if (eatT > 0 && vm.type) {
@@ -172,8 +178,10 @@ const Player = (() => {
       // a fist closed round something small stays square to it, whichever way the forearm comes in
       if (h.fist) { gl.quaternion.copy(A.quaternion).invert().multiply(vm.item.quaternion); gl.scale.set(1.1, 1, 0.8); }
       else { gl.quaternion.identity(); gl.scale.set(1, 1, 1); }
-      vm.armL.visible = two;
-      vm.armL.position.set(h.p[0] - 0.22, h.p[1] - 0.06, h.p[2] + 0.12); vm.armL.rotation.set(0.1, -0.25, 0);
+      vm.armL.visible = two || !!h.gripL;
+      // (the other hand: on its own grip point if the hold gives one, else steadying the load from the left)
+      if (h.gripL) { const L = vm.armL; L.rotation.set(h.grL[0], h.grL[1], h.grL[2]); _vmv.set(0, 0, -0.04).applyEuler(L.rotation); L.position.set(h.p[0] + h.gripL[0] - _vmv.x, h.p[1] + h.gripL[1] - _vmv.y, h.p[2] + h.gripL[2] - _vmv.z); }
+      else { vm.armL.position.set(h.p[0] - 0.22, h.p[1] - 0.06, h.p[2] + 0.12); vm.armL.rotation.set(0.1, -0.25, 0); }
     }
   }
   function eyeH() { return lerp(1.62, 1.05, crouchT); }
@@ -257,7 +265,7 @@ const Player = (() => {
     // up the airlock ladder onto the roof deck, or back down
     climb(up) { const me = G.me(); if (!me || climb) return; if (seat != null) standUp(me); climb = { t: 0, up, x0: me.pos.x, z0: me.pos.z, swap: false, rung: 0.1 }; },
     get climbing() { return !!climb; },
-    swing() { swingT = 0.45; },
+    swing() { swingT = SWING; swungHard = false; },
     resetVM() { setVM(null); },
     // where the walkie-talkie in your hand is on screen (just over the tip of its antenna), for words coming out of it:
     // { x, y } from -1 to 1 like the camera's; null when there isn't one showing
@@ -476,7 +484,7 @@ const Player = (() => {
           if (d.light || d.screen || cur.type === 'tracker') { if (cur.battery > 0) { cur.on = !cur.on; SFX.play('click'); } else HUD.toast('Battery dead'); }
           else if (d.lamp) toggleLamp(cur);
           else if (cur.type === 'shovel' && swingCd <= 0) {
-            swingCd = 0.85; swingT = 0.45; SFX.play('swing');
+            swingCd = 0.85; swingT = SWING; swungHard = false; SFX.play('swing');
             const e = cam.getWorldPosition(new THREE.Vector3()), dir = cam.getWorldDirection(new THREE.Vector3());
             setTimeout(() => G.request({ a: 'swing', o: [e.x, e.y, e.z], d: [dir.x, dir.y, dir.z] }), 160);
           } else if ((cur.type === 'stun' || d.bomb) && useCd <= 0) {

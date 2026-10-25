@@ -2052,9 +2052,9 @@ const Ship = (() => {
         this.group.add(this.flood); this.group.add(this.flood.target); }
       // the ship's cameras (their feeds are a page on the bay's main screen): a housing on a bracket, the lens, a red
       // light. They watch where the crew come and go: over the hatch looking down the ramp, on a tripod out on the
-      // ground ahead of the nose looking back at the hatch, on the tail looking back, and one inside, up in a corner of
-      // the bay. Away from the ground (in space, and flying) the tripod's packed away and the one on the spine over the
-      // cockpit takes its place on the screen, looking out ahead past the nose
+      // ground (wherever the crew have set it up), on the tail looking back, and one inside, up in a corner of the bay.
+      // Away from the ground (in space, and flying) the tripod's packed away and the one on the spine over the cockpit
+      // takes its place on the screen, looking out ahead past the nose
       this.hullCams = [];
       const hc = (name, p, look, inside, rig, space) => {
         const dir = look.clone().sub(p).normalize();
@@ -2071,18 +2071,9 @@ const Ship = (() => {
         at(new THREE.BoxGeometry(0.05, 0.05, 0.16), 'darkmetal', 0, 0, -0.22);
       };
       hc('HATCH', V(-2.5, 2.66, skinW(-2.5, 2.66) + 0.13), V(-2.5, SHIP.ground, 8.5));
-      // (the tripod is set up once the ship is down, and packed away for flight)
-      {
-        const rig = new THREE.Group(), base = V(9.6, SHIP.ground, 7.6), head = base.clone().add(V(0, 1.25, 0));
-        for (let i = 0; i < 3; i++) {
-          const a = (i / 3) * TAU + 0.4, foot = base.clone().add(V(Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45));
-          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 1, 6), MATS.get('darkmetal'));
-          leg.position.copy(foot).add(head).multiplyScalar(0.5); leg.scale.y = foot.distanceTo(head); leg.quaternion.setFromUnitVectors(V(0, 1, 0), head.clone().sub(foot).normalize()); leg.castShadow = true; rig.add(leg);
-        }
-        const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 10), MATS.get('darkmetal')); hub.position.copy(head).add(V(0, -0.02, 0)); rig.add(hub);
-        this.group.add(rig); this.groundCamRig = rig;
-        hc('GROUND', head.clone().add(V(0, 0.1, 0)), V(-2.5, -0.3, 5.2), false, rig);
-      }
+      // (the ground camera on its tripod is a thing the crew can carry and set up anywhere: G's 'shipcam' item; it comes
+      // out with the ramp and is packed away for flight. Its feed's place in the list: where it is is worked out live)
+      this.hullCams.push({ name: 'GROUND', ground: true, item: 'shipcam' });
       hc('NOSE', V(3.6, skinTop(3.6, 0) + 0.12, 0), V(60, -9, -4), false, null, true);
       hc('BAY', V(3.25, 3.18, 3.55), V(-4.5, 0.3, -1.8), true);
       hc('TAIL', V(HULL.x0 + 0.4, skinTop(HULL.x0 + 0.4, 0.4) + 0.1, 0.4), V(-45, SHIP.ground, 0.4));
@@ -2467,7 +2458,7 @@ const Ship = (() => {
       for (const L of this.fireLights) L.power = 0;
     }
     // on the ground with gear down and the ramp out, or stowed for flight (no animation)
-    setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp; }
+    setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); }
     // the ground camera's tripod is out only while the ship is down with its ramp out
     get groundCamUp() { return this.rampT > 0.95 && !this.airborne; }
     poseGear() {
@@ -3622,7 +3613,6 @@ const Ship = (() => {
       this.rampT = clamp(this.rampT + Math.sign(this.rampTarget - this.rampT) * dt / 1.4, Math.min(this.rampT, this.rampTarget), Math.max(this.rampT, this.rampTarget));
       const gm = this.gearT !== gearWas, rm = this.rampT !== rampWas;
       if (gm || rm) this.poseGear();
-      if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp;
       if (gm && !this.gearMoving) SFX.play('servo', new THREE.Vector3(-2, -0.3, 0), { dur: 2.2, vol: 0.7 });
       if (!gm && this.gearMoving) SFX.play('clunk', new THREE.Vector3(-2, -0.3, 0), { vol: 0.8 });
       if (rm && !this.rampMoving) SFX.play('servo', new THREE.Vector3(-2.5, -0.2, 4.4), { dur: 1.4, vol: 0.9, pitch: 1.3 });

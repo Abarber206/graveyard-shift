@@ -1937,6 +1937,8 @@ const G = {
         const go = () => {
           if (G.mode !== 'landing' || !G.round || G.round.seed !== seed) return;
           const items = G.spawnScrap(seed, site, key);
+          // (and the ship's ground camera, set up on its tripod out ahead of the nose looking back at the hatch)
+          items.push({ id: G.nextItemId++, type: 'shipcam', value: 0, x: 9.6, y: G.groundAt(9.6, 7.6), z: 7.6, ry: Math.atan2(12.1, 2.4) });
           G.emit({ e: 'land', site: key, seed, weather, ecl, items });
           const first = (key === 'hollow' ? 2 : 1) + (G.fac.levels >= 6 ? 1 : 0);
           for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
@@ -2100,7 +2102,8 @@ const G = {
     const collectedItems = shipItems.filter((it) => ITEMS[it.type].kind === 'scrap' && !r.startShip.has(it.id));
     const collected = collectedItems.reduce((s, it) => s + it.value, 0);
     const lost = allDead ? collected : 0;
-    const keep = shipItems.filter((it) => !(allDead && collectedItems.includes(it))).map((it) => it.id);
+    // (the ground camera is packed away for flight, wherever it was: it comes out again with the ramp)
+    const keep = shipItems.filter((it) => it.type !== 'shipcam' && !(allDead && collectedItems.includes(it))).map((it) => it.id);
     const deaths = [...G.players.values()].filter((p) => !p.alive).map((p) => ({ name: p.name, cause: G.deathCause && G.deathCause[p.id] || 'unknown', bot: p.bot || undefined }));
     // (a lost bot is on the report, but the Company's insurance doesn't charge for one)
     const fine = allDead ? 0 : Math.round(run.credits * 0.1 * deaths.filter((d) => !d.bot).length);
@@ -2856,7 +2859,7 @@ const G = {
       if (it.pos.distanceTo(me.pos) > 3.6) continue;
       const d = ITEMS[it.type];
       // (something in an open locker or cabinet wins over its door, swung out right by your head)
-      out.push({ kind: 'item', ref: it, x: it.vis.x, y: it.vis.y + (d.twoHanded ? 0.3 : 0.12), z: it.vis.z, r: d.twoHanded ? 0.55 : 0.32, pen: it.box != null ? -0.9 : 0, label: 'Pick up ' + d.name, value: d.kind === 'scrap' ? it.value : 0 });
+      out.push({ kind: 'item', ref: it, x: it.vis.x, y: it.vis.y + (d.twoHanded ? d.tall || 0.3 : 0.12), z: it.vis.z, r: d.twoHanded ? 0.55 : 0.32, pen: it.box != null ? -0.9 : 0, label: 'Pick up ' + d.name, value: d.kind === 'scrap' ? it.value : 0 });
     }
     if (me.zone === 'in' && G.fac) {
       for (const d of G.fac.doors) if (!d.broken && Math.hypot(d.x - me.pos.x, d.z - me.pos.z) < 3.2) out.push({ kind: 'door', ref: d, x: d.x, y: d.y + 1.2, z: d.z, r: 0.75, label: d.open ? 'Close door' : 'Open door' });

@@ -1086,13 +1086,17 @@ const Exterior = (() => {
         const { x, z, y, bare, patch } = c, d = Math.hypot(x - cx, z - cz);
         if (d > R) continue;
         const GR = this.biome.grass, W = this.water;
-        let dens = GR.dens - bare * 0.9 + patch * 0.6;
-        // reeds crowd the waterline and stand in the shallows, never out in deep water
-        if (W != null) { if (y < W - 0.35) dens = -1; else dens += sstep(W + 1.0, W, y) * 0.6; }
+        let dens = GR.dens - bare * 0.9 + patch * 0.6, wk = 1;
+        // reeds gather along the water's edge and stand a little way out into the shallows, never in deep water;
+        // anything else thins out and shortens toward the edge and stops at it, never standing in the water
+        if (W != null) {
+          if (GR.kind === 'reeds') { if (y < W - 0.2) dens = -1; else { dens += sstep(W + 1.6, W + 0.15, y) * 0.3; wk = 0.55 + 0.45 * sstep(W - 0.2, W + 0.25, y); } }
+          else { wk = sstep(W + 0.04, W + 0.55, y); if (wk <= 0) dens = -1; else dens -= (1 - wk) * 0.45; }
+        }
         // (each blade's size, turn and shade are kept with its spot too, and written straight into the instance arrays)
         if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; c.av = hash(i, j, 12) < 0.25 ? 1 : 0; }
         if (c.g < dens && ng < 5200) {
-          const s = c.s0 * sstep(R, R - 7, d), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
+          const s = c.s0 * sstep(R, R - 7, d) * (0.5 + 0.5 * wk), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
           A[o] = c.cs * s; A[o + 1] = 0; A[o + 2] = -c.sn * s; A[o + 3] = 0; A[o + 4] = 0; A[o + 5] = sy; A[o + 6] = 0; A[o + 7] = 0;
           A[o + 8] = c.sn * s; A[o + 9] = 0; A[o + 10] = c.cs * s; A[o + 11] = 0; A[o + 12] = x; A[o + 13] = y - 0.05; A[o + 14] = z; A[o + 15] = 1;
           // (toned to sit in the ground colour rather than glow on top of it)

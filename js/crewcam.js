@@ -361,7 +361,20 @@ const CrewCam = (() => {
       sa.root.visible = me.alive && me.zone === 'out'; sa.root.position.copy(mp); sa.root.quaternion.copy(q);
       sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch });
     }
-    const liveOf = (c) => c.inside || !c.ground || down;
+    // (the ground camera is wherever the crew have set it up, watching the way it faces; carried, it sees what its
+    // carrier faces, bobbing along; down in the plant, under all that rock, there's no signal from it)
+    const gc = [...G.items.values()].find((it) => it.type === 'shipcam');
+    const groundAt = (c) => {
+      if (!gc) return false;
+      const h = gc.holder != null ? G.players.get(gc.holder) : null;
+      if (h ? h.zone !== 'out' : G.itemZone(gc) !== 'out') return false;
+      if (h) { const at = h.id === G.localId ? h.pos : h.rpos, yaw = h.id === G.localId ? h.yaw : h.ryaw || h.yaw, pt = h.id === G.localId ? h.pitch : h.rpitch || 0;
+        c.pos = (c.pos || new THREE.Vector3()).set(at.x - Math.sin(yaw) * 0.6, at.y + 1.25, at.z - Math.cos(yaw) * 0.6); c.look = (c.look || new THREE.Vector3()).set(c.pos.x - Math.sin(yaw) * 10, c.pos.y + Math.sin(pt) * 10, c.pos.z - Math.cos(yaw) * 10); }
+      else { const p = gc.vis || gc.pos, fx = -Math.sin(gc.ry), fz = -Math.cos(gc.ry);
+        c.pos = (c.pos || new THREE.Vector3()).set(p.x + fx * 0.17, p.y + 1.28, p.z + fz * 0.17); c.look = (c.look || new THREE.Vector3()).set(c.pos.x + fx * 10, c.pos.y - 0.6, c.pos.z + fz * 10); }
+      return true;
+    };
+    const liveOf = (c) => c.inside || !c.ground || (down && groundAt(c));
     cams.forEach((c, i) => {
       const r = rects[i]; if (!liveOf(c)) return;
       cam.position.copy(c.pos); _t.copy(c.look); cam.up.set(0, 1, 0);
@@ -372,7 +385,7 @@ const CrewCam = (() => {
     cam.fov = 72; cam.up.set(0, 1, 0); R.scene.fog.density = fd0;
     if (sa) sa.root.visible = false;
     S.monMesh.visible = true;
-    const key = 'hull' + down + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
+    const key = 'hull' + down + cams.map(liveOf).join() + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
     if (key === last) return;
     last = key;
     g.clearRect(0, 0, W, H); drawBar('◀  SHIP CAMS  ▶');

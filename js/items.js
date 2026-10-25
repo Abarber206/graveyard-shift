@@ -8,6 +8,8 @@ const ITEMS = {
   walkie: { name: 'Walkie-Talkie', kind: 'tool', price: 18, weight: 1, battery: 500, desc: 'Hold to talk to crewmates anywhere. Sometimes picks up... other things.' },
   stun: { name: 'Stun Grenade', kind: 'tool', price: 40, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
   tracker: { name: 'Motion Tracker', kind: 'tool', price: 60, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
+  // (the ship's own ground camera: it comes out with the ramp and is packed away again for flight; not for sale)
+  shipcam: { name: 'Ship Camera', kind: 'tool', weight: 4, twoHanded: true, tall: 0.9, desc: "The ship's ground camera on its tripod. Set it down anywhere outside and it watches the way you face; its feed is on the ship's cams." },
   mappad: { name: 'Survey Pad', kind: 'tool', price: 55, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
   cola: { name: 'Kick Cola', kind: 'food', price: 10, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
@@ -212,6 +214,23 @@ const ItemMeshes = (() => {
     },
     // a rugged handset: moulded body, speaker slots, a little lit screen, a keypad, side talk button, channel knob,
     // a rubber antenna, a belt clip on the back
+    // the ship's ground camera on its tripod: the same housing as the ones on the hull, its lens to the front (-z) with
+    // a red light by it; set down, it watches the way it faces
+    shipcam(g) {
+      const head = 1.22, up = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * TAU + 0.5, fx = Math.cos(a) * 0.34, fz = Math.sin(a) * 0.34, dir = new THREE.Vector3(-fx, head - 0.05, -fz);
+        add(g, cyl(0.012, 0.016, dir.length(), 6), m.dsteel(), fx / 2, (head - 0.05) / 2, fz / 2).quaternion.setFromUnitVectors(up, dir.normalize());
+        add(g, sph(0.02, 6), m.black(), fx, 0.012, fz);
+      }
+      add(g, cyl(0.045, 0.045, 0.07, 10), m.dsteel(), 0, head - 0.04, 0);
+      add(g, box(0.15, 0.12, 0.24), m.dsteel(), 0, head + 0.06, 0.02);
+      add(g, box(0.19, 0.012, 0.3), m.dsteel(), 0, head + 0.128, 0.02);
+      add(g, cyl(0.045, 0.05, 0.05, 12), m.black(), 0, head + 0.06, -0.125, Math.PI / 2, 0, 0);
+      add(g, new THREE.CircleGeometry(0.034, 12), m.glass(), 0, head + 0.06, -0.151, 0, Math.PI, 0);
+      add(g, box(0.014, 0.014, 0.01), m.eyeRed(), 0.05, head + 0.1, -0.1);
+      add(g, box(0.05, 0.05, 0.12), m.dsteel(), 0, head + 0.06, 0.19);
+    },
     walkie(g) {
       const body = M('walkieBody', { color: 0x2b2e2a, roughness: 0.7 }), rub = M('rubber', { color: 0x151515, roughness: 0.9 }), key = M('wkey', { color: 0x5a5d58, roughness: 0.6 });
       add(g, rbox(0.066, 0.15, 0.036, 0.008), body, 0, 0.075, 0);
@@ -905,6 +924,7 @@ const HOLD = {
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },
   mappad: { p: [0.0, -0.085, -0.33], r: [1.15, 0, 0] },
+  shipcam: { p: [0.34, -1.5, -0.66], r: [0.08, 0.55, 0.14] },
   painting: { p: [0, -1.2, -0.95], r: [0.15, 0, 0] },
   axle: { p: [0, -0.52, -0.78], r: [0, 0, 0] },
   lamp: { p: [0, -1.18, -0.85], r: [0, 0, 0] },

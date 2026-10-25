@@ -3500,6 +3500,8 @@ const ITEMS = {
   walkie: { name: 'Walkie-Talkie', kind: 'tool', price: 18, weight: 1, battery: 500, desc: 'Hold to talk to crewmates anywhere. Sometimes picks up... other things.' },
   stun: { name: 'Stun Grenade', kind: 'tool', price: 40, weight: 1, throwable: true, desc: 'Pull, throw. Freezes creatures for a few seconds. Do not watch the flash.' },
   tracker: { name: 'Motion Tracker', kind: 'tool', price: 60, weight: 2, battery: 240, desc: 'Pings anything moving within 25m. Hope it stays quiet.' },
+  // (the ship's own ground camera: it comes out with the ramp and is packed away again for flight; not for sale)
+  shipcam: { name: 'Ship Camera', kind: 'tool', weight: 4, twoHanded: true, tall: 0.9, desc: "The ship's ground camera on its tripod. Set it down anywhere outside and it watches the way you face; its feed is on the ship's cams." },
   mappad: { name: 'Survey Pad', kind: 'tool', price: 55, weight: 1.2, battery: 360, screen: true, desc: 'A rugged tablet with the site survey on it: the floor you are on, from above, you in the middle. Hold it to read it, click to switch it on. With the Salvage Locator fitted it pins metal scrap close by.' },
   // ---- snacks & drinks (left click to have it) ----
   cola: { name: 'Kick Cola', kind: 'food', price: 10, weight: 0.4, desc: 'Warm, flat, mostly sugar. Your legs keep going a while longer.' },
@@ -3704,6 +3706,23 @@ const ItemMeshes = (() => {
     },
     // a rugged handset: moulded body, speaker slots, a little lit screen, a keypad, side talk button, channel knob,
     // a rubber antenna, a belt clip on the back
+    // the ship's ground camera on its tripod: the same housing as the ones on the hull, its lens to the front (-z) with
+    // a red light by it; set down, it watches the way it faces
+    shipcam(g) {
+      const head = 1.22, up = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * TAU + 0.5, fx = Math.cos(a) * 0.34, fz = Math.sin(a) * 0.34, dir = new THREE.Vector3(-fx, head - 0.05, -fz);
+        add(g, cyl(0.012, 0.016, dir.length(), 6), m.dsteel(), fx / 2, (head - 0.05) / 2, fz / 2).quaternion.setFromUnitVectors(up, dir.normalize());
+        add(g, sph(0.02, 6), m.black(), fx, 0.012, fz);
+      }
+      add(g, cyl(0.045, 0.045, 0.07, 10), m.dsteel(), 0, head - 0.04, 0);
+      add(g, box(0.15, 0.12, 0.24), m.dsteel(), 0, head + 0.06, 0.02);
+      add(g, box(0.19, 0.012, 0.3), m.dsteel(), 0, head + 0.128, 0.02);
+      add(g, cyl(0.045, 0.05, 0.05, 12), m.black(), 0, head + 0.06, -0.125, Math.PI / 2, 0, 0);
+      add(g, new THREE.CircleGeometry(0.034, 12), m.glass(), 0, head + 0.06, -0.151, 0, Math.PI, 0);
+      add(g, box(0.014, 0.014, 0.01), m.eyeRed(), 0.05, head + 0.1, -0.1);
+      add(g, box(0.05, 0.05, 0.12), m.dsteel(), 0, head + 0.06, 0.19);
+    },
     walkie(g) {
       const body = M('walkieBody', { color: 0x2b2e2a, roughness: 0.7 }), rub = M('rubber', { color: 0x151515, roughness: 0.9 }), key = M('wkey', { color: 0x5a5d58, roughness: 0.6 });
       add(g, rbox(0.066, 0.15, 0.036, 0.008), body, 0, 0.075, 0);
@@ -4397,6 +4416,7 @@ const HOLD = {
   stun: { p: [0.24, -0.28, -0.45], r: [0, 0, 0] },
   tracker: { p: [0.0, -0.26, -0.42], r: [0.6, 0, 0] },
   mappad: { p: [0.0, -0.085, -0.33], r: [1.15, 0, 0] },
+  shipcam: { p: [0.34, -1.5, -0.66], r: [0.08, 0.55, 0.14] },
   painting: { p: [0, -1.2, -0.95], r: [0.15, 0, 0] },
   axle: { p: [0, -0.52, -0.78], r: [0, 0, 0] },
   lamp: { p: [0, -1.18, -0.85], r: [0, 0, 0] },
@@ -8547,13 +8567,17 @@ const Exterior = (() => {
         const { x, z, y, bare, patch } = c, d = Math.hypot(x - cx, z - cz);
         if (d > R) continue;
         const GR = this.biome.grass, W = this.water;
-        let dens = GR.dens - bare * 0.9 + patch * 0.6;
-        // reeds crowd the waterline and stand in the shallows, never out in deep water
-        if (W != null) { if (y < W - 0.35) dens = -1; else dens += sstep(W + 1.0, W, y) * 0.6; }
+        let dens = GR.dens - bare * 0.9 + patch * 0.6, wk = 1;
+        // reeds gather along the water's edge and stand a little way out into the shallows, never in deep water;
+        // anything else thins out and shortens toward the edge and stops at it, never standing in the water
+        if (W != null) {
+          if (GR.kind === 'reeds') { if (y < W - 0.2) dens = -1; else { dens += sstep(W + 1.6, W + 0.15, y) * 0.3; wk = 0.55 + 0.45 * sstep(W - 0.2, W + 0.25, y); } }
+          else { wk = sstep(W + 0.04, W + 0.55, y); if (wk <= 0) dens = -1; else dens -= (1 - wk) * 0.45; }
+        }
         // (each blade's size, turn and shade are kept with its spot too, and written straight into the instance arrays)
         if (c.g === undefined) { const a = hash(i, j, 5) * TAU; c.g = hash(i, j, 3); c.s0 = 0.5 + hash(i, j, 4) * 0.8; c.cs = Math.cos(a); c.sn = Math.sin(a); c.hm = 0.7 + hash(i, j, 6) * 0.6; c.v = 0.5 + hash(i, j, 7) * 0.22; c.av = hash(i, j, 12) < 0.25 ? 1 : 0; }
         if (c.g < dens && ng < 5200) {
-          const s = c.s0 * sstep(R, R - 7, d), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
+          const s = c.s0 * sstep(R, R - 7, d) * (0.5 + 0.5 * wk), sy = s * c.hm * GR.h, A = gi.instanceMatrix.array, o = ng * 16;
           A[o] = c.cs * s; A[o + 1] = 0; A[o + 2] = -c.sn * s; A[o + 3] = 0; A[o + 4] = 0; A[o + 5] = sy; A[o + 6] = 0; A[o + 7] = 0;
           A[o + 8] = c.sn * s; A[o + 9] = 0; A[o + 10] = c.cs * s; A[o + 11] = 0; A[o + 12] = x; A[o + 13] = y - 0.05; A[o + 14] = z; A[o + 15] = 1;
           // (toned to sit in the ground colour rather than glow on top of it)
@@ -11935,9 +11959,9 @@ const Ship = (() => {
         this.group.add(this.flood); this.group.add(this.flood.target); }
       // the ship's cameras (their feeds are a page on the bay's main screen): a housing on a bracket, the lens, a red
       // light. They watch where the crew come and go: over the hatch looking down the ramp, on a tripod out on the
-      // ground ahead of the nose looking back at the hatch, on the tail looking back, and one inside, up in a corner of
-      // the bay. Away from the ground (in space, and flying) the tripod's packed away and the one on the spine over the
-      // cockpit takes its place on the screen, looking out ahead past the nose
+      // ground (wherever the crew have set it up), on the tail looking back, and one inside, up in a corner of the bay.
+      // Away from the ground (in space, and flying) the tripod's packed away and the one on the spine over the cockpit
+      // takes its place on the screen, looking out ahead past the nose
       this.hullCams = [];
       const hc = (name, p, look, inside, rig, space) => {
         const dir = look.clone().sub(p).normalize();
@@ -11954,18 +11978,9 @@ const Ship = (() => {
         at(new THREE.BoxGeometry(0.05, 0.05, 0.16), 'darkmetal', 0, 0, -0.22);
       };
       hc('HATCH', V(-2.5, 2.66, skinW(-2.5, 2.66) + 0.13), V(-2.5, SHIP.ground, 8.5));
-      // (the tripod is set up once the ship is down, and packed away for flight)
-      {
-        const rig = new THREE.Group(), base = V(9.6, SHIP.ground, 7.6), head = base.clone().add(V(0, 1.25, 0));
-        for (let i = 0; i < 3; i++) {
-          const a = (i / 3) * TAU + 0.4, foot = base.clone().add(V(Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45));
-          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 1, 6), MATS.get('darkmetal'));
-          leg.position.copy(foot).add(head).multiplyScalar(0.5); leg.scale.y = foot.distanceTo(head); leg.quaternion.setFromUnitVectors(V(0, 1, 0), head.clone().sub(foot).normalize()); leg.castShadow = true; rig.add(leg);
-        }
-        const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 10), MATS.get('darkmetal')); hub.position.copy(head).add(V(0, -0.02, 0)); rig.add(hub);
-        this.group.add(rig); this.groundCamRig = rig;
-        hc('GROUND', head.clone().add(V(0, 0.1, 0)), V(-2.5, -0.3, 5.2), false, rig);
-      }
+      // (the ground camera on its tripod is a thing the crew can carry and set up anywhere: G's 'shipcam' item; it comes
+      // out with the ramp and is packed away for flight. Its feed's place in the list: where it is is worked out live)
+      this.hullCams.push({ name: 'GROUND', ground: true, item: 'shipcam' });
       hc('NOSE', V(3.6, skinTop(3.6, 0) + 0.12, 0), V(60, -9, -4), false, null, true);
       hc('BAY', V(3.25, 3.18, 3.55), V(-4.5, 0.3, -1.8), true);
       hc('TAIL', V(HULL.x0 + 0.4, skinTop(HULL.x0 + 0.4, 0.4) + 0.1, 0.4), V(-45, SHIP.ground, 0.4));
@@ -12350,7 +12365,7 @@ const Ship = (() => {
       for (const L of this.fireLights) L.power = 0;
     }
     // on the ground with gear down and the ramp out, or stowed for flight (no animation)
-    setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp; }
+    setLanded(on) { this.gearT = this.gearTarget = on ? 1 : 0; this.rampT = this.rampTarget = on ? 1 : 0; this.poseGear(); }
     // the ground camera's tripod is out only while the ship is down with its ramp out
     get groundCamUp() { return this.rampT > 0.95 && !this.airborne; }
     poseGear() {
@@ -13505,7 +13520,6 @@ const Ship = (() => {
       this.rampT = clamp(this.rampT + Math.sign(this.rampTarget - this.rampT) * dt / 1.4, Math.min(this.rampT, this.rampTarget), Math.max(this.rampT, this.rampTarget));
       const gm = this.gearT !== gearWas, rm = this.rampT !== rampWas;
       if (gm || rm) this.poseGear();
-      if (this.groundCamRig) this.groundCamRig.visible = this.groundCamUp;
       if (gm && !this.gearMoving) SFX.play('servo', new THREE.Vector3(-2, -0.3, 0), { dur: 2.2, vol: 0.7 });
       if (!gm && this.gearMoving) SFX.play('clunk', new THREE.Vector3(-2, -0.3, 0), { vol: 0.8 });
       if (rm && !this.rampMoving) SFX.play('servo', new THREE.Vector3(-2.5, -0.2, 4.4), { dur: 1.4, vol: 0.9, pitch: 1.3 });
@@ -17433,7 +17447,20 @@ const CrewCam = (() => {
       sa.root.visible = me.alive && me.zone === 'out'; sa.root.position.copy(mp); sa.root.quaternion.copy(q);
       sa.update(0.016, { at: me.pos, yaw: me.yaw, speed: me.moving ? 3 : 0, crouch: me.crouch, sit: me.seat != null, pitch: me.pitch });
     }
-    const liveOf = (c) => c.inside || !c.ground || down;
+    // (the ground camera is wherever the crew have set it up, watching the way it faces; carried, it sees what its
+    // carrier faces, bobbing along; down in the plant, under all that rock, there's no signal from it)
+    const gc = [...G.items.values()].find((it) => it.type === 'shipcam');
+    const groundAt = (c) => {
+      if (!gc) return false;
+      const h = gc.holder != null ? G.players.get(gc.holder) : null;
+      if (h ? h.zone !== 'out' : G.itemZone(gc) !== 'out') return false;
+      if (h) { const at = h.id === G.localId ? h.pos : h.rpos, yaw = h.id === G.localId ? h.yaw : h.ryaw || h.yaw, pt = h.id === G.localId ? h.pitch : h.rpitch || 0;
+        c.pos = (c.pos || new THREE.Vector3()).set(at.x - Math.sin(yaw) * 0.6, at.y + 1.25, at.z - Math.cos(yaw) * 0.6); c.look = (c.look || new THREE.Vector3()).set(c.pos.x - Math.sin(yaw) * 10, c.pos.y + Math.sin(pt) * 10, c.pos.z - Math.cos(yaw) * 10); }
+      else { const p = gc.vis || gc.pos, fx = -Math.sin(gc.ry), fz = -Math.cos(gc.ry);
+        c.pos = (c.pos || new THREE.Vector3()).set(p.x + fx * 0.17, p.y + 1.28, p.z + fz * 0.17); c.look = (c.look || new THREE.Vector3()).set(c.pos.x + fx * 10, c.pos.y - 0.6, c.pos.z + fz * 10); }
+      return true;
+    };
+    const liveOf = (c) => c.inside || !c.ground || (down && groundAt(c));
     cams.forEach((c, i) => {
       const r = rects[i]; if (!liveOf(c)) return;
       cam.position.copy(c.pos); _t.copy(c.look); cam.up.set(0, 1, 0);
@@ -17444,7 +17471,7 @@ const CrewCam = (() => {
     cam.fov = 72; cam.up.set(0, 1, 0); R.scene.fog.density = fd0;
     if (sa) sa.root.visible = false;
     S.monMesh.visible = true;
-    const key = 'hull' + down + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
+    const key = 'hull' + down + cams.map(liveOf).join() + Math.floor(t * 1.1 % 1 < 0.6) + (G.run.sold + '/' + G.run.quota + G.run.credits + G.run.daysLeft);
     if (key === last) return;
     last = key;
     g.clearRect(0, 0, W, H); drawBar('◀  SHIP CAMS  ▶');
@@ -22795,6 +22822,8 @@ const G = {
         const go = () => {
           if (G.mode !== 'landing' || !G.round || G.round.seed !== seed) return;
           const items = G.spawnScrap(seed, site, key);
+          // (and the ship's ground camera, set up on its tripod out ahead of the nose looking back at the hatch)
+          items.push({ id: G.nextItemId++, type: 'shipcam', value: 0, x: 9.6, y: G.groundAt(9.6, 7.6), z: 7.6, ry: Math.atan2(12.1, 2.4) });
           G.emit({ e: 'land', site: key, seed, weather, ecl, items });
           const first = (key === 'hollow' ? 2 : 1) + (G.fac.levels >= 6 ? 1 : 0);
           for (let i = 0; i < first; i++) G.hostSpawnInterior(null, false, 30);
@@ -22958,7 +22987,8 @@ const G = {
     const collectedItems = shipItems.filter((it) => ITEMS[it.type].kind === 'scrap' && !r.startShip.has(it.id));
     const collected = collectedItems.reduce((s, it) => s + it.value, 0);
     const lost = allDead ? collected : 0;
-    const keep = shipItems.filter((it) => !(allDead && collectedItems.includes(it))).map((it) => it.id);
+    // (the ground camera is packed away for flight, wherever it was: it comes out again with the ramp)
+    const keep = shipItems.filter((it) => it.type !== 'shipcam' && !(allDead && collectedItems.includes(it))).map((it) => it.id);
     const deaths = [...G.players.values()].filter((p) => !p.alive).map((p) => ({ name: p.name, cause: G.deathCause && G.deathCause[p.id] || 'unknown', bot: p.bot || undefined }));
     // (a lost bot is on the report, but the Company's insurance doesn't charge for one)
     const fine = allDead ? 0 : Math.round(run.credits * 0.1 * deaths.filter((d) => !d.bot).length);
@@ -23714,7 +23744,7 @@ const G = {
       if (it.pos.distanceTo(me.pos) > 3.6) continue;
       const d = ITEMS[it.type];
       // (something in an open locker or cabinet wins over its door, swung out right by your head)
-      out.push({ kind: 'item', ref: it, x: it.vis.x, y: it.vis.y + (d.twoHanded ? 0.3 : 0.12), z: it.vis.z, r: d.twoHanded ? 0.55 : 0.32, pen: it.box != null ? -0.9 : 0, label: 'Pick up ' + d.name, value: d.kind === 'scrap' ? it.value : 0 });
+      out.push({ kind: 'item', ref: it, x: it.vis.x, y: it.vis.y + (d.twoHanded ? d.tall || 0.3 : 0.12), z: it.vis.z, r: d.twoHanded ? 0.55 : 0.32, pen: it.box != null ? -0.9 : 0, label: 'Pick up ' + d.name, value: d.kind === 'scrap' ? it.value : 0 });
     }
     if (me.zone === 'in' && G.fac) {
       for (const d of G.fac.doors) if (!d.broken && Math.hypot(d.x - me.pos.x, d.z - me.pos.z) < 3.2) out.push({ kind: 'door', ref: d, x: d.x, y: d.y + 1.2, z: d.z, r: 0.75, label: d.open ? 'Close door' : 'Open door' });

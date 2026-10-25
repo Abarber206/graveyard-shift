@@ -176,11 +176,12 @@ const ItemMeshes = (() => {
   // a lathe from (radius, height) pairs
   const lathe = (pts, seg = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
   // a drawn texture, made once (key), drawn by draw(context, width, height)
-  const tx = (key, w, h, draw) => mc['tx:' + key] || (mc['tx:' + key] = (() => { const [cv, x] = TEX.canvas(w, h); draw(x, w, h); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; })());
+  // (drawn to the resolution setting's tier, and again if it changes: TEX.drawn)
+  const tx = (key, w, h, draw) => mc['tx:' + key] || (mc['tx:' + key] = TEX.drawn(w, h, (x) => draw(x, w, h)));
   const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
   // a green radar face: range rings, crosshairs, the sweep and a couple of blips
   function radarTex() {
-    const [cv, x] = TEX.canvas(128, 128);
+    return TEX.drawn(128, 128, (x) => {
     x.fillStyle = '#031006'; x.fillRect(0, 0, 128, 128);
     const gr = x.createConicGradient ? x.createConicGradient(-0.6, 64, 64) : null;
     if (gr) { gr.addColorStop(0, 'rgba(60,255,120,.55)'); gr.addColorStop(0.18, 'rgba(60,255,120,0)'); gr.addColorStop(1, 'rgba(60,255,120,0)'); x.fillStyle = gr; x.beginPath(); x.arc(64, 64, 60, 0, TAU); x.fill(); }
@@ -188,7 +189,7 @@ const ItemMeshes = (() => {
     for (const r of [20, 40, 60]) { x.beginPath(); x.arc(64, 64, r, 0, TAU); x.stroke(); }
     x.beginPath(); x.moveTo(4, 64); x.lineTo(124, 64); x.moveTo(64, 4); x.lineTo(64, 124); x.stroke();
     x.fillStyle = '#b8ffcc'; for (const [a, b] of [[88, 40], [42, 90]]) { x.beginPath(); x.arc(a, b, 4, 0, TAU); x.fill(); }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+    });
   }
   // a torch pointing down -Z: knurled grip, tail cap, flared head, polished reflector, lens
   function torch(g, r, rh, len, headMat, bodyMat) {
@@ -527,12 +528,12 @@ const ItemMeshes = (() => {
     // a faded red parcel: patterned paper gone dull and grubby, a gold ribbon both ways round and a bow on top
     gift(g) {
       const paper = mc.gift || (mc.gift = (() => {
-        const [cv, x] = TEX.canvas(128, 128), r = new RNG(31);
+        const t = TEX.drawn(128, 128, (x) => { const r = new RNG(31);
         x.fillStyle = '#6e1a19'; x.fillRect(0, 0, 128, 128);
         x.fillStyle = 'rgba(226,192,110,.32)';
         for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) if ((i + j) % 2 === 0) { x.save(); x.translate(i * 12.8 + 6, j * 12.8 + 6); x.rotate(Math.PI / 4); x.fillRect(-2.6, -2.6, 5.2, 5.2); x.restore(); }
         for (let k = 0; k < 34; k++) { x.fillStyle = `rgba(36,18,10,${r.range(0.03, 0.14)})`; x.fillRect(r.next() * 128, r.next() * 128, r.range(8, 36), r.range(3, 12)); }
-        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+        });
         return new THREE.MeshStandardMaterial({ map: t, roughness: 0.78 });
       })());
       const rib = M('ribbon', { color: 0xc49a34, roughness: 0.38, metalness: 0.45 });
@@ -834,7 +835,7 @@ const itemLook = (type, id) => (type === 'painting' ? type + ':' + ((id | 0) % P
 // The paintings left on the walls. Six you'd rather not have looked at, three that are almost a relief.
 const PAINTINGS = 9;
 function paintTex(v) {
-  const W = 256, H = 326, [cv, x] = TEX.canvas(W, H), r = new RNG(101 + v * 17);
+  return TEX.drawn(256, 326, (x) => { const W = 256, H = 326, r = new RNG(101 + v * 17);
   const lin = (x0, y0, x1, y1, stops) => { const gr = x.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, c]) => gr.addColorStop(o, c)); return gr; };
   const rad = (cx, cy, r1, stops) => { const gr = x.createRadialGradient(cx, cy, 0, cx, cy, r1); stops.forEach(([o, c]) => gr.addColorStop(o, c)); return gr; };
   const ell = (cx, cy, rx, ry, fill, rot = 0) => { x.fillStyle = fill; x.beginPath(); x.ellipse(cx, cy, rx, ry, rot, 0, TAU); x.fill(); };
@@ -949,7 +950,7 @@ function paintTex(v) {
   x.strokeStyle = 'rgba(20,14,8,.32)'; x.lineWidth = 0.7;
   for (let i = 0; i < 90; i++) { let px = r.range(0, W), py = r.range(0, H); x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 4; k++) { px += r.range(-9, 9); py += r.range(-9, 9); x.lineTo(px, py); } x.stroke(); }
   for (let i = 0; i < 300; i++) { x.fillStyle = `rgba(${r.chance(0.5) ? '230,220,200' : '10,8,6'},${r.range(0.05, 0.2)})`; x.fillRect(r.range(0, W), r.range(0, H), 1, 1); }
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  });
 }
 
 // How items sit in the first-person hand (position relative to camera, rotation) and on avatars.

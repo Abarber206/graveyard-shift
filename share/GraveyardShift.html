@@ -2234,7 +2234,10 @@ const TEX = (() => {
   // layout in the same coordinates at Q pixels to the unit, which follows the picture's resolution setting (one on
   // RETRO and LOW, two on MEDIUM and HIGH, three on ULTRA), so they're sharper where there are pixels to show it and
   // lighter on a phone (everything else keeps the old, grainier resolution). Changing the setting redraws them (retier)
-  const QS = [1, 1, 2, 2, 3], tiered = new Set();
+  const QS = [1, 1, 2, 2, 3], tiered = new Set(), live = new Set();
+  // (the ship's own surfaces were first drawn for the middle tier, everything else for the lowest: how deep the relief
+  // read off each must be at a tier, so it looks the same depth at any)
+  const REF2 = new Set(['quilt', 'perf', 'pegboard', 'hullSkin', 'hullSkinN']), reliefQ = (name, q) => (REF2.has(name) ? q / 2 : q);
   let Q = 2, building = null, retierT = 0;
   const tierQ = () => QS[Math.max(0, Math.min(QS.length - 1, typeof Settings !== 'undefined' ? Settings.res | 0 : 2))];
   function CQ(w, h) { if (building) tiered.add(building); const [c, g] = C(w * Q, h * Q); g.scale(Q, Q); return [c, g]; }
@@ -2391,7 +2394,7 @@ const TEX = (() => {
 
   const build = {
     wallConcrete() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#76736a'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 40, '40,38,32', 0.05, 0.2, 10, 50);
       blotches(g, 256, 256, 20, '150,145,130', 0.04, 0.12, 10, 40);
@@ -2408,7 +2411,7 @@ const TEX = (() => {
       return finish(c, true, false);
     },
     wallTile() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#4a4c48'; g.fillRect(0, 0, 256, 256);
       const n = 8, s = 256 / n;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
@@ -2426,7 +2429,7 @@ const TEX = (() => {
       return finish(c, true, false);
     },
     floorConcrete() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#56524a'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 50, '30,28,24', 0.05, 0.25, 10, 60);
       blotches(g, 256, 256, 8, '20,16,12', 0.2, 0.45, 8, 26);
@@ -2436,7 +2439,7 @@ const TEX = (() => {
       return finish(c);
     },
     floorTile() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       const n = 4, s = 256 / n;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
         const dark = (i + j) % 2 === 0;
@@ -2450,7 +2453,7 @@ const TEX = (() => {
       return finish(c);
     },
     ceiling() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#3a3a37'; g.fillRect(0, 0, 256, 256);
       g.strokeStyle = '#1c1c1a'; g.lineWidth = 4;
       for (let i = 0; i <= 2; i++) { g.beginPath(); g.moveTo(i * 128, 0); g.lineTo(i * 128, 256); g.stroke(); g.beginPath(); g.moveTo(0, i * 128); g.lineTo(256, i * 128); g.stroke(); }
@@ -2459,7 +2462,7 @@ const TEX = (() => {
       return finish(c);
     },
     metalPanel() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#5b6266'; g.fillRect(0, 0, 256, 256);
       for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
         const v = r.range(-10, 10) | 0;
@@ -2475,7 +2478,7 @@ const TEX = (() => {
       return finish(c);
     },
     grate() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#4c5154'; g.fillRect(0, 0, 128, 128);
       for (let y = 0; y < 128; y += 16) for (let x = 0; x < 128; x += 16) {
         const ox = (y / 16) % 2 ? 8 : 0;
@@ -2488,7 +2491,7 @@ const TEX = (() => {
       return finish(c);
     },
     rust() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#5a3a24'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 40, '130,70,30', 0.15, 0.5, 4, 22);
       blotches(g, 128, 128, 30, '30,20,15', 0.15, 0.4, 3, 16);
@@ -2496,7 +2499,7 @@ const TEX = (() => {
       return finish(c);
     },
     paintedMetal() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#6b6f62'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 25, '90,55,30', 0.15, 0.6, 2, 10);
       blotches(g, 128, 128, 10, '20,20,20', 0.1, 0.3, 6, 25);
@@ -2506,7 +2509,7 @@ const TEX = (() => {
     // crew suit paint after years of night shifts: worn through at the edges to dark metal, rust weeping from
     // chips and seams, grime ground in. Light overall, so the suit colour tints it.
     suitWorn() {
-      const [c, g] = C(256, 256), rr = new RNG(31);
+      const [c, g] = CQ(256, 256), rr = new RNG(31);
       g.fillStyle = '#c9c4b8'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 30, '120,112,98', 0.15, 0.4, 10, 40);
       // chipped paint: small dark islands of bare metal with a rusty halo
@@ -2523,7 +2526,7 @@ const TEX = (() => {
     },
     // cabin window glass: nearly clear, a little tint, wiped smears and dust (alpha carries it)
     cabinGlass() {
-      const [c, g] = C(256, 256), rr = new RNG(19);
+      const [c, g] = CQ(256, 256), rr = new RNG(19);
       g.fillStyle = 'rgba(70,90,92,0.07)'; g.fillRect(0, 0, 256, 256);
       for (let i = 0; i < 14; i++) { g.strokeStyle = `rgba(200,210,205,${rr.range(0.02, 0.05)})`; g.lineWidth = rr.range(8, 22); g.beginPath(); const x = rr.range(0, 256), y = rr.range(0, 256); g.arc(x, y, rr.range(30, 90), rr.range(0, 3), rr.range(3, 6)); g.stroke(); }
       for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(190,185,170,${rr.range(0.04, 0.14)})`; g.fillRect(rr.next() * 256, rr.next() * 256, 1.5, 1.5); }
@@ -2533,7 +2536,7 @@ const TEX = (() => {
     // grey cloth tape, wrapped and re-wrapped
     // the Clown's suit: faded yellow, dots that were red once, grimed brown
     clownDots() {
-      const [c, g] = C(128, 128), rr = new RNG(31);
+      const [c, g] = CQ(128, 128), rr = new RNG(31);
       g.fillStyle = '#b8a45a'; g.fillRect(0, 0, 128, 128);
       for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = `rgba(${140 + rr.int(0, 30)},40,36,${rr.range(0.55, 0.85)})`; g.beginPath(); g.arc(x * 32 + (y % 2) * 16 + 8 + rr.range(-2, 2), y * 32 + 16 + rr.range(-2, 2), rr.range(5, 7), 0, TAU); g.fill(); }
       blotches(g, 128, 128, 14, '60,48,30', 0.15, 0.45, 6, 26);
@@ -2542,7 +2545,7 @@ const TEX = (() => {
     },
     // ...its trousers: broad stripes, red and dirty cream
     clownStripe() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#c8bc9c' : '#8a2a24'; g.fillRect(i * 32, 0, 32, 128); }
       blotches(g, 128, 128, 16, '50,40,28', 0.2, 0.5, 6, 30);
       speckle(g, 128, 128, 24);
@@ -2550,7 +2553,7 @@ const TEX = (() => {
     },
     // ...and its face: chalk-white greasepaint crazed all over, grey skin in the cracks, yellowed in places
     greasepaint() {
-      const [c, g] = C(128, 128), rr = new RNG(32);
+      const [c, g] = CQ(128, 128), rr = new RNG(32);
       g.fillStyle = '#e4ded0'; g.fillRect(0, 0, 128, 128);
       g.strokeStyle = 'rgba(90,84,78,.7)'; g.lineWidth = 1;
       for (let i = 0; i < 70; i++) { let x = rr.range(0, 128), y = rr.range(0, 128); g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += rr.range(-9, 9); y += rr.range(-9, 9); g.lineTo(x, y); } g.stroke(); }
@@ -2559,7 +2562,7 @@ const TEX = (() => {
       return finish(c);
     },
     tape() {
-      const [c, g] = C(64, 64), rr = new RNG(8);
+      const [c, g] = CQ(64, 64), rr = new RNG(8);
       g.fillStyle = '#8a8a86'; g.fillRect(0, 0, 64, 64);
       for (let y = 0; y < 64; y += 10) { g.fillStyle = 'rgba(30,30,28,.35)'; g.fillRect(0, y + rr.range(-1, 1), 64, 1.5); }
       blotches(g, 64, 64, 10, '50,46,40', 0.15, 0.4, 3, 12);
@@ -2567,7 +2570,7 @@ const TEX = (() => {
       return finish(c);
     },
     wood() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       for (let i = 0; i < 4; i++) {
         const v = r.range(-12, 12) | 0;
         g.fillStyle = `rgb(${96 + v},${70 + v},${44 + v})`; g.fillRect(0, i * 32, 128, 32);
@@ -2579,7 +2582,7 @@ const TEX = (() => {
       return finish(c);
     },
     crate() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#6e5233'; g.fillRect(0, 0, 128, 128);
       for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, i * 21.3, 128, 1.5); }
       g.fillStyle = '#4e3922'; g.fillRect(0, 0, 128, 12); g.fillRect(0, 116, 128, 12); g.fillRect(0, 0, 12, 128); g.fillRect(116, 0, 12, 128);
@@ -2589,7 +2592,7 @@ const TEX = (() => {
       return finish(c);
     },
     terrain() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#4b4636'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '70,72,48', 0.15, 0.4, 8, 40);
       blotches(g, 256, 256, 40, '35,30,22', 0.15, 0.4, 6, 30);
@@ -2604,7 +2607,7 @@ const TEX = (() => {
     },
     // ground detail for the other worlds: wet marsh mud, red canyon sand, burnt ash
     terrainMarsh() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#353b2c'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 70, '52,64,42', 0.15, 0.45, 8, 40); blotches(g, 256, 256, 40, '20,24,18', 0.2, 0.5, 6, 30);
       blotches(g, 256, 256, 18, '110,120,105', 0.05, 0.14, 6, 22);
@@ -2612,7 +2615,7 @@ const TEX = (() => {
       speckle(g, 256, 256, 16); return finish(c);
     },
     terrainSand() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#8c5f42'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '168,116,76', 0.15, 0.4, 8, 46); blotches(g, 256, 256, 40, '96,58,40', 0.15, 0.4, 6, 30);
       for (let i = 0; i < 14; i++) { const y = r.next() * 256; g.fillStyle = `rgba(${r.next() < 0.5 ? '180,130,90' : '110,70,48'},${r.range(0.08, 0.18)})`; g.fillRect(0, y, 256, r.range(2, 6)); }
@@ -2621,7 +2624,7 @@ const TEX = (() => {
       speckle(g, 256, 256, 20); return finish(c);
     },
     terrainAsh() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#3b3937'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '78,74,70', 0.15, 0.4, 8, 40); blotches(g, 256, 256, 50, '18,16,15', 0.2, 0.5, 6, 30);
       cracks(g, 256, 256, 10, 'rgba(14,12,12,.6)');
@@ -2633,7 +2636,7 @@ const TEX = (() => {
     // the plant's old yard paving, 8 m square, three slabs a side: weathered concrete, each slab its own tone, dark
     // joints packed with dirt and weeds coming up through them, cracks, oil stains, spalled chips (see Exterior's terrain)
     paving() {
-      const [c, g] = C(512, 512), S = 512 / 3;
+      const [c, g] = CQ(512, 512), S = 512 / 3;
       g.fillStyle = '#76736b'; g.fillRect(0, 0, 512, 512);
       for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { const v = r.range(-16, 10) | 0; g.fillStyle = `rgba(${118 + v},${115 + v},${108 + v},0.5)`; g.fillRect(i * S, j * S, S, S); }
       blotches(g, 512, 512, 70, '46,42,36', 0.05, 0.22, 12, 70); blotches(g, 512, 512, 30, '160,156,146', 0.04, 0.1, 10, 50);
@@ -2655,7 +2658,7 @@ const TEX = (() => {
       return finish(c);
     },
     terrainSnow() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#d8dee6'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '240,244,250', 0.2, 0.5, 10, 50); blotches(g, 256, 256, 40, '176,186,200', 0.12, 0.3, 8, 34);
       for (let i = 0; i < 70; i++) { const y = r.next() * 256, x = r.next() * 256; g.strokeStyle = `rgba(${r.next() < 0.5 ? '255,255,255' : '160,172,190'},${r.range(0.15, 0.35)})`; g.lineWidth = r.range(1, 2.5); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 14, y - r.range(-4, 4), x + r.range(20, 40), y + r.range(-3, 3)); g.stroke(); }
@@ -2664,7 +2667,7 @@ const TEX = (() => {
     },
     // a salt pan: a white crust broken into polygons, their raised rims, a little grey grit in the cracks
     terrainSalt() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#e4dccb'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 50, '246,242,232', 0.2, 0.5, 10, 46); blotches(g, 256, 256, 30, '196,186,166', 0.12, 0.3, 8, 30);
       // (a jittered grid of cells, each outlined by a raised rim)
@@ -2681,7 +2684,7 @@ const TEX = (() => {
     },
     // basalt: black glassy rock, flow lines, ochre sulphur crusts and ember-red seams
     terrainBasalt() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#26221f'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '52,46,42', 0.15, 0.4, 8, 40); blotches(g, 256, 256, 40, '10,9,9', 0.2, 0.5, 6, 30);
       for (let i = 0; i < 30; i++) { const y = r.next() * 256; g.strokeStyle = `rgba(70,64,58,${r.range(0.15, 0.35)})`; g.lineWidth = r.range(1, 3); g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(80, y + r.range(-10, 10), 170, y + r.range(-10, 10), 256, y); g.stroke(); }
@@ -2691,7 +2694,7 @@ const TEX = (() => {
     },
     // old red brick in Flemish bond, sooty and mortar-stained (the mill)
     brick() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#5a4d42'; g.fillRect(0, 0, 256, 256);
       for (let row = 0; row < 16; row++) for (let k = -1; k < 9; k++) {
         const x = k * 32 + (row % 2) * 16, y = row * 16, v = r.range(-22, 18) | 0;
@@ -2702,7 +2705,7 @@ const TEX = (() => {
     },
     // white composite cladding panels with seams and rivets, stained (the biolab)
     labPanel() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#c9cbc4'; g.fillRect(0, 0, 256, 256);
       for (let y = 0; y < 256; y += 64) for (let x = 0; x < 256; x += 128) { const v = r.range(-10, 8) | 0; g.fillStyle = `rgb(${200 + v},${202 + v},${196 + v})`; g.fillRect(x + 2, y + 2, 124, 60); }
       g.fillStyle = 'rgba(40,44,42,.6)'; for (let y = 0; y <= 256; y += 64) g.fillRect(0, y - 1, 256, 2); for (let x = 0; x <= 256; x += 128) g.fillRect(x - 1, 0, 2, 256);
@@ -2711,13 +2714,13 @@ const TEX = (() => {
     },
     // chain-link fence (alpha)
     fence() {
-      const [c, g] = C(64, 64);
+      const [c, g] = CQ(64, 64);
       g.clearRect(0, 0, 64, 64); g.strokeStyle = 'rgba(150,152,148,1)'; g.lineWidth = 2;
       for (let i = -64; i < 128; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 64, 64); g.stroke(); g.beginPath(); g.moveTo(i + 64, 0); g.lineTo(i, 64); g.stroke(); }
       const t = finish(c); return t;
     },
     rock() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#5d5b55'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 40, '30,30,28', 0.1, 0.35, 4, 25);
       blotches(g, 128, 128, 30, '120,118,105', 0.06, 0.2, 4, 20);
@@ -2727,14 +2730,14 @@ const TEX = (() => {
       return finish(c);
     },
     bark() {
-      const [c, g] = C(64, 128);
+      const [c, g] = CQ(64, 128);
       g.fillStyle = '#2e2924'; g.fillRect(0, 0, 64, 128);
       for (let i = 0; i < 26; i++) { const x = r.next() * 64; g.fillStyle = `rgba(${r.next() < 0.5 ? '10,8,6' : '80,72,62'},${r.range(0.2, 0.5)})`; g.fillRect(x, 0, r.range(1, 4), 128); }
       speckle(g, 64, 128, 25);
       return finish(c);
     },
     hull() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#8a8478'; g.fillRect(0, 0, 256, 256);
       g.fillStyle = '#a3542c'; g.fillRect(0, 150, 256, 70);
       blotches(g, 256, 256, 70, '60,50,40', 0.1, 0.45, 2, 14);
@@ -2748,7 +2751,7 @@ const TEX = (() => {
       return finish(c);
     },
     hazard() {
-      const [c, g] = C(128, 32);
+      const [c, g] = CQ(128, 32);
       g.fillStyle = '#d1a326'; g.fillRect(0, 0, 128, 32);
       g.fillStyle = '#151515';
       for (let x = -32; x < 160; x += 24) { g.beginPath(); g.moveTo(x, 32); g.lineTo(x + 12, 32); g.lineTo(x + 44, 0); g.lineTo(x + 32, 0); g.fill(); }
@@ -2762,7 +2765,7 @@ const TEX = (() => {
     doorPlate: () => doorSkin('plate'),
     doorFreezer: () => doorSkin('freezer'),
     bunker() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#6a675e'; g.fillRect(0, 0, 256, 256);
       for (let y = 0; y < 256; y += 32) { g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, y, 256, 2); }
       for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(0,0,0,.4)'; g.beginPath(); g.arc(r.next() * 256, r.next() * 256, 2, 0, TAU); g.fill(); }
@@ -2774,7 +2777,7 @@ const TEX = (() => {
       return finish(c);
     },
     locker() {
-      const [c, g] = C(64, 192);
+      const [c, g] = CQ(64, 192);
       g.fillStyle = '#4b5a63'; g.fillRect(0, 0, 64, 192);
       g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 186);
       for (let i = 0; i < 6; i++) { g.fillStyle = '#1a1f22'; g.fillRect(16, 18 + i * 6, 32, 3); }
@@ -2785,7 +2788,7 @@ const TEX = (() => {
       return finish(c);
     },
     vent() {
-      const [c, g] = C(64, 64);
+      const [c, g] = CQ(64, 64);
       g.fillStyle = '#4d5254'; g.fillRect(0, 0, 64, 64);
       for (let i = 0; i < 8; i++) { g.fillStyle = '#0b0b0b'; g.fillRect(6, 6 + i * 7, 52, 4); g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(6, 10 + i * 7, 52, 1); }
       g.strokeStyle = '#222'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 61, 61);
@@ -2793,7 +2796,7 @@ const TEX = (() => {
       return finish(c);
     },
     blood() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.clearRect(0, 0, 128, 128);
       const main = (x, y, rad, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(70,4,4,${a})`); gr.addColorStop(0.7, `rgba(55,3,3,${a * 0.8})`); gr.addColorStop(1, 'rgba(50,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill(); };
       main(64, 64, 34, 0.95);
@@ -2801,7 +2804,7 @@ const TEX = (() => {
       return finish(c, false, false);
     },
     smear() {
-      const [c, g] = C(256, 64);
+      const [c, g] = CQ(256, 64);
       g.clearRect(0, 0, 256, 64);
       for (let i = 0; i < 40; i++) {
         const y = 32 + r.range(-10, 10), x = r.range(0, 200), l = r.range(30, 120);
@@ -2812,7 +2815,7 @@ const TEX = (() => {
     },
     // a hanging vine: a wandering stem with leaves along it (transparent between), tiles top to bottom
     vine() {
-      const [c, g] = C(64, 256);
+      const [c, g] = CQ(64, 256);
       g.clearRect(0, 0, 64, 256);
       const xs = []; for (let y = 0; y <= 256; y += 4) xs.push(32 + Math.sin(y * 0.045) * 7 + Math.sin(y * 0.13 + 1) * 3);
       g.strokeStyle = '#2b3a1c'; g.lineWidth = 3; g.beginPath(); xs.forEach((x, i) => (i ? g.lineTo(x, i * 4) : g.moveTo(x, 0))); g.stroke();
@@ -2828,7 +2831,7 @@ const TEX = (() => {
     },
     // a patch of moss: soft dark-green blotches thinning out to nothing at the edge
     moss() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.clearRect(0, 0, 128, 128);
       for (let i = 0; i < 70; i++) {
         const a = r.range(0, TAU), d = Math.pow(r.next(), 0.7) * 46, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = r.range(5, 16);
@@ -2841,7 +2844,7 @@ const TEX = (() => {
     },
     // water that has come through the ceiling for years: dark runs from the top, a tide line of mould at the foot
     stain() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.clearRect(0, 0, 256, 256);
       { const gr = g.createLinearGradient(0, 0, 0, 70); gr.addColorStop(0, 'rgba(30,26,18,.55)'); gr.addColorStop(1, 'rgba(30,26,18,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 70); }
       for (let i = 0; i < 34; i++) {
@@ -2857,13 +2860,13 @@ const TEX = (() => {
         g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
       }
       // feather the sides so a stain never ends in a hard edge
-      const id = g.getImageData(0, 0, 256, 256), d = id.data;
-      for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) { const e = Math.min(x, 255 - x) / 40; if (e < 1) d[(y * 256 + x) * 4 + 3] *= e * e * (3 - 2 * e); }
+      const W = c.width, Hc = c.height, f = W / 256, id = g.getImageData(0, 0, W, Hc), d = id.data;
+      for (let y = 0; y < Hc; y++) for (let x = 0; x < W; x++) { const e = Math.min(x, W - 1 - x) / (40 * f); if (e < 1) d[(y * W + x) * 4 + 3] *= e * e * (3 - 2 * e); }
       g.putImageData(id, 0, 0);
       return finish(c, false, false);
     },
     flesh() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#a49d92'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 30, '120,80,80', 0.1, 0.35, 6, 25);
       blotches(g, 128, 128, 20, '60,50,50', 0.1, 0.3, 4, 18);
@@ -2873,7 +2876,7 @@ const TEX = (() => {
       return finish(c);
     },
     darkflesh() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#3a2a28'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 40, '90,40,35', 0.1, 0.4, 4, 20);
       blotches(g, 128, 128, 25, '10,8,8', 0.2, 0.5, 4, 14);
@@ -2882,7 +2885,7 @@ const TEX = (() => {
       return finish(c);
     },
     porcelain() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#d9d4c8'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 20, '150,140,120', 0.05, 0.2, 6, 30);
       cracks(g, 128, 128, 10, 'rgba(30,25,20,.7)');
@@ -2891,7 +2894,7 @@ const TEX = (() => {
       return finish(c);
     },
     painting() {
-      const [c, g] = C(128, 160);
+      const [c, g] = CQ(128, 160);
       const gr = g.createRadialGradient(64, 70, 10, 64, 80, 100); gr.addColorStop(0, '#3b2a20'); gr.addColorStop(1, '#0d0907'); g.fillStyle = gr; g.fillRect(0, 0, 128, 160);
       g.fillStyle = '#1a1210'; g.beginPath(); g.ellipse(64, 140, 46, 40, 0, 0, TAU); g.fill();
       const fg = g.createRadialGradient(64, 66, 4, 64, 70, 34); fg.addColorStop(0, '#c9b8a0'); fg.addColorStop(1, '#5a4636'); g.fillStyle = fg;
@@ -3077,7 +3080,7 @@ const TEX = (() => {
     // a cobweb strung across a corner: the lower-left half of the sheet (u, v from 0 to 1, u + v under 1), strands out
     // from a hub to its three edges and a ragged spiral round them, some of it torn
     cobweb() {
-      const [c, g] = C(256, 256), S = 256, hub = [S * 0.3, S * 0.7];
+      const [c, g] = CQ(256, 256), S = 256, hub = [S * 0.3, S * 0.7];
       g.clearRect(0, 0, S, S); g.lineCap = 'round'; g.strokeStyle = 'rgba(236,232,222,0.95)';
       const rim = [];
       for (let i = 0; i < 4; i++) rim.push([2, S * (0.08 + i * 0.22)]);
@@ -3102,7 +3105,7 @@ const TEX = (() => {
     },
     cookie() {
       // flashlight projection: hot centre, reflector ring, dim spill, a little lens grime
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#000'; g.fillRect(0, 0, 256, 256);
       const gr = g.createRadialGradient(128, 128, 0, 128, 128, 126);
       gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.16, '#f2eee6'); gr.addColorStop(0.27, '#a29e96'); gr.addColorStop(0.31, '#d6d2ca');
@@ -3112,7 +3115,7 @@ const TEX = (() => {
       const t = finish(c, false, false); return t;
     },
     corrugated() {
-      const [c, g] = C(256, 128);
+      const [c, g] = CQ(256, 128);
       for (let x = 0; x < 256; x++) { const v = 150 + Math.sin(x / 256 * TAU * 16) * 45; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, 0, 1, 128); }
       blotches(g, 256, 128, 40, '110,60,30', 0.15, 0.5, 4, 20);
       blotches(g, 256, 128, 20, '20,15,10', 0.1, 0.35, 4, 26);
@@ -3121,7 +3124,7 @@ const TEX = (() => {
       return finish(c);
     },
     dirtGlass() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#0a0d0e'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 20, '60,70,70', 0.1, 0.3, 6, 30);
       for (let i = 0; i < 6; i++) { g.strokeStyle = 'rgba(140,150,150,.25)'; g.beginPath(); const x = Math.random() * 128; g.moveTo(x, 0); g.lineTo(x + 30, 128); g.stroke(); }
@@ -3175,7 +3178,7 @@ const TEX = (() => {
     },
     // an oil stain on the deck (alpha), with drip spatter and a smear where a boot went through it
     oil() {
-      const [c, g] = C(256, 256), rr = new RNG(73);
+      const [c, g] = CQ(256, 256), rr = new RNG(73);
       g.clearRect(0, 0, 256, 256);
       const blob = (x, y, rad, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(14,11,8,${a})`); gr.addColorStop(0.7, `rgba(20,16,10,${a * 0.8})`); gr.addColorStop(1, 'rgba(20,16,10,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill(); };
       blob(128, 128, 70, 0.75);
@@ -3319,9 +3322,17 @@ const TEX = (() => {
   }
   const wearCache = {};
 
-  function sign(text, opts = {}) {
-    const w = opts.w || 256, h = opts.h || 64;
-    const [c, g] = C(w, h);
+  // a picture drawn at the resolution setting's tier: draw(context, w, h) works in w x h units whatever the tier, and is
+  // called again to redraw it when the setting changes (TEX.retier). o.wrap: tiled
+  function drawn(w, h, draw, o = {}) {
+    const paint = (q) => { const [c, g] = C(Math.round(w * q), Math.round(h * q)); g.scale(q, q); draw(g, w, h); return c; };
+    const q = tierQ(), t = new THREE.CanvasTexture(paint(q));
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; if (o.wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.userData.q = q; t.userData.paint = paint; live.add(new WeakRef(t));
+    return t;
+  }
+  function sign(text, opts = {}) { return drawn(opts.w || 256, opts.h || 64, (g, w, h) => signDraw(g, w, h, text, opts)); }
+  function signDraw(g, w, h, text, opts) {
     g.fillStyle = opts.bg || '#1b1b18'; g.fillRect(0, 0, w, h);
     if (opts.border !== false) { g.strokeStyle = opts.fg || '#c9c3b0'; g.lineWidth = 3; g.strokeRect(4, 4, w - 8, h - 8); }
     g.fillStyle = opts.fg || '#c9c3b0';
@@ -3330,7 +3341,6 @@ const TEX = (() => {
     const lines = String(text).split('\n');
     lines.forEach((l, i) => g.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * (opts.size || 26) * 1.1));
     if (opts.dirty !== false) { blotches(g, w, h, 12, '30,25,20', 0.1, 0.4, 4, 20); speckle(g, w, h, 18); }
-    return finish(c, false, false);
   }
 
   return {
@@ -3344,7 +3354,7 @@ const TEX = (() => {
     normal(name, strength = 2) {
       const k = name + '#N' + strength;
       if (cache[k]) return cache[k];
-      return (cache[k] = reliefOf(this.get(name), tiered.has(name) ? strength * this.get(name).userData.q / 2 : strength));
+      return (cache[k] = reliefOf(this.get(name), tiered.has(name) ? strength * reliefQ(name, this.get(name).userData.q) : strength));
     },
     // the resolution setting changed: redraw the surfaces drawn to it (a moment after the last change, so stepping
     // through the settings doesn't redraw them at every one), and have everything showing them load them afresh
@@ -3356,13 +3366,18 @@ const TEX = (() => {
           const t = cache[name]; if (!t || t.userData.q === q) continue;
           building = name; Q = q; let fresh; try { fresh = build[name](); } finally { building = null; }
           t.image = fresh.image; t.userData.q = q; t.needsUpdate = true; done.add(t.source);
-          for (const k in cache) if (k.startsWith(name + '#N')) { const r = reliefOf(t, +k.slice(name.length + 2) * q / 2); cache[k].image = r.image; cache[k].needsUpdate = true; done.add(cache[k].source); }
+          for (const k in cache) if (k.startsWith(name + '#N')) { const r = reliefOf(t, +k.slice(name.length + 2) * reliefQ(name, q)); cache[k].image = r.image; cache[k].needsUpdate = true; done.add(cache[k].source); }
         }
+        // (and every picture drawn elsewhere to the tier: signs, labels, papers, item faces; dropped ones forgotten)
+        for (const ref of live) { const t = ref.deref(); if (!t) { live.delete(ref); continue; } if (t.userData.q === q) continue; t.image = t.userData.paint(q); t.userData.q = q; t.needsUpdate = true; done.add(t.source); }
         // (copies tiled differently share the picture but load it on their own)
         if (scene && done.size) scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const s of ['map', 'normalMap', 'bumpMap']) if (m[s] && done.has(m[s].source)) m[s].needsUpdate = true; });
       }, 600);
     },
     sign,
+    drawn,
+    // (the tier now: how many pixels a texture's drawing unit gets)
+    tier: tierQ,
     canvas: C,
     wear(kind) { return wearCache[kind] || (wearCache[kind] = wearSheet(kind)); },
   };
@@ -3692,11 +3707,12 @@ const ItemMeshes = (() => {
   // a lathe from (radius, height) pairs
   const lathe = (pts, seg = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
   // a drawn texture, made once (key), drawn by draw(context, width, height)
-  const tx = (key, w, h, draw) => mc['tx:' + key] || (mc['tx:' + key] = (() => { const [cv, x] = TEX.canvas(w, h); draw(x, w, h); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; })());
+  // (drawn to the resolution setting's tier, and again if it changes: TEX.drawn)
+  const tx = (key, w, h, draw) => mc['tx:' + key] || (mc['tx:' + key] = TEX.drawn(w, h, (x) => draw(x, w, h)));
   const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
   // a green radar face: range rings, crosshairs, the sweep and a couple of blips
   function radarTex() {
-    const [cv, x] = TEX.canvas(128, 128);
+    return TEX.drawn(128, 128, (x) => {
     x.fillStyle = '#031006'; x.fillRect(0, 0, 128, 128);
     const gr = x.createConicGradient ? x.createConicGradient(-0.6, 64, 64) : null;
     if (gr) { gr.addColorStop(0, 'rgba(60,255,120,.55)'); gr.addColorStop(0.18, 'rgba(60,255,120,0)'); gr.addColorStop(1, 'rgba(60,255,120,0)'); x.fillStyle = gr; x.beginPath(); x.arc(64, 64, 60, 0, TAU); x.fill(); }
@@ -3704,7 +3720,7 @@ const ItemMeshes = (() => {
     for (const r of [20, 40, 60]) { x.beginPath(); x.arc(64, 64, r, 0, TAU); x.stroke(); }
     x.beginPath(); x.moveTo(4, 64); x.lineTo(124, 64); x.moveTo(64, 4); x.lineTo(64, 124); x.stroke();
     x.fillStyle = '#b8ffcc'; for (const [a, b] of [[88, 40], [42, 90]]) { x.beginPath(); x.arc(a, b, 4, 0, TAU); x.fill(); }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+    });
   }
   // a torch pointing down -Z: knurled grip, tail cap, flared head, polished reflector, lens
   function torch(g, r, rh, len, headMat, bodyMat) {
@@ -4043,12 +4059,12 @@ const ItemMeshes = (() => {
     // a faded red parcel: patterned paper gone dull and grubby, a gold ribbon both ways round and a bow on top
     gift(g) {
       const paper = mc.gift || (mc.gift = (() => {
-        const [cv, x] = TEX.canvas(128, 128), r = new RNG(31);
+        const t = TEX.drawn(128, 128, (x) => { const r = new RNG(31);
         x.fillStyle = '#6e1a19'; x.fillRect(0, 0, 128, 128);
         x.fillStyle = 'rgba(226,192,110,.32)';
         for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) if ((i + j) % 2 === 0) { x.save(); x.translate(i * 12.8 + 6, j * 12.8 + 6); x.rotate(Math.PI / 4); x.fillRect(-2.6, -2.6, 5.2, 5.2); x.restore(); }
         for (let k = 0; k < 34; k++) { x.fillStyle = `rgba(36,18,10,${r.range(0.03, 0.14)})`; x.fillRect(r.next() * 128, r.next() * 128, r.range(8, 36), r.range(3, 12)); }
-        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+        });
         return new THREE.MeshStandardMaterial({ map: t, roughness: 0.78 });
       })());
       const rib = M('ribbon', { color: 0xc49a34, roughness: 0.38, metalness: 0.45 });
@@ -4350,7 +4366,7 @@ const itemLook = (type, id) => (type === 'painting' ? type + ':' + ((id | 0) % P
 // The paintings left on the walls. Six you'd rather not have looked at, three that are almost a relief.
 const PAINTINGS = 9;
 function paintTex(v) {
-  const W = 256, H = 326, [cv, x] = TEX.canvas(W, H), r = new RNG(101 + v * 17);
+  return TEX.drawn(256, 326, (x) => { const W = 256, H = 326, r = new RNG(101 + v * 17);
   const lin = (x0, y0, x1, y1, stops) => { const gr = x.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, c]) => gr.addColorStop(o, c)); return gr; };
   const rad = (cx, cy, r1, stops) => { const gr = x.createRadialGradient(cx, cy, 0, cx, cy, r1); stops.forEach(([o, c]) => gr.addColorStop(o, c)); return gr; };
   const ell = (cx, cy, rx, ry, fill, rot = 0) => { x.fillStyle = fill; x.beginPath(); x.ellipse(cx, cy, rx, ry, rot, 0, TAU); x.fill(); };
@@ -4465,7 +4481,7 @@ function paintTex(v) {
   x.strokeStyle = 'rgba(20,14,8,.32)'; x.lineWidth = 0.7;
   for (let i = 0; i < 90; i++) { let px = r.range(0, W), py = r.range(0, H); x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 4; k++) { px += r.range(-9, 9); py += r.range(-9, 9); x.lineTo(px, py); } x.stroke(); }
   for (let i = 0; i < 300; i++) { x.fillStyle = `rgba(${r.chance(0.5) ? '230,220,200' : '10,8,6'},${r.range(0.05, 0.2)})`; x.fillRect(r.range(0, W), r.range(0, H), 1, 1); }
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  });
 }
 
 // How items sit in the first-person hand (position relative to camera, rotation) and on avatars.
@@ -8517,7 +8533,11 @@ const Exterior = (() => {
     }
     // dry grass and weeds (wind-swayed) plus pebbles, kept in a ring around the camera and refilled as it moves
     buildGroundCover(grp) {
-      const [c, g] = TEX.canvas(128, 128), rr = new RNG(this.seed + 8), kind = this.biome.grass.kind;
+      const kind = this.biome.grass.kind, seed = this.seed;
+      // (one sheet drawn to the resolution setting's tier, and again if it changes: the grass on its left half, the plant
+      // among it on the right, each kept to its own half)
+      const tex = TEX.drawn(256, 128, (A) => {
+      const g = A, rr = new RNG(seed + 8); A.save(); A.beginPath(); A.rect(0, 0, 128, 128); A.clip();
       g.clearRect(0, 0, 128, 128);
       const blade = (x0, h, bend, w, col) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x0, 128); g.quadraticCurveTo(x0 + bend * 0.3, 128 - h * 0.6, x0 + bend, 128 - h); g.stroke(); };
       if (kind === 'reeds') {
@@ -8566,7 +8586,8 @@ const Exterior = (() => {
       // ...and a second plant growing among it, about one tuft in four, drawn on the other half of the same sheet: grain
       // heads and pale wildflowers on the dry worlds, purple spikes among the reeds, thistles in the scrub, broad leaves
       // among the ferns, seed heads rimed white, white heather, curled black fronds in the ash
-      const [c2, g2] = TEX.canvas(128, 128), r2 = new RNG(this.seed + 9); g2.clearRect(0, 0, 128, 128);
+      A.restore(); A.save(); A.beginPath(); A.rect(128, 0, 128, 128); A.clip(); A.translate(128, 0);
+      const g2 = A, r2 = new RNG(seed + 9); g2.clearRect(0, 0, 128, 128);
       const stem = (x0, h, bend, w, col) => { g2.strokeStyle = col; g2.lineWidth = w; g2.beginPath(); g2.moveTo(x0, 126); g2.quadraticCurveTo(x0 + bend * 0.3, 126 - h * 0.6, x0 + bend, 126 - h); g2.stroke(); };
       const dot = (x, y, r, col) => { g2.fillStyle = col; g2.beginPath(); g2.arc(x, y, r, 0, TAU); g2.fill(); };
       const ACC = { dry: ['seed', 'umbel'], reeds: ['spike'], scrub: ['thistle'], fern: ['leaf'], frost: ['seed'], heather: ['spike'], ash: ['curl'] }[kind] || ['seed'];
@@ -8582,9 +8603,8 @@ const Exterior = (() => {
         else if (t === 'thistle') { dot(tx, ty + 4, 5, `rgb(${70 + v},${80 + v},${54 + v})`); for (let k = 0; k < 9; k++) { g2.strokeStyle = col; g2.lineWidth = 1.4; g2.beginPath(); g2.moveTo(tx, ty + 2); g2.lineTo(tx + (k - 4) * 1.6, ty - 8); g2.stroke(); } }
         else if (t === 'curl') { g2.strokeStyle = col; g2.lineWidth = 2; g2.beginPath(); g2.arc(tx + 4, ty + 4, 5, Math.PI, TAU * 0.95); g2.stroke(); }
       }
-      const atlas = document.createElement('canvas'); atlas.width = 256; atlas.height = 128;
-      { const ag = atlas.getContext('2d'); ag.drawImage(c, 0, 0); ag.drawImage(c2, 128, 0); }
-      const tex = new THREE.CanvasTexture(atlas); tex.colorSpace = THREE.SRGBColorSpace;
+      A.restore();
+      });
       // three crossed cards; every normal points up so the tuft is lit like the ground it grows from
       const cards = [];
       for (let k = 0; k < 3; k++) { const p = new THREE.PlaneGeometry(0.6, 0.5); p.translate(0, 0.25, 0); p.rotateY(k * Math.PI / 3); cards.push({ geo: p, matrix: new THREE.Matrix4() }); }
@@ -8615,7 +8635,7 @@ const Exterior = (() => {
       {
         const LK = { dry: [0.5, 0.06], heather: [0.35, 0.04], fern: [0.45, 0.06], reeds: [0.25, 0], scrub: [0.3, 0.05], ash: [0.35, 0.05], frost: [0.3, 0.03] }[kind] || [0, 0];
         this.litterDens = LK;
-        const [lc, lg] = TEX.canvas(128, 128), lr = new RNG(this.seed + 17); lg.clearRect(0, 0, 128, 128);
+        const ltex = TEX.drawn(128, 128, (lg) => { const lr = new RNG(this.seed + 17); lg.clearRect(0, 0, 128, 128);
         const P = (a) => a[lr.int(0, a.length - 1)];
         const leaf = (x, y, l, w, a, col) => { lg.save(); lg.translate(x, y); lg.rotate(a); lg.fillStyle = col; lg.beginPath(); lg.ellipse(0, 0, l, w, 0, 0, TAU); lg.fill(); lg.strokeStyle = 'rgba(30,20,10,.55)'; lg.lineWidth = 0.8; lg.beginPath(); lg.moveTo(-l * 1.3, 0); lg.lineTo(l * 0.9, 0); lg.stroke(); lg.restore(); };
         const stick = (x, y, l, a, w, col) => { lg.strokeStyle = col; lg.lineWidth = w; lg.lineCap = 'round'; lg.beginPath(); lg.moveTo(x, y); lg.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); lg.stroke(); };
@@ -8629,7 +8649,7 @@ const Exterior = (() => {
           else if (kind === 'ash') chip(x, y, lr.range(2, 5), P(['#3a3836', '#24221f', '#5a5652', '#141210']));
           else if (kind === 'frost') leaf(x, y, lr.range(5, 8), lr.range(2.5, 4), lr.range(0, TAU), P(['#b8c0c4', '#8a8478', '#d8e0e4']));
         }
-        const ltex = new THREE.CanvasTexture(lc); ltex.colorSpace = THREE.SRGBColorSpace;
+        });
         const lgeo = new THREE.PlaneGeometry(0.8, 0.8); lgeo.rotateX(-Math.PI / 2);
         const lmat = new THREE.MeshLambertMaterial({ map: ltex, alphaTest: 0.5, side: THREE.DoubleSide });
         this.litter = new THREE.InstancedMesh(lgeo, lmat, 1600); this.litter.count = 0;
@@ -8749,7 +8769,7 @@ const Exterior = (() => {
         fern: [34, '#3a4a2a', ['#3a6a2e', '#2e5a26'], null, 0], frost: [18, '#5a5a60', ['#9aa0a8'], '#e8eef4', 0.25], heather: [28, '#3a3428', ['#2e3a24', '#3a4630'], '#9a8a3a', 0.06], ash: [20, '#1a1816', ['#2a2624'], null, 0] }[kind];
       if (!BK) return;
       const [nClump, stemCol, leafCols, accCol, accK] = BK, r = new RNG(this.seed + 4242);
-      const [c, g] = TEX.canvas(128, 128); g.clearRect(0, 0, 128, 128);
+      const tex = TEX.drawn(128, 128, (g) => { g.clearRect(0, 0, 128, 128);
       // (the bush: branches fanning up from the root, crowded with leaf clusters, a few berries, flowers or frost tips)
       for (let b = 0; b < 11; b++) {
         const a = r.range(-1.25, 1.25), l = r.range(56, 112), ex = 64 + Math.sin(a) * l * 0.55, ey = 126 - Math.cos(a * 0.8) * l;
@@ -8764,7 +8784,7 @@ const Exterior = (() => {
           if (accCol && r.chance(accK)) { g.fillStyle = accCol; g.beginPath(); g.arc(x + r.range(-2, 2), y - 2, kind === 'frost' ? 2.6 : 1.8, 0, TAU); g.fill(); }
         }
       }
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      });
       const cards = []; for (let k = 0; k < 3; k++) { const p = new THREE.PlaneGeometry(1.6, 1.4); p.translate(0, 0.66, 0); p.rotateY(k * Math.PI / 3); cards.push({ geo: p, matrix: new THREE.Matrix4() }); }
       const geo = mergeGeoList(cards), gn = geo.attributes.normal; for (let i = 0; i < gn.count; i++) gn.setXYZ(i, 0, 1, 0);
       const m = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
@@ -10901,12 +10921,14 @@ const Ship = (() => {
       const leafM = MATS.rep('painted', 0.6, 0.6, 0x8d8a80), hw = iw / 2;
       this.idoorLeaves = [-1, 1].map((s) => {
         const g = new THREE.Group(); g.position.set(cx + s * hw / 2, 0, A.z0 - 0.14); this.group.add(g);
-        const sh = new THREE.Shape(), a = -hw / 2, b = hw / 2, r = 0.19, h = A.ih - 0.01;
+        // (drawn inset by the bevel, so the halves meet exactly at the middle instead of overlapping there, and reaching
+        // past the opening into the frame at the sides and top, so no line of the lit chamber shows round a shut door)
+        const sh = new THREE.Shape(), e = 0.008, r = 0.19, h = A.ih + 0.03, top = h - e, inner = -s * (hw / 2 - e), outer = s * (hw / 2 + 0.04 - e);
         // only the outer top corner is rounded, so the two halves together make the arch
-        if (s < 0) { sh.moveTo(a, 0); sh.lineTo(b, 0); sh.lineTo(b, h); sh.lineTo(a + r, h); sh.quadraticCurveTo(a, h, a, h - r); sh.closePath(); }
-        else { sh.moveTo(a, 0); sh.lineTo(b, 0); sh.lineTo(b, h - r); sh.quadraticCurveTo(b, h, b - r, h); sh.lineTo(a, h); sh.closePath(); }
-        const geo = ext(sh, 0.045, 0.008); geo.translate(0, 0, -0.022); meshAt(geo, leafM, 0, 0, 0, 0, g);
-        const seal = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.02, 0.06), MATS.get('rubber')); seal.position.set(-s * (hw / 2 - 0.01), h / 2, 0); g.add(seal);
+        sh.moveTo(inner, e); sh.lineTo(outer, e); sh.lineTo(outer, top - r); sh.quadraticCurveTo(outer, top, outer - s * r, top); sh.lineTo(inner, top); sh.closePath();
+        const geo = ext(sh, 0.045, e); geo.translate(0, 0, -0.022); meshAt(geo, leafM, 0, 0, 0, 0, g);
+        // (the seal stands proud of both faces, so it never flickers through the door where the halves meet)
+        const seal = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.03, 0.075), MATS.get('rubber')); seal.position.set(-s * (hw / 2 - 0.01), (h - 0.03) / 2 + 0.005, 0); g.add(seal);
         const band = new THREE.Mesh(new THREE.BoxGeometry(hw - 0.06, 0.08, 0.078), MATS.get('hazard')); band.position.set(0, 0.15, 0); g.add(band);
         const hd = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.34, 0.03), dm); hd.position.set(-s * (hw / 2 - 0.09), 1.05, -0.045); g.add(hd);
         if (s < 0) { const pane = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.012), this.glassMat); pane.position.set(0, 1.62, -0.03); g.add(pane); }
@@ -10960,7 +10982,7 @@ const Ship = (() => {
     // ---------- blast shutters: armoured slat curtains that roll down outside every window for the burning parts of
     // a flight (into the air and out of it), each from a roller housing along the top of its opening ----------
     buildShutters() {
-      const [cv, g] = TEX.canvas(128, 256);
+      const tex = TEX.drawn(128, 256, (g) => {
       // four slats per tile: each a pressed steel strip, lit along its top lip, grimy in the groove below
       for (let i = 0; i < 4; i++) {
         const y = i * 64, gr = g.createLinearGradient(0, y, 0, y + 64);
@@ -10970,8 +10992,8 @@ const Ship = (() => {
         for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(200,205,205,.12)'; g.fillRect(Math.random() * 128, y + 10 + Math.random() * 40, 6 + Math.random() * 30, 1); }
         for (const x of [8, 120]) { g.fillStyle = 'rgba(20,20,20,.7)'; g.fillRect(x - 3, y + 30, 6, 6); g.fillStyle = 'rgba(190,190,185,.35)'; g.fillRect(x - 3, y + 30, 5, 2); }
       }
-      const tex = new THREE.CanvasTexture(cv); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-      const bump = new THREE.CanvasTexture(cv); bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
+      }, { wrap: true });
+      const bump = tex.clone(); bump.colorSpace = THREE.NoColorSpace;
       this.shutterMat = new THREE.MeshStandardMaterial({ map: tex, bumpMap: bump, bumpScale: 2.5, metalness: 0.55, roughness: 0.6, side: THREE.DoubleSide });
       const railMat = MATS.get('darkmetal'), TILE = 0.44, up = V(0, 1, 0);
       this.rollers = []; this.shut = { t: 0, target: 0 };
@@ -11039,19 +11061,19 @@ const Ship = (() => {
       const S = (o) => new THREE.MeshStandardMaterial(o), B = (r, g, b) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) });
       const L = (r, g, b) => new THREE.MeshStandardMaterial({ color: new THREE.Color(r * 0.25, g * 0.25, b * 0.25), emissive: new THREE.Color(r, g, b), emissiveIntensity: 0.42, roughness: 0.3 });
       // a dial face for the analog gauges
-      const [gc, gg] = TEX.canvas(128, 128);
+      const gaugeTex = TEX.drawn(128, 128, (gg) => {
       gg.fillStyle = '#d9d2bd'; gg.beginPath(); gg.arc(64, 64, 62, 0, TAU); gg.fill();
       gg.fillStyle = '#141414'; gg.beginPath(); gg.arc(64, 64, 56, 0, TAU); gg.fill();
       gg.strokeStyle = '#b02a1a'; gg.lineWidth = 7; gg.beginPath(); gg.arc(64, 64, 46, -0.35, 0.75); gg.stroke();
       gg.strokeStyle = '#e8e2d0'; gg.lineWidth = 2;
       for (let i = 0; i <= 20; i++) { const a = -Math.PI * 1.25 + (i / 20) * Math.PI * 1.5, r0 = i % 5 ? 44 : 38; gg.beginPath(); gg.moveTo(64 + Math.cos(a) * r0, 64 + Math.sin(a) * r0); gg.lineTo(64 + Math.cos(a) * 52, 64 + Math.sin(a) * 52); gg.stroke(); }
       gg.fillStyle = '#e8e2d0'; gg.font = '13px "Share Tech Mono", monospace'; gg.textAlign = 'center'; gg.fillText('PSI x100', 64, 96);
-      const gaugeTex = new THREE.CanvasTexture(gc); gaugeTex.colorSpace = THREE.SRGBColorSpace;
+      });
       // cargo netting (alpha-tested)
-      const [nc, ng] = TEX.canvas(128, 128);
+      const netTex = TEX.drawn(128, 128, (ng) => {
       ng.clearRect(0, 0, 128, 128); ng.strokeStyle = '#5b5a44'; ng.lineWidth = 5;
       for (let i = -128; i < 256; i += 32) { ng.beginPath(); ng.moveTo(i, 0); ng.lineTo(i + 128, 128); ng.stroke(); ng.beginPath(); ng.moveTo(i + 128, 0); ng.lineTo(i, 128); ng.stroke(); }
-      const netTex = new THREE.CanvasTexture(nc); netTex.colorSpace = THREE.SRGBColorSpace; netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping; netTex.repeat.set(5, 3.5);
+      }, { wrap: true }); netTex.repeat.set(5, 3.5);
       this.cm = {
         red: S({ color: 0x8c2a20, roughness: 0.42, metalness: 0.25 }),
         white: S({ color: 0xc2bcae, roughness: 0.55 }),
@@ -11076,7 +11098,7 @@ const Ship = (() => {
       };
       // the crew's paperwork: typed memos (a header, lines of type, a stamp, folded, a coffee ring), and playing cards
       const paper = (seed, head, stamp) => {
-        const [c, g] = TEX.canvas(256, 352), r = new RNG(seed), f = '"Share Tech Mono", monospace';
+        const t = TEX.drawn(256, 352, (g) => { const r = new RNG(seed), f = '"Share Tech Mono", monospace';
         g.fillStyle = '#e4ddca'; g.fillRect(0, 0, 256, 352);
         g.fillStyle = '#2a2622'; g.font = `bold 19px ${f}`; g.fillText(head, 20, 38); g.fillRect(20, 48, 216, 2);
         g.font = `11px ${f}`; g.fillText('MERCY SALVAGE CO.  FORM ' + (100 + (seed % 800)), 20, 64);
@@ -11086,13 +11108,13 @@ const Ship = (() => {
         g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, 117, 256, 2); g.fillRect(0, 234, 256, 2);
         g.strokeStyle = 'rgba(90,60,30,.28)'; g.lineWidth = 5; g.beginPath(); g.arc(r.range(50, 200), r.range(90, 300), 28, 0, TAU * 0.85); g.stroke();
         for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(60,50,35,${r.range(0.02, 0.08)})`; g.fillRect(r.range(0, 256), r.range(0, 352), r.range(4, 30), r.range(2, 16)); }
-        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+        });
         return S({ map: t, roughness: 0.95, side: THREE.DoubleSide });
       };
       this.cm.memoA = paper(11, 'CARGO MANIFEST', 'CHECKED'); this.cm.memoB = paper(23, 'NIGHT SHIFT ROTA', 'POSTED'); this.cm.memoC = paper(37, 'QUOTA NOTICE', 'FINAL');
-      { const [c, g] = TEX.canvas(64, 92); g.fillStyle = '#ece6d6'; g.fillRect(0, 0, 64, 92); g.strokeStyle = '#8a8270'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 86);
+      { const t = TEX.drawn(64, 92, (g) => { g.fillStyle = '#ece6d6'; g.fillRect(0, 0, 64, 92); g.strokeStyle = '#8a8270'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 86);
         g.fillStyle = '#a31c14'; g.font = 'bold 16px serif'; g.fillText('7', 8, 20); g.font = '34px serif'; g.textAlign = 'center'; g.fillText('\u2665', 32, 58);
-        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; this.cm.card = S({ map: t, roughness: 0.7, side: THREE.DoubleSide }); }
+        }); this.cm.card = S({ map: t, roughness: 0.7, side: THREE.DoubleSide }); }
       // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
       // rubbed bright (see MATS.wear)
       for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) (this.cm[n].roughness = Math.max(this.cm[n].roughness, 0.58)), MATS.wear(this.cm[n], { kind: 'paint', k: [0.66, 0.48, 0.002, 0.4], bare: 0x6a6e70, edge: 0.022 });
@@ -11351,11 +11373,11 @@ const Ship = (() => {
         const [cv, cg] = TEX.canvas(128, 48), ctex = new THREE.CanvasTexture(cv); ctex.colorSpace = THREE.SRGBColorSpace; ctex.magFilter = THREE.NearestFilter;
         const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.09), new THREE.MeshBasicMaterial({ map: ctex })); scr.position.set(cx - 0.06, cy + 0.13, zf + 0.0112); this.group.add(scr);
         {
-          const [wc, wg] = TEX.canvas(64, 58);
+          const wt = TEX.drawn(64, 58, (wg) => {
           wg.fillStyle = '#e8b018'; wg.strokeStyle = '#141414'; wg.lineWidth = 5; wg.lineJoin = 'round';
           wg.beginPath(); wg.moveTo(32, 5); wg.lineTo(60, 53); wg.lineTo(4, 53); wg.closePath(); wg.fill(); wg.stroke();
           wg.fillStyle = '#141414'; wg.beginPath(); wg.moveTo(36, 16); wg.lineTo(24, 36); wg.lineTo(31, 36); wg.lineTo(27, 49); wg.lineTo(40, 29); wg.lineTo(33, 29); wg.lineTo(37, 16); wg.closePath(); wg.fill();
-          const wt = new THREE.CanvasTexture(wc); wt.colorSpace = THREE.SRGBColorSpace;
+          });
           const w = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.09), new THREE.MeshStandardMaterial({ map: wt, transparent: true, alphaTest: 0.5, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }));
           w.position.set(cx + 0.14, cy + 0.13, zf + 0.002); this.group.add(w);
         }
@@ -11661,7 +11683,7 @@ const Ship = (() => {
       // cobwebs up in the corners, under the pipes where no broom reaches: grey with dust, catching the light (the bay's
       // back corners and the bulkhead's, and up in the airlock)
       {
-        const [c, g] = TEX.canvas(256, 256), r = new RNG(4127), hx = 124, hy = 96;
+        const tex = TEX.drawn(256, 256, (g) => { const r = new RNG(4127), hx = 124, hy = 96;
         g.strokeStyle = 'rgba(240,236,228,0.85)'; g.lineWidth = 1.2; g.lineCap = 'round';
         // (the spokes out to the walls and the top; the bottom edge hangs free, a looser frame thread across it)
         const sp = [];
@@ -11678,7 +11700,7 @@ const Ship = (() => {
         for (let i = 0; i < 6; i++) { const x = r.range(40, 216), y = r.range(120, 190), l = r.range(18, 50); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + r.range(-8, 8), y + l * 0.6, x + r.range(-4, 4), y + l); g.stroke(); }
         g.fillStyle = 'rgba(220,214,204,0.55)';
         for (let i = 0; i < 160; i++) { const [a, k] = sp[r.int(0, sp.length - 1)], d = r.range(4, k); g.fillRect(hx + Math.cos(a) * d - 0.8, hy + Math.sin(a) * d - 0.8, r.range(1, 2.4), r.range(1, 2.4)); }
-        const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+        });
         const wm = new THREE.MeshStandardMaterial({ map: tex, color: 0xd6d1c8, roughness: 1, transparent: true, depthWrite: false, side: THREE.DoubleSide });
         // (a sheet across the corner from (ax, az) on one wall to (bx, bz) on the other, y0 up to y1)
         const web = (ax, az, bx, bz, y0, y1, flip) => {
@@ -11755,8 +11777,8 @@ const Ship = (() => {
       }
       // the Company's posters
       const poster = (title, sub, x, y, z, ry, w, h, bg, fg, mark) => {
-        const [cv, g] = TEX.canvas(256, Math.round(256 * h / w));
-        const H2 = cv.height; g.fillStyle = bg; g.fillRect(0, 0, 256, H2);
+        const H2 = Math.round(256 * h / w), t = TEX.drawn(256, H2, (g) => {
+        g.fillStyle = bg; g.fillRect(0, 0, 256, H2);
         g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(10, 10, 236, H2 - 20);
         if (mark) mark(g, H2);
         g.fillStyle = fg; g.textAlign = 'center'; g.font = 'bold 34px "Share Tech Mono", monospace';
@@ -11768,7 +11790,7 @@ const Ship = (() => {
         g.fillStyle = 'rgba(255,250,235,.12)'; g.fillRect(0, H2 / 2 - 1, 256, 2); g.fillRect(127, 0, 2, H2); g.fillStyle = 'rgba(0,0,0,.14)'; g.fillRect(0, H2 / 2 + 1, 256, 2); g.fillRect(129, 0, 2, H2);
         g.fillStyle = 'rgba(30,24,18,.9)'; for (let i = 0; i < 7; i++) { const e = i % 4, t = Math.random(), x = e === 0 ? t * 256 : e === 1 ? 256 : e === 2 ? t * 256 : 0, y = e === 0 ? 0 : e === 1 ? t * H2 : e === 2 ? H2 : t * H2; g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.lineTo(x + (Math.random() - 0.5) * 6, y + (e === 2 ? -1 : 1) * 9); g.fill(); }
         g.fillStyle = 'rgba(200,170,90,.45)'; g.fillRect(4, H2 - 30, 34, 14);
-        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+        });
         const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1 }));
         m.position.set(x, y, z); m.rotation.y = ry; this.group.add(m);
         for (const [a, b] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) { const p = V(a * (w / 2 - 0.03), b * (h / 2 - 0.03), 0.004).applyAxisAngle(V(0, 1, 0), ry).add(V(x, y, z)); this.ps('red', 0.008, p.x, p.y, p.z, 1, 1, 1, 6); }
@@ -11811,6 +11833,9 @@ const Ship = (() => {
     charging() { if (this.chg) this.chg.t = 0; }
     // the clock's face: hours and minutes from minutes past midnight
     drawClock(m) {
+      // (the face drawn at the resolution setting's tier: a fresh canvas when the setting has changed)
+      const q = TEX.tier();
+      if (this.clock.q !== q) { const [cv, g2] = TEX.canvas(256 * q, 256 * q); g2.scale(q, q); this.clock.g = g2; this.clock.cv = cv; this.clock.q = q; this.clock.tex.image = cv; }
       const { g, tex } = this.clock, c = 128;
       g.fillStyle = '#e4dcc4'; g.fillRect(0, 0, 256, 256);
       const gr = g.createRadialGradient(c, c, 60, c, c, 130); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(80,60,30,.35)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
@@ -11893,7 +11918,7 @@ const Ship = (() => {
       this.pb('vent', 0.006, 0.3, 0.8, 4.213, 0.32, -2.3); this.pb('vent', 0.006, 0.25, 0.8, 4.213, 2.0, -2.3); this.pb('hardware', 0.03, 0.4, 0.025, 4.225, 1.3, -1.86);
       this.col(3.7, 4.25, -2.82, -1.78);
       {
-        const [cc, cg] = TEX.canvas(256, 192);
+        const tx = TEX.drawn(256, 192, (cg) => {
         cg.fillStyle = '#d8cfb4'; cg.fillRect(0, 0, 256, 192);
         cg.strokeStyle = 'rgba(60,80,90,.25)'; cg.lineWidth = 1; for (let i = 0; i < 256; i += 16) { cg.beginPath(); cg.moveTo(i, 0); cg.lineTo(i, 192); cg.stroke(); } for (let i = 0; i < 192; i += 16) { cg.beginPath(); cg.moveTo(0, i); cg.lineTo(256, i); cg.stroke(); }
         cg.fillStyle = '#2a2620'; cg.font = 'bold 13px monospace'; cg.fillText('MERCY SALVAGE CO. - ROUTE CHART', 10, 16);
@@ -11901,7 +11926,7 @@ const Ship = (() => {
         cg.setLineDash([4, 4]); cg.strokeStyle = '#8a2a1a'; cg.lineWidth = 1.5; cg.beginPath(); P.forEach(([x, y], i) => (i ? cg.lineTo(x, y) : cg.moveTo(x, y))); cg.stroke(); cg.setLineDash([]);
         for (const [x, y, n] of P) { cg.fillStyle = '#4a5a60'; cg.beginPath(); cg.arc(x, y, 9, 0, TAU); cg.fill(); cg.fillStyle = '#2a2620'; cg.font = '10px monospace'; cg.fillText(n, x - 20, y + 22); }
         cg.strokeStyle = '#b02010'; cg.lineWidth = 2; cg.beginPath(); cg.moveTo(84, 144); cg.lineTo(96, 156); cg.moveTo(96, 144); cg.lineTo(84, 156); cg.stroke();
-        const tx = new THREE.CanvasTexture(cc); tx.colorSpace = THREE.SRGBColorSpace;
+        });
         const chart = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.75), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.9 }));
         chart.position.set(3.712, 1.8, 2.25); chart.rotation.y = Math.PI / 2; this.group.add(chart);
         this.pb(D, 0.02, 0.79, 0.03, 3.715, 1.8, 1.735); this.pb(D, 0.02, 0.79, 0.03, 3.715, 1.8, 2.765);
@@ -13788,7 +13813,7 @@ const Ship = (() => {
       if (this.clock) {
         const sm = this.clockMinutes ? this.clockMinutes() : null, d = new Date();
         const m = sm == null ? d.getHours() * 60 + d.getMinutes() : Math.floor(sm);
-        if (m !== this.clock.min) { this.clock.min = m; this.drawClock(m); }
+        if (m !== this.clock.min || this.clock.q !== TEX.tier()) { this.clock.min = m; this.drawClock(m); }
       }
       const tgt = this.door.open ? 1 : 0;
       this.door.t = damp(this.door.t, tgt, 3.2, dt);
@@ -14023,10 +14048,10 @@ class Avatar {
     // two-handed loads ride in front of the chest
     this.carry = new THREE.Group(); this.torso.add(this.carry);
     // name tag
-    const [c, g] = TEX.canvas(256, 48);
+    const tex = TEX.drawn(256, 48, (g) => {
     g.font = '30px "VT323", monospace'; g.textAlign = 'center'; g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 4, 256, 40);
     g.fillStyle = '#ffd29a'; g.fillText(String(name).slice(0, 16).toUpperCase(), 128, 34);
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    });
     this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
     this.tag.scale.set(1.2, 0.225, 1); this.tag.position.y = 2.0; this.root.add(this.tag);
     // animation state
@@ -17032,7 +17057,7 @@ const Pods = (() => {
   function materials() {
     if (mats) return mats;
     // shell: off-white paint, scorched black toward the heat shield; built as a canvas wrapped round the body
-    const [c, g] = TEX.canvas(256, 256);
+    const t = TEX.drawn(256, 256, (g) => {
     const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#d9d3c4'); gr.addColorStop(0.55, '#c7c0b0'); gr.addColorStop(0.85, '#4a4038'); gr.addColorStop(1, '#141210');
     g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
     g.fillStyle = '#c25a1c'; g.fillRect(0, 54, 256, 16);
@@ -17040,7 +17065,7 @@ const Pods = (() => {
     g.fillStyle = '#1e1b17'; g.textAlign = 'center';
     for (const x of [64, 192]) { g.font = 'bold 15px "Share Tech Mono", monospace'; g.fillText('MERCY SALVAGE', x, 100); g.font = 'bold 12px "Share Tech Mono", monospace'; g.fillText('SUPPLY', x, 116); }
     for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(20,16,12,${Math.random() * 0.25})`; g.fillRect(Math.random() * 256, 120 + Math.random() * 136, 2 + Math.random() * 5, 1 + Math.random() * 3); }
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping;
+    }); t.wrapS = THREE.RepeatWrapping;
     mats = {
       shell: new THREE.MeshStandardMaterial({ map: t, roughness: 0.7, metalness: 0.35 }),
       shield: new THREE.MeshStandardMaterial({ color: 0x17130f, roughness: 0.95, metalness: 0.1 }),

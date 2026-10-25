@@ -160,10 +160,10 @@ class Avatar {
     // two-handed loads ride in front of the chest
     this.carry = new THREE.Group(); this.torso.add(this.carry);
     // name tag
-    const [c, g] = TEX.canvas(256, 48);
+    const tex = TEX.drawn(256, 48, (g) => {
     g.font = '30px "VT323", monospace'; g.textAlign = 'center'; g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 4, 256, 40);
     g.fillStyle = '#ffd29a'; g.fillText(String(name).slice(0, 16).toUpperCase(), 128, 34);
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    });
     this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
     this.tag.scale.set(1.2, 0.225, 1); this.tag.position.y = 2.0; this.root.add(this.tag);
     // animation state

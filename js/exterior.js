@@ -963,7 +963,11 @@ const Exterior = (() => {
     }
     // dry grass and weeds (wind-swayed) plus pebbles, kept in a ring around the camera and refilled as it moves
     buildGroundCover(grp) {
-      const [c, g] = TEX.canvas(128, 128), rr = new RNG(this.seed + 8), kind = this.biome.grass.kind;
+      const kind = this.biome.grass.kind, seed = this.seed;
+      // (one sheet drawn to the resolution setting's tier, and again if it changes: the grass on its left half, the plant
+      // among it on the right, each kept to its own half)
+      const tex = TEX.drawn(256, 128, (A) => {
+      const g = A, rr = new RNG(seed + 8); A.save(); A.beginPath(); A.rect(0, 0, 128, 128); A.clip();
       g.clearRect(0, 0, 128, 128);
       const blade = (x0, h, bend, w, col) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x0, 128); g.quadraticCurveTo(x0 + bend * 0.3, 128 - h * 0.6, x0 + bend, 128 - h); g.stroke(); };
       if (kind === 'reeds') {
@@ -1012,7 +1016,8 @@ const Exterior = (() => {
       // ...and a second plant growing among it, about one tuft in four, drawn on the other half of the same sheet: grain
       // heads and pale wildflowers on the dry worlds, purple spikes among the reeds, thistles in the scrub, broad leaves
       // among the ferns, seed heads rimed white, white heather, curled black fronds in the ash
-      const [c2, g2] = TEX.canvas(128, 128), r2 = new RNG(this.seed + 9); g2.clearRect(0, 0, 128, 128);
+      A.restore(); A.save(); A.beginPath(); A.rect(128, 0, 128, 128); A.clip(); A.translate(128, 0);
+      const g2 = A, r2 = new RNG(seed + 9); g2.clearRect(0, 0, 128, 128);
       const stem = (x0, h, bend, w, col) => { g2.strokeStyle = col; g2.lineWidth = w; g2.beginPath(); g2.moveTo(x0, 126); g2.quadraticCurveTo(x0 + bend * 0.3, 126 - h * 0.6, x0 + bend, 126 - h); g2.stroke(); };
       const dot = (x, y, r, col) => { g2.fillStyle = col; g2.beginPath(); g2.arc(x, y, r, 0, TAU); g2.fill(); };
       const ACC = { dry: ['seed', 'umbel'], reeds: ['spike'], scrub: ['thistle'], fern: ['leaf'], frost: ['seed'], heather: ['spike'], ash: ['curl'] }[kind] || ['seed'];
@@ -1028,9 +1033,8 @@ const Exterior = (() => {
         else if (t === 'thistle') { dot(tx, ty + 4, 5, `rgb(${70 + v},${80 + v},${54 + v})`); for (let k = 0; k < 9; k++) { g2.strokeStyle = col; g2.lineWidth = 1.4; g2.beginPath(); g2.moveTo(tx, ty + 2); g2.lineTo(tx + (k - 4) * 1.6, ty - 8); g2.stroke(); } }
         else if (t === 'curl') { g2.strokeStyle = col; g2.lineWidth = 2; g2.beginPath(); g2.arc(tx + 4, ty + 4, 5, Math.PI, TAU * 0.95); g2.stroke(); }
       }
-      const atlas = document.createElement('canvas'); atlas.width = 256; atlas.height = 128;
-      { const ag = atlas.getContext('2d'); ag.drawImage(c, 0, 0); ag.drawImage(c2, 128, 0); }
-      const tex = new THREE.CanvasTexture(atlas); tex.colorSpace = THREE.SRGBColorSpace;
+      A.restore();
+      });
       // three crossed cards; every normal points up so the tuft is lit like the ground it grows from
       const cards = [];
       for (let k = 0; k < 3; k++) { const p = new THREE.PlaneGeometry(0.6, 0.5); p.translate(0, 0.25, 0); p.rotateY(k * Math.PI / 3); cards.push({ geo: p, matrix: new THREE.Matrix4() }); }
@@ -1061,7 +1065,7 @@ const Exterior = (() => {
       {
         const LK = { dry: [0.5, 0.06], heather: [0.35, 0.04], fern: [0.45, 0.06], reeds: [0.25, 0], scrub: [0.3, 0.05], ash: [0.35, 0.05], frost: [0.3, 0.03] }[kind] || [0, 0];
         this.litterDens = LK;
-        const [lc, lg] = TEX.canvas(128, 128), lr = new RNG(this.seed + 17); lg.clearRect(0, 0, 128, 128);
+        const ltex = TEX.drawn(128, 128, (lg) => { const lr = new RNG(this.seed + 17); lg.clearRect(0, 0, 128, 128);
         const P = (a) => a[lr.int(0, a.length - 1)];
         const leaf = (x, y, l, w, a, col) => { lg.save(); lg.translate(x, y); lg.rotate(a); lg.fillStyle = col; lg.beginPath(); lg.ellipse(0, 0, l, w, 0, 0, TAU); lg.fill(); lg.strokeStyle = 'rgba(30,20,10,.55)'; lg.lineWidth = 0.8; lg.beginPath(); lg.moveTo(-l * 1.3, 0); lg.lineTo(l * 0.9, 0); lg.stroke(); lg.restore(); };
         const stick = (x, y, l, a, w, col) => { lg.strokeStyle = col; lg.lineWidth = w; lg.lineCap = 'round'; lg.beginPath(); lg.moveTo(x, y); lg.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); lg.stroke(); };
@@ -1075,7 +1079,7 @@ const Exterior = (() => {
           else if (kind === 'ash') chip(x, y, lr.range(2, 5), P(['#3a3836', '#24221f', '#5a5652', '#141210']));
           else if (kind === 'frost') leaf(x, y, lr.range(5, 8), lr.range(2.5, 4), lr.range(0, TAU), P(['#b8c0c4', '#8a8478', '#d8e0e4']));
         }
-        const ltex = new THREE.CanvasTexture(lc); ltex.colorSpace = THREE.SRGBColorSpace;
+        });
         const lgeo = new THREE.PlaneGeometry(0.8, 0.8); lgeo.rotateX(-Math.PI / 2);
         const lmat = new THREE.MeshLambertMaterial({ map: ltex, alphaTest: 0.5, side: THREE.DoubleSide });
         this.litter = new THREE.InstancedMesh(lgeo, lmat, 1600); this.litter.count = 0;
@@ -1195,7 +1199,7 @@ const Exterior = (() => {
         fern: [34, '#3a4a2a', ['#3a6a2e', '#2e5a26'], null, 0], frost: [18, '#5a5a60', ['#9aa0a8'], '#e8eef4', 0.25], heather: [28, '#3a3428', ['#2e3a24', '#3a4630'], '#9a8a3a', 0.06], ash: [20, '#1a1816', ['#2a2624'], null, 0] }[kind];
       if (!BK) return;
       const [nClump, stemCol, leafCols, accCol, accK] = BK, r = new RNG(this.seed + 4242);
-      const [c, g] = TEX.canvas(128, 128); g.clearRect(0, 0, 128, 128);
+      const tex = TEX.drawn(128, 128, (g) => { g.clearRect(0, 0, 128, 128);
       // (the bush: branches fanning up from the root, crowded with leaf clusters, a few berries, flowers or frost tips)
       for (let b = 0; b < 11; b++) {
         const a = r.range(-1.25, 1.25), l = r.range(56, 112), ex = 64 + Math.sin(a) * l * 0.55, ey = 126 - Math.cos(a * 0.8) * l;
@@ -1210,7 +1214,7 @@ const Exterior = (() => {
           if (accCol && r.chance(accK)) { g.fillStyle = accCol; g.beginPath(); g.arc(x + r.range(-2, 2), y - 2, kind === 'frost' ? 2.6 : 1.8, 0, TAU); g.fill(); }
         }
       }
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      });
       const cards = []; for (let k = 0; k < 3; k++) { const p = new THREE.PlaneGeometry(1.6, 1.4); p.translate(0, 0.66, 0); p.rotateY(k * Math.PI / 3); cards.push({ geo: p, matrix: new THREE.Matrix4() }); }
       const geo = mergeGeoList(cards), gn = geo.attributes.normal; for (let i = 0; i < gn.count; i++) gn.setXYZ(i, 0, 1, 0);
       const m = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });

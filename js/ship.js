@@ -735,12 +735,14 @@ const Ship = (() => {
       const leafM = MATS.rep('painted', 0.6, 0.6, 0x8d8a80), hw = iw / 2;
       this.idoorLeaves = [-1, 1].map((s) => {
         const g = new THREE.Group(); g.position.set(cx + s * hw / 2, 0, A.z0 - 0.14); this.group.add(g);
-        const sh = new THREE.Shape(), a = -hw / 2, b = hw / 2, r = 0.19, h = A.ih - 0.01;
+        // (drawn inset by the bevel, so the halves meet exactly at the middle instead of overlapping there, and reaching
+        // past the opening into the frame at the sides and top, so no line of the lit chamber shows round a shut door)
+        const sh = new THREE.Shape(), e = 0.008, r = 0.19, h = A.ih + 0.03, top = h - e, inner = -s * (hw / 2 - e), outer = s * (hw / 2 + 0.04 - e);
         // only the outer top corner is rounded, so the two halves together make the arch
-        if (s < 0) { sh.moveTo(a, 0); sh.lineTo(b, 0); sh.lineTo(b, h); sh.lineTo(a + r, h); sh.quadraticCurveTo(a, h, a, h - r); sh.closePath(); }
-        else { sh.moveTo(a, 0); sh.lineTo(b, 0); sh.lineTo(b, h - r); sh.quadraticCurveTo(b, h, b - r, h); sh.lineTo(a, h); sh.closePath(); }
-        const geo = ext(sh, 0.045, 0.008); geo.translate(0, 0, -0.022); meshAt(geo, leafM, 0, 0, 0, 0, g);
-        const seal = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.02, 0.06), MATS.get('rubber')); seal.position.set(-s * (hw / 2 - 0.01), h / 2, 0); g.add(seal);
+        sh.moveTo(inner, e); sh.lineTo(outer, e); sh.lineTo(outer, top - r); sh.quadraticCurveTo(outer, top, outer - s * r, top); sh.lineTo(inner, top); sh.closePath();
+        const geo = ext(sh, 0.045, e); geo.translate(0, 0, -0.022); meshAt(geo, leafM, 0, 0, 0, 0, g);
+        // (the seal stands proud of both faces, so it never flickers through the door where the halves meet)
+        const seal = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.03, 0.075), MATS.get('rubber')); seal.position.set(-s * (hw / 2 - 0.01), (h - 0.03) / 2 + 0.005, 0); g.add(seal);
         const band = new THREE.Mesh(new THREE.BoxGeometry(hw - 0.06, 0.08, 0.078), MATS.get('hazard')); band.position.set(0, 0.15, 0); g.add(band);
         const hd = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.34, 0.03), dm); hd.position.set(-s * (hw / 2 - 0.09), 1.05, -0.045); g.add(hd);
         if (s < 0) { const pane = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.012), this.glassMat); pane.position.set(0, 1.62, -0.03); g.add(pane); }
@@ -794,7 +796,7 @@ const Ship = (() => {
     // ---------- blast shutters: armoured slat curtains that roll down outside every window for the burning parts of
     // a flight (into the air and out of it), each from a roller housing along the top of its opening ----------
     buildShutters() {
-      const [cv, g] = TEX.canvas(128, 256);
+      const tex = TEX.drawn(128, 256, (g) => {
       // four slats per tile: each a pressed steel strip, lit along its top lip, grimy in the groove below
       for (let i = 0; i < 4; i++) {
         const y = i * 64, gr = g.createLinearGradient(0, y, 0, y + 64);
@@ -804,8 +806,8 @@ const Ship = (() => {
         for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(200,205,205,.12)'; g.fillRect(Math.random() * 128, y + 10 + Math.random() * 40, 6 + Math.random() * 30, 1); }
         for (const x of [8, 120]) { g.fillStyle = 'rgba(20,20,20,.7)'; g.fillRect(x - 3, y + 30, 6, 6); g.fillStyle = 'rgba(190,190,185,.35)'; g.fillRect(x - 3, y + 30, 5, 2); }
       }
-      const tex = new THREE.CanvasTexture(cv); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-      const bump = new THREE.CanvasTexture(cv); bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
+      }, { wrap: true });
+      const bump = tex.clone(); bump.colorSpace = THREE.NoColorSpace;
       this.shutterMat = new THREE.MeshStandardMaterial({ map: tex, bumpMap: bump, bumpScale: 2.5, metalness: 0.55, roughness: 0.6, side: THREE.DoubleSide });
       const railMat = MATS.get('darkmetal'), TILE = 0.44, up = V(0, 1, 0);
       this.rollers = []; this.shut = { t: 0, target: 0 };
@@ -873,19 +875,19 @@ const Ship = (() => {
       const S = (o) => new THREE.MeshStandardMaterial(o), B = (r, g, b) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) });
       const L = (r, g, b) => new THREE.MeshStandardMaterial({ color: new THREE.Color(r * 0.25, g * 0.25, b * 0.25), emissive: new THREE.Color(r, g, b), emissiveIntensity: 0.42, roughness: 0.3 });
       // a dial face for the analog gauges
-      const [gc, gg] = TEX.canvas(128, 128);
+      const gaugeTex = TEX.drawn(128, 128, (gg) => {
       gg.fillStyle = '#d9d2bd'; gg.beginPath(); gg.arc(64, 64, 62, 0, TAU); gg.fill();
       gg.fillStyle = '#141414'; gg.beginPath(); gg.arc(64, 64, 56, 0, TAU); gg.fill();
       gg.strokeStyle = '#b02a1a'; gg.lineWidth = 7; gg.beginPath(); gg.arc(64, 64, 46, -0.35, 0.75); gg.stroke();
       gg.strokeStyle = '#e8e2d0'; gg.lineWidth = 2;
       for (let i = 0; i <= 20; i++) { const a = -Math.PI * 1.25 + (i / 20) * Math.PI * 1.5, r0 = i % 5 ? 44 : 38; gg.beginPath(); gg.moveTo(64 + Math.cos(a) * r0, 64 + Math.sin(a) * r0); gg.lineTo(64 + Math.cos(a) * 52, 64 + Math.sin(a) * 52); gg.stroke(); }
       gg.fillStyle = '#e8e2d0'; gg.font = '13px "Share Tech Mono", monospace'; gg.textAlign = 'center'; gg.fillText('PSI x100', 64, 96);
-      const gaugeTex = new THREE.CanvasTexture(gc); gaugeTex.colorSpace = THREE.SRGBColorSpace;
+      });
       // cargo netting (alpha-tested)
-      const [nc, ng] = TEX.canvas(128, 128);
+      const netTex = TEX.drawn(128, 128, (ng) => {
       ng.clearRect(0, 0, 128, 128); ng.strokeStyle = '#5b5a44'; ng.lineWidth = 5;
       for (let i = -128; i < 256; i += 32) { ng.beginPath(); ng.moveTo(i, 0); ng.lineTo(i + 128, 128); ng.stroke(); ng.beginPath(); ng.moveTo(i + 128, 0); ng.lineTo(i, 128); ng.stroke(); }
-      const netTex = new THREE.CanvasTexture(nc); netTex.colorSpace = THREE.SRGBColorSpace; netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping; netTex.repeat.set(5, 3.5);
+      }, { wrap: true }); netTex.repeat.set(5, 3.5);
       this.cm = {
         red: S({ color: 0x8c2a20, roughness: 0.42, metalness: 0.25 }),
         white: S({ color: 0xc2bcae, roughness: 0.55 }),
@@ -910,7 +912,7 @@ const Ship = (() => {
       };
       // the crew's paperwork: typed memos (a header, lines of type, a stamp, folded, a coffee ring), and playing cards
       const paper = (seed, head, stamp) => {
-        const [c, g] = TEX.canvas(256, 352), r = new RNG(seed), f = '"Share Tech Mono", monospace';
+        const t = TEX.drawn(256, 352, (g) => { const r = new RNG(seed), f = '"Share Tech Mono", monospace';
         g.fillStyle = '#e4ddca'; g.fillRect(0, 0, 256, 352);
         g.fillStyle = '#2a2622'; g.font = `bold 19px ${f}`; g.fillText(head, 20, 38); g.fillRect(20, 48, 216, 2);
         g.font = `11px ${f}`; g.fillText('MERCY SALVAGE CO.  FORM ' + (100 + (seed % 800)), 20, 64);
@@ -920,13 +922,13 @@ const Ship = (() => {
         g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, 117, 256, 2); g.fillRect(0, 234, 256, 2);
         g.strokeStyle = 'rgba(90,60,30,.28)'; g.lineWidth = 5; g.beginPath(); g.arc(r.range(50, 200), r.range(90, 300), 28, 0, TAU * 0.85); g.stroke();
         for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(60,50,35,${r.range(0.02, 0.08)})`; g.fillRect(r.range(0, 256), r.range(0, 352), r.range(4, 30), r.range(2, 16)); }
-        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+        });
         return S({ map: t, roughness: 0.95, side: THREE.DoubleSide });
       };
       this.cm.memoA = paper(11, 'CARGO MANIFEST', 'CHECKED'); this.cm.memoB = paper(23, 'NIGHT SHIFT ROTA', 'POSTED'); this.cm.memoC = paper(37, 'QUOTA NOTICE', 'FINAL');
-      { const [c, g] = TEX.canvas(64, 92); g.fillStyle = '#ece6d6'; g.fillRect(0, 0, 64, 92); g.strokeStyle = '#8a8270'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 86);
+      { const t = TEX.drawn(64, 92, (g) => { g.fillStyle = '#ece6d6'; g.fillRect(0, 0, 64, 92); g.strokeStyle = '#8a8270'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 86);
         g.fillStyle = '#a31c14'; g.font = 'bold 16px serif'; g.fillText('7', 8, 20); g.font = '34px serif'; g.textAlign = 'center'; g.fillText('\u2665', 32, 58);
-        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; this.cm.card = S({ map: t, roughness: 0.7, side: THREE.DoubleSide }); }
+        }); this.cm.card = S({ map: t, roughness: 0.7, side: THREE.DoubleSide }); }
       // all of it worn the way a working ship wears: chipped and scuffed paint, padding gone shiny and creased, brass
       // rubbed bright (see MATS.wear)
       for (const n of ['red', 'white', 'green', 'yellow', 'orange', 'blue', 'olive']) (this.cm[n].roughness = Math.max(this.cm[n].roughness, 0.58)), MATS.wear(this.cm[n], { kind: 'paint', k: [0.66, 0.48, 0.002, 0.4], bare: 0x6a6e70, edge: 0.022 });
@@ -1185,11 +1187,11 @@ const Ship = (() => {
         const [cv, cg] = TEX.canvas(128, 48), ctex = new THREE.CanvasTexture(cv); ctex.colorSpace = THREE.SRGBColorSpace; ctex.magFilter = THREE.NearestFilter;
         const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.09), new THREE.MeshBasicMaterial({ map: ctex })); scr.position.set(cx - 0.06, cy + 0.13, zf + 0.0112); this.group.add(scr);
         {
-          const [wc, wg] = TEX.canvas(64, 58);
+          const wt = TEX.drawn(64, 58, (wg) => {
           wg.fillStyle = '#e8b018'; wg.strokeStyle = '#141414'; wg.lineWidth = 5; wg.lineJoin = 'round';
           wg.beginPath(); wg.moveTo(32, 5); wg.lineTo(60, 53); wg.lineTo(4, 53); wg.closePath(); wg.fill(); wg.stroke();
           wg.fillStyle = '#141414'; wg.beginPath(); wg.moveTo(36, 16); wg.lineTo(24, 36); wg.lineTo(31, 36); wg.lineTo(27, 49); wg.lineTo(40, 29); wg.lineTo(33, 29); wg.lineTo(37, 16); wg.closePath(); wg.fill();
-          const wt = new THREE.CanvasTexture(wc); wt.colorSpace = THREE.SRGBColorSpace;
+          });
           const w = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.09), new THREE.MeshStandardMaterial({ map: wt, transparent: true, alphaTest: 0.5, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }));
           w.position.set(cx + 0.14, cy + 0.13, zf + 0.002); this.group.add(w);
         }
@@ -1495,7 +1497,7 @@ const Ship = (() => {
       // cobwebs up in the corners, under the pipes where no broom reaches: grey with dust, catching the light (the bay's
       // back corners and the bulkhead's, and up in the airlock)
       {
-        const [c, g] = TEX.canvas(256, 256), r = new RNG(4127), hx = 124, hy = 96;
+        const tex = TEX.drawn(256, 256, (g) => { const r = new RNG(4127), hx = 124, hy = 96;
         g.strokeStyle = 'rgba(240,236,228,0.85)'; g.lineWidth = 1.2; g.lineCap = 'round';
         // (the spokes out to the walls and the top; the bottom edge hangs free, a looser frame thread across it)
         const sp = [];
@@ -1512,7 +1514,7 @@ const Ship = (() => {
         for (let i = 0; i < 6; i++) { const x = r.range(40, 216), y = r.range(120, 190), l = r.range(18, 50); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + r.range(-8, 8), y + l * 0.6, x + r.range(-4, 4), y + l); g.stroke(); }
         g.fillStyle = 'rgba(220,214,204,0.55)';
         for (let i = 0; i < 160; i++) { const [a, k] = sp[r.int(0, sp.length - 1)], d = r.range(4, k); g.fillRect(hx + Math.cos(a) * d - 0.8, hy + Math.sin(a) * d - 0.8, r.range(1, 2.4), r.range(1, 2.4)); }
-        const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+        });
         const wm = new THREE.MeshStandardMaterial({ map: tex, color: 0xd6d1c8, roughness: 1, transparent: true, depthWrite: false, side: THREE.DoubleSide });
         // (a sheet across the corner from (ax, az) on one wall to (bx, bz) on the other, y0 up to y1)
         const web = (ax, az, bx, bz, y0, y1, flip) => {
@@ -1589,8 +1591,8 @@ const Ship = (() => {
       }
       // the Company's posters
       const poster = (title, sub, x, y, z, ry, w, h, bg, fg, mark) => {
-        const [cv, g] = TEX.canvas(256, Math.round(256 * h / w));
-        const H2 = cv.height; g.fillStyle = bg; g.fillRect(0, 0, 256, H2);
+        const H2 = Math.round(256 * h / w), t = TEX.drawn(256, H2, (g) => {
+        g.fillStyle = bg; g.fillRect(0, 0, 256, H2);
         g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(10, 10, 236, H2 - 20);
         if (mark) mark(g, H2);
         g.fillStyle = fg; g.textAlign = 'center'; g.font = 'bold 34px "Share Tech Mono", monospace';
@@ -1602,7 +1604,7 @@ const Ship = (() => {
         g.fillStyle = 'rgba(255,250,235,.12)'; g.fillRect(0, H2 / 2 - 1, 256, 2); g.fillRect(127, 0, 2, H2); g.fillStyle = 'rgba(0,0,0,.14)'; g.fillRect(0, H2 / 2 + 1, 256, 2); g.fillRect(129, 0, 2, H2);
         g.fillStyle = 'rgba(30,24,18,.9)'; for (let i = 0; i < 7; i++) { const e = i % 4, t = Math.random(), x = e === 0 ? t * 256 : e === 1 ? 256 : e === 2 ? t * 256 : 0, y = e === 0 ? 0 : e === 1 ? t * H2 : e === 2 ? H2 : t * H2; g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.lineTo(x + (Math.random() - 0.5) * 6, y + (e === 2 ? -1 : 1) * 9); g.fill(); }
         g.fillStyle = 'rgba(200,170,90,.45)'; g.fillRect(4, H2 - 30, 34, 14);
-        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+        });
         const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1 }));
         m.position.set(x, y, z); m.rotation.y = ry; this.group.add(m);
         for (const [a, b] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) { const p = V(a * (w / 2 - 0.03), b * (h / 2 - 0.03), 0.004).applyAxisAngle(V(0, 1, 0), ry).add(V(x, y, z)); this.ps('red', 0.008, p.x, p.y, p.z, 1, 1, 1, 6); }
@@ -1645,6 +1647,9 @@ const Ship = (() => {
     charging() { if (this.chg) this.chg.t = 0; }
     // the clock's face: hours and minutes from minutes past midnight
     drawClock(m) {
+      // (the face drawn at the resolution setting's tier: a fresh canvas when the setting has changed)
+      const q = TEX.tier();
+      if (this.clock.q !== q) { const [cv, g2] = TEX.canvas(256 * q, 256 * q); g2.scale(q, q); this.clock.g = g2; this.clock.cv = cv; this.clock.q = q; this.clock.tex.image = cv; }
       const { g, tex } = this.clock, c = 128;
       g.fillStyle = '#e4dcc4'; g.fillRect(0, 0, 256, 256);
       const gr = g.createRadialGradient(c, c, 60, c, c, 130); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(80,60,30,.35)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
@@ -1727,7 +1732,7 @@ const Ship = (() => {
       this.pb('vent', 0.006, 0.3, 0.8, 4.213, 0.32, -2.3); this.pb('vent', 0.006, 0.25, 0.8, 4.213, 2.0, -2.3); this.pb('hardware', 0.03, 0.4, 0.025, 4.225, 1.3, -1.86);
       this.col(3.7, 4.25, -2.82, -1.78);
       {
-        const [cc, cg] = TEX.canvas(256, 192);
+        const tx = TEX.drawn(256, 192, (cg) => {
         cg.fillStyle = '#d8cfb4'; cg.fillRect(0, 0, 256, 192);
         cg.strokeStyle = 'rgba(60,80,90,.25)'; cg.lineWidth = 1; for (let i = 0; i < 256; i += 16) { cg.beginPath(); cg.moveTo(i, 0); cg.lineTo(i, 192); cg.stroke(); } for (let i = 0; i < 192; i += 16) { cg.beginPath(); cg.moveTo(0, i); cg.lineTo(256, i); cg.stroke(); }
         cg.fillStyle = '#2a2620'; cg.font = 'bold 13px monospace'; cg.fillText('MERCY SALVAGE CO. - ROUTE CHART', 10, 16);
@@ -1735,7 +1740,7 @@ const Ship = (() => {
         cg.setLineDash([4, 4]); cg.strokeStyle = '#8a2a1a'; cg.lineWidth = 1.5; cg.beginPath(); P.forEach(([x, y], i) => (i ? cg.lineTo(x, y) : cg.moveTo(x, y))); cg.stroke(); cg.setLineDash([]);
         for (const [x, y, n] of P) { cg.fillStyle = '#4a5a60'; cg.beginPath(); cg.arc(x, y, 9, 0, TAU); cg.fill(); cg.fillStyle = '#2a2620'; cg.font = '10px monospace'; cg.fillText(n, x - 20, y + 22); }
         cg.strokeStyle = '#b02010'; cg.lineWidth = 2; cg.beginPath(); cg.moveTo(84, 144); cg.lineTo(96, 156); cg.moveTo(96, 144); cg.lineTo(84, 156); cg.stroke();
-        const tx = new THREE.CanvasTexture(cc); tx.colorSpace = THREE.SRGBColorSpace;
+        });
         const chart = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.75), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.9 }));
         chart.position.set(3.712, 1.8, 2.25); chart.rotation.y = Math.PI / 2; this.group.add(chart);
         this.pb(D, 0.02, 0.79, 0.03, 3.715, 1.8, 1.735); this.pb(D, 0.02, 0.79, 0.03, 3.715, 1.8, 2.765);
@@ -3622,7 +3627,7 @@ const Ship = (() => {
       if (this.clock) {
         const sm = this.clockMinutes ? this.clockMinutes() : null, d = new Date();
         const m = sm == null ? d.getHours() * 60 + d.getMinutes() : Math.floor(sm);
-        if (m !== this.clock.min) { this.clock.min = m; this.drawClock(m); }
+        if (m !== this.clock.min || this.clock.q !== TEX.tier()) { this.clock.min = m; this.drawClock(m); }
       }
       const tgt = this.door.open ? 1 : 0;
       this.door.t = damp(this.door.t, tgt, 3.2, dt);

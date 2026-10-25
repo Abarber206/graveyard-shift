@@ -56,7 +56,11 @@ Keep that file current when gameplay changes.
     with their own haze: hidden below a fog-bank top worked out per direction from the land (`uTop`), coming out of it
     softly above. Keep it consistent with the scene fog when changing `lighting()`'s `fogDen` / `fog`.
 - **Assets are all procedural.**
-  - Canvas textures live in `textures.js` (`TEX.get(name)`; `CQ` draws at double resolution; `TEX.normal()` derives relief).
+  - Canvas textures live in `textures.js` (`TEX.get(name)`; `TEX.normal()` derives relief). Every texture follows the
+    resolution setting's tier (`QS`: 1, 1, 2, 2, 3 pixels per drawing unit; `TEX.tier()`): builders draw with `CQ`, and
+    anything drawn elsewhere (signs, labels, papers, item faces, grass sheets) goes through `TEX.drawn(w, h, draw)`,
+    so `TEX.retier` redraws it when the setting changes. Only live screens (terminal, monitor, crew cams, readouts) and
+    the per-pixel planet, cloud and ring maps keep their own sizes.
   - Shared materials are `MATS.get(name)` / `MATS.rep` / `MATS.aged`.
   - Flat-coloured materials wear a wear layer instead of a stretched texture: `MATS.wear(mat, { kind, k, bare, s, edge })`
     (sheets from `TEX.wear`: paint / metal / vinyl / rubber), looked up triplanar in the object's own space so it neither

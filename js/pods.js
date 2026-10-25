@@ -19,7 +19,7 @@ const Pods = (() => {
   function materials() {
     if (mats) return mats;
     // shell: off-white paint, scorched black toward the heat shield; built as a canvas wrapped round the body
-    const [c, g] = TEX.canvas(256, 256);
+    const t = TEX.drawn(256, 256, (g) => {
     const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#d9d3c4'); gr.addColorStop(0.55, '#c7c0b0'); gr.addColorStop(0.85, '#4a4038'); gr.addColorStop(1, '#141210');
     g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
     g.fillStyle = '#c25a1c'; g.fillRect(0, 54, 256, 16);
@@ -27,7 +27,7 @@ const Pods = (() => {
     g.fillStyle = '#1e1b17'; g.textAlign = 'center';
     for (const x of [64, 192]) { g.font = 'bold 15px "Share Tech Mono", monospace'; g.fillText('MERCY SALVAGE', x, 100); g.font = 'bold 12px "Share Tech Mono", monospace'; g.fillText('SUPPLY', x, 116); }
     for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(20,16,12,${Math.random() * 0.25})`; g.fillRect(Math.random() * 256, 120 + Math.random() * 136, 2 + Math.random() * 5, 1 + Math.random() * 3); }
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping;
+    }); t.wrapS = THREE.RepeatWrapping;
     mats = {
       shell: new THREE.MeshStandardMaterial({ map: t, roughness: 0.7, metalness: 0.35 }),
       shield: new THREE.MeshStandardMaterial({ color: 0x17130f, roughness: 0.95, metalness: 0.1 }),

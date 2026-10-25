@@ -10,7 +10,10 @@ const TEX = (() => {
   // layout in the same coordinates at Q pixels to the unit, which follows the picture's resolution setting (one on
   // RETRO and LOW, two on MEDIUM and HIGH, three on ULTRA), so they're sharper where there are pixels to show it and
   // lighter on a phone (everything else keeps the old, grainier resolution). Changing the setting redraws them (retier)
-  const QS = [1, 1, 2, 2, 3], tiered = new Set();
+  const QS = [1, 1, 2, 2, 3], tiered = new Set(), live = new Set();
+  // (the ship's own surfaces were first drawn for the middle tier, everything else for the lowest: how deep the relief
+  // read off each must be at a tier, so it looks the same depth at any)
+  const REF2 = new Set(['quilt', 'perf', 'pegboard', 'hullSkin', 'hullSkinN']), reliefQ = (name, q) => (REF2.has(name) ? q / 2 : q);
   let Q = 2, building = null, retierT = 0;
   const tierQ = () => QS[Math.max(0, Math.min(QS.length - 1, typeof Settings !== 'undefined' ? Settings.res | 0 : 2))];
   function CQ(w, h) { if (building) tiered.add(building); const [c, g] = C(w * Q, h * Q); g.scale(Q, Q); return [c, g]; }
@@ -167,7 +170,7 @@ const TEX = (() => {
 
   const build = {
     wallConcrete() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#76736a'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 40, '40,38,32', 0.05, 0.2, 10, 50);
       blotches(g, 256, 256, 20, '150,145,130', 0.04, 0.12, 10, 40);
@@ -184,7 +187,7 @@ const TEX = (() => {
       return finish(c, true, false);
     },
     wallTile() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#4a4c48'; g.fillRect(0, 0, 256, 256);
       const n = 8, s = 256 / n;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
@@ -202,7 +205,7 @@ const TEX = (() => {
       return finish(c, true, false);
     },
     floorConcrete() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#56524a'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 50, '30,28,24', 0.05, 0.25, 10, 60);
       blotches(g, 256, 256, 8, '20,16,12', 0.2, 0.45, 8, 26);
@@ -212,7 +215,7 @@ const TEX = (() => {
       return finish(c);
     },
     floorTile() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       const n = 4, s = 256 / n;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
         const dark = (i + j) % 2 === 0;
@@ -226,7 +229,7 @@ const TEX = (() => {
       return finish(c);
     },
     ceiling() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#3a3a37'; g.fillRect(0, 0, 256, 256);
       g.strokeStyle = '#1c1c1a'; g.lineWidth = 4;
       for (let i = 0; i <= 2; i++) { g.beginPath(); g.moveTo(i * 128, 0); g.lineTo(i * 128, 256); g.stroke(); g.beginPath(); g.moveTo(0, i * 128); g.lineTo(256, i * 128); g.stroke(); }
@@ -235,7 +238,7 @@ const TEX = (() => {
       return finish(c);
     },
     metalPanel() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#5b6266'; g.fillRect(0, 0, 256, 256);
       for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
         const v = r.range(-10, 10) | 0;
@@ -251,7 +254,7 @@ const TEX = (() => {
       return finish(c);
     },
     grate() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#4c5154'; g.fillRect(0, 0, 128, 128);
       for (let y = 0; y < 128; y += 16) for (let x = 0; x < 128; x += 16) {
         const ox = (y / 16) % 2 ? 8 : 0;
@@ -264,7 +267,7 @@ const TEX = (() => {
       return finish(c);
     },
     rust() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#5a3a24'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 40, '130,70,30', 0.15, 0.5, 4, 22);
       blotches(g, 128, 128, 30, '30,20,15', 0.15, 0.4, 3, 16);
@@ -272,7 +275,7 @@ const TEX = (() => {
       return finish(c);
     },
     paintedMetal() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#6b6f62'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 25, '90,55,30', 0.15, 0.6, 2, 10);
       blotches(g, 128, 128, 10, '20,20,20', 0.1, 0.3, 6, 25);
@@ -282,7 +285,7 @@ const TEX = (() => {
     // crew suit paint after years of night shifts: worn through at the edges to dark metal, rust weeping from
     // chips and seams, grime ground in. Light overall, so the suit colour tints it.
     suitWorn() {
-      const [c, g] = C(256, 256), rr = new RNG(31);
+      const [c, g] = CQ(256, 256), rr = new RNG(31);
       g.fillStyle = '#c9c4b8'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 30, '120,112,98', 0.15, 0.4, 10, 40);
       // chipped paint: small dark islands of bare metal with a rusty halo
@@ -299,7 +302,7 @@ const TEX = (() => {
     },
     // cabin window glass: nearly clear, a little tint, wiped smears and dust (alpha carries it)
     cabinGlass() {
-      const [c, g] = C(256, 256), rr = new RNG(19);
+      const [c, g] = CQ(256, 256), rr = new RNG(19);
       g.fillStyle = 'rgba(70,90,92,0.07)'; g.fillRect(0, 0, 256, 256);
       for (let i = 0; i < 14; i++) { g.strokeStyle = `rgba(200,210,205,${rr.range(0.02, 0.05)})`; g.lineWidth = rr.range(8, 22); g.beginPath(); const x = rr.range(0, 256), y = rr.range(0, 256); g.arc(x, y, rr.range(30, 90), rr.range(0, 3), rr.range(3, 6)); g.stroke(); }
       for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(190,185,170,${rr.range(0.04, 0.14)})`; g.fillRect(rr.next() * 256, rr.next() * 256, 1.5, 1.5); }
@@ -309,7 +312,7 @@ const TEX = (() => {
     // grey cloth tape, wrapped and re-wrapped
     // the Clown's suit: faded yellow, dots that were red once, grimed brown
     clownDots() {
-      const [c, g] = C(128, 128), rr = new RNG(31);
+      const [c, g] = CQ(128, 128), rr = new RNG(31);
       g.fillStyle = '#b8a45a'; g.fillRect(0, 0, 128, 128);
       for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = `rgba(${140 + rr.int(0, 30)},40,36,${rr.range(0.55, 0.85)})`; g.beginPath(); g.arc(x * 32 + (y % 2) * 16 + 8 + rr.range(-2, 2), y * 32 + 16 + rr.range(-2, 2), rr.range(5, 7), 0, TAU); g.fill(); }
       blotches(g, 128, 128, 14, '60,48,30', 0.15, 0.45, 6, 26);
@@ -318,7 +321,7 @@ const TEX = (() => {
     },
     // ...its trousers: broad stripes, red and dirty cream
     clownStripe() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#c8bc9c' : '#8a2a24'; g.fillRect(i * 32, 0, 32, 128); }
       blotches(g, 128, 128, 16, '50,40,28', 0.2, 0.5, 6, 30);
       speckle(g, 128, 128, 24);
@@ -326,7 +329,7 @@ const TEX = (() => {
     },
     // ...and its face: chalk-white greasepaint crazed all over, grey skin in the cracks, yellowed in places
     greasepaint() {
-      const [c, g] = C(128, 128), rr = new RNG(32);
+      const [c, g] = CQ(128, 128), rr = new RNG(32);
       g.fillStyle = '#e4ded0'; g.fillRect(0, 0, 128, 128);
       g.strokeStyle = 'rgba(90,84,78,.7)'; g.lineWidth = 1;
       for (let i = 0; i < 70; i++) { let x = rr.range(0, 128), y = rr.range(0, 128); g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += rr.range(-9, 9); y += rr.range(-9, 9); g.lineTo(x, y); } g.stroke(); }
@@ -335,7 +338,7 @@ const TEX = (() => {
       return finish(c);
     },
     tape() {
-      const [c, g] = C(64, 64), rr = new RNG(8);
+      const [c, g] = CQ(64, 64), rr = new RNG(8);
       g.fillStyle = '#8a8a86'; g.fillRect(0, 0, 64, 64);
       for (let y = 0; y < 64; y += 10) { g.fillStyle = 'rgba(30,30,28,.35)'; g.fillRect(0, y + rr.range(-1, 1), 64, 1.5); }
       blotches(g, 64, 64, 10, '50,46,40', 0.15, 0.4, 3, 12);
@@ -343,7 +346,7 @@ const TEX = (() => {
       return finish(c);
     },
     wood() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       for (let i = 0; i < 4; i++) {
         const v = r.range(-12, 12) | 0;
         g.fillStyle = `rgb(${96 + v},${70 + v},${44 + v})`; g.fillRect(0, i * 32, 128, 32);
@@ -355,7 +358,7 @@ const TEX = (() => {
       return finish(c);
     },
     crate() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#6e5233'; g.fillRect(0, 0, 128, 128);
       for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, i * 21.3, 128, 1.5); }
       g.fillStyle = '#4e3922'; g.fillRect(0, 0, 128, 12); g.fillRect(0, 116, 128, 12); g.fillRect(0, 0, 12, 128); g.fillRect(116, 0, 12, 128);
@@ -365,7 +368,7 @@ const TEX = (() => {
       return finish(c);
     },
     terrain() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#4b4636'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '70,72,48', 0.15, 0.4, 8, 40);
       blotches(g, 256, 256, 40, '35,30,22', 0.15, 0.4, 6, 30);
@@ -380,7 +383,7 @@ const TEX = (() => {
     },
     // ground detail for the other worlds: wet marsh mud, red canyon sand, burnt ash
     terrainMarsh() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#353b2c'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 70, '52,64,42', 0.15, 0.45, 8, 40); blotches(g, 256, 256, 40, '20,24,18', 0.2, 0.5, 6, 30);
       blotches(g, 256, 256, 18, '110,120,105', 0.05, 0.14, 6, 22);
@@ -388,7 +391,7 @@ const TEX = (() => {
       speckle(g, 256, 256, 16); return finish(c);
     },
     terrainSand() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#8c5f42'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '168,116,76', 0.15, 0.4, 8, 46); blotches(g, 256, 256, 40, '96,58,40', 0.15, 0.4, 6, 30);
       for (let i = 0; i < 14; i++) { const y = r.next() * 256; g.fillStyle = `rgba(${r.next() < 0.5 ? '180,130,90' : '110,70,48'},${r.range(0.08, 0.18)})`; g.fillRect(0, y, 256, r.range(2, 6)); }
@@ -397,7 +400,7 @@ const TEX = (() => {
       speckle(g, 256, 256, 20); return finish(c);
     },
     terrainAsh() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#3b3937'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '78,74,70', 0.15, 0.4, 8, 40); blotches(g, 256, 256, 50, '18,16,15', 0.2, 0.5, 6, 30);
       cracks(g, 256, 256, 10, 'rgba(14,12,12,.6)');
@@ -409,7 +412,7 @@ const TEX = (() => {
     // the plant's old yard paving, 8 m square, three slabs a side: weathered concrete, each slab its own tone, dark
     // joints packed with dirt and weeds coming up through them, cracks, oil stains, spalled chips (see Exterior's terrain)
     paving() {
-      const [c, g] = C(512, 512), S = 512 / 3;
+      const [c, g] = CQ(512, 512), S = 512 / 3;
       g.fillStyle = '#76736b'; g.fillRect(0, 0, 512, 512);
       for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { const v = r.range(-16, 10) | 0; g.fillStyle = `rgba(${118 + v},${115 + v},${108 + v},0.5)`; g.fillRect(i * S, j * S, S, S); }
       blotches(g, 512, 512, 70, '46,42,36', 0.05, 0.22, 12, 70); blotches(g, 512, 512, 30, '160,156,146', 0.04, 0.1, 10, 50);
@@ -431,7 +434,7 @@ const TEX = (() => {
       return finish(c);
     },
     terrainSnow() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#d8dee6'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '240,244,250', 0.2, 0.5, 10, 50); blotches(g, 256, 256, 40, '176,186,200', 0.12, 0.3, 8, 34);
       for (let i = 0; i < 70; i++) { const y = r.next() * 256, x = r.next() * 256; g.strokeStyle = `rgba(${r.next() < 0.5 ? '255,255,255' : '160,172,190'},${r.range(0.15, 0.35)})`; g.lineWidth = r.range(1, 2.5); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 14, y - r.range(-4, 4), x + r.range(20, 40), y + r.range(-3, 3)); g.stroke(); }
@@ -440,7 +443,7 @@ const TEX = (() => {
     },
     // a salt pan: a white crust broken into polygons, their raised rims, a little grey grit in the cracks
     terrainSalt() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#e4dccb'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 50, '246,242,232', 0.2, 0.5, 10, 46); blotches(g, 256, 256, 30, '196,186,166', 0.12, 0.3, 8, 30);
       // (a jittered grid of cells, each outlined by a raised rim)
@@ -457,7 +460,7 @@ const TEX = (() => {
     },
     // basalt: black glassy rock, flow lines, ochre sulphur crusts and ember-red seams
     terrainBasalt() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#26221f'; g.fillRect(0, 0, 256, 256);
       blotches(g, 256, 256, 60, '52,46,42', 0.15, 0.4, 8, 40); blotches(g, 256, 256, 40, '10,9,9', 0.2, 0.5, 6, 30);
       for (let i = 0; i < 30; i++) { const y = r.next() * 256; g.strokeStyle = `rgba(70,64,58,${r.range(0.15, 0.35)})`; g.lineWidth = r.range(1, 3); g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(80, y + r.range(-10, 10), 170, y + r.range(-10, 10), 256, y); g.stroke(); }
@@ -467,7 +470,7 @@ const TEX = (() => {
     },
     // old red brick in Flemish bond, sooty and mortar-stained (the mill)
     brick() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#5a4d42'; g.fillRect(0, 0, 256, 256);
       for (let row = 0; row < 16; row++) for (let k = -1; k < 9; k++) {
         const x = k * 32 + (row % 2) * 16, y = row * 16, v = r.range(-22, 18) | 0;
@@ -478,7 +481,7 @@ const TEX = (() => {
     },
     // white composite cladding panels with seams and rivets, stained (the biolab)
     labPanel() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#c9cbc4'; g.fillRect(0, 0, 256, 256);
       for (let y = 0; y < 256; y += 64) for (let x = 0; x < 256; x += 128) { const v = r.range(-10, 8) | 0; g.fillStyle = `rgb(${200 + v},${202 + v},${196 + v})`; g.fillRect(x + 2, y + 2, 124, 60); }
       g.fillStyle = 'rgba(40,44,42,.6)'; for (let y = 0; y <= 256; y += 64) g.fillRect(0, y - 1, 256, 2); for (let x = 0; x <= 256; x += 128) g.fillRect(x - 1, 0, 2, 256);
@@ -487,13 +490,13 @@ const TEX = (() => {
     },
     // chain-link fence (alpha)
     fence() {
-      const [c, g] = C(64, 64);
+      const [c, g] = CQ(64, 64);
       g.clearRect(0, 0, 64, 64); g.strokeStyle = 'rgba(150,152,148,1)'; g.lineWidth = 2;
       for (let i = -64; i < 128; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 64, 64); g.stroke(); g.beginPath(); g.moveTo(i + 64, 0); g.lineTo(i, 64); g.stroke(); }
       const t = finish(c); return t;
     },
     rock() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#5d5b55'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 40, '30,30,28', 0.1, 0.35, 4, 25);
       blotches(g, 128, 128, 30, '120,118,105', 0.06, 0.2, 4, 20);
@@ -503,14 +506,14 @@ const TEX = (() => {
       return finish(c);
     },
     bark() {
-      const [c, g] = C(64, 128);
+      const [c, g] = CQ(64, 128);
       g.fillStyle = '#2e2924'; g.fillRect(0, 0, 64, 128);
       for (let i = 0; i < 26; i++) { const x = r.next() * 64; g.fillStyle = `rgba(${r.next() < 0.5 ? '10,8,6' : '80,72,62'},${r.range(0.2, 0.5)})`; g.fillRect(x, 0, r.range(1, 4), 128); }
       speckle(g, 64, 128, 25);
       return finish(c);
     },
     hull() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#8a8478'; g.fillRect(0, 0, 256, 256);
       g.fillStyle = '#a3542c'; g.fillRect(0, 150, 256, 70);
       blotches(g, 256, 256, 70, '60,50,40', 0.1, 0.45, 2, 14);
@@ -524,7 +527,7 @@ const TEX = (() => {
       return finish(c);
     },
     hazard() {
-      const [c, g] = C(128, 32);
+      const [c, g] = CQ(128, 32);
       g.fillStyle = '#d1a326'; g.fillRect(0, 0, 128, 32);
       g.fillStyle = '#151515';
       for (let x = -32; x < 160; x += 24) { g.beginPath(); g.moveTo(x, 32); g.lineTo(x + 12, 32); g.lineTo(x + 44, 0); g.lineTo(x + 32, 0); g.fill(); }
@@ -538,7 +541,7 @@ const TEX = (() => {
     doorPlate: () => doorSkin('plate'),
     doorFreezer: () => doorSkin('freezer'),
     bunker() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#6a675e'; g.fillRect(0, 0, 256, 256);
       for (let y = 0; y < 256; y += 32) { g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, y, 256, 2); }
       for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(0,0,0,.4)'; g.beginPath(); g.arc(r.next() * 256, r.next() * 256, 2, 0, TAU); g.fill(); }
@@ -550,7 +553,7 @@ const TEX = (() => {
       return finish(c);
     },
     locker() {
-      const [c, g] = C(64, 192);
+      const [c, g] = CQ(64, 192);
       g.fillStyle = '#4b5a63'; g.fillRect(0, 0, 64, 192);
       g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 2; g.strokeRect(3, 3, 58, 186);
       for (let i = 0; i < 6; i++) { g.fillStyle = '#1a1f22'; g.fillRect(16, 18 + i * 6, 32, 3); }
@@ -561,7 +564,7 @@ const TEX = (() => {
       return finish(c);
     },
     vent() {
-      const [c, g] = C(64, 64);
+      const [c, g] = CQ(64, 64);
       g.fillStyle = '#4d5254'; g.fillRect(0, 0, 64, 64);
       for (let i = 0; i < 8; i++) { g.fillStyle = '#0b0b0b'; g.fillRect(6, 6 + i * 7, 52, 4); g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(6, 10 + i * 7, 52, 1); }
       g.strokeStyle = '#222'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 61, 61);
@@ -569,7 +572,7 @@ const TEX = (() => {
       return finish(c);
     },
     blood() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.clearRect(0, 0, 128, 128);
       const main = (x, y, rad, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(70,4,4,${a})`); gr.addColorStop(0.7, `rgba(55,3,3,${a * 0.8})`); gr.addColorStop(1, 'rgba(50,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill(); };
       main(64, 64, 34, 0.95);
@@ -577,7 +580,7 @@ const TEX = (() => {
       return finish(c, false, false);
     },
     smear() {
-      const [c, g] = C(256, 64);
+      const [c, g] = CQ(256, 64);
       g.clearRect(0, 0, 256, 64);
       for (let i = 0; i < 40; i++) {
         const y = 32 + r.range(-10, 10), x = r.range(0, 200), l = r.range(30, 120);
@@ -588,7 +591,7 @@ const TEX = (() => {
     },
     // a hanging vine: a wandering stem with leaves along it (transparent between), tiles top to bottom
     vine() {
-      const [c, g] = C(64, 256);
+      const [c, g] = CQ(64, 256);
       g.clearRect(0, 0, 64, 256);
       const xs = []; for (let y = 0; y <= 256; y += 4) xs.push(32 + Math.sin(y * 0.045) * 7 + Math.sin(y * 0.13 + 1) * 3);
       g.strokeStyle = '#2b3a1c'; g.lineWidth = 3; g.beginPath(); xs.forEach((x, i) => (i ? g.lineTo(x, i * 4) : g.moveTo(x, 0))); g.stroke();
@@ -604,7 +607,7 @@ const TEX = (() => {
     },
     // a patch of moss: soft dark-green blotches thinning out to nothing at the edge
     moss() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.clearRect(0, 0, 128, 128);
       for (let i = 0; i < 70; i++) {
         const a = r.range(0, TAU), d = Math.pow(r.next(), 0.7) * 46, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = r.range(5, 16);
@@ -617,7 +620,7 @@ const TEX = (() => {
     },
     // water that has come through the ceiling for years: dark runs from the top, a tide line of mould at the foot
     stain() {
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.clearRect(0, 0, 256, 256);
       { const gr = g.createLinearGradient(0, 0, 0, 70); gr.addColorStop(0, 'rgba(30,26,18,.55)'); gr.addColorStop(1, 'rgba(30,26,18,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 70); }
       for (let i = 0; i < 34; i++) {
@@ -633,13 +636,13 @@ const TEX = (() => {
         g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
       }
       // feather the sides so a stain never ends in a hard edge
-      const id = g.getImageData(0, 0, 256, 256), d = id.data;
-      for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) { const e = Math.min(x, 255 - x) / 40; if (e < 1) d[(y * 256 + x) * 4 + 3] *= e * e * (3 - 2 * e); }
+      const W = c.width, Hc = c.height, f = W / 256, id = g.getImageData(0, 0, W, Hc), d = id.data;
+      for (let y = 0; y < Hc; y++) for (let x = 0; x < W; x++) { const e = Math.min(x, W - 1 - x) / (40 * f); if (e < 1) d[(y * W + x) * 4 + 3] *= e * e * (3 - 2 * e); }
       g.putImageData(id, 0, 0);
       return finish(c, false, false);
     },
     flesh() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#a49d92'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 30, '120,80,80', 0.1, 0.35, 6, 25);
       blotches(g, 128, 128, 20, '60,50,50', 0.1, 0.3, 4, 18);
@@ -649,7 +652,7 @@ const TEX = (() => {
       return finish(c);
     },
     darkflesh() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#3a2a28'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 40, '90,40,35', 0.1, 0.4, 4, 20);
       blotches(g, 128, 128, 25, '10,8,8', 0.2, 0.5, 4, 14);
@@ -658,7 +661,7 @@ const TEX = (() => {
       return finish(c);
     },
     porcelain() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#d9d4c8'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 20, '150,140,120', 0.05, 0.2, 6, 30);
       cracks(g, 128, 128, 10, 'rgba(30,25,20,.7)');
@@ -667,7 +670,7 @@ const TEX = (() => {
       return finish(c);
     },
     painting() {
-      const [c, g] = C(128, 160);
+      const [c, g] = CQ(128, 160);
       const gr = g.createRadialGradient(64, 70, 10, 64, 80, 100); gr.addColorStop(0, '#3b2a20'); gr.addColorStop(1, '#0d0907'); g.fillStyle = gr; g.fillRect(0, 0, 128, 160);
       g.fillStyle = '#1a1210'; g.beginPath(); g.ellipse(64, 140, 46, 40, 0, 0, TAU); g.fill();
       const fg = g.createRadialGradient(64, 66, 4, 64, 70, 34); fg.addColorStop(0, '#c9b8a0'); fg.addColorStop(1, '#5a4636'); g.fillStyle = fg;
@@ -853,7 +856,7 @@ const TEX = (() => {
     // a cobweb strung across a corner: the lower-left half of the sheet (u, v from 0 to 1, u + v under 1), strands out
     // from a hub to its three edges and a ragged spiral round them, some of it torn
     cobweb() {
-      const [c, g] = C(256, 256), S = 256, hub = [S * 0.3, S * 0.7];
+      const [c, g] = CQ(256, 256), S = 256, hub = [S * 0.3, S * 0.7];
       g.clearRect(0, 0, S, S); g.lineCap = 'round'; g.strokeStyle = 'rgba(236,232,222,0.95)';
       const rim = [];
       for (let i = 0; i < 4; i++) rim.push([2, S * (0.08 + i * 0.22)]);
@@ -878,7 +881,7 @@ const TEX = (() => {
     },
     cookie() {
       // flashlight projection: hot centre, reflector ring, dim spill, a little lens grime
-      const [c, g] = C(256, 256);
+      const [c, g] = CQ(256, 256);
       g.fillStyle = '#000'; g.fillRect(0, 0, 256, 256);
       const gr = g.createRadialGradient(128, 128, 0, 128, 128, 126);
       gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.16, '#f2eee6'); gr.addColorStop(0.27, '#a29e96'); gr.addColorStop(0.31, '#d6d2ca');
@@ -888,7 +891,7 @@ const TEX = (() => {
       const t = finish(c, false, false); return t;
     },
     corrugated() {
-      const [c, g] = C(256, 128);
+      const [c, g] = CQ(256, 128);
       for (let x = 0; x < 256; x++) { const v = 150 + Math.sin(x / 256 * TAU * 16) * 45; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, 0, 1, 128); }
       blotches(g, 256, 128, 40, '110,60,30', 0.15, 0.5, 4, 20);
       blotches(g, 256, 128, 20, '20,15,10', 0.1, 0.35, 4, 26);
@@ -897,7 +900,7 @@ const TEX = (() => {
       return finish(c);
     },
     dirtGlass() {
-      const [c, g] = C(128, 128);
+      const [c, g] = CQ(128, 128);
       g.fillStyle = '#0a0d0e'; g.fillRect(0, 0, 128, 128);
       blotches(g, 128, 128, 20, '60,70,70', 0.1, 0.3, 6, 30);
       for (let i = 0; i < 6; i++) { g.strokeStyle = 'rgba(140,150,150,.25)'; g.beginPath(); const x = Math.random() * 128; g.moveTo(x, 0); g.lineTo(x + 30, 128); g.stroke(); }
@@ -951,7 +954,7 @@ const TEX = (() => {
     },
     // an oil stain on the deck (alpha), with drip spatter and a smear where a boot went through it
     oil() {
-      const [c, g] = C(256, 256), rr = new RNG(73);
+      const [c, g] = CQ(256, 256), rr = new RNG(73);
       g.clearRect(0, 0, 256, 256);
       const blob = (x, y, rad, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(14,11,8,${a})`); gr.addColorStop(0.7, `rgba(20,16,10,${a * 0.8})`); gr.addColorStop(1, 'rgba(20,16,10,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill(); };
       blob(128, 128, 70, 0.75);
@@ -1095,9 +1098,17 @@ const TEX = (() => {
   }
   const wearCache = {};
 
-  function sign(text, opts = {}) {
-    const w = opts.w || 256, h = opts.h || 64;
-    const [c, g] = C(w, h);
+  // a picture drawn at the resolution setting's tier: draw(context, w, h) works in w x h units whatever the tier, and is
+  // called again to redraw it when the setting changes (TEX.retier). o.wrap: tiled
+  function drawn(w, h, draw, o = {}) {
+    const paint = (q) => { const [c, g] = C(Math.round(w * q), Math.round(h * q)); g.scale(q, q); draw(g, w, h); return c; };
+    const q = tierQ(), t = new THREE.CanvasTexture(paint(q));
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; if (o.wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.userData.q = q; t.userData.paint = paint; live.add(new WeakRef(t));
+    return t;
+  }
+  function sign(text, opts = {}) { return drawn(opts.w || 256, opts.h || 64, (g, w, h) => signDraw(g, w, h, text, opts)); }
+  function signDraw(g, w, h, text, opts) {
     g.fillStyle = opts.bg || '#1b1b18'; g.fillRect(0, 0, w, h);
     if (opts.border !== false) { g.strokeStyle = opts.fg || '#c9c3b0'; g.lineWidth = 3; g.strokeRect(4, 4, w - 8, h - 8); }
     g.fillStyle = opts.fg || '#c9c3b0';
@@ -1106,7 +1117,6 @@ const TEX = (() => {
     const lines = String(text).split('\n');
     lines.forEach((l, i) => g.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * (opts.size || 26) * 1.1));
     if (opts.dirty !== false) { blotches(g, w, h, 12, '30,25,20', 0.1, 0.4, 4, 20); speckle(g, w, h, 18); }
-    return finish(c, false, false);
   }
 
   return {
@@ -1120,7 +1130,7 @@ const TEX = (() => {
     normal(name, strength = 2) {
       const k = name + '#N' + strength;
       if (cache[k]) return cache[k];
-      return (cache[k] = reliefOf(this.get(name), tiered.has(name) ? strength * this.get(name).userData.q / 2 : strength));
+      return (cache[k] = reliefOf(this.get(name), tiered.has(name) ? strength * reliefQ(name, this.get(name).userData.q) : strength));
     },
     // the resolution setting changed: redraw the surfaces drawn to it (a moment after the last change, so stepping
     // through the settings doesn't redraw them at every one), and have everything showing them load them afresh
@@ -1132,13 +1142,18 @@ const TEX = (() => {
           const t = cache[name]; if (!t || t.userData.q === q) continue;
           building = name; Q = q; let fresh; try { fresh = build[name](); } finally { building = null; }
           t.image = fresh.image; t.userData.q = q; t.needsUpdate = true; done.add(t.source);
-          for (const k in cache) if (k.startsWith(name + '#N')) { const r = reliefOf(t, +k.slice(name.length + 2) * q / 2); cache[k].image = r.image; cache[k].needsUpdate = true; done.add(cache[k].source); }
+          for (const k in cache) if (k.startsWith(name + '#N')) { const r = reliefOf(t, +k.slice(name.length + 2) * reliefQ(name, q)); cache[k].image = r.image; cache[k].needsUpdate = true; done.add(cache[k].source); }
         }
+        // (and every picture drawn elsewhere to the tier: signs, labels, papers, item faces; dropped ones forgotten)
+        for (const ref of live) { const t = ref.deref(); if (!t) { live.delete(ref); continue; } if (t.userData.q === q) continue; t.image = t.userData.paint(q); t.userData.q = q; t.needsUpdate = true; done.add(t.source); }
         // (copies tiled differently share the picture but load it on their own)
         if (scene && done.size) scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const s of ['map', 'normalMap', 'bumpMap']) if (m[s] && done.has(m[s].source)) m[s].needsUpdate = true; });
       }, 600);
     },
     sign,
+    drawn,
+    // (the tier now: how many pixels a texture's drawing unit gets)
+    tier: tierQ,
     canvas: C,
     wear(kind) { return wearCache[kind] || (wearCache[kind] = wearSheet(kind)); },
   };

@@ -3522,6 +3522,15 @@ const G = {
     if (inSpace) {
       G.orbitT = (G.orbitT || 60) + dt;
       const sd = G.ship.orbit(dt, G.orbitT);
+      // parked, the ship is still going round at a tremendous lick: now and then a fleck of dust or ice catches the sun
+      // and flicks past the glass from ahead; more of them while it brakes in out of a jump
+      if (G.mode === 'orbit' && !G.ship.inWarp && (!G.seq || G.seq.kind === 'jump') && G.ship.arrive >= 0) {
+        const rate = 1.6 + 14 * (1 - Math.min(1, G.ship.arrive));
+        for (let i = Math.floor(rate * dt + Math.random()); i > 0; i--) {
+          const a = Math.random() * TAU, rr = 2.5 + Math.random() * 12;
+          FX.emit({ at: _fxA.set(30 + Math.random() * 40, 1.6 + Math.sin(a) * rr, Math.cos(a) * rr), glow: true, dir: _fxD.set(-1, 0, 0), spread: 0.04, speed: [80, 130], grav: 0, drag: 0, life: [0.6, 0.9], size: [0.02, 0.045], streak: 0.05, color: [0.8 * sd.vis + 0.15, 0.84 * sd.vis + 0.15, 0.95 * sd.vis + 0.18], alpha: 0.45, fadeIn: 0.15 });
+        }
+      }
       R.fx.sun = 0; G.sunPeek(sd.vis > 0 && sd.vis < 1 ? sstep(0, 0.08, sd.vis) * (1 - sstep(0.3, 1, sd.vis)) : 0, sd.dir);
       // falling close over the surface, the backdrop's near plane comes in so nothing out there is ever clipped: the
       // ground below, or the shells of the air and the cloud as the ship sinks through them

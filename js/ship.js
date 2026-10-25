@@ -3235,13 +3235,13 @@ const Ship = (() => {
       const N = N0.clone().applyAxisAngle(D, r.range(-0.6, 0.6)).normalize();
       // each day's orbit has its own size (sometimes the world fills the windshield, sometimes you see all of it),
       // but it is nearly circular and slow, so the planet never visibly swells or shrinks while you're aboard; it takes
-      // half an hour or so to go round, and the world turns slower still, so up here it hangs nearly still, far too big
-      // to see move quickly, the ground under it creeping by and the day and night sliding over it as you watch
+      // half an hour or so to go round, and the world turns the other way under it (spin), so the ground under it
+      // creeps by and the day and night slide over it as you watch, far too big to see move quickly
       // (round a giant the ship rides low over it, so it fills the whole windshield and runs on past it; round one of
       // its moons it stands well off, the moon a small ball against the wall of the giant, several times its size)
       const a = R * (look.giant ? r.range(1.25, 1.7) : byGiant ? r.range(5.5, 8) : r.range(1.6, 3.6)), e = r.range(0.02, 0.07);
       this.turn = 0; this.glide = null;
-      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 2.5, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 0.35 };
+      this.orb = { D, N, B: new THREE.Vector3().crossVectors(N, D).normalize(), rp: a * (1 - e), ra: a * (1 + e), period: r.range(600, 840) * 2.5, phase: r.range(0, TAU), sunPhase: r.range(1.2, 2.2), spin: r.range(0.004, 0.009) * 1.35 };
       this.tilt.rotation.set(r.range(-0.35, 0.35), 0, r.range(0.2, 0.55));
       // (and its own weather today: the same seed, the world's own character)
       if (!look.airless && !look.giant) this.setWeather(seed, typeof SITE_LOOK === 'undefined' ? null : Object.keys(SITE_LOOK).find((k) => SITE_LOOK[k] === look));
